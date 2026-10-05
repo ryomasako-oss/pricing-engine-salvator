@@ -1100,9 +1100,10 @@ scenario("a confirmed alias is used for that client's next list, and not for ano
   assert.notEqual(codesOf(noClient.json)[0].via, "alias");
 
   // A global alias (no client) applies to everyone, but A's own still wins for A.
+  const manager = await loginCached(d, "manager@test.local", "password123");
   await d.api("POST", "/api/catalog/aliases", {
     body: { pairs: [{ text: "kertas fotokopi biasa", code: "M-STB-GR" }] },
-    session: rep,
+    session: manager,
   });
   const forA2 = await d.api("POST", "/api/catalog/match", { body: { client_id: clientA, lines }, session: rep });
   const forB2 = await d.api("POST", "/api/catalog/match", { body: { client_id: clientB, lines }, session: rep });
@@ -1118,12 +1119,39 @@ scenario("a confirmed alias is used for that client's next list, and not for ano
   };
 });
 
+// Regression: any rep could save an alias with no client. It is stored for
+// every client and matches as "exact" (no review), so one rep's pairing would
+// silently decide other reps' quotes for all clients.
+scenario("only a manager may save an alias for every client; a rep must pick a client", async (d) => {
+  await seedMatchCatalog(d);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const c = await d.api("POST", "/api/clients", { body: { name: "PT Alias Tiga" }, session: rep });
+  const other = await d.api("POST", "/api/clients", { body: { name: "PT Alias Empat" }, session: rep });
+  const pairs = [{ text: "pulpen kantor", code: "M-PEN" }];
+  const lines = [{ name: "pulpen kantor", qty: 1 }];
+
+  const repGlobal = await d.api("POST", "/api/catalog/aliases", { body: { pairs }, session: rep });
+  const afterRep = await d.api("POST", "/api/catalog/match", { body: { client_id: other.json.client.id, lines }, session: rep });
+  const repClient = await d.api("POST", "/api/catalog/aliases", { body: { client_id: c.json.client.id, pairs }, session: rep });
+  const mgrGlobal = await d.api("POST", "/api/catalog/aliases", { body: { pairs }, session: manager });
+  const afterMgr = await d.api("POST", "/api/catalog/match", { body: { client_id: other.json.client.id, lines }, session: rep });
+
+  assert.equal(repGlobal.status, 403);
+  assert.notEqual(codesOf(afterRep.json)[0].via, "alias");
+  assert.equal(repClient.status, 200);
+  assert.equal(mgrGlobal.status, 200);
+  assert.deepEqual(codesOf(afterMgr.json)[0], { status: "exact", via: "alias", best: "M-PEN" });
+  return { repGlobal: repGlobal.status, repClient: repClient.status, mgrGlobal: mgrGlobal.status, afterMgr: codesOf(afterMgr.json)[0] };
+});
+
 scenario("an alias to a code not in the catalog, or for an unknown client, is rejected (400) and not stored", async (d) => {
   await seedMatchCatalog(d);
   const rep = await loginCached(d, "rep@test.local", "password123");
+  const manager = await loginCached(d, "manager@test.local", "password123");
   const badCode = await d.api("POST", "/api/catalog/aliases", {
     body: { pairs: [{ text: "barang hantu", code: "NOPE-404" }, { text: "pulpen tecno", code: "M-PEN" }] },
-    session: rep,
+    session: manager,
   });
   const badClient = await d.api("POST", "/api/catalog/aliases", {
     body: { client_id: 999999, pairs: [{ text: "pulpen tecno", code: "M-PEN" }] },
