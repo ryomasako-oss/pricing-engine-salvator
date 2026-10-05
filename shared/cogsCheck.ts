@@ -17,6 +17,10 @@
 
 import { grp, pct } from "./format.js";
 
+/**
+ * Also written as `0.5 * cogs` in the reference triggers (migrations/0009_cogs_sanity.sql,
+ * copied in server/db.ts). Change all three together; cogsCheck.test.ts fails if they differ.
+ */
 export const COGS_JUMP = 0.5;
 
 export interface CogsFacts {

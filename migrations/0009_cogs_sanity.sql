@@ -18,6 +18,9 @@
 --
 -- catalog_cogs_history keeps every previous value for the reconciliation
 -- report; the check itself only reads the reference.
+--
+-- The 0.5 in the triggers is COGS_JUMP in shared/cogsCheck.ts (also copied in
+-- server/db.ts); shared/cogsCheck.test.ts fails if they differ.
 
 CREATE TABLE IF NOT EXISTS catalog_cogs_baseline (
   code TEXT PRIMARY KEY,

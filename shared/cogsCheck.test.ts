@@ -1,5 +1,6 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { cogsProblem } from "./cogsCheck";
+import { COGS_JUMP, cogsProblem } from "./cogsCheck";
 
 describe("cogsProblem", () => {
   it("passes a normal item", () => {
@@ -32,5 +33,18 @@ describe("cogsProblem", () => {
 
   it("checks COGS above list before the jump", () => {
     expect(cogsProblem({ cogs: 2000, list_price: 1500 }, 1000)).toMatch(/lebih tinggi/);
+  });
+});
+
+describe("COGS_JUMP and the reference triggers", () => {
+  // The triggers move the reference only within the same limit the check
+  // flags at; if the two disagree, an item can be flagged while its
+  // reference silently moves on (or the other way round).
+  it("uses the same limit as the triggers in migration 0009 and its Express copy", () => {
+    for (const file of ["../migrations/0009_cogs_sanity.sql", "../server/db.ts"]) {
+      const sql = readFileSync(new URL(file, import.meta.url), "utf8");
+      const limits = [...sql.matchAll(/<=\s*([\d.]+)\s*\*\s*cogs/g)].map((m) => Number(m[1]));
+      expect(limits, file).toEqual([COGS_JUMP, COGS_JUMP]);
+    }
   });
 });
