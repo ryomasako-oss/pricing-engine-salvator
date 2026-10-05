@@ -6,11 +6,13 @@ import { requireAuth, requirePermission } from "../auth";
 import { catalogRowSchema, unitsSchema, zodMessage } from "../../validate";
 import {
   type AliasRow,
+  GLOBAL_ALIAS_DENIED,
   MATCH_COLUMNS,
   aliasInput,
   cleanAliasPairs,
   matchInput,
   matchResponse,
+  mayStoreAlias,
   runMatch,
 } from "../../catalogMatch";
 import { VERIFY_COGS_SQL, cogsCheckInput, withProblems } from "../../cogsCheck";
@@ -166,6 +168,7 @@ catalogRouter.post("/aliases", async (c) => {
   const parsed = aliasInput.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
   const clientId = parsed.data.client_id ?? 0;
+  if (!mayStoreAlias(user.role, clientId)) return c.json({ error: GLOBAL_ALIAS_DENIED }, 403);
   if (clientId && !(await get(c.env.DB, "SELECT id FROM clients WHERE id = ?", clientId))) {
     return c.json({ error: "Klien tidak ditemukan." }, 400);
   }

@@ -148,7 +148,7 @@ CREATE TABLE IF NOT EXISTS catalog_item_uoms (
   PRIMARY KEY (code, uom)
 );
 
--- Mirrors migrations/0009_cogs_sanity.sql.
+-- Mirrors migrations/0009_cogs_sanity.sql. The 0.5 is COGS_JUMP (shared/cogsCheck.ts).
 CREATE TABLE IF NOT EXISTS catalog_cogs_baseline (
   code TEXT PRIMARY KEY,
   cogs REAL NOT NULL CHECK (cogs > 0)

@@ -10,7 +10,8 @@
 import { z } from "zod";
 import { normalizeCode } from "../shared/duplicates.js";
 import { type AliasMaps, type MatchResult, matchLines, normalizeText } from "../shared/match.js";
-import type { CatalogItem, UnitFactor } from "../shared/types.js";
+import { hasPermission } from "../shared/permissions.js";
+import type { CatalogItem, Role, UnitFactor } from "../shared/types.js";
 
 export const MAX_MATCH_LINES = 500;
 
@@ -37,6 +38,17 @@ export const aliasInput = z.object({
     .min(1)
     .max(MAX_MATCH_LINES),
 });
+
+/**
+ * An alias with no client is stored for every client and matches as "exact",
+ * skipping review, so only someone who may edit the catalog can save one.
+ * A rep's confirmations are saved for the client they chose (the UI never
+ * sends one without a client).
+ */
+export function mayStoreAlias(role: Role, clientId: number | null | undefined): boolean {
+  return Boolean(clientId) || hasPermission(role, "edit_catalog");
+}
+export const GLOBAL_ALIAS_DENIED = "Istilah untuk semua klien hanya bisa disimpan manajer. Pilih klien dulu.";
 
 /** Columns the matcher and the review screen need; loaded for the whole catalog. */
 export const MATCH_COLUMNS = "id, code, name, uom, cogs, list_price, stock, category";

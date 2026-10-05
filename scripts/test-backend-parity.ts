@@ -1100,9 +1100,10 @@ scenario("a confirmed alias is used for that client's next list, and not for ano
   assert.notEqual(codesOf(noClient.json)[0].via, "alias");
 
   // A global alias (no client) applies to everyone, but A's own still wins for A.
+  const manager = await loginCached(d, "manager@test.local", "password123");
   await d.api("POST", "/api/catalog/aliases", {
     body: { pairs: [{ text: "kertas fotokopi biasa", code: "M-STB-GR" }] },
-    session: rep,
+    session: manager,
   });
   const forA2 = await d.api("POST", "/api/catalog/match", { body: { client_id: clientA, lines }, session: rep });
   const forB2 = await d.api("POST", "/api/catalog/match", { body: { client_id: clientB, lines }, session: rep });
@@ -1118,12 +1119,39 @@ scenario("a confirmed alias is used for that client's next list, and not for ano
   };
 });
 
+// Regression: any rep could save an alias with no client. It is stored for
+// every client and matches as "exact" (no review), so one rep's pairing would
+// silently decide other reps' quotes for all clients.
+scenario("only a manager may save an alias for every client; a rep must pick a client", async (d) => {
+  await seedMatchCatalog(d);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const c = await d.api("POST", "/api/clients", { body: { name: "PT Alias Tiga" }, session: rep });
+  const other = await d.api("POST", "/api/clients", { body: { name: "PT Alias Empat" }, session: rep });
+  const pairs = [{ text: "pulpen kantor", code: "M-PEN" }];
+  const lines = [{ name: "pulpen kantor", qty: 1 }];
+
+  const repGlobal = await d.api("POST", "/api/catalog/aliases", { body: { pairs }, session: rep });
+  const afterRep = await d.api("POST", "/api/catalog/match", { body: { client_id: other.json.client.id, lines }, session: rep });
+  const repClient = await d.api("POST", "/api/catalog/aliases", { body: { client_id: c.json.client.id, pairs }, session: rep });
+  const mgrGlobal = await d.api("POST", "/api/catalog/aliases", { body: { pairs }, session: manager });
+  const afterMgr = await d.api("POST", "/api/catalog/match", { body: { client_id: other.json.client.id, lines }, session: rep });
+
+  assert.equal(repGlobal.status, 403);
+  assert.notEqual(codesOf(afterRep.json)[0].via, "alias");
+  assert.equal(repClient.status, 200);
+  assert.equal(mgrGlobal.status, 200);
+  assert.deepEqual(codesOf(afterMgr.json)[0], { status: "exact", via: "alias", best: "M-PEN" });
+  return { repGlobal: repGlobal.status, repClient: repClient.status, mgrGlobal: mgrGlobal.status, afterMgr: codesOf(afterMgr.json)[0] };
+});
+
 scenario("an alias to a code not in the catalog, or for an unknown client, is rejected (400) and not stored", async (d) => {
   await seedMatchCatalog(d);
   const rep = await loginCached(d, "rep@test.local", "password123");
+  const manager = await loginCached(d, "manager@test.local", "password123");
   const badCode = await d.api("POST", "/api/catalog/aliases", {
     body: { pairs: [{ text: "barang hantu", code: "NOPE-404" }, { text: "pulpen tecno", code: "M-PEN" }] },
-    session: rep,
+    session: manager,
   });
   const badClient = await d.api("POST", "/api/catalog/aliases", {
     body: { client_id: 999999, pairs: [{ text: "pulpen tecno", code: "M-PEN" }] },
@@ -1300,6 +1328,26 @@ scenario("submitting a quote with a bad-COGS catalog item -> 400 naming the line
   assert.equal(still.json.quote.status, "draft");
   assert.equal(ok.status, 200, JSON.stringify(ok.json));
   return { blocked: blocked.status, lines: blocked.json.cogsBlocked, status: still.json.quote.status, ok: ok.status };
+});
+
+// Regression: the check looked codes up exactly, so a line coded "c-case" or
+// "C-CASE " (a client's file keeps the code as typed) skipped the block.
+scenario("a bad-COGS item is blocked whatever the case or spacing of the line's code", async (d) => {
+  await importRows(d, [{ code: "C-CASE", name: "COGS above list", cogs: 5000, list_price: 4000 }]);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const submitWith = async (code: string) => {
+    const q = await createDraft(d, rep, [cleanItem({ code, name: "COGS above list", cogs: 5000, rrp: 8000 })]);
+    const r = await d.api("POST", `/api/quotes/${q.id}/submit`, { session: rep });
+    return { status: r.status, lines: r.json.cogsBlocked?.map((l: { code: string }) => l.code) };
+  };
+  const lower = await submitWith("c-case");
+  const spaced = await submitWith(" C-CASE ");
+  const check = await d.api("POST", "/api/catalog/cogs-check", { body: { codes: ["c-case"] }, session: rep });
+
+  assert.deepEqual(lower, { status: 400, lines: ["c-case"] });
+  assert.deepEqual(spaced, { status: 400, lines: [" C-CASE "] });
+  assert.deepEqual(Object.keys(check.json.problems), ["c-case"]);
+  return { lower, spaced, check: check.json };
 });
 
 scenario("cogs-check reports only problem codes; empty COGS is a problem", async (d) => {

@@ -41,6 +41,16 @@ describe("normalizeText / tokens", () => {
   it("keeps decimals but not trailing dots", () => {
     expect(tokens("Pulpen 0,5 mm.")).toEqual(["pulpen", "0.5mm"]);
   });
+  it("splits a dot that is not between two digits (No.10, Uk.F4)", () => {
+    expect(normalizeText("Isi Staples Kenko No.10")).toBe("isi staples kenko no 10");
+    expect(normalizeText("Map Uk.F4")).toBe("map uk f4");
+    expect(normalizeText("Pulpen 0.5mm")).toBe("pulpen 0.5mm");
+  });
+  it("matches a client's \"no 10\" to the catalog's \"No.10\", not to another size-10 item", () => {
+    const catalog = [item(10, "ST10", "ISI STAPLES KENKO NO.10"), item(11, "HD10", "STAPLER KENKO HD-10")];
+    const [r] = matchLines([{ name: "Isi staples no 10", qty: 1 }], catalog, none);
+    expect(r.candidates[0].id).toBe(10);
+  });
 });
 
 describe("similarity", () => {
