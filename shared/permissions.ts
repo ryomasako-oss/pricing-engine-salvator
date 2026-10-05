@@ -18,7 +18,9 @@ export type Permission =
   | "decide_quotes"
   | "edit_all_quotes"
   | "delete_quotes"
-  | "view_audit";
+  | "view_audit"
+  /** See COGS, landed cost and margin, and set them (PE-1, meeting 2026-10-05 #4). */
+  | "view_costs";
 
 /** Reproduces today's rank-based access exactly: admin inherits manager. */
 const MANAGER_PERMISSIONS: Permission[] = [
@@ -28,6 +30,7 @@ const MANAGER_PERMISSIONS: Permission[] = [
   "decide_quotes",
   "edit_all_quotes",
   "view_audit",
+  "view_costs",
 ];
 
 export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {

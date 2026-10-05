@@ -9,6 +9,7 @@ import {
   EDITABLE_STATUSES,
   STATUS_FLOW,
   breachesFor,
+  catalogByKeys,
   cogsProblemsFor,
   findQuote,
   listQuoteRows,
@@ -19,6 +20,19 @@ import {
 import { isWithinPolicy } from "../../../shared/policy";
 import { defaultPayment, missingTerms, missingTermsMessage } from "../../../shared/terms";
 import { blockedLines, blockedMessage } from "../../cogsCheck";
+import {
+  approvalsForViewer,
+  auditForViewer,
+  breachesForViewer,
+  canSeeCosts,
+  mergeStaffItems,
+  policyForViewer,
+  previewInput,
+  problemsForViewer,
+  quoteForViewer,
+  quoteRowForViewer,
+  staffSnapshotSchema,
+} from "../../staffView";
 import { DEFAULT_ASSUMPTIONS, DEFAULT_REGIONS } from "../../../shared/engine";
 import {
   notifyQuoteDecided,
@@ -26,11 +40,14 @@ import {
   notifyQuoteReassignedAway,
   notifyQuoteSubmitted,
 } from "../notify";
-import type { Client, QuoteSnapshot, QuoteStatus, User } from "../../../shared/types";
+import type { Client, Quote, QuoteSnapshot, QuoteStatus, Role, User } from "../../../shared/types";
 import type { Env } from "../env";
 
 export const quotesRouter = new Hono<Env>();
 quotesRouter.use(requireAuth);
+
+/** Every quote this router sends goes through here: staff get prices, not costs (PE-1). */
+const view = (role: Role, quote: Quote | null) => quote && quoteForViewer(role, quote);
 
 /** Reps may only change their own quotes or one reassigned to them; managers/admins may change any. */
 function canEdit(user: User, createdBy: number, assignedTo: number | null): boolean {
@@ -83,7 +100,7 @@ quotesRouter.get("/", async (c) => {
         monthly_value,
         net_margin,
       };
-    }),
+    }).map((row) => quoteRowForViewer(c.get("user")!.role, row)),
   });
 });
 
@@ -94,6 +111,33 @@ quotesRouter.get("/users/assignable", requirePermission("decide_quotes"), async 
     "SELECT id, name, role FROM users WHERE active = 1 ORDER BY name",
   );
   return c.json({ users });
+});
+
+/**
+ * Prices for lines a rep is editing, without saving: no version bump, no
+ * audit entry. Lines merge onto the stored quote (or a new quote's defaults)
+ * exactly as a save would, and the answer goes through quoteForViewer.
+ */
+quotesRouter.post("/preview", async (c) => {
+  const user = c.get("user")!;
+  const parsed = previewInput.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
+  const base = parsed.data.quote_id ? await findQuote(c.env.DB, parsed.data.quote_id) : null;
+  if (parsed.data.quote_id && !base) return c.json({ error: "Quotation tidak ditemukan." }, 404);
+  const stored = base?.items ?? [];
+  const lines = parsed.data.snapshot.items;
+  const catalog = await catalogByKeys(c.env.DB, [...stored.map((i) => i.code), ...lines.map((l) => l.code)]);
+  const merged = mergeStaffItems(stored, lines, catalog);
+  if ("error" in merged) return c.json(merged, 400);
+  const draft = {
+    ...(base ?? { id: 0, number: "", title: "", status: "draft", rev_no: 1, version: 0 }),
+    assumptions: base?.assumptions ?? DEFAULT_ASSUMPTIONS,
+    regions: base?.regions ?? DEFAULT_REGIONS,
+    scenario: base?.scenario ?? 1,
+    meta: parsed.data.snapshot.meta ?? base?.meta,
+    items: merged.items,
+  } as Quote;
+  return c.json({ quote: view(user.role, draft) });
 });
 
 quotesRouter.get("/:id", async (c) => {
@@ -123,11 +167,11 @@ quotesRouter.get("/:id", async (c) => {
   const approvals = approvalRows.map((a) => ({ ...a, breaches: JSON.parse(a.breaches || "[]") }));
 
   return c.json({
-    quote,
+    quote: quoteForViewer(user.role, quote),
     revisions,
-    approvals,
-    audit: await auditFor(c.env.DB, "quote", id, 60),
-    policy: await breachesFor(c.env.DB, quote),
+    approvals: approvalsForViewer(user.role, approvals),
+    audit: auditForViewer(user.role, await auditFor(c.env.DB, "quote", id, 60)),
+    policy: policyForViewer(user.role, await breachesFor(c.env.DB, quote)),
     canEdit: canEdit(user, quote.created_by, quote.assigned_to) && EDITABLE_STATUSES.includes(quote.status),
   });
 });
@@ -138,10 +182,27 @@ quotesRouter.post("/", async (c) => {
     .object({
       title: z.string().min(1).max(200),
       client_id: z.number().int().nullable().optional(),
-      snapshot: snapshotSchema.partial().optional(),
+      snapshot: z.unknown().optional(),
     })
     .safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
+  // Staff send lines by catalog code; cost inputs come from the catalog and
+  // defaults, never from the browser (PE-1).
+  let requested: Partial<QuoteSnapshot> = {};
+  if (parsed.data.snapshot !== undefined) {
+    if (canSeeCosts(user.role)) {
+      const full = snapshotSchema.partial().safeParse(parsed.data.snapshot);
+      if (!full.success) return c.json({ error: zodMessage(full.error) }, 400);
+      requested = full.data as Partial<QuoteSnapshot>;
+    } else {
+      const staff = staffSnapshotSchema.partial().safeParse(parsed.data.snapshot);
+      if (!staff.success) return c.json({ error: zodMessage(staff.error) }, 400);
+      const lines = staff.data.items ?? [];
+      const merged = mergeStaffItems([], lines, await catalogByKeys(c.env.DB, lines.map((l) => l.code)));
+      if ("error" in merged) return c.json(merged, 400);
+      requested = { items: merged.items, ...(staff.data.meta ? { meta: staff.data.meta } : {}) };
+    }
+  }
 
   const client = parsed.data.client_id
     ? await get<Client>(c.env.DB, "SELECT * FROM clients WHERE id = ?", parsed.data.client_id)
@@ -155,11 +216,11 @@ quotesRouter.post("/", async (c) => {
   let snapshot: QuoteSnapshot | undefined;
   for (let attempt = 0; attempt < 5; attempt++) {
     snapshot = {
-      assumptions: parsed.data.snapshot?.assumptions ?? DEFAULT_ASSUMPTIONS,
-      items: parsed.data.snapshot?.items ?? [],
-      regions: parsed.data.snapshot?.regions ?? DEFAULT_REGIONS,
-      scenario: parsed.data.snapshot?.scenario ?? 1,
-      meta: parsed.data.snapshot?.meta ?? {
+      assumptions: requested.assumptions ?? DEFAULT_ASSUMPTIONS,
+      items: requested.items ?? [],
+      regions: requested.regions ?? DEFAULT_REGIONS,
+      scenario: requested.scenario ?? 1,
+      meta: requested.meta ?? {
         quoteNo: number,
         date: new Date().toISOString().slice(0, 10),
         validity: 30,
@@ -197,7 +258,7 @@ quotesRouter.post("/", async (c) => {
   await saveRevision(c.env.DB, id!, 1, snapshot!, user.id, "Dibuat");
 
   await audit(c.env.DB, user.id, "quote", id!, "created", { number, title: parsed.data.title });
-  return c.json({ quote: await findQuote(c.env.DB, id!) }, 201);
+  return c.json({ quote: view(user.role, await findQuote(c.env.DB, id!)) }, 201);
 });
 
 quotesRouter.put("/:id", async (c) => {
@@ -216,13 +277,33 @@ quotesRouter.put("/:id", async (c) => {
     .object({
       title: z.string().min(1).max(200).optional(),
       client_id: z.number().int().nullable().optional(),
-      snapshot: snapshotSchema,
+      snapshot: z.unknown(),
       expected_version: z.number().int(),
     })
     .safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
 
-  const s = parsed.data.snapshot;
+  // Staff change qty, unit, ceiling, lines and terms; cost, role, manual
+  // price, assumptions, regions and scenario stay as stored (PE-1).
+  let s: QuoteSnapshot;
+  if (canSeeCosts(user.role)) {
+    const full = snapshotSchema.safeParse(parsed.data.snapshot);
+    if (!full.success) return c.json({ error: zodMessage(full.error) }, 400);
+    s = full.data as QuoteSnapshot;
+  } else {
+    const staff = staffSnapshotSchema.safeParse(parsed.data.snapshot);
+    if (!staff.success) return c.json({ error: zodMessage(staff.error) }, 400);
+    const codes = [...existing.items.map((it) => it.code), ...staff.data.items.map((l) => l.code)];
+    const merged = mergeStaffItems(existing.items, staff.data.items, await catalogByKeys(c.env.DB, codes));
+    if ("error" in merged) return c.json(merged, 400);
+    s = {
+      assumptions: existing.assumptions,
+      regions: existing.regions,
+      scenario: existing.scenario,
+      items: merged.items,
+      meta: staff.data.meta ?? existing.meta,
+    };
+  }
   const result = await run(
     c.env.DB,
     `UPDATE quotes SET title = COALESCE(?, title), client_id = ?, scenario = ?,
@@ -243,7 +324,7 @@ quotesRouter.put("/:id", async (c) => {
     return c.json(
       {
         error: "Quotation ini sudah diubah pengguna lain. Muat ulang untuk melihat versi terbaru.",
-        quote: await findQuote(c.env.DB, id),
+        quote: view(user.role, await findQuote(c.env.DB, id)),
       },
       409,
     );
@@ -254,7 +335,7 @@ quotesRouter.put("/:id", async (c) => {
     version: parsed.data.expected_version + 1,
     from_status: existing.status,
   });
-  return c.json({ quote: await findQuote(c.env.DB, id) });
+  return c.json({ quote: view(c.get("user")!.role, await findQuote(c.env.DB, id)) });
 });
 
 /** Explicit named snapshot, so a rep can bookmark a version before experimenting. */
@@ -378,7 +459,7 @@ quotesRouter.post("/:id/restore/:revisionId", async (c) => {
     ),
   ]);
   await audit(c.env.DB, user.id, "quote", id, "restored", { from_rev: rev.rev_no, tag });
-  return c.json({ quote: await findQuote(c.env.DB, id) });
+  return c.json({ quote: view(c.get("user")!.role, await findQuote(c.env.DB, id)) });
 });
 
 /** Hand a quote to another active user — manager/admin only, e.g. when the
@@ -398,7 +479,7 @@ quotesRouter.post("/:id/reassign", requirePermission("decide_quotes"), async (c)
   if (parsed.data.assigned_to === quote.assigned_to) {
     // No actual change (e.g. re-picking the current assignee) — skip the
     // history entry and notifications so they aren't sent for nothing.
-    return c.json({ quote });
+    return c.json({ quote: view(c.get("user")!.role, quote) });
   }
   let target: User | undefined;
   if (parsed.data.assigned_to !== null) {
@@ -462,7 +543,7 @@ quotesRouter.post("/:id/reassign", requirePermission("decide_quotes"), async (c)
       }),
     );
   }
-  return c.json({ quote: await findQuote(c.env.DB, id) });
+  return c.json({ quote: view(c.get("user")!.role, await findQuote(c.env.DB, id)) });
 });
 
 /* ---------------- approval workflow ---------------- */
@@ -480,7 +561,7 @@ quotesRouter.post("/:id/submit", async (c) => {
   // An item whose catalog COGS looks wrong must not be sold (shared/cogsCheck.ts).
   const cogsBlocked = blockedLines(
     quote.items,
-    await cogsProblemsFor(c.env.DB, quote.items.map((it) => it.code)),
+    problemsForViewer(user.role, await cogsProblemsFor(c.env.DB, quote.items.map((it) => it.code))),
   );
   if (cogsBlocked.length) return c.json({ error: blockedMessage(cogsBlocked), cogsBlocked }, 400);
 
@@ -554,7 +635,7 @@ quotesRouter.post("/:id/submit", async (c) => {
     );
   }
 
-  return c.json({ quote: await findQuote(c.env.DB, id), breaches, autoApproved: autoApprove });
+  return c.json({ quote: view(user.role, await findQuote(c.env.DB, id)), breaches: breachesForViewer(user.role, breaches), autoApproved: autoApprove });
 });
 
 quotesRouter.post("/:id/decide", requirePermission("decide_quotes"), async (c) => {
@@ -639,7 +720,7 @@ quotesRouter.post("/:id/decide", requirePermission("decide_quotes"), async (c) =
     );
   }
 
-  return c.json({ quote: await findQuote(c.env.DB, id) });
+  return c.json({ quote: view(c.get("user")!.role, await findQuote(c.env.DB, id)) });
 });
 
 quotesRouter.post("/:id/status", async (c) => {
@@ -657,7 +738,7 @@ quotesRouter.post("/:id/status", async (c) => {
   }
   await run(c.env.DB, "UPDATE quotes SET status = ?, updated_at = datetime('now') WHERE id = ?", next, id);
   await audit(c.env.DB, user.id, "quote", id, `status_${next}`);
-  return c.json({ quote: await findQuote(c.env.DB, id) });
+  return c.json({ quote: view(c.get("user")!.role, await findQuote(c.env.DB, id)) });
 });
 
 /** Unlocks a decided quote as a new revision, preserving the approved history. */
@@ -696,7 +777,7 @@ quotesRouter.post("/:id/reopen", async (c) => {
   }
   await batch(c.env.DB, statements);
   await audit(c.env.DB, user.id, "quote", id, "reopened", { rev_no: nextRev });
-  return c.json({ quote: await findQuote(c.env.DB, id) });
+  return c.json({ quote: view(c.get("user")!.role, await findQuote(c.env.DB, id)) });
 });
 
 quotesRouter.delete("/:id", async (c) => {

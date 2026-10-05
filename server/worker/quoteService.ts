@@ -7,6 +7,9 @@
 import { all, get, getSetting, run } from "../db.d1";
 import { computeEngine } from "../../shared/engine";
 import { type CogsRow, cogsLookupKeys, cogsRowsSql, problemsByCode } from "../cogsCheck";
+import { type CatalogByKey, catalogByKeysSql, staffLookupKeys } from "../staffView";
+import { normalizeCode } from "../../shared/duplicates";
+import type { CatalogItem, UnitFactor } from "../../shared/types";
 import { DEFAULT_POLICY, evaluatePolicy } from "../../shared/policy";
 import type {
   PolicyBreach,
@@ -181,4 +184,32 @@ export async function cogsProblemsFor(d1: D1Database, codes: string[]): Promise<
     rows.push(...(await all<CogsRow>(d1, cogsRowsSql(chunk.length), ...chunk)));
   }
   return problemsByCode(codes, rows);
+}
+
+/** Catalog rows with their units for these codes, keyed by normalizeCode (PE-1 staff edits). */
+export async function catalogByKeys(d1: D1Database, codes: string[]): Promise<CatalogByKey> {
+  const keys = staffLookupKeys(codes);
+  const out: CatalogByKey = new Map();
+  const rows: CatalogItem[] = [];
+  // D1 caps bound parameters per statement, so look codes up in chunks.
+  for (let i = 0; i < keys.length; i += 90) {
+    const chunk = keys.slice(i, i + 90);
+    rows.push(...(await all<CatalogItem>(d1, catalogByKeysSql(chunk.length), ...chunk)));
+  }
+  const units: { code: string; uom: string; factor: number }[] = [];
+  for (let i = 0; i < rows.length; i += 90) {
+    const chunk = rows.slice(i, i + 90).map((r) => r.code);
+    units.push(
+      ...(await all<{ code: string; uom: string; factor: number }>(
+        d1,
+        `SELECT code, uom, factor FROM catalog_item_uoms WHERE code IN (${chunk.map(() => "?").join(",")}) ORDER BY factor`,
+        ...chunk,
+      )),
+    );
+  }
+  for (const r of rows) {
+    const own: UnitFactor[] = units.filter((u) => u.code === r.code).map((u) => ({ uom: u.uom, factor: u.factor }));
+    if (!out.has(normalizeCode(r.code))) out.set(normalizeCode(r.code), { ...r, units: own });
+  }
+  return out;
 }

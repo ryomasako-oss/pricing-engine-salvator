@@ -5,6 +5,7 @@ import { requireAuth, requirePermission } from "../auth";
 import { companySchema, policySchema, zodMessage } from "../../validate";
 import { DEFAULT_POLICY } from "../../../shared/policy";
 import type { Env } from "../env";
+import { settingsForViewer } from "../../staffView";
 
 export const settingsRouter = new Hono<Env>();
 settingsRouter.use(requireAuth);
@@ -24,7 +25,8 @@ export const DEFAULT_COMPANY = {
 settingsRouter.get("/", async (c) => {
   const policy = await getSetting(c.env.DB, "policy", DEFAULT_POLICY);
   const company = await getSetting(c.env.DB, "company", DEFAULT_COMPANY);
-  return c.json({ policy, company });
+  // Staff need the company details for documents, not the pricing policy (PE-1).
+  return c.json(settingsForViewer(c.get("user")!.role, { policy, company }));
 });
 
 settingsRouter.put("/policy", requirePermission("manage_policy"), async (c) => {
