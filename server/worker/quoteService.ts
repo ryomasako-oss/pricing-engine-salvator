@@ -6,7 +6,7 @@
 
 import { all, get, getSetting, run } from "../db.d1";
 import { computeEngine } from "../../shared/engine";
-import { type CogsRow, cogsRowsSql, problemsByCode } from "../cogsCheck";
+import { type CogsRow, cogsLookupKeys, cogsRowsSql, problemsByCode } from "../cogsCheck";
 import { DEFAULT_POLICY, evaluatePolicy } from "../../shared/policy";
 import type {
   PolicyBreach,
@@ -171,14 +171,14 @@ export const STATUS_FLOW: Partial<Record<QuoteStatus, QuoteStatus[]>> = {
   won: ["completed"],
 };
 
-/** COGS problems (shared/cogsCheck.ts) for these catalog codes; codes not in the catalog are absent. */
+/** COGS problems (shared/cogsCheck.ts) for these codes, keyed as given; codes not in the catalog are absent. */
 export async function cogsProblemsFor(d1: D1Database, codes: string[]): Promise<Map<string, string>> {
-  const uniq = [...new Set(codes.filter(Boolean))];
+  const keys = cogsLookupKeys(codes);
   const rows: CogsRow[] = [];
   // D1 caps bound parameters per statement, so look codes up in chunks.
-  for (let i = 0; i < uniq.length; i += 90) {
-    const chunk = uniq.slice(i, i + 90);
+  for (let i = 0; i < keys.length; i += 90) {
+    const chunk = keys.slice(i, i + 90);
     rows.push(...(await all<CogsRow>(d1, cogsRowsSql(chunk.length), ...chunk)));
   }
-  return problemsByCode(rows);
+  return problemsByCode(codes, rows);
 }

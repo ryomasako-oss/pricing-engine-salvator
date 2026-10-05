@@ -6,6 +6,7 @@
 
 import { z } from "zod";
 import { cogsProblem } from "../shared/cogsCheck.js";
+import { normalizeCode } from "../shared/duplicates.js";
 import type { QuoteItem } from "../shared/types.js";
 
 export const cogsCheckInput = z.object({ codes: z.array(z.string().max(64)).max(2000) });
@@ -18,24 +19,42 @@ export interface CogsRow {
   reference: number | null;
 }
 
-/** Catalog facts plus reference COGS for the given codes (`?` placeholders, one per code). */
+/**
+ * Lookup keys for these codes (normalizeCode: trimmed, lowercase), de-duplicated.
+ * A line's code is not always the catalog's spelling: a client's file keeps
+ * "atk-0101" or "ATK-0101 " as typed, and an exact lookup let those lines
+ * skip the block.
+ */
+export const cogsLookupKeys = (codes: string[]) => [...new Set(codes.map(normalizeCode).filter(Boolean))];
+
+/** Catalog facts plus reference COGS for the given lookup keys (`?` placeholders, one per key). */
 export const cogsRowsSql = (n: number) => `
   SELECT c.code, c.cogs, c.list_price, b.cogs AS reference
     FROM catalog_items c
     LEFT JOIN catalog_cogs_baseline b ON b.code = c.code
-   WHERE c.code IN (${Array.from({ length: n }, () => "?").join(",")})`;
+   WHERE lower(trim(c.code)) IN (${Array.from({ length: n }, () => "?").join(",")})`;
 
 /** A manager confirms the current COGS: it becomes the reference. */
 export const VERIFY_COGS_SQL = `
   INSERT INTO catalog_cogs_baseline(code, cogs) VALUES(?, ?)
   ON CONFLICT(code) DO UPDATE SET cogs = excluded.cogs`;
 
-/** code -> problem, for problematic codes only. */
-export function problemsByCode(rows: CogsRow[]): Map<string, string> {
-  const out = new Map<string, string>();
+/**
+ * Requested code -> problem, for problematic codes only. Keyed by each code
+ * exactly as the caller passed it, so a quote line or a cogs-check request
+ * finds its answer under its own spelling.
+ */
+export function problemsByCode(requested: string[], rows: CogsRow[]): Map<string, string> {
+  const byKey = new Map<string, string>();
   for (const r of rows) {
     const problem = cogsProblem(r, r.reference);
-    if (problem) out.set(r.code, problem);
+    const key = normalizeCode(r.code);
+    if (problem && !byKey.has(key)) byKey.set(key, problem);
+  }
+  const out = new Map<string, string>();
+  for (const code of requested) {
+    const problem = byKey.get(normalizeCode(code));
+    if (problem) out.set(code, problem);
   }
   return out;
 }

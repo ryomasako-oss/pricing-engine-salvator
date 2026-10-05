@@ -5,7 +5,7 @@
 
 import { all, get, getSetting, run } from "./db.js";
 import { computeEngine } from "../shared/engine.js";
-import { type CogsRow, cogsRowsSql, problemsByCode } from "./cogsCheck.js";
+import { type CogsRow, cogsLookupKeys, cogsRowsSql, problemsByCode } from "./cogsCheck.js";
 import { DEFAULT_POLICY, evaluatePolicy } from "../shared/policy.js";
 import type {
   PolicyBreach,
@@ -168,9 +168,9 @@ export const STATUS_FLOW: Partial<Record<QuoteStatus, QuoteStatus[]>> = {
   won: ["completed"],
 };
 
-/** COGS problems (shared/cogsCheck.ts) for these catalog codes; codes not in the catalog are absent. */
+/** COGS problems (shared/cogsCheck.ts) for these codes, keyed as given; codes not in the catalog are absent. */
 export function cogsProblemsFor(codes: string[]): Map<string, string> {
-  const uniq = [...new Set(codes.filter(Boolean))];
-  if (!uniq.length) return new Map();
-  return problemsByCode(all<CogsRow>(cogsRowsSql(uniq.length), ...uniq));
+  const keys = cogsLookupKeys(codes);
+  if (!keys.length) return new Map();
+  return problemsByCode(codes, all<CogsRow>(cogsRowsSql(keys.length), ...keys));
 }

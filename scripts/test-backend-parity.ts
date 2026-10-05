@@ -1302,6 +1302,26 @@ scenario("submitting a quote with a bad-COGS catalog item -> 400 naming the line
   return { blocked: blocked.status, lines: blocked.json.cogsBlocked, status: still.json.quote.status, ok: ok.status };
 });
 
+// Regression: the check looked codes up exactly, so a line coded "c-case" or
+// "C-CASE " (a client's file keeps the code as typed) skipped the block.
+scenario("a bad-COGS item is blocked whatever the case or spacing of the line's code", async (d) => {
+  await importRows(d, [{ code: "C-CASE", name: "COGS above list", cogs: 5000, list_price: 4000 }]);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const submitWith = async (code: string) => {
+    const q = await createDraft(d, rep, [cleanItem({ code, name: "COGS above list", cogs: 5000, rrp: 8000 })]);
+    const r = await d.api("POST", `/api/quotes/${q.id}/submit`, { session: rep });
+    return { status: r.status, lines: r.json.cogsBlocked?.map((l: { code: string }) => l.code) };
+  };
+  const lower = await submitWith("c-case");
+  const spaced = await submitWith(" C-CASE ");
+  const check = await d.api("POST", "/api/catalog/cogs-check", { body: { codes: ["c-case"] }, session: rep });
+
+  assert.deepEqual(lower, { status: 400, lines: ["c-case"] });
+  assert.deepEqual(spaced, { status: 400, lines: [" C-CASE "] });
+  assert.deepEqual(Object.keys(check.json.problems), ["c-case"]);
+  return { lower, spaced, check: check.json };
+});
+
 scenario("cogs-check reports only problem codes; empty COGS is a problem", async (d) => {
   await importRows(d, [
     { code: "C-OK", name: "Fine", cogs: 1000, list_price: 1500 },
