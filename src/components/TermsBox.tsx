@@ -17,10 +17,11 @@ export function TermsBox({
   onTargetMargin,
 }: {
   meta: QuoteMeta;
-  targetMargin: number;
+  /** Omitted for staff, who never see margins (PE-1): the margin field is not shown. */
+  targetMargin?: number;
   readOnly: boolean;
   onMeta: (patch: Partial<QuoteMeta>) => void;
-  onTargetMargin: (value: number) => void;
+  onTargetMargin?: (value: number) => void;
 }) {
   const missing = missingTerms(meta);
   const required = (field: "paymentDays" | "warrantyYears") =>
@@ -30,6 +31,7 @@ export function TermsBox({
     <fieldset className="terms-box no-print" disabled={readOnly}>
       <legend>Syarat penawaran</legend>
       <div className="field-grid">
+        {targetMargin != null && onTargetMargin && (
         <label className="field">
           <span>Margin target (%) · internal</span>
           <input
@@ -43,6 +45,7 @@ export function TermsBox({
           />
           <small className="muted">Tidak tampil di penawaran customer.</small>
         </label>
+        )}
         <label className="field">
           <span>Term of payment (hari) *</span>
           <input

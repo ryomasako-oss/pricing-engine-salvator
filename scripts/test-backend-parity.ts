@@ -1589,6 +1589,25 @@ scenario("PE-1: preview prices exactly what a save would, without saving", async
   return { prices: preview.json.quote.items.map((i: { price: number }) => i.price), total: preview.json.quote.pricing.total, outside: outside.status };
 });
 
+
+scenario("PE-1: sorting the catalog by COGS is ignored for staff (the order would rank costs)", async (d) => {
+  await importRows(d, [
+    { code: "SRT-A", name: "SRT Alpha", cogs: 3000, list_price: 9000 },
+    { code: "SRT-B", name: "SRT Bravo", cogs: 1000, list_price: 9000 },
+    { code: "SRT-C", name: "SRT Charlie", cogs: 2000, list_price: 9000 },
+  ]);
+  const order = async (email: string) => {
+    const session = await loginCached(d, email, "password123");
+    const r = await d.api("GET", "/api/catalog?q=SRT-&sortBy=cogs&sortDir=asc", { session });
+    return (r.json.items as { code: string }[]).map((i) => i.code);
+  };
+  const rep = await order("rep@test.local");
+  const manager = await order("manager@test.local");
+  assert.deepEqual(rep, ["SRT-A", "SRT-B", "SRT-C"]);
+  assert.deepEqual(manager, ["SRT-B", "SRT-C", "SRT-A"]);
+  return { rep, manager };
+});
+
 // ---------------------------------------------------------------
 // Run: ONE pair of backends for the whole run (Node caches the
 // dynamically-imported server/db.js module by URL, so "fresh drivers

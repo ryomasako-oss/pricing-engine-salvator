@@ -17,7 +17,7 @@ import {
 } from "../../catalogMatch";
 import { VERIFY_COGS_SQL, cogsCheckInput, withProblems } from "../../cogsCheck";
 import { cogsProblemsFor } from "../quoteService";
-import { catalogItemsForViewer, problemsForViewer } from "../../staffView";
+import { canSeeCosts, catalogItemsForViewer, problemsForViewer } from "../../staffView";
 import { cleanUnits, type ItemUnits } from "../../../shared/uom";
 import type { CatalogItem, UnitFactor } from "../../../shared/types";
 import type { Env } from "../env";
@@ -82,7 +82,9 @@ catalogRouter.get("/", async (c) => {
     cogs: "cogs",
     list_price: "list_price",
   };
-  const sortField = sortColumns[c.req.query("sortBy") ?? ""] ?? "name";
+  // Sorting by COGS would tell staff which items cost more (PE-1).
+  const sortKey = c.req.query("sortBy") ?? "";
+  const sortField = (sortKey === "cogs" && !canSeeCosts(c.get("user")!.role) ? undefined : sortColumns[sortKey]) ?? "name";
   const sortDir = (c.req.query("sortDir") ?? "").toLowerCase() === "desc" ? "DESC" : "ASC";
   const orderBy = sortField === "name" ? "name" : `${sortField} ${sortDir}, name`;
 

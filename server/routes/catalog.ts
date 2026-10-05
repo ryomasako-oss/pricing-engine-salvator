@@ -17,7 +17,7 @@ import {
 } from "../catalogMatch.js";
 import { VERIFY_COGS_SQL, cogsCheckInput, withProblems } from "../cogsCheck.js";
 import { cogsProblemsFor } from "../quoteService.js";
-import { catalogItemsForViewer, problemsForViewer } from "../staffView.js";
+import { canSeeCosts, catalogItemsForViewer, problemsForViewer } from "../staffView.js";
 import { cleanUnits, type ItemUnits } from "../../shared/uom.js";
 import type { CatalogItem, UnitFactor } from "../../shared/types.js";
 
@@ -70,7 +70,9 @@ catalogRouter.get("/", (req, res) => {
     cogs: "cogs",
     list_price: "list_price",
   };
-  const sortField = sortColumns[String(req.query.sortBy ?? "")] ?? "name";
+  // Sorting by COGS would tell staff which items cost more (PE-1).
+  const sortKey = String(req.query.sortBy ?? "");
+  const sortField = (sortKey === "cogs" && !canSeeCosts((req as AuthedRequest).user!.role) ? undefined : sortColumns[sortKey]) ?? "name";
   const sortDir = String(req.query.sortDir ?? "").toLowerCase() === "desc" ? "DESC" : "ASC";
   const orderBy = sortField === "name" ? "name" : `${sortField} ${sortDir}, name`;
 
