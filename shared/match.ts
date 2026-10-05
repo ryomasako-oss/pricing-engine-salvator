@@ -98,8 +98,9 @@ export function normalizeText(s: string): string {
     .replace(/(\d)\s*(gsm|gram|grm|gr|g)\b/g, "$1g")
     .replace(/(\d)\s*(mm|cm|ml|ltr|lt|l|kg|m)\b/g, "$1$2")
     .replace(/(\d),(\d)/g, "$1.$2")
+    // A dot survives only as a decimal point (0.5mm); "No.10" -> "no 10".
+    .replace(/(?<!\d)\.|\.(?!\d)/g, " ")
     .replace(/[^a-z0-9.]+/g, " ")
-    .replace(/(^|\s)\.+|\.+(\s|$)/g, " ")
     .trim()
     .replace(/\s+/g, " ");
 }
