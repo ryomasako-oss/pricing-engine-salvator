@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import * as XLSX from "xlsx";
 import { describe, expect, it } from "vitest";
-import { detectKind, parseClientList, parseFullCatalog, parseInventory, parseItemMaster } from "./parsers.js";
+import { detectKind, parseClientList, parseFullCatalog, parseInventory, parseItemMaster, parseRequestList } from "./parsers.js";
 
 const SAMPLES = path.join(os.homedir(), "Downloads");
 const inventoryFile = path.join(SAMPLES, "PT Salvator Inti Pratama Inventory.xlsx");
@@ -173,5 +173,52 @@ describe("client request list import", () => {
   it("refuses a file with no usable rows", async () => {
     const csv = ["Nama Barang,Satuan,Qty,RRP", "TOTAL,,,"].join("\n");
     await expect(parseClientList(new File([csv], "empty.csv"))).rejects.toThrow(/Tidak ada baris item/);
+  });
+});
+
+describe("request list (no prices needed)", () => {
+  it("reads a bare name + qty list under a title row, skipping totals", async () => {
+    const csv = [
+      "Daftar kebutuhan ATK Oktober",
+      "",
+      "No,Nama Barang,Satuan,Qty",
+      "1,Kertas A4 70gsm Sinar Dunia,Rim,50",
+      "2,Pulpen standard hitam,box,",
+      "3,Map plastik,,0",
+      "TOTAL,,,",
+    ].join("\n");
+    const { lines, report } = await parseRequestList(new File([csv], "kebutuhan.csv"));
+    expect(lines).toEqual([
+      { name: "Kertas A4 70gsm Sinar Dunia", code: undefined, uom: "Rim", qty: 50, rrp: undefined },
+      // Blank qty -> 1 of the lowest unit: the client's "box" is dropped (9b).
+      { name: "Pulpen standard hitam", code: undefined, uom: undefined, qty: 1, rrp: undefined, noQty: true },
+      // An explicit 0 is a quantity, kept with its unit column (blank here).
+      { name: "Map plastik", code: undefined, uom: undefined, qty: 0, rrp: undefined },
+    ]);
+    expect(report.count).toBe(3);
+    expect(report.notes).toContain("1 baris tanpa qty: dihitung 1 per satuan terkecil.");
+  });
+
+  it("accepts a two-column list and keeps a stated ceiling and code", async () => {
+    const csv = ["Item,Qty", "Spidol whiteboard,12"].join("\n");
+    const { lines, report } = await parseRequestList(new File([csv], "two.csv"));
+    expect(lines).toEqual([{ name: "Spidol whiteboard", code: undefined, uom: undefined, qty: 12, rrp: undefined }]);
+    expect(report.notes).toEqual([]);
+
+    const withPrice = ["Kode,Nama Barang,Qty,Harga Maks", "M-PEN,Pulpen,5,\"3.000\""].join("\n");
+    const r = await parseRequestList(new File([withPrice], "p.csv"));
+    expect(r.lines[0]).toMatchObject({ code: "M-PEN", qty: 5, rrp: 3000 });
+  });
+
+  it("a list with no qty column at all is quoted 1 per lowest unit, ignoring the unit and ceiling given", async () => {
+    const csv = ["Nama Barang,Satuan,Harga Maks", "Pulpen,Box,\"30.000\""].join("\n");
+    const { lines, report } = await parseRequestList(new File([csv], "noqty.csv"));
+    expect(lines).toEqual([{ name: "Pulpen", code: undefined, uom: undefined, qty: 1, rrp: undefined, noQty: true }]);
+    expect(report.notes[0]).toBe("Kolom qty tidak ditemukan: semua item dihitung 1 per satuan terkecil.");
+  });
+
+  it("still requires a name column", async () => {
+    const csv = ["Qty,Harga", "1,2"].join("\n");
+    await expect(parseRequestList(new File([csv], "x.csv"))).rejects.toThrow(/nama item/);
   });
 });

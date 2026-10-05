@@ -5,6 +5,7 @@
 
 import { all, get, getSetting, run } from "./db.js";
 import { computeEngine } from "../shared/engine.js";
+import { type CogsRow, cogsRowsSql, problemsByCode } from "./cogsCheck.js";
 import { DEFAULT_POLICY, evaluatePolicy } from "../shared/policy.js";
 import type {
   PolicyBreach,
@@ -166,3 +167,10 @@ export const STATUS_FLOW: Partial<Record<QuoteStatus, QuoteStatus[]>> = {
   sent: ["won", "lost"],
   won: ["completed"],
 };
+
+/** COGS problems (shared/cogsCheck.ts) for these catalog codes; codes not in the catalog are absent. */
+export function cogsProblemsFor(codes: string[]): Map<string, string> {
+  const uniq = [...new Set(codes.filter(Boolean))];
+  if (!uniq.length) return new Map();
+  return problemsByCode(all<CogsRow>(cogsRowsSql(uniq.length), ...uniq));
+}

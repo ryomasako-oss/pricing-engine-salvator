@@ -3,6 +3,7 @@
 
 import * as XLSX from "xlsx";
 import { SCENARIOS } from "@shared/engine";
+import { paymentLabel, warrantyLabel } from "@shared/terms";
 import type { Assumptions, EngineResult, QuoteMeta, ScenarioIndex } from "@shared/types";
 
 interface Input {
@@ -58,6 +59,18 @@ export function quoteWorkbook(input: Input): XLSX.WorkBook {
       Item: `Nilai kontrak ${assumptions.months} bulan (belum PPN)`,
       "Total per bulan": Math.round(s.annual),
     } as never,
+    {} as never,
+    { Item: "Term of payment", Satuan: paymentLabel(meta) || "—" } as never,
+    { Item: "Garansi", Satuan: warrantyLabel(meta) || "—" } as never,
+    { Item: "Masa berlaku penawaran", Satuan: `${meta.validity} hari` } as never,
+    {} as never,
+    { Item: "Hormat kami,", "Harga satuan": "Disetujui oleh," } as never,
+    { Item: "PT Salvator Inti Pratama", "Harga satuan": clientName } as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    { Item: `(${meta.preparedBy || "Nama"})`, "Harga satuan": "Nama & jabatan: ______________" } as never,
+    { "Harga satuan": "Tanggal: ______________" } as never,
   );
   const quoteSheet = XLSX.utils.json_to_sheet(quoteRows);
   quoteSheet["!cols"] = [{ wch: 5 }, { wch: 14 }, { wch: 46 }, { wch: 8 }, { wch: 10 }, { wch: 14 }, { wch: 16 }];

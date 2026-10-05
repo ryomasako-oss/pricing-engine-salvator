@@ -6,7 +6,8 @@ import { api } from "../api";
 import { grp } from "@shared/format";
 import { normalizeCode } from "@shared/duplicates";
 import type { CatalogItem, QuoteItem } from "@shared/types";
-import { changeLineUom, uomChoices, uomWarning } from "@shared/uom";
+import { lineFromCatalog } from "@shared/match";
+import { uomChoices, uomWarning } from "@shared/uom";
 import { Modal } from "./Modal";
 import { Icon } from "./Icon";
 import { UomCell } from "./UomCell";
@@ -70,24 +71,8 @@ export function CatalogPicker({
   );
 
   /** The quote line for an item, built in its base unit, then converted to the chosen unit. */
-  const lineFor = (item: CatalogItem, qty: number): QuoteItem => {
-    const baseUom = item.uom || "Pcs";
-    const base: QuoteItem = {
-      id: `cat-${item.id}-${Math.random().toString(36).slice(2, 7)}`,
-      lineNo: 0,
-      code: item.code,
-      name: item.name,
-      uom: baseUom,
-      qty,
-      cogs: Math.round(item.cogs),
-      // The master's list price is the natural starting ceiling.
-      rrp: Math.round(item.list_price || item.cogs * 1.4),
-      role: "CORE",
-      estCogs: !(item.cogs > 0),
-    };
-    const to = uomOverride[item.id];
-    return to ? changeLineUom(base, to, { baseUom, units: item.units ?? [] }) : base;
-  };
+  const lineFor = (item: CatalogItem, qty: number): QuoteItem =>
+    lineFromCatalog(item, qty, { uom: uomOverride[item.id] });
 
   const add = () => {
     const picked = selected
@@ -169,6 +154,9 @@ export function CatalogPicker({
                         <span className="badge amber" style={{ marginLeft: 6 }}>sudah ada</span>
                       )}
                     </div>
+                    {item.cogs_problem && (
+                      <div className="small" style={{ color: "var(--danger)" }}>⚠ {item.cogs_problem}. Tidak bisa dipakai.</div>
+                    )}
                   </td>
                   <td className="num">{item.cogs > 0 ? grp(line.cogs) : <span className="muted">—</span>}</td>
                   <td className="num">{item.list_price > 0 ? grp(line.rrp) : <span className="muted">—</span>}</td>
@@ -188,6 +176,7 @@ export function CatalogPicker({
                       type="number"
                       min="0"
                       placeholder="0"
+                      disabled={!!item.cogs_problem}
                       value={chosen[item.id] ?? ""}
                       onChange={(e) => {
                         setChosen((c) => ({ ...c, [item.id]: Math.max(0, Number(e.target.value)) }));

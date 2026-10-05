@@ -4,6 +4,17 @@ import { all, get, run, tx } from "../db.js";
 import { audit } from "../audit.js";
 import { type AuthedRequest, requireAuth, requirePermission } from "../auth.js";
 import { catalogRowSchema, unitsSchema, zodMessage } from "../validate.js";
+import {
+  type AliasRow,
+  MATCH_COLUMNS,
+  aliasInput,
+  cleanAliasPairs,
+  matchInput,
+  matchResponse,
+  runMatch,
+} from "../catalogMatch.js";
+import { VERIFY_COGS_SQL, cogsCheckInput, withProblems } from "../cogsCheck.js";
+import { cogsProblemsFor } from "../quoteService.js";
 import { cleanUnits, type ItemUnits } from "../../shared/uom.js";
 import type { CatalogItem, UnitFactor } from "../../shared/types.js";
 
@@ -67,8 +78,10 @@ catalogRouter.get("/", (req, res) => {
     limit,
     offset,
   );
-  const units = unitsByCode(items.map((i) => i.code));
-  res.json({ items: items.map((i) => ({ ...i, units: units.get(i.code) ?? [] })), total: total?.n ?? 0 });
+  const codes = items.map((i) => i.code);
+  const units = unitsByCode(codes);
+  const withUnits = items.map((i) => ({ ...i, units: units.get(i.code) ?? [] }));
+  res.json({ items: withProblems(withUnits, cogsProblemsFor(codes)), total: total?.n ?? 0 });
 });
 
 /**
@@ -94,6 +107,94 @@ catalogRouter.post("/units", (req, res) => {
     for (const b of bases) out[b.code] = { baseUom: b.uom, units: units.get(b.code) ?? [] };
   }
   res.json({ units: out });
+});
+
+/**
+ * Matches a client's request list to catalog items (code, learned alias, then
+ * name similarity). Read-only: the rep reviews the result before any quote is
+ * created, and prices always come from these catalog rows.
+ */
+catalogRouter.post("/match", (req, res) => {
+  const parsed = matchInput.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: zodMessage(parsed.error) });
+    return;
+  }
+  const catalog = all<CatalogItem>(`SELECT ${MATCH_COLUMNS} FROM catalog_items`);
+  const aliases = all<AliasRow>(
+    "SELECT alias, client_id, code FROM catalog_aliases WHERE client_id IN (0, ?)",
+    parsed.data.client_id ?? 0,
+  );
+  const { results, referenced } = runMatch(parsed.data, catalog, aliases);
+  const codes = referenced.map((i) => i.code);
+  const body = matchResponse(results, referenced, unitsByCode(codes));
+  res.json({ ...body, items: withProblems(body.items, cogsProblemsFor(codes)) });
+});
+
+/** Which of these codes have a COGS that must not be sold on (shared/cogsCheck.ts). */
+catalogRouter.post("/cogs-check", (req, res) => {
+  const parsed = cogsCheckInput.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: zodMessage(parsed.error) });
+    return;
+  }
+  res.json({ problems: Object.fromEntries(cogsProblemsFor(parsed.data.codes)) });
+});
+
+/** A manager confirms an item's current COGS is right despite a big jump from its history. */
+catalogRouter.post("/:id/verify-cogs", requirePermission("edit_catalog"), (req: AuthedRequest, res) => {
+  const id = Number(req.params.id);
+  const item = get<CatalogItem>("SELECT * FROM catalog_items WHERE id = ?", id);
+  if (!item) {
+    res.status(404).json({ error: "Item tidak ditemukan." });
+    return;
+  }
+  if (!(item.cogs > 0)) {
+    res.status(400).json({ error: "COGS item ini kosong; isi dulu sebelum ditandai sudah dicek." });
+    return;
+  }
+  run(VERIFY_COGS_SQL, item.code, item.cogs);
+  audit(req.user!.id, "catalog", id, "cogs_verified", { code: item.code, cogs: item.cogs });
+  res.json({ code: item.code, reference: item.cogs, cogs_problem: cogsProblemsFor([item.code]).get(item.code) ?? null });
+});
+
+/** Remembers which catalog item a client's wording means, for the next list. */
+catalogRouter.post("/aliases", (req: AuthedRequest, res) => {
+  const parsed = aliasInput.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: zodMessage(parsed.error) });
+    return;
+  }
+  const clientId = parsed.data.client_id ?? 0;
+  if (clientId && !get("SELECT id FROM clients WHERE id = ?", clientId)) {
+    res.status(400).json({ error: "Klien tidak ditemukan." });
+    return;
+  }
+  const codes = [...new Set(parsed.data.pairs.map((p) => p.code))];
+  const found = all<{ code: string }>(
+    `SELECT code FROM catalog_items WHERE code COLLATE NOCASE IN (${codes.map(() => "?").join(",")})`,
+    ...codes,
+  );
+  const { pairs, unknown } = cleanAliasPairs(parsed.data.pairs, found.map((f) => f.code));
+  if (unknown.length) {
+    res.status(400).json({ error: `Kode tidak ada di katalog: ${unknown.slice(0, 5).join(", ")}` });
+    return;
+  }
+  tx(() => {
+    for (const p of pairs) {
+      run(
+        `INSERT INTO catalog_aliases(alias, client_id, code, created_by) VALUES(?, ?, ?, ?)
+         ON CONFLICT(alias, client_id) DO UPDATE SET code = excluded.code,
+           created_by = excluded.created_by, updated_at = datetime('now')`,
+        p.alias,
+        clientId,
+        p.code,
+        req.user!.id,
+      );
+    }
+  });
+  audit(req.user!.id, "catalog", 0, "aliases_saved", { client_id: clientId, count: pairs.length });
+  res.json({ saved: pairs.length });
 });
 
 /** Managed UOM list — any manager/admin can extend it. Per-item ratios live in catalog_item_uoms. */

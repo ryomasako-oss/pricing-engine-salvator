@@ -41,6 +41,17 @@ export function CatalogPage() {
   const [baseAtOpen, setBaseAtOpen] = useState("");
   const PAGE = 50;
 
+  /** Manager confirms a COGS that moved >50% from its reference is real (shared/cogsCheck.ts). */
+  const verifyCogs = async (id: number) => {
+    try {
+      await api.post(`/catalog/${id}/verify-cogs`);
+      toast("COGS ditandai sudah dicek.", "success");
+      load();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Gagal menandai COGS.", "error");
+    }
+  };
+
   const load = useCallback(() => {
     setLoading(true);
     const params = new URLSearchParams({
@@ -254,7 +265,23 @@ export function CatalogPage() {
                   {items.map((item) => (
                     <tr key={item.id} className={item.cogs > 0 ? "" : "flagged"}>
                       <td className="l muted num">{item.code}</td>
-                      <td className="l">{item.name}</td>
+                      <td className="l">
+                        {item.name}
+                        {item.cogs_problem && item.cogs > 0 && (
+                          <div className="small" style={{ color: "var(--danger)" }}>
+                            ⚠ {item.cogs_problem}. Tidak bisa dipakai di penawaran.
+                            {can("edit_catalog") && /COGS acuan/.test(item.cogs_problem) && (
+                              <button
+                                className="btn small"
+                                style={{ marginLeft: 6 }}
+                                onClick={() => void verifyCogs(item.id)}
+                              >
+                                COGS ini benar
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </td>
                       <td className="l muted small">{item.category || "—"}</td>
                       <td className="l muted">{item.uom}</td>
                       <td className="l">

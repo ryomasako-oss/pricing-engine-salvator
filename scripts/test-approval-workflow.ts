@@ -89,7 +89,7 @@ function snapshotFor(items: ReturnType<typeof cleanItem>[], overAssumptions: Rec
     assumptions: { ...DEFAULT_ASSUMPTIONS, ...overAssumptions },
     items,
     regions: [],
-    meta: { quoteNo: "", date: "2026-01-01", validity: 30, payment: "", delivery: "", notes: "" },
+    meta: { quoteNo: "", date: "2026-01-01", validity: 30, payment: "", delivery: "", notes: "", paymentDays: 30, warrantyYears: 1 },
     scenario: 0,
   };
 }

@@ -7,6 +7,7 @@ import { SCENARIOS } from "@shared/engine";
 import { fmtDate, grp, pct } from "@shared/format";
 import type { Assumptions, EngineResult, QuoteMeta, ScenarioIndex } from "@shared/types";
 import type { CompanyInfo } from "../components/QuotationDoc";
+import { paymentLabel, warrantyLabel } from "@shared/terms";
 
 interface Input {
   engine: EngineResult;
@@ -87,6 +88,8 @@ export function quotationPdf(input: Input): jsPDF {
       ["Kepada", clientName, "Nomor", number || meta.quoteNo],
       ["", input.clientAddress || "", "Tanggal", fmtDate(meta.date)],
       ["", "", "Berlaku sampai", fmtDate(validUntil)],
+      ["", "", "Term of payment", paymentLabel(meta) || "—"],
+      ["", "", "Garansi", warrantyLabel(meta) || "—"],
       ["", "", "Disiapkan oleh", meta.preparedBy || ""],
     ],
   });
@@ -140,7 +143,7 @@ export function quotationPdf(input: Input): jsPDF {
   doc.setFontSize(8);
   doc.setTextColor(...MUTED);
   const terms = doc.splitTextToSize(
-    `Harga dalam Rupiah per satuan dan belum termasuk PPN. Pembayaran ${meta.payment}. ` +
+    `Harga dalam Rupiah per satuan dan belum termasuk PPN. ` +
       `Pengiriman ${meta.delivery}. Penawaran berlaku ${meta.validity} hari sejak tanggal di atas.` +
       (company.bank ? ` Pembayaran ke ${company.bank}.` : "") +
       (company.npwp ? ` NPWP ${company.npwp}.` : ""),
@@ -154,6 +157,38 @@ export function quotationPdf(input: Input): jsPDF {
     doc.text(notes, M, y + 6);
     y += notes.length * 10 + 6;
   }
+
+  // Signature block (meeting 2026-10-05): room for a wet or digital signature
+  // on both sides. Kept whole: moved to a new page if it would be cut off.
+  const SIGN_H = 120;
+  const pageH = doc.internal.pageSize.getHeight();
+  y += 22;
+  if (y + SIGN_H > pageH - 40) {
+    doc.addPage();
+    y = 60;
+  }
+  const colW = (W - M * 2 - 40) / 2;
+  const sign = (x: number, lead: string, party: string, lines: string[]) => {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    doc.setTextColor(...MUTED);
+    doc.text(lead, x, y);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(30, 37, 48);
+    doc.text(doc.splitTextToSize(party, colW) as string[], x, y + 12);
+    const lineY = y + 84;
+    doc.setDrawColor(30, 37, 48);
+    doc.line(x, lineY, x + colW * 0.8, lineY);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    lines.forEach((l, i) => {
+      doc.setTextColor(...(i === 0 ? ([30, 37, 48] as [number, number, number]) : MUTED));
+      doc.text(l, x, lineY + 12 + i * 11);
+    });
+  };
+  sign(M, "Hormat kami,", company.name, [meta.preparedBy || "Nama"]);
+  sign(M + colW + 40, "Disetujui oleh,", clientName, ["Nama & jabatan:", "Tanggal:"]);
+  y += SIGN_H;
 
   const pages = doc.getNumberOfPages();
   for (let i = 1; i <= pages; i++) {

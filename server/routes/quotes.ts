@@ -9,6 +9,7 @@ import {
   EDITABLE_STATUSES,
   STATUS_FLOW,
   breachesFor,
+  cogsProblemsFor,
   findQuote,
   listQuoteRows,
   nextQuoteNumber,
@@ -16,6 +17,8 @@ import {
   saveRevision,
 } from "../quoteService.js";
 import { isWithinPolicy } from "../../shared/policy.js";
+import { defaultPayment, missingTerms, missingTermsMessage } from "../../shared/terms.js";
+import { blockedLines, blockedMessage } from "../cogsCheck.js";
 import { DEFAULT_ASSUMPTIONS, DEFAULT_REGIONS } from "../../shared/engine.js";
 import {
   notifyQuoteDecided,
@@ -161,7 +164,8 @@ quotesRouter.post("/", (req: AuthedRequest, res) => {
         quoteNo: number,
         date: new Date().toISOString().slice(0, 10),
         validity: 30,
-        payment: client?.payment_terms || "30 hari setelah invoice",
+        ...defaultPayment(client?.payment_terms),
+        warrantyYears: null,
         delivery: client?.delivery_terms || "Franco Jakarta, jadwal mingguan",
         notes: "",
         preparedBy: req.user!.name,
@@ -421,6 +425,18 @@ quotesRouter.post("/:id/submit", (req: AuthedRequest, res) => {
   }
   if (!EDITABLE_STATUSES.includes(quote.status)) {
     res.status(409).json({ error: "Hanya draft yang bisa diajukan." });
+    return;
+  }
+  // Term of payment and warranty must be on the customer's document.
+  const missing = missingTerms(quote.meta);
+  if (missing.length) {
+    res.status(400).json({ error: missingTermsMessage(missing), missing });
+    return;
+  }
+  // An item whose catalog COGS looks wrong must not be sold (shared/cogsCheck.ts).
+  const cogsBlocked = blockedLines(quote.items, cogsProblemsFor(quote.items.map((it) => it.code)));
+  if (cogsBlocked.length) {
+    res.status(400).json({ error: blockedMessage(cogsBlocked), cogsBlocked });
     return;
   }
   const { breaches, monthly_value, net_margin } = breachesFor(quote);

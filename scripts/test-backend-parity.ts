@@ -56,6 +56,7 @@ async function makeExpressDriver(): Promise<Driver> {
   const { quotesRouter } = await import("../server/routes/quotes.js");
   const { approvalsRouter } = await import("../server/routes/approvals.js");
   const { catalogRouter } = await import("../server/routes/catalog.js");
+  const { clientsRouter } = await import("../server/routes/clients.js");
   const { run } = await import("../server/db.js");
 
   const app = express();
@@ -66,6 +67,7 @@ async function makeExpressDriver(): Promise<Driver> {
   app.use("/api/quotes", quotesRouter);
   app.use("/api/approvals", approvalsRouter);
   app.use("/api/catalog", catalogRouter);
+  app.use("/api/clients", clientsRouter);
 
   let server: Server;
   await new Promise<void>((resolve) => {
@@ -126,6 +128,8 @@ async function makeWorkerDriver(): Promise<Driver> {
     "0005_reassignment_and_restore.sql",
     "0006_uom_options.sql",
     "0007_catalog_item_uoms.sql",
+    "0008_catalog_aliases.sql",
+    "0009_cogs_sanity.sql",
   ]) {
     sqlite.exec(readFileSync(path.join(migrationsDir, file), "utf8"));
   }
@@ -137,6 +141,7 @@ async function makeWorkerDriver(): Promise<Driver> {
   const { quotesRouter } = await import("../server/worker/routes/quotes.js");
   const { approvalsRouter } = await import("../server/worker/routes/approvals.js");
   const { catalogRouter } = await import("../server/worker/routes/catalog.js");
+  const { clientsRouter } = await import("../server/worker/routes/clients.js");
   const { run } = await import("../server/db.d1.js");
 
   const app = new Hono();
@@ -145,6 +150,7 @@ async function makeWorkerDriver(): Promise<Driver> {
   app.route("/api/quotes", quotesRouter);
   app.route("/api/approvals", approvalsRouter);
   app.route("/api/catalog", catalogRouter);
+  app.route("/api/clients", clientsRouter);
 
   const env = {
     DB: db,
@@ -243,7 +249,7 @@ function snapshotFor(items: ReturnType<typeof cleanItem>[], overAssumptions: Rec
     assumptions: { ...DEFAULT_ASSUMPTIONS, ...overAssumptions },
     items,
     regions: [],
-    meta: { quoteNo: "", date: "2026-01-01", validity: 30, payment: "", delivery: "", notes: "" },
+    meta: { quoteNo: "", date: "2026-01-01", validity: 30, payment: "", delivery: "", notes: "", paymentDays: 30, warrantyYears: 1 },
     scenario: 0,
   };
 }
@@ -1010,6 +1016,304 @@ scenario("a different rep still cannot save a revision on a rejected quote they 
   };
 });
 
+
+// ---------------------------------------------------------------
+// Client list -> quote: catalog matching and learned aliases.
+// ---------------------------------------------------------------
+
+const M_ROWS = [
+  { code: "M-STB-OR", name: "STABILO BOSS HIGHLIGHTER ANTI DRY OUT ORANGE", uom: "Pcs", cogs: 9000, list_price: 12500 },
+  { code: "M-STB-GR", name: "STABILO BOSS HIGHLIGHTER ANTI DRY OUT GREEN", uom: "Pcs", cogs: 9000, list_price: 12500 },
+  { code: "M-BD70", name: "BOLA DUNIA KERTAS A4 70GR", uom: "Rim", cogs: 41000, list_price: 52000 },
+  {
+    code: "M-PEN", name: "STANDARD PULPEN TECNO BLACK 0.38MM", uom: "Pcs", cogs: 2000, list_price: 3000,
+    units: [{ uom: "Box", factor: 12 }],
+  },
+];
+
+async function seedMatchCatalog(d: Driver) {
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const imp = await d.api("POST", "/api/catalog/import", { body: { rows: M_ROWS, mode: "merge" }, session: manager });
+  assert.equal(imp.status, 200, JSON.stringify(imp.json));
+}
+
+/** Results reduced to codes (ids differ between backends' databases). */
+function codesOf(json: any) {
+  const codeOf = new Map((json.items as { id: number; code: string }[]).map((i) => [i.id, i.code]));
+  return (json.results as any[]).map((r) => ({
+    status: r.status,
+    via: r.via,
+    best: r.candidates[0] ? codeOf.get(r.candidates[0].id) : null,
+  }));
+}
+
+scenario("match: code, name similarity, brand mismatch and nothing-found, with catalog prices and units", async (d) => {
+  await seedMatchCatalog(d);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const res = await d.api("POST", "/api/catalog/match", {
+    body: {
+      lines: [
+        { code: "m-pen", name: "pulpen", qty: 3, uom: "Box" },
+        { name: "Stabilo boss highlighter orange", qty: 10 },
+        { name: "Kertas A4 70gsm Sinar Dunia", qty: 50 },
+        { name: "Galon air mineral 19 liter", qty: 2 },
+      ],
+    },
+    session: rep,
+  });
+  assert.equal(res.status, 200, JSON.stringify(res.json));
+  const results = codesOf(res.json);
+  assert.deepEqual(results, [
+    { status: "exact", via: "code", best: "M-PEN" },
+    { status: "match", via: "name", best: "M-STB-OR" },
+    { status: "review", via: "name", best: "M-BD70" },
+    { status: "none", via: null, best: results[3].best },
+  ]);
+  const pen = (res.json.items as any[]).find((i) => i.code === "M-PEN");
+  assert.deepEqual(
+    { cogs: pen.cogs, list_price: pen.list_price, units: pen.units },
+    { cogs: 2000, list_price: 3000, units: [{ uom: "Box", factor: 12 }] },
+  );
+  return { status: res.status, results, summary: res.json.summary, pen: { cogs: pen.cogs, units: pen.units } };
+});
+
+scenario("a confirmed alias is used for that client's next list, and not for another client's", async (d) => {
+  await seedMatchCatalog(d);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const a = await d.api("POST", "/api/clients", { body: { name: "PT Alias Satu" }, session: rep });
+  const b = await d.api("POST", "/api/clients", { body: { name: "PT Alias Dua" }, session: rep });
+  const clientA = a.json.client.id;
+  const clientB = b.json.client.id;
+
+  const save = await d.api("POST", "/api/catalog/aliases", {
+    body: { client_id: clientA, pairs: [{ text: "Kertas  fotokopi  biasa", code: "m-bd70" }] },
+    session: rep,
+  });
+  const lines = [{ name: "kertas fotokopi biasa", qty: 5 }];
+  const forA = await d.api("POST", "/api/catalog/match", { body: { client_id: clientA, lines }, session: rep });
+  const forB = await d.api("POST", "/api/catalog/match", { body: { client_id: clientB, lines }, session: rep });
+  const noClient = await d.api("POST", "/api/catalog/match", { body: { lines }, session: rep });
+
+  assert.equal(save.status, 200);
+  assert.deepEqual(codesOf(forA.json)[0], { status: "exact", via: "alias", best: "M-BD70" });
+  assert.notEqual(codesOf(forB.json)[0].via, "alias");
+  assert.notEqual(codesOf(noClient.json)[0].via, "alias");
+
+  // A global alias (no client) applies to everyone, but A's own still wins for A.
+  await d.api("POST", "/api/catalog/aliases", {
+    body: { pairs: [{ text: "kertas fotokopi biasa", code: "M-STB-GR" }] },
+    session: rep,
+  });
+  const forA2 = await d.api("POST", "/api/catalog/match", { body: { client_id: clientA, lines }, session: rep });
+  const forB2 = await d.api("POST", "/api/catalog/match", { body: { client_id: clientB, lines }, session: rep });
+  assert.equal(codesOf(forA2.json)[0].best, "M-BD70");
+  assert.deepEqual(codesOf(forB2.json)[0], { status: "exact", via: "alias", best: "M-STB-GR" });
+
+  return {
+    save: save.json,
+    forA: codesOf(forA.json),
+    forB: codesOf(forB.json)[0].via,
+    forA2: codesOf(forA2.json),
+    forB2: codesOf(forB2.json),
+  };
+});
+
+scenario("an alias to a code not in the catalog, or for an unknown client, is rejected (400) and not stored", async (d) => {
+  await seedMatchCatalog(d);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const badCode = await d.api("POST", "/api/catalog/aliases", {
+    body: { pairs: [{ text: "barang hantu", code: "NOPE-404" }, { text: "pulpen tecno", code: "M-PEN" }] },
+    session: rep,
+  });
+  const badClient = await d.api("POST", "/api/catalog/aliases", {
+    body: { client_id: 999999, pairs: [{ text: "pulpen tecno", code: "M-PEN" }] },
+    session: rep,
+  });
+  // Neither request stored the valid pair either.
+  const after = await d.api("POST", "/api/catalog/match", { body: { lines: [{ name: "pulpen tecno" }] }, session: rep });
+  assert.equal(badCode.status, 400);
+  assert.equal(badClient.status, 400);
+  assert.notEqual(codesOf(after.json)[0].via, "alias");
+  return { badCode: badCode.status, badClient: badClient.status, via: codesOf(after.json)[0].via };
+});
+
+scenario("match rejects an empty list, an over-long list, and requires login", async (d) => {
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const empty = await d.api("POST", "/api/catalog/match", { body: { lines: [] }, session: rep });
+  const tooMany = await d.api("POST", "/api/catalog/match", {
+    body: { lines: Array.from({ length: 501 }, (_, i) => ({ name: `item ${i}` })) },
+    session: rep,
+  });
+  const anon = await d.api("POST", "/api/catalog/match", { body: { lines: [{ name: "x" }] } });
+  const anonAlias = await d.api("POST", "/api/catalog/aliases", { body: { pairs: [{ text: "x", code: "M-PEN" }] } });
+  assert.equal(empty.status, 400);
+  assert.equal(tooMany.status, 400);
+  assert.equal(anon.status, 401);
+  assert.equal(anonAlias.status, 401);
+  return { empty: empty.status, tooMany: tooMany.status, anon: anon.status, anonAlias: anonAlias.status };
+});
+
+
+// ---------------------------------------------------------------
+// Term of payment and warranty (meeting 2026-10-05): required to submit.
+// ---------------------------------------------------------------
+
+scenario("submitting without term of payment / warranty -> 400 naming both, quote stays draft", async (d) => {
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const snap = snapshotFor([cleanItem()]);
+  const created = await d.api("POST", "/api/quotes", {
+    body: { title: "No terms", snapshot: { ...snap, meta: { ...snap.meta, paymentDays: null, warrantyYears: null } } },
+    session: rep,
+  });
+  const submit = await d.api("POST", `/api/quotes/${created.json.quote.id}/submit`, { session: rep });
+  const after = await d.api("GET", `/api/quotes/${created.json.quote.id}`, { session: rep });
+  assert.equal(submit.status, 400);
+  assert.deepEqual(submit.json.missing, ["Term of payment (hari)", "Garansi (tahun)"]);
+  assert.equal(after.json.quote.status, "draft");
+  return { status: submit.status, missing: submit.json.missing, after: after.json.quote.status };
+});
+
+scenario("warranty 0 (none) and payment 0 (cash) count as filled in", async (d) => {
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const snap = snapshotFor([cleanItem()]);
+  const created = await d.api("POST", "/api/quotes", {
+    body: { title: "Cash, no warranty", snapshot: { ...snap, meta: { ...snap.meta, paymentDays: 0, warrantyYears: 0 } } },
+    session: rep,
+  });
+  const submit = await d.api("POST", `/api/quotes/${created.json.quote.id}/submit`, { session: rep });
+  assert.equal(submit.status, 200, JSON.stringify(submit.json));
+  return { status: submit.status, quoteStatus: submit.json.quote.status };
+});
+
+scenario("a new quote takes payment days from the client's terms; warranty starts empty", async (d) => {
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const client = await d.api("POST", "/api/clients", {
+    body: { name: "PT Termin 45", payment_terms: "45 hari setelah invoice diterima" },
+    session: rep,
+  });
+  const created = await d.api("POST", "/api/quotes", {
+    body: { title: "Default terms", client_id: client.json.client.id },
+    session: rep,
+  });
+  const meta = created.json.quote.meta;
+  assert.equal(meta.paymentDays, 45);
+  assert.equal(meta.payment, "setelah invoice diterima");
+  assert.equal(meta.warrantyYears, null);
+  return { paymentDays: meta.paymentDays, payment: meta.payment, warrantyYears: meta.warrantyYears };
+});
+
+scenario("warranty must be a whole or half year, payment days 0-365 -> else 400", async (d) => {
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const snap = snapshotFor([cleanItem()]);
+  const bad = async (meta: Record<string, unknown>) =>
+    (await d.api("POST", "/api/quotes", { body: { title: "Bad", snapshot: { ...snap, meta: { ...snap.meta, ...meta } } }, session: rep }))
+      .status;
+  const result = {
+    quarterYear: await bad({ warrantyYears: 0.25 }),
+    negativeDays: await bad({ paymentDays: -1 }),
+    tooManyDays: await bad({ paymentDays: 400 }),
+    halfYear: await bad({ warrantyYears: 1.5 }),
+  };
+  assert.deepEqual(result, { quarterYear: 400, negativeDays: 400, tooManyDays: 400, halfYear: 201 });
+  return result;
+});
+
+
+// ---------------------------------------------------------------
+// COGS sanity (meeting 2026-10-05 point 6): a bad catalog COGS can't be sold.
+// ---------------------------------------------------------------
+
+async function importRows(d: Driver, rows: Record<string, unknown>[], mode: "merge" | "replace" = "merge") {
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const r = await d.api("POST", "/api/catalog/import", { body: { rows, mode }, session: manager });
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+}
+async function problemOf(d: Driver, code: string): Promise<string | null> {
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const r = await d.api("GET", `/api/catalog?q=${encodeURIComponent(code)}`, { session: rep });
+  return (r.json.items as { code: string; cogs_problem: string | null }[]).find((i) => i.code === code)!.cogs_problem;
+}
+
+scenario("COGS reference: small moves follow it, a >50% jump is flagged, a manager's confirmation moves it", async (d) => {
+  await importRows(d, [{ code: "C-JMP", name: "Jump item", cogs: 1000, list_price: 9000 }]);
+  await importRows(d, [{ code: "C-JMP", name: "Jump item", cogs: 1100 }]);
+  const small = await problemOf(d, "C-JMP");
+  await importRows(d, [{ code: "C-JMP", name: "Jump item", cogs: 2500 }]);
+  const jumped = await problemOf(d, "C-JMP");
+
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const list = await d.api("GET", "/api/catalog?q=C-JMP", { session: rep });
+  const id = list.json.items[0].id;
+  const repVerify = await d.api("POST", `/api/catalog/${id}/verify-cogs`, { session: rep });
+  const mgrVerify = await d.api("POST", `/api/catalog/${id}/verify-cogs`, { session: manager });
+  const afterVerify = await problemOf(d, "C-JMP");
+  await importRows(d, [{ code: "C-JMP", name: "Jump item", cogs: 2600 }]);
+  const smallAfterVerify = await problemOf(d, "C-JMP");
+  await importRows(d, [{ code: "C-JMP", name: "Jump item", cogs: 5000 }]);
+  const jumpedAgain = await problemOf(d, "C-JMP");
+
+  assert.equal(small, null);
+  assert.equal(jumped, "COGS Rp 2.500 berubah 127% dari COGS acuan Rp 1.100; perlu dicek manajer");
+  assert.equal(repVerify.status, 403);
+  assert.equal(mgrVerify.status, 200);
+  assert.equal(afterVerify, null);
+  assert.equal(smallAfterVerify, null);
+  assert.match(jumpedAgain!, /dari COGS acuan Rp 2.600/);
+  return { small, jumped, repVerify: repVerify.status, mgrVerify: mgrVerify.json, afterVerify, smallAfterVerify, jumpedAgain };
+});
+
+// Regression: with "average of history", the jumped value itself entered the
+// baseline, so re-importing the same file (or nudging it) cleared the flag
+// with nobody having checked anything.
+scenario("a flagged jump stays flagged when the same file is replace-imported again", async (d) => {
+  await importRows(d, [{ code: "C-RPL", name: "Replaced", cogs: 1000, list_price: 9000 }]);
+  await importRows(d, [{ code: "C-RPL", name: "Replaced", cogs: 2000, list_price: 9000 }], "replace");
+  const once = await problemOf(d, "C-RPL");
+  await importRows(d, [{ code: "C-RPL", name: "Replaced", cogs: 2000, list_price: 9000 }], "replace");
+  const twice = await problemOf(d, "C-RPL");
+  assert.equal(once, "COGS Rp 2.000 berubah 100% dari COGS acuan Rp 1.000; perlu dicek manajer");
+  assert.equal(twice, once);
+  return { once, twice };
+});
+
+scenario("a flagged jump stays flagged after a further small change", async (d) => {
+  await importRows(d, [{ code: "C-CRP", name: "Creep", cogs: 1000, list_price: 9000 }]);
+  await importRows(d, [{ code: "C-CRP", name: "Creep", cogs: 2000 }]);
+  await importRows(d, [{ code: "C-CRP", name: "Creep", cogs: 2100 }]);
+  const problem = await problemOf(d, "C-CRP");
+  assert.equal(problem, "COGS Rp 2.100 berubah 110% dari COGS acuan Rp 1.000; perlu dicek manajer");
+  return { problem };
+});
+
+scenario("submitting a quote with a bad-COGS catalog item -> 400 naming the line; fixed catalog -> submits", async (d) => {
+  await importRows(d, [{ code: "C-BAD", name: "COGS above list", cogs: 5000, list_price: 4000 }]);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const q = await createDraft(d, rep, [cleanItem({ code: "C-BAD", name: "COGS above list", cogs: 5000, rrp: 8000 })]);
+  const blocked = await d.api("POST", `/api/quotes/${q.id}/submit`, { session: rep });
+  const still = await d.api("GET", `/api/quotes/${q.id}`, { session: rep });
+  await importRows(d, [{ code: "C-BAD", name: "COGS above list", list_price: 9000 }]);
+  const ok = await d.api("POST", `/api/quotes/${q.id}/submit`, { session: rep });
+
+  assert.equal(blocked.status, 400);
+  assert.deepEqual(blocked.json.cogsBlocked.map((l: { code: string; lineNo: number }) => [l.code, l.lineNo]), [["C-BAD", 1]]);
+  assert.equal(still.json.quote.status, "draft");
+  assert.equal(ok.status, 200, JSON.stringify(ok.json));
+  return { blocked: blocked.status, lines: blocked.json.cogsBlocked, status: still.json.quote.status, ok: ok.status };
+});
+
+scenario("cogs-check reports only problem codes; empty COGS is a problem", async (d) => {
+  await importRows(d, [
+    { code: "C-OK", name: "Fine", cogs: 1000, list_price: 1500 },
+    { code: "C-ZERO", name: "No cost", cogs: 0, list_price: 1500 },
+  ]);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const r = await d.api("POST", "/api/catalog/cogs-check", { body: { codes: ["C-OK", "C-ZERO", "C-BAD", "NOT-THERE"] }, session: rep });
+  assert.deepEqual(Object.keys(r.json.problems).sort(), ["C-ZERO"]);
+  return r.json;
+});
+
+
 // ---------------------------------------------------------------
 // Run: ONE pair of backends for the whole run (Node caches the
 // dynamically-imported server/db.js module by URL, so "fresh drivers
@@ -1034,7 +1338,13 @@ async function main() {
 
   for (const s of scenarios) {
     try {
-      const [expressResult, workerResult] = await Promise.all([s.run(express), s.run(worker)]);
+      // allSettled, not all: if one backend fails, the other's run must still
+      // finish before the next scenario starts, or its leftover writes leak
+      // into that scenario and one failure shows up as several.
+      const [e, w] = await Promise.allSettled([s.run(express), s.run(worker)]);
+      if (e.status === "rejected") throw e.reason;
+      if (w.status === "rejected") throw w.reason;
+      const [expressResult, workerResult] = [e.value, w.value];
       assert.deepEqual(
         workerResult,
         expressResult,
