@@ -15,9 +15,27 @@
      sequential with a small gap, so a single sync stays well under that.
 
    Read-only by design: this client exposes GET list endpoints only.
+   Credentials only ever go to https://*.accurate.id (assertAccurateUrl).
    ============================================================ */
 
 export const ACCOUNT_BASE = "https://account.accurate.id";
+
+/**
+ * Every request carries the Bearer token and a signature, so it may only go
+ * to Accurate itself: https on accurate.id or a subdomain. Checked before each
+ * request, which covers a 308 to another host, the database host returned by
+ * api-token.do, and a host cached in accurate_sync_state.
+ */
+export function assertAccurateUrl(url: string): void {
+  const u = new URL(url);
+  const host = u.hostname.toLowerCase();
+  if (u.protocol !== "https:" || !(host === "accurate.id" || host.endsWith(".accurate.id"))) {
+    throw new AccurateError(
+      `Alamat ${u.protocol}//${u.host} di luar accurate.id; permintaan dihentikan supaya token tidak terkirim ke sana`,
+      502,
+    );
+  }
+}
 
 export class AccurateError extends Error {
   constructor(
@@ -83,6 +101,7 @@ export class AccurateClient {
     let target = url;
     for (let hop = 0; hop < 3; hop++) {
       if (this.calls > 0 && this.gapMs > 0) await new Promise((r) => setTimeout(r, this.gapMs));
+      assertAccurateUrl(target);
       this.calls++;
       const res = await this.fetchImpl(target, { method, headers: await this.headers(), redirect: "manual" });
       if (res.status === 301 || res.status === 302 || res.status === 307 || res.status === 308) {

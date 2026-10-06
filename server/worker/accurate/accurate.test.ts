@@ -202,3 +202,41 @@ describe("AccurateClient", () => {
     expect(seen).toEqual(["account.accurate.id"]);
   });
 });
+
+describe("AccurateClient only sends credentials to Accurate", () => {
+  // Every request carries the Bearer token and a signature, so a redirect or a
+  // host from api-token.do that points outside accurate.id must stop the call
+  // before anything is sent there.
+  const respond = (body: unknown, init: ResponseInit = {}) => new Response(JSON.stringify(body), init);
+
+  it("refuses a 308 to a host outside accurate.id, without contacting it", async () => {
+    const seen: string[] = [];
+    const client = new AccurateClient(creds, "https://zeus.accurate.id", (async (u: string) => {
+      seen.push(new URL(u).host);
+      return new Response(null, { status: 308, headers: { location: "https://evil.example.com/accurate/api/item/list.do" } });
+    }) as typeof fetch, 0);
+    await expect(client.list("item/list.do", {})).rejects.toThrow(/di luar accurate\.id/);
+    expect(seen).toEqual(["zeus.accurate.id"]);
+  });
+
+  it("refuses a database host from api-token.do outside accurate.id, or over http", async () => {
+    for (const host of ["https://accurate.id.evil.com", "http://zeus.accurate.id"]) {
+      const seen: string[] = [];
+      const client = new AccurateClient(creds, null, (async (u: string) => {
+        seen.push(new URL(u).host);
+        return respond({ s: true, d: { "data usaha": { host } } });
+      }) as typeof fetch, 0);
+      await expect(client.list("item/list.do", {})).rejects.toThrow(/di luar accurate\.id/);
+      expect(seen).toEqual(["account.accurate.id"]);
+    }
+  });
+
+  it("still follows a 308 between Accurate hosts", async () => {
+    const client = new AccurateClient(creds, "https://zeus.accurate.id", (async (u: string) =>
+      new URL(u).host === "zeus.accurate.id"
+        ? new Response(null, { status: 308, headers: { location: "https://hera.accurate.id/accurate/api/item/list.do" } })
+        : respond({ s: true, d: [], sp: { page: 1, pageCount: 1, rowCount: 0 } })) as typeof fetch, 0);
+    await client.list("item/list.do", {});
+    expect(client.movedTo).toBe("https://hera.accurate.id");
+  });
+});
