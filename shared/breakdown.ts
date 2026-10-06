@@ -141,7 +141,13 @@ export function explainLine(
       (saving > 0 ? `; klien hemat ${rp(saving)} dibanding RRP.` : "; sama dengan RRP."),
   );
 
-  if (row.held) flags.push("Ditahan: COGS perlu dicek manajer, tidak ikut total");
+  if (row.held) {
+    flags.push(
+      row.holdReason === "sales"
+        ? "Menyusul: harganya ditolak sales, tidak ikut total"
+        : "Ditahan: COGS perlu dicek manajer, tidak ikut total",
+    );
+  }
   if (margin < 0) flags.push("Di bawah modal");
   else if (policy && margin < policy.minLineMargin) flags.push(`Margin di bawah minimum ${pct(policy.minLineMargin)}`);
   if (row.estCogs || !(row.cogs > 0)) flags.push("COGS belum pasti");

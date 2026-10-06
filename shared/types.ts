@@ -83,6 +83,12 @@ export interface QuoteItem {
    * policy. Recomputed on every read while the quote is editable, frozen at submit.
    */
   held?: boolean;
+  /**
+   * Why the line is held: "cogs" (default, above) or "sales" — sales marked it
+   * Tolak in the "Cek harga" Excel, so the approved quote goes ahead without it
+   * and it is offered later (shared/fixTasks.ts). Set by the server only.
+   */
+  holdReason?: "cogs" | "sales";
 }
 
 export interface Region {

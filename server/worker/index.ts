@@ -15,6 +15,9 @@ import { approvalsRouter } from "./routes/approvals";
 import { assistantRouter, assistantEnabled } from "./routes/assistant";
 import { settingsRouter } from "./routes/settings";
 import { accurateRouter } from "./routes/accurate";
+import { fixTasksRouter } from "./routes/fixTasks";
+import { DIGEST_CRON, runFixDigest } from "./fixDigest";
+import { appLink, notifyEmail } from "./notify";
 import { syncTick } from "./accurate/sync";
 import { clientIp, type Bindings, type Env } from "./env";
 
@@ -55,6 +58,7 @@ app.route("/api/catalog", catalogRouter);
 app.route("/api/quotes", quotesRouter);
 app.route("/api/approvals", approvalsRouter);
 app.route("/api/assistant", assistantRouter);
+app.route("/api/fix-tasks", fixTasksRouter);
 app.route("/api/settings", settingsRouter);
 app.route("/api/accurate", accurateRouter);
 
@@ -79,7 +83,21 @@ app.onError((err, c) => {
 
 /* Cron (wrangler.toml [triggers]): advances the Accurate sync cursor a
    bounded number of API calls per tick. No-op when no token is set. */
-async function scheduled(_controller: ScheduledController, env: Bindings, ctx: ExecutionContext): Promise<void> {
+async function scheduled(controller: ScheduledController, env: Bindings, ctx: ExecutionContext): Promise<void> {
+  // Each cron entry is its own invocation with its own subrequest budget.
+  if (controller.cron === DIGEST_CRON) {
+    ctx.waitUntil(
+      runFixDigest(env.DB, {
+        now: new Date(),
+        link: appLink(env, "/perbaikan"),
+        send: (to, subject, html) => notifyEmail(env, to, subject, html),
+      }).then(
+        (r) => console.log("[fix-digest]", JSON.stringify(r)),
+        (err) => console.error("[fix-digest] failed:", err),
+      ),
+    );
+    return;
+  }
   ctx.waitUntil(
     syncTick(env, { deadlineMs: 25_000 }).then(
       (r) => r.length && console.log("[accurate] tick", JSON.stringify(r)),

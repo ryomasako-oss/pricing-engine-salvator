@@ -21,6 +21,7 @@ import { quotesRouter } from "./routes/quotes.js";
 import { approvalsRouter } from "./routes/approvals.js";
 import { assistantRouter, assistantEnabled } from "./routes/assistant.js";
 import { settingsRouter } from "./routes/settings.js";
+import { fixTasksRouter } from "./routes/fixTasks.js";
 import { ensureSeed } from "./seed.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -81,6 +82,7 @@ app.use("/api/quotes", quotesRouter);
 app.use("/api/approvals", approvalsRouter);
 app.use("/api/assistant", assistantRouter);
 app.use("/api/settings", settingsRouter);
+app.use("/api/fix-tasks", fixTasksRouter);
 
 app.use("/api", (_req, res) => {
   res.status(404).json({ error: "Endpoint tidak ditemukan." });

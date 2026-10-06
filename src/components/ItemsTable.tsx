@@ -200,8 +200,15 @@ export function ItemsTable({
                         </div>
                       )}
                       {r.held && (
-                        <span className="badge amber" title="COGS item ini perlu dicek manajer. Tidak ikut total dan dokumen sampai dilepas.">
-                          Ditahan
+                        <span
+                          className={`badge ${r.holdReason === "sales" ? "blue" : "amber"}`}
+                          title={
+                            r.holdReason === "sales"
+                              ? "Harganya ditolak sales saat cek. Tidak ikut total dan dokumen; ditulis sebagai item menyusul dan ada di Perlu diperbaiki."
+                              : "COGS item ini perlu dicek manajer. Tidak ikut total dan dokumen sampai dilepas."
+                          }
+                        >
+                          {r.holdReason === "sales" ? "Menyusul" : "Ditahan"}
                         </span>
                       )}
                     </td>

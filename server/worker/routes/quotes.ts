@@ -4,8 +4,10 @@ import { all, get, run, stmt, batch } from "../../db.d1";
 import { audit, auditFor } from "../audit";
 import { requireAuth, requirePermission } from "../auth";
 import { hasPermission } from "../../../shared/permissions";
-import { salesReviewSchema, snapshotSchema, zodMessage } from "../../validate";
-import { checkSalesReview, rejectionNote } from "../../../shared/salesReview";
+import { salesReviewSchema, snapshotSchema, unmatchedSchema, zodMessage } from "../../validate";
+import { checkSalesReview, rejectionNote, salesOutcome } from "../../../shared/salesReview";
+import { tasksFromItems, tasksFromSalesRejection, tasksFromUnmatched, type NewFixTask } from "../../../shared/fixTasks";
+import { INSERT_TASK_SQL, insertTaskParams } from "../../fixTasks";
 import {
   EDITABLE_STATUSES,
   STATUS_FLOW,
@@ -49,6 +51,10 @@ quotesRouter.use(requireAuth);
 
 /** Every quote this router sends goes through here: staff get prices, not costs (PE-1). */
 const view = (role: Role, quote: Quote | null) => quote && quoteForViewer(role, quote);
+
+/** "Perlu diperbaiki": one open task per problem (server/fixTasks.ts), as batch statements. */
+const taskStmts = (db: D1Database, tasks: NewFixTask[], userId: number) =>
+  tasks.map((t) => stmt(db, INSERT_TASK_SQL, ...insertTaskParams(t, userId)));
 
 /** Reps may only change their own quotes or one reassigned to them; managers/admins may change any. */
 function canEdit(user: User, createdBy: number, assignedTo: number | null): boolean {
@@ -186,6 +192,8 @@ quotesRouter.post("/", async (c) => {
       title: z.string().min(1).max(200),
       client_id: z.number().int().nullable().optional(),
       snapshot: z.unknown().optional(),
+      // Rows of a client's list with no catalog item ("Dari list klien"): kept as tasks.
+      unmatched: unmatchedSchema.optional(),
     })
     .safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
@@ -259,6 +267,8 @@ quotesRouter.post("/", async (c) => {
     }
   }
   await saveRevision(c.env.DB, id!, 1, snapshot!, user.id, "Dibuat");
+  const listTasks = taskStmts(c.env.DB, tasksFromUnmatched(id!, parsed.data.unmatched ?? []), user.id);
+  if (listTasks.length) await batch(c.env.DB, listTasks);
 
   await audit(c.env.DB, user.id, "quote", id!, "created", { number, title: parsed.data.title });
   return c.json({ quote: view(user.role, await findQuote(c.env.DB, id!)) }, 201);
@@ -570,8 +580,11 @@ quotesRouter.post("/:id/submit", async (c) => {
   // A manager submitting a quote that breaks no rule is approved on the spot.
   const autoApprove = clean && hasPermission(user.role, "decide_quotes");
   const now = new Date().toISOString();
+  // What isn't offered (held COGS, a unit without a ratio) goes on "Perlu diperbaiki".
+  const heldProblems = await cogsProblemsFor(c.env.DB, quote.items.filter((it) => it.held).map((it) => it.code));
 
   await batch(c.env.DB, [
+    ...taskStmts(c.env.DB, tasksFromItems(id, quote.items, heldProblems), user.id),
     stmt(
       c.env.DB,
       `INSERT INTO approvals(quote_id, requested_by, decision, breaches, monthly_value, net_margin,
@@ -804,9 +817,10 @@ quotesRouter.get("/:id/sales-review", async (c) => {
 });
 
 /**
- * All ACC: recorded, the quote stays approved. Any Tolak: the quote goes
- * back to draft as the next revision (reasons kept in sales_reviews), and the
- * managers are told, so the price is revised and approved again.
+ * All ACC: recorded, the quote stays approved. Some Tolak: those lines are
+ * held as "sales" and become "Perlu diperbaiki" tasks; the rest stays
+ * approved (or goes to the manager if it now breaks the policy). Every line
+ * Tolak: back to draft as the next revision for the manager.
  */
 quotesRouter.post("/:id/sales-review", async (c) => {
   const user = c.get("user")!;
@@ -820,51 +834,85 @@ quotesRouter.post("/:id/sales-review", async (c) => {
   if (!check.ok) return c.json({ error: check.error }, check.status);
 
   const rejected = check.rejected.length;
-  const note = rejected ? rejectionNote(user.name, check.rejected) : "";
+  const outcome = salesOutcome(quote.items, check.rejected);
+  // A partial rejection changes what the client is offered; if what is left
+  // breaks the policy, the manager decides again (pending) instead of the
+  // quote staying approved on numbers nobody approved.
+  const after = { ...quote, items: outcome.items };
+  const recheck = outcome.mode === "partial" ? await breachesFor(c.env.DB, after) : null;
+  const backToManager = !!recheck && !isWithinPolicy(recheck.breaches);
+  const db = c.env.DB;
   const statements = [
     stmt(
-      c.env.DB,
+      db,
       "INSERT INTO sales_reviews(quote_id, rev_no, reviewed_by, lines, rejected) VALUES(?, ?, ?, ?, ?)",
       id, quote.rev_no, user.id, JSON.stringify(check.lines), rejected,
     ),
+    ...taskStmts(db, tasksFromSalesRejection(id, check.rejected, quote.items, user.name), user.id),
   ];
-  if (rejected) {
+  if (outcome.mode === "all") {
+    // Nothing left to offer: back to draft for the manager, like a reopen.
     statements.push(
       stmt(
-        c.env.DB,
+        db,
         "INSERT INTO quote_revisions(quote_id, rev_no, snapshot, note, created_by) VALUES(?, ?, ?, ?, ?)",
-        id, quote.rev_no, JSON.stringify(quote), `Ditolak sales: ${rejected} baris`, user.id,
+        id, quote.rev_no, JSON.stringify(quote), `Ditolak sales: semua ${rejected} baris`, user.id,
       ),
-      // Like a reopen, the note is cleared: the reasons live in sales_reviews
-      // (the banner reads them there), so they can't follow the quote into
-      // its next approval.
       stmt(
-        c.env.DB,
+        db,
         `UPDATE quotes SET status = 'draft', rev_no = ?, approved_by = NULL, approved_at = NULL,
                 decision_note = NULL, updated_at = datetime('now') WHERE id = ?`,
         quote.rev_no + 1, id,
       ),
     );
+  } else if (outcome.mode === "partial") {
+    // The version moves so an older "Cek harga" file can't be imported again.
+    statements.push(
+      stmt(db, "UPDATE quotes SET items = ?, version = version + 1, updated_at = datetime('now') WHERE id = ?", JSON.stringify(outcome.items), id),
+      stmt(
+        db,
+        "INSERT INTO quote_revisions(quote_id, rev_no, snapshot, note, created_by) VALUES(?, ?, ?, ?, ?)",
+        id, quote.rev_no, JSON.stringify(after), `Dicek sales: ${rejected} baris menyusul`, user.id,
+      ),
+    );
+    if (backToManager) {
+      statements.push(
+        stmt(
+          db,
+          `INSERT INTO approvals(quote_id, requested_by, decision, breaches, monthly_value, net_margin)
+           VALUES(?, ?, 'pending', ?, ?, ?)`,
+          id, user.id, JSON.stringify(recheck!.breaches), recheck!.monthly_value, recheck!.net_margin,
+        ),
+        stmt(db, "UPDATE quotes SET status = 'submitted', approved_by = NULL, approved_at = NULL, updated_at = datetime('now') WHERE id = ?", id),
+      );
+    }
   }
-  await batch(c.env.DB, statements);
-  await audit(c.env.DB, user.id, "quote", id, rejected ? "sales_rejected" : "sales_accepted", {
+  await batch(db, statements);
+  await audit(db, user.id, "quote", id, rejected ? "sales_rejected" : "sales_accepted", {
     rev_no: quote.rev_no,
     rejected: check.rejected.map((l) => l.lineNo),
+    outcome: backToManager ? "pending" : outcome.mode,
   });
-  if (rejected) {
+  if (outcome.mode === "all" || backToManager) {
     const managers = await all<{ name: string; email: string; phone: string }>(
-      c.env.DB,
+      db,
       "SELECT name, email, phone FROM users WHERE role = 'manager' AND active = 1",
     );
+    const note = rejectionNote(user.name, check.rejected);
     c.executionCtx.waitUntil(
-      Promise.all(
-        managers.map((recipient) =>
-          notifyQuoteDecided(c.env, {
-            recipient, quoteNumber: quote.number, quoteTitle: quote.title, decision: "rejected",
-            decidedBy: `${user.name} (cek sales)`, note, quoteId: id,
+      outcome.mode === "all"
+        ? Promise.all(
+            managers.map((recipient) =>
+              notifyQuoteDecided(c.env, {
+                recipient, quoteNumber: quote.number, quoteTitle: quote.title, decision: "rejected",
+                decidedBy: `${user.name} (cek sales)`, note, quoteId: id,
+              }),
+            ),
+          )
+        : notifyQuoteSubmitted(c.env, {
+            recipients: managers, quoteNumber: quote.number, quoteTitle: quote.title,
+            submittedBy: `${user.name} (cek sales: ${rejected} baris menyusul)`, quoteId: id,
           }),
-        ),
-      ),
     );
   }
   return c.json({ quote: view(user.role, await findQuote(c.env.DB, id)), review: await latestSalesReview(c.env.DB, id) });

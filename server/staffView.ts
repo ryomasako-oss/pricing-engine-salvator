@@ -146,6 +146,8 @@ export interface StaffLine {
   priceUom?: string;
   /** COGS awaits a manager: shown, but not offered or totalled (server/cogsCheck.ts applyHolds). */
   held?: boolean;
+  /** "sales": rejected in the sales check and offered later (shared/fixTasks.ts). */
+  holdReason?: "cogs" | "sales";
 }
 
 export interface StaffPricing {
@@ -181,6 +183,7 @@ export function quoteForViewer(role: Role, quote: Quote) {
     ...(r.notes ? { notes: r.notes } : {}),
     ...(r.priceUom ? { priceUom: r.priceUom } : {}),
     ...(r.held ? { held: true } : {}),
+    ...(r.holdReason ? { holdReason: r.holdReason } : {}),
   }));
   const pricing: StaffPricing = {
     subtotal: s.revenue,

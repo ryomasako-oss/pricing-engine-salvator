@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { checkSalesReview, rejectionNote } from "./salesReview";
+import { checkSalesReview, rejectionNote, salesOutcome } from "./salesReview";
+import type { QuoteItem } from "./types";
 
 const quote = {
   status: "approved",
@@ -56,5 +57,21 @@ describe("rejectionNote", () => {
   it("names the reviewer and every rejected line with its reason", () => {
     expect(rejectionNote("Sales Satu", [{ id: "b", lineNo: 2, name: "Kertas", decision: "tolak", reason: "mahal" }]))
       .toBe("Ditolak sales (Sales Satu): baris 2 Kertas — mahal. Perbaiki harga baris itu lalu ajukan lagi.");
+  });
+});
+
+describe("salesOutcome", () => {
+  const it3 = (id: string, held = false): QuoteItem => ({ id, lineNo: 1, code: id, name: id, uom: "Pcs", qty: 1, cogs: 1, rrp: 2, role: "CORE", ...(held ? { held: true } : {}) });
+  const items = [it3("a"), it3("b"), it3("h", true)];
+  it("holds only the rejected lines as sales and keeps the rest", () => {
+    const o = salesOutcome(items, [{ id: "b" }]);
+    expect(o.mode).toBe("partial");
+    expect(o.items.map((x) => [x.id, !!x.held, x.holdReason ?? null])).toEqual([["a", false, null], ["b", true, "sales"], ["h", true, null]]);
+  });
+  it("is 'all' when every offered line is rejected (an already-held line doesn't count)", () => {
+    expect(salesOutcome(items, [{ id: "a" }, { id: "b" }]).mode).toBe("all");
+  });
+  it("is 'none' with no rejection and leaves items alone", () => {
+    expect(salesOutcome(items, [])).toEqual({ mode: "none", items });
   });
 });
