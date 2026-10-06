@@ -1367,47 +1367,82 @@ scenario("a flagged jump stays flagged after a further small change", async (d) 
   return { problem };
 });
 
-scenario("submitting a quote with a bad-COGS catalog item -> 400 naming the line; fixed catalog -> submits", async (d) => {
-  await importRows(d, [{ code: "C-BAD", name: "COGS above list", cogs: 5000, list_price: 4000 }]);
+scenario("a bad-COGS line is held, not offered; the rest submits; holds freeze at submit and lift on reopen", async (d) => {
+  await importRows(d, [
+    { code: "H-BAD", name: "COGS above list", cogs: 5000, list_price: 4000 },
+    { code: "H-OK", name: "Fine item", cogs: 1000, list_price: 2000 },
+  ]);
   const rep = await loginCached(d, "rep@test.local", "password123");
-  // A rep quotes the catalog item by code; its COGS comes from the catalog (PE-1).
   const made = await d.api("POST", "/api/quotes", {
-    body: { title: "Bad COGS", snapshot: { ...snapshotFor([]), items: [{ id: "b1", code: "C-BAD", qty: 1, rrp: 8000 }] } },
+    body: {
+      title: "Hold",
+      snapshot: {
+        ...snapshotFor([]),
+        items: [{ id: "h1", code: "H-OK", qty: 10, rrp: 2000 }, { id: "h2", code: "H-BAD", qty: 3, rrp: 8000 }],
+      },
+    },
     session: rep,
   });
   assert.equal(made.status, 201, JSON.stringify(made.json));
-  const q = made.json.quote as { id: number };
-  const blocked = await d.api("POST", `/api/quotes/${q.id}/submit`, { session: rep });
-  const still = await d.api("GET", `/api/quotes/${q.id}`, { session: rep });
-  await importRows(d, [{ code: "C-BAD", name: "COGS above list", list_price: 9000 }]);
-  const ok = await d.api("POST", `/api/quotes/${q.id}/submit`, { session: rep });
+  const id = made.json.quote.id as number;
+  const draft = (await d.api("GET", `/api/quotes/${id}`, { session: rep })).json.quote;
+  const okOnly = (await d.api("POST", "/api/quotes/preview", {
+    body: { snapshot: { items: [{ id: "h1", code: "H-OK", qty: 10, rrp: 2000 }] } },
+    session: rep,
+  })).json.quote;
+  const submit = await d.api("POST", `/api/quotes/${id}/submit`, { session: rep });
+  // Fixing the catalog after submit doesn't change the submitted document...
+  await importRows(d, [{ code: "H-BAD", name: "COGS above list", list_price: 9000 }]);
+  const frozen = (await d.api("GET", `/api/quotes/${id}`, { session: rep })).json.quote;
+  // ...reopening makes it a draft again, and the fixed line is released.
+  const reopen = await d.api("POST", `/api/quotes/${id}/reopen`, { session: rep });
+  const released = (await d.api("GET", `/api/quotes/${id}`, { session: rep })).json.quote;
 
-  assert.equal(blocked.status, 400);
-  assert.deepEqual(blocked.json.cogsBlocked.map((l: { code: string; lineNo: number }) => [l.code, l.lineNo]), [["C-BAD", 1]]);
-  assert.equal(still.json.quote.status, "draft");
-  assert.equal(ok.status, 200, JSON.stringify(ok.json));
-  return { blocked: blocked.status, lines: blocked.json.cogsBlocked, status: still.json.quote.status, ok: ok.status };
+  const heldOf = (q: { items: { id: string; held?: boolean }[] }) => q.items.map((i) => [i.id, Boolean(i.held)]);
+  assert.deepEqual(heldOf(draft), [["h1", false], ["h2", true]]);
+  assert.equal(draft.pricing.subtotal, okOnly.pricing.subtotal);
+  assert.equal(submit.status, 200, JSON.stringify(submit.json));
+  assert.deepEqual(heldOf(frozen), [["h1", false], ["h2", true]]);
+  assert.equal(reopen.status, 200, JSON.stringify(reopen.json));
+  assert.deepEqual(heldOf(released), [["h1", false], ["h2", false]]);
+  assert.ok(released.pricing.subtotal > draft.pricing.subtotal);
+  return {
+    draft: heldOf(draft), submit: submit.status, frozen: heldOf(frozen), released: heldOf(released),
+    subtotals: [draft.pricing.subtotal, released.pricing.subtotal],
+  };
+});
+
+scenario("a quote whose every line is held can't be submitted (400)", async (d) => {
+  await importRows(d, [{ code: "H-ALL", name: "Only bad", cogs: 5000, list_price: 4000 }]);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const made = await d.api("POST", "/api/quotes", {
+    body: { title: "All held", snapshot: { ...snapshotFor([]), items: [{ id: "a1", code: "H-ALL", qty: 1, rrp: 8000 }] } },
+    session: rep,
+  });
+  const submit = await d.api("POST", `/api/quotes/${made.json.quote.id}/submit`, { session: rep });
+  const after = await d.api("GET", `/api/quotes/${made.json.quote.id}`, { session: rep });
+  assert.equal(submit.status, 400);
+  assert.equal(after.json.quote.status, "draft");
+  return { status: submit.status, error: submit.json.error, quoteStatus: after.json.quote.status };
 });
 
 // Regression: the check looked codes up exactly, so a line coded "c-case" or
-// "C-CASE " (a client's file keeps the code as typed) skipped the block.
-scenario("a bad-COGS item is blocked whatever the case or spacing of the line's code", async (d) => {
+// "C-CASE " (a client's file keeps the code as typed) escaped it.
+scenario("a bad-COGS line is held whatever the case or spacing of its code", async (d) => {
   await importRows(d, [{ code: "C-CASE", name: "COGS above list", cogs: 5000, list_price: 4000 }]);
   // A manager: staff lines are built from the catalog and always carry its spelling (PE-1).
-  const rep = await loginCached(d, "manager@test.local", "password123");
-  const submitWith = async (code: string) => {
-    const q = await createDraft(d, rep, [cleanItem({ code, name: "COGS above list", cogs: 5000, rrp: 8000 })]);
-    const r = await d.api("POST", `/api/quotes/${q.id}/submit`, { session: rep });
-    return { status: r.status, lines: r.json.cogsBlocked?.map((l: { code: string }) => l.code) };
-  };
-  const lower = await submitWith("c-case");
-  const spaced = await submitWith(" C-CASE ");
-  const check = await d.api("POST", "/api/catalog/cogs-check", { body: { codes: ["c-case"] }, session: rep });
-
-  assert.deepEqual(lower, { status: 400, lines: ["c-case"] });
-  assert.deepEqual(spaced, { status: 400, lines: [" C-CASE "] });
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const q = await createDraft(d, manager, [
+    cleanItem({ id: "c1", code: "c-case", name: "COGS above list", cogs: 5000, rrp: 8000 }),
+    cleanItem({ id: "c2", lineNo: 2, code: " C-CASE ", name: "COGS above list", cogs: 5000, rrp: 8000 }),
+    cleanItem({ id: "c3", lineNo: 3 }),
+  ]);
+  const got = (await d.api("GET", `/api/quotes/${q.id}`, { session: manager })).json.quote;
+  const check = await d.api("POST", "/api/catalog/cogs-check", { body: { codes: ["c-case"] }, session: manager });
+  const held = got.items.map((i: { id: string; held?: boolean }) => [i.id, Boolean(i.held)]);
+  assert.deepEqual(held, [["c1", true], ["c2", true], ["c3", false]]);
   assert.deepEqual(Object.keys(check.json.problems), ["c-case"]);
-  return { lower, spaced, check: check.json };
+  return { held, check: Object.keys(check.json.problems) };
 });
 
 scenario("cogs-check reports only problem codes; empty COGS is a problem", async (d) => {

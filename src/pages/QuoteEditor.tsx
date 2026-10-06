@@ -258,8 +258,9 @@ export function QuoteEditorPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [dirty, readOnly, save]);
 
-  // Catalog items whose COGS looks wrong (shared/cogsCheck.ts) block submit on
-  // the server; check when the submit dialog opens so the rep sees why first.
+  // Lines whose catalog COGS needs a manager (shared/cogsCheck.ts) are held at
+  // submit: left off the offer while the rest goes ahead. Check when the submit
+  // dialog opens (it also covers lines added since the last load).
   const [cogsBlocked, setCogsBlocked] = useState<{ lineNo: number; name: string; problem: string }[] | null>(null);
   useEffect(() => {
     if (modal?.kind !== "submit" || !snapshot) return;
@@ -957,7 +958,11 @@ export function QuoteEditorPage() {
               <button
                 className="btn primary"
                 onClick={() => void submit()}
-                disabled={missingTerms(snapshot.meta).length > 0 || cogsBlocked == null || cogsBlocked.length > 0}
+                disabled={
+                  missingTerms(snapshot.meta).length > 0 ||
+                  cogsBlocked == null ||
+                  (snapshot.items.length > 0 && cogsBlocked.length === snapshot.items.length)
+                }
               >
                 {blocked.length ? "Ajukan ke manajer" : "Ajukan"}
               </button>
@@ -979,8 +984,12 @@ export function QuoteEditorPage() {
             </div>
           )}
           {cogsBlocked && cogsBlocked.length > 0 && (
-            <div className="notice error" style={{ marginBottom: 12 }}>
-              <strong>Item dengan COGS tidak wajar tidak boleh dijual:</strong>
+            <div className={`notice ${cogsBlocked.length === snapshot.items.length ? "error" : "warn"}`} style={{ marginBottom: 12 }}>
+              <strong>
+                {cogsBlocked.length === snapshot.items.length
+                  ? "Semua item ditahan, jadi belum ada yang bisa diajukan:"
+                  : `${cogsBlocked.length} item ditahan dan tidak ikut penawaran sampai COGS-nya dicek:`}
+              </strong>
               <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
                 {cogsBlocked.map((l) => (
                   <li key={l.lineNo}>
@@ -988,7 +997,7 @@ export function QuoteEditorPage() {
                   </li>
                 ))}
               </ul>
-              Hapus barisnya, atau minta pengelola katalog memperbaiki COGS-nya.
+              Di dokumen ke customer, item ini ditulis sebagai "item menyusul".
             </div>
           )}
           <BreachList breaches={breaches} />

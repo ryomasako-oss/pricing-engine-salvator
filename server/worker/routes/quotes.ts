@@ -19,7 +19,7 @@ import {
 } from "../quoteService";
 import { isWithinPolicy } from "../../../shared/policy";
 import { defaultPayment, missingTerms, missingTermsMessage } from "../../../shared/terms";
-import { blockedLines, blockedMessage } from "../../cogsCheck";
+import { ALL_HELD, applyHolds } from "../../cogsCheck";
 import {
   approvalsForViewer,
   auditForViewer,
@@ -136,8 +136,10 @@ quotesRouter.post("/preview", async (c) => {
     scenario: base?.scenario ?? 1,
     meta: parsed.data.snapshot.meta ?? base?.meta,
     items: merged.items,
+    status: "draft",
   } as Quote;
-  return c.json({ quote: view(user.role, draft) });
+  const held = applyHolds(draft, await cogsProblemsFor(c.env.DB, merged.items.map((i) => i.code)));
+  return c.json({ quote: view(user.role, held) });
 });
 
 quotesRouter.get("/:id", async (c) => {
@@ -558,12 +560,9 @@ quotesRouter.post("/:id/submit", async (c) => {
   // Term of payment and warranty must be on the customer's document.
   const missing = missingTerms(quote.meta);
   if (missing.length) return c.json({ error: missingTermsMessage(missing), missing }, 400);
-  // An item whose catalog COGS looks wrong must not be sold (shared/cogsCheck.ts).
-  const cogsBlocked = blockedLines(
-    quote.items,
-    problemsForViewer(user.role, await cogsProblemsFor(c.env.DB, quote.items.map((it) => it.code))),
-  );
-  if (cogsBlocked.length) return c.json({ error: blockedMessage(cogsBlocked), cogsBlocked }, 400);
+  // Lines whose catalog COGS needs a manager are held, not offered (findQuote
+  // applied the holds); the rest goes ahead. Nothing to offer -> refuse.
+  if (quote.items.length && quote.items.every((it) => it.held)) return c.json({ error: ALL_HELD }, 400);
 
   const { breaches, monthly_value, net_margin } = await breachesFor(c.env.DB, quote);
   const clean = isWithinPolicy(breaches);
@@ -587,6 +586,8 @@ quotesRouter.post("/:id/submit", async (c) => {
       autoApprove ? now : null,
       autoApprove ? "Otomatis disetujui: seluruh angka di dalam kebijakan." : null,
     ),
+    // Freeze the holds as submitted: from here on the document doesn't change by itself.
+    stmt(c.env.DB, "UPDATE quotes SET items = ? WHERE id = ?", JSON.stringify(quote.items), id),
     stmt(
       c.env.DB,
       `UPDATE quotes SET status = ?, approved_by = ?, approved_at = ?, updated_at = datetime('now')

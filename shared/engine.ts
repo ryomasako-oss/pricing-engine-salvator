@@ -90,7 +90,10 @@ export function computeEngine(
   const leaderMargin = Math.min(0.999, finite(a.leaderMargin));
   const marginFloor = Math.min(0.999, finite(a.marginFloor));
 
-  const cogsValue = items.reduce((s, it) => s + finite(it.qty) * finite(it.cogs), 0);
+  // Held lines (COGS needs a manager's check, shared/cogsCheck.ts) are priced
+  // so the editor can show them, but count toward nothing: no totals, no
+  // logistics share, no policy. They aren't on offer until released.
+  const cogsValue = items.filter((it) => !it.held).reduce((s, it) => s + finite(it.qty) * finite(it.cogs), 0);
   const shareTotal = regions.reduce((s, r) => s + finite(r.share), 0);
 
   const computedRegions: ComputedRegion[] = regions.map((r) => {
@@ -186,13 +189,14 @@ export function computeEngine(
     };
   });
 
-  const rrpValue = rows.reduce((s, r) => s + r.qty * r.rrp, 0);
-  const landedTotal = rows.reduce((s, r) => s + r.qty * r.landed, 0);
-  const leaders = rows.filter((r) => r.role === "LEADER");
+  const active = rows.filter((r) => !r.held);
+  const rrpValue = active.reduce((s, r) => s + r.qty * r.rrp, 0);
+  const landedTotal = active.reduce((s, r) => s + r.qty * r.landed, 0);
+  const leaders = active.filter((r) => r.role === "LEADER");
   const leaderRrp = leaders.reduce((s, r) => s + r.qty * r.rrp, 0);
 
   const scen: ScenarioResult[] = [0, 1, 2].map((k) => {
-    const revenue = rows.reduce((s, r) => s + r.qty * r.prices[k], 0);
+    const revenue = active.reduce((s, r) => s + r.qty * r.prices[k], 0);
     const profit = revenue - landedTotal;
     const leaderRevenue = leaders.reduce((s, r) => s + r.qty * r.prices[k], 0);
     return {
@@ -206,16 +210,16 @@ export function computeEngine(
       savings: rrpValue - revenue,
       savingsPct: rrpValue > 0 ? 1 - revenue / rrpValue : 0,
       leaderSavingsPct: leaderRrp > 0 ? 1 - leaderRevenue / leaderRrp : 0,
-      atCeiling: rows.filter((r) => r.rrp > 0 && r.prices[k] === r.rrp).length,
-      lowestMargin: rows.length ? Math.min(...rows.map((r) => r.margins[k])) : 0,
-      belowCost: rows.filter((r) => r.margins[k] < 0).length,
+      atCeiling: active.filter((r) => r.rrp > 0 && r.prices[k] === r.rrp).length,
+      lowestMargin: active.length ? Math.min(...active.map((r) => r.margins[k])) : 0,
+      belowCost: active.filter((r) => r.margins[k] < 0).length,
     };
   });
 
-  const given = -rows
+  const given = -active
     .filter((r) => r.role === "LEADER")
     .reduce((s, r) => s + r.delta, 0);
-  const recovered = rows
+  const recovered = active
     .filter((r) => r.role === "PROFIT")
     .reduce((s, r) => s + r.delta, 0);
 
@@ -230,8 +234,8 @@ export function computeEngine(
     blended,
     logiApplied,
     shareTotal,
-    capped: rows.filter((r) => r.status[0] === "CAPPED AT RRP").length,
-    floorHits: rows.filter((r) => r.status[2] === "FLOOR HIT").length,
+    capped: active.filter((r) => r.status[0] === "CAPPED AT RRP").length,
+    floorHits: active.filter((r) => r.status[2] === "FLOOR HIT").length,
     subsidy: { given, recovered, coverage: given > 0 ? recovered / given : 0 },
   };
 }

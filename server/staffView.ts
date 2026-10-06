@@ -144,6 +144,8 @@ export interface StaffLine {
   notes?: string;
   /** Set when the unit changed without a known ratio: prices are still in this unit. */
   priceUom?: string;
+  /** COGS awaits a manager: shown, but not offered or totalled (server/cogsCheck.ts applyHolds). */
+  held?: boolean;
 }
 
 export interface StaffPricing {
@@ -178,6 +180,7 @@ export function quoteForViewer(role: Role, quote: Quote) {
     price: r.prices[k],
     ...(r.notes ? { notes: r.notes } : {}),
     ...(r.priceUom ? { priceUom: r.priceUom } : {}),
+    ...(r.held ? { held: true } : {}),
   }));
   const pricing: StaffPricing = {
     subtotal: s.revenue,

@@ -19,7 +19,7 @@ import {
 } from "../quoteService.js";
 import { isWithinPolicy } from "../../shared/policy.js";
 import { defaultPayment, missingTerms, missingTermsMessage } from "../../shared/terms.js";
-import { blockedLines, blockedMessage } from "../cogsCheck.js";
+import { ALL_HELD, applyHolds } from "../cogsCheck.js";
 import {
   approvalsForViewer,
   auditForViewer,
@@ -145,8 +145,10 @@ quotesRouter.post("/preview", (req: AuthedRequest, res) => {
     scenario: base?.scenario ?? 1,
     meta: parsed.data.snapshot.meta ?? base?.meta,
     items: merged.items,
+    status: "draft",
   } as Quote;
-  res.json({ quote: view(req, draft) });
+  const held = applyHolds(draft, cogsProblemsFor(merged.items.map((i) => i.code)));
+  res.json({ quote: view(req, held) });
 });
 
 quotesRouter.get("/:id", (req: AuthedRequest, res) => {
@@ -540,13 +542,10 @@ quotesRouter.post("/:id/submit", (req: AuthedRequest, res) => {
     res.status(400).json({ error: missingTermsMessage(missing), missing });
     return;
   }
-  // An item whose catalog COGS looks wrong must not be sold (shared/cogsCheck.ts).
-  const cogsBlocked = blockedLines(
-    quote.items,
-    problemsForViewer(req.user!.role, cogsProblemsFor(quote.items.map((it) => it.code))),
-  );
-  if (cogsBlocked.length) {
-    res.status(400).json({ error: blockedMessage(cogsBlocked), cogsBlocked });
+  // Lines whose catalog COGS needs a manager are held, not offered (findQuote
+  // applied the holds); the rest goes ahead. Nothing to offer -> refuse.
+  if (quote.items.length && quote.items.every((it) => it.held)) {
+    res.status(400).json({ error: ALL_HELD });
     return;
   }
   const { breaches, monthly_value, net_margin } = breachesFor(quote);
@@ -569,6 +568,8 @@ quotesRouter.post("/:id/submit", (req: AuthedRequest, res) => {
       autoApprove ? new Date().toISOString() : null,
       autoApprove ? "Otomatis disetujui: seluruh angka di dalam kebijakan." : null,
     );
+    // Freeze the holds as submitted: from here on the document doesn't change by itself.
+    run("UPDATE quotes SET items = ? WHERE id = ?", JSON.stringify(quote.items), id);
     run(
       `UPDATE quotes SET status = ?, approved_by = ?, approved_at = ?, updated_at = datetime('now')
         WHERE id = ?`,

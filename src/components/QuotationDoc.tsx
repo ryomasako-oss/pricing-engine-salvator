@@ -6,6 +6,7 @@ import { SCENARIOS } from "@shared/engine";
 import { fmtDate, grp, pct, rp } from "@shared/format";
 import type { Assumptions, EngineResult, QuoteMeta, ScenarioIndex } from "@shared/types";
 import { paymentLabel, warrantyLabel } from "@shared/terms";
+import { heldNote, offeredRows } from "@shared/holds";
 
 export interface CompanyInfo {
   name: string;
@@ -128,7 +129,7 @@ export function QuotationDoc({
             </tr>
           </thead>
           <tbody>
-            {engine.rows.map((r) => (
+            {offeredRows(engine.rows).map((r) => (
               <tr key={r.id}>
                 <td className="c">{r.lineNo}</td>
                 <td className="l">
@@ -173,6 +174,7 @@ export function QuotationDoc({
         {company.npwp ? ` NPWP ${company.npwp}.` : ""}
       </p>
       {meta.notes && <p className="small">{meta.notes}</p>}
+      {heldNote(engine.rows) && <p className="small"><strong>Item menyusul:</strong> {heldNote(engine.rows)}</p>}
 
       {/* Meeting 2026-10-05: room for a wet or digital signature on both sides. */}
       <div className="quote-sign">

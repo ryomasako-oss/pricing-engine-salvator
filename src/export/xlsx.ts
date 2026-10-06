@@ -4,6 +4,7 @@
 import * as XLSX from "xlsx";
 import { SCENARIOS } from "@shared/engine";
 import { paymentLabel, warrantyLabel } from "@shared/terms";
+import { heldNote, offeredRows } from "@shared/holds";
 import type { Assumptions, EngineResult, QuoteMeta, ScenarioIndex } from "@shared/types";
 
 interface Input {
@@ -34,7 +35,7 @@ export function quoteWorkbook(input: Input): XLSX.WorkBook {
   const wb = XLSX.utils.book_new();
 
   /* Client-facing sheet */
-  const quoteRows = engine.rows.map((r) => ({
+  const quoteRows = offeredRows(engine.rows).map((r) => ({
     No: r.lineNo,
     Kode: r.code,
     Item: r.name,
@@ -60,6 +61,7 @@ export function quoteWorkbook(input: Input): XLSX.WorkBook {
       "Total per bulan": Math.round(s.annual),
     } as never,
     {} as never,
+    ...(heldNote(engine.rows) ? [{ Item: "Item menyusul", Satuan: heldNote(engine.rows) } as never] : []),
     { Item: "Term of payment", Satuan: paymentLabel(meta) || "—" } as never,
     { Item: "Garansi", Satuan: warrantyLabel(meta) || "—" } as never,
     { Item: "Masa berlaku penawaran", Satuan: `${meta.validity} hari` } as never,
@@ -80,6 +82,7 @@ export function quoteWorkbook(input: Input): XLSX.WorkBook {
   /* Internal analysis */
   const analysis = engine.rows.map((r) => ({
     No: r.lineNo,
+    Ditahan: r.held ? "Ya (COGS perlu dicek)" : "",
     Item: r.name,
     Satuan: r.uom,
     Qty: r.qty,

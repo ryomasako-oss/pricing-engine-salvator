@@ -77,6 +77,12 @@ export interface QuoteItem {
    * means they are per `uom`. See shared/uom.ts.
    */
   priceUom?: string;
+  /**
+   * The catalog COGS of this line needs a manager's check (shared/cogsCheck.ts):
+   * the line stays on the quote but is not offered, totalled or checked against
+   * policy. Recomputed on every read while the quote is editable, frozen at submit.
+   */
+  held?: boolean;
 }
 
 export interface Region {
