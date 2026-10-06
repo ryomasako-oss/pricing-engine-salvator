@@ -129,6 +129,8 @@ export async function handleChat(body: unknown, deps: GeminiDeps): Promise<ChatR
     generationConfig: {
       temperature: 0.2,
       thinkingConfig: { thinkingLevel: "low" },
+      // A chat turn is a few hundred tokens; the cap stops a runaway answer from holding the request open.
+      maxOutputTokens: 6000,
       responseMimeType: "application/json",
       responseSchema: RESPONSE_SCHEMA,
     },
@@ -136,6 +138,7 @@ export async function handleChat(body: unknown, deps: GeminiDeps): Promise<ChatR
 
   const out = await geminiGenerate(JSON.stringify(request), deps, "chat");
   if (!out.ok) return fail(out.status, out.error);
+  if (out.finishReason === "MAX_TOKENS") return fail(502, "Jawaban chat terpotong. Coba kirim ulang dengan pesan yang lebih pendek.");
   let answer: unknown;
   try {
     answer = JSON.parse(out.text);

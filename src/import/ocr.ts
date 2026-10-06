@@ -68,7 +68,14 @@ export async function ocrRequestList(file: File, mime: string): Promise<{ lines:
     throw new ApiError("Tidak bisa menghubungi server. Periksa koneksi Anda.", 0);
   }
   const data = (await res.json().catch(() => ({}))) as { lines?: RequestLine[]; truncated?: boolean; error?: string };
-  if (!res.ok || !data.lines) throw new ApiError(data.error || `OCR gagal (${res.status}).`, res.status);
+  if (!res.ok || !data.lines) {
+    // No JSON body means the answer came from Cloudflare or a proxy (an error page), not from our server.
+    const slow = res.status === 504 || res.status === 524 || res.status === 522 || res.status === 1102 || res.status >= 520;
+    throw new ApiError(
+      data.error || (slow ? "Pembacaan file terlalu lama. Coba file yang lebih kecil atau unggah Excel-nya." : `OCR gagal (${res.status}).`),
+      res.status,
+    );
+  }
   return {
     lines: data.lines,
     notes: [
