@@ -1,4 +1,5 @@
 /* Zod schemas guarding everything that crosses the API boundary. */
+import { clientKey } from "../shared/clients.js";
 
 import { z } from "zod";
 
@@ -99,7 +100,11 @@ export const companySchema = z.object({
 });
 
 export const clientSchema = z.object({
-  name: z.string().min(1).max(200),
+  name: z
+    .string()
+    .min(1)
+    .max(200)
+    .refine((n) => clientKey(n) !== "", "Nama klien harus berisi nama perusahaan, bukan hanya PT/CV."),
   code: z.string().max(64).default(""),
   address: z.string().max(500).default(""),
   contact_name: z.string().max(120).default(""),

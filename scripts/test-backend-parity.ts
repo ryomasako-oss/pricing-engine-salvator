@@ -1660,6 +1660,34 @@ scenario("PE-1: sorting the catalog by COGS is ignored for staff (the order woul
   return { rep, manager };
 });
 
+
+// ---------------------------------------------------------------
+// "+ Klien baru" inside the quote flows (2026-10-07): no second copy of a client.
+// ---------------------------------------------------------------
+
+scenario("creating a client that already exists under another spelling -> 409 with the existing one", async (d) => {
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const first = await d.api("POST", "/api/clients", { body: { name: "PT Dupli Kat Jaya" }, session: rep });
+  const again = await d.api("POST", "/api/clients", { body: { name: "DUPLI KAT JAYA, PT." }, session: rep });
+  const other = await d.api("POST", "/api/clients", { body: { name: "PT Dupli Kat Jaya Logistik" }, session: rep });
+  const legalOnly = await d.api("POST", "/api/clients", { body: { name: "PT" }, session: rep });
+  assert.equal(first.status, 201);
+  assert.equal(again.status, 409);
+  assert.equal(again.json.existing.id, first.json.client.id);
+  assert.equal(other.status, 201);
+  assert.equal(legalOnly.status, 400);
+  // Renaming another client onto the same company is refused; saving a client under its own name is not.
+  const rename = await d.api("PUT", `/api/clients/${other.json.client.id}`, { body: { name: "Dupli Kat Jaya PT" }, session: rep });
+  const keep = await d.api("PUT", `/api/clients/${first.json.client.id}`, { body: { name: "PT. Dupli Kat Jaya" }, session: rep });
+  assert.equal(rename.status, 409);
+  assert.equal(keep.status, 200);
+  return {
+    rename: rename.status, keep: keep.status,
+    first: first.status, again: again.status, sameId: again.json.existing.id === first.json.client.id,
+    existingName: again.json.existing.name, other: other.status, legalOnly: legalOnly.status,
+  };
+});
+
 // ---------------------------------------------------------------
 // Run: ONE pair of backends for the whole run (Node caches the
 // dynamically-imported server/db.js module by URL, so "fresh drivers

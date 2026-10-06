@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
+import { ClientQuickAdd } from "../components/ClientQuickAdd";
 import { Icon } from "../components/Icon";
 import { ListToQuote } from "../components/ListToQuote";
 import { Modal } from "../components/Modal";
@@ -263,6 +264,7 @@ export function DashboardPage() {
         <ListToQuote
           clients={clients}
           onClose={() => setFromList(false)}
+          onClientAdded={(c) => setClients((l) => [...l, c].sort((a, b) => a.name.localeCompare(b.name)))}
           onCreated={(id) => navigate(`/quotes/${id}`)}
         />
       )}
@@ -271,6 +273,7 @@ export function DashboardPage() {
         <NewQuoteModal
           clients={clients}
           onClose={() => setCreating(false)}
+          onClientAdded={(c) => setClients((l) => [...l, c].sort((a, b) => a.name.localeCompare(b.name)))}
           onCreated={(id) => navigate(`/quotes/${id}`)}
         />
       )}
@@ -282,14 +285,26 @@ function NewQuoteModal({
   clients,
   onClose,
   onCreated,
+  onClientAdded,
 }: {
   clients: Client[];
   onClose: () => void;
   onCreated: (id: number) => void;
+  onClientAdded: (client: Client) => void;
 }) {
   const toast = useToast();
   const [title, setTitle] = useState("");
   const [clientId, setClientId] = useState<number | "">(clients[0]?.id ?? "");
+  const [list, setList] = useState(clients);
+  const [adding, setAdding] = useState(false);
+  const chooseClient = (client: Client, isNew: boolean) => {
+    if (isNew) {
+      setList((l) => [...l, client].sort((a, b) => a.name.localeCompare(b.name)));
+      onClientAdded(client);
+    }
+    setClientId(client.id);
+    setAdding(false);
+  };
   const [busy, setBusy] = useState(false);
 
   const create = async () => {
@@ -314,7 +329,7 @@ function NewQuoteModal({
       footer={
         <>
           <button className="btn ghost" onClick={onClose}>Batal</button>
-          <button className="btn primary" onClick={create} disabled={busy || !title.trim()}>
+          <button className="btn primary" onClick={create} disabled={busy || adding || !title.trim()}>
             {busy ? "Membuat…" : "Buat dan buka"}
           </button>
         </>
@@ -331,23 +346,27 @@ function NewQuoteModal({
             onChange={(e) => setTitle(e.target.value)}
           />
         </label>
-        <label className="field">
-          <span>Klien</span>
-          <select
-            className="select"
-            value={clientId}
-            onChange={(e) => setClientId(e.target.value === "" ? "" : Number(e.target.value))}
-          >
-            <option value="">Tanpa klien</option>
-            {clients.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
-        </label>
-        {clients.length === 0 && (
-          <p className="notice info">
-            Belum ada klien terdaftar. Anda bisa membuatnya nanti di menu Klien.
-          </p>
+        {adding ? (
+          <ClientQuickAdd clients={list} onDone={chooseClient} onCancel={() => setAdding(false)} />
+        ) : (
+          <div className="picker">
+            <label className="field">
+              <span>Klien</span>
+              <select
+                className="select"
+                value={clientId}
+                onChange={(e) => setClientId(e.target.value === "" ? "" : Number(e.target.value))}
+              >
+                <option value="">Tanpa klien</option>
+                {list.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </label>
+            <button className="btn ghost" onClick={() => setAdding(true)}>
+              <Icon name="plus" size={15} /> Klien baru
+            </button>
+          </div>
         )}
       </div>
     </Modal>

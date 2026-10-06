@@ -302,6 +302,13 @@ a { color: var(--navy); }
 .notice.warn { background: var(--warn-bg); color: var(--warn); border: 1px solid var(--warn-rule); }
 .notice.error { background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger-rule); }
 .notice.ok { background: var(--ok-bg); color: var(--ok); border: 1px solid var(--ok-bg); }
+.notice.info { background: var(--s1-bg); color: var(--ink); border: 1px solid var(--rule); }
+.quick-add { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid var(--rule); border-radius: 12px; background: var(--soft); }
+.quick-add .similar { list-style: none; margin: 6px 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.quick-add .similar li { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.quick-add .similar li span { overflow-wrap: anywhere; }
+.picker { display: flex; gap: 8px; align-items: flex-end; }
+.picker .field { flex: 1; min-width: 0; }
 .notice.info { background: var(--soft); color: var(--muted); border: 1px solid var(--rule); }
 .dup-banner { margin-bottom: 12px; }
 .dup-list { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 4px; }

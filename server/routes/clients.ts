@@ -3,6 +3,7 @@ import { all, get, run } from "../db.js";
 import { audit } from "../audit.js";
 import { type AuthedRequest, requireAuth, requirePermission } from "../auth.js";
 import { clientSchema, zodMessage } from "../validate.js";
+import { sameClient } from "../../shared/clients.js";
 import type { Client } from "../../shared/types.js";
 
 export const clientsRouter = Router();
@@ -24,6 +25,11 @@ clientsRouter.post("/", (req: AuthedRequest, res) => {
     return;
   }
   const d = parsed.data;
+  const existing = sameClient(d.name, all<Client>("SELECT * FROM clients"));
+  if (existing) {
+    res.status(409).json({ error: `Klien ini sudah ada sebagai \"${existing.name}\". Pakai yang itu, atau bedakan namanya.`, existing });
+    return;
+  }
   const info = run(
     `INSERT INTO clients(name, code, address, contact_name, contact_email, contact_phone,
                          payment_terms, delivery_terms)
@@ -48,6 +54,11 @@ clientsRouter.put("/:id", (req: AuthedRequest, res) => {
     return;
   }
   const d = parsed.data;
+  const existing = sameClient(d.name, all<Client>("SELECT * FROM clients"), id);
+  if (existing) {
+    res.status(409).json({ error: `Klien ini sudah ada sebagai \"${existing.name}\". Pakai yang itu, atau bedakan namanya.`, existing });
+    return;
+  }
   run(
     `UPDATE clients SET name = ?, code = ?, address = ?, contact_name = ?, contact_email = ?,
             contact_phone = ?, payment_terms = ?, delivery_terms = ? WHERE id = ?`,
