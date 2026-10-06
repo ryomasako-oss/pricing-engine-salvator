@@ -20,6 +20,15 @@ export interface Bindings {
   TWILIO_ACCOUNT_SID?: string;
   TWILIO_AUTH_TOKEN?: string;
   TWILIO_WHATSAPP_FROM?: string;
+  /* Accurate Online (API Token auth). Set with `wrangler secret put`. One
+     token per Data Usaha; an entity without a token is skipped. */
+  ACCURATE_SIGNATURE_SECRET?: string;
+  ACCURATE_TOKEN_CV?: string;
+  ACCURATE_TOKEN_PT?: string;
+  ACCURATE_PAGE_SIZE?: string;
+  ACCURATE_CALLS_PER_TICK?: string;
+  ACCURATE_SYNC_EVERY_HOURS?: string;
+  ACCURATE_SYNC_ENABLED?: string;
 }
 
 /** Client IP as seen by Cloudflare's edge, for keying rate limits. */

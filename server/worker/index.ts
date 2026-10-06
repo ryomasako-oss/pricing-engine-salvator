@@ -14,7 +14,9 @@ import { quotesRouter } from "./routes/quotes";
 import { approvalsRouter } from "./routes/approvals";
 import { assistantRouter, assistantEnabled } from "./routes/assistant";
 import { settingsRouter } from "./routes/settings";
-import { clientIp, type Env } from "./env";
+import { accurateRouter } from "./routes/accurate";
+import { syncTick } from "./accurate/sync";
+import { clientIp, type Bindings, type Env } from "./env";
 
 const app = new Hono<Env>();
 
@@ -54,6 +56,7 @@ app.route("/api/quotes", quotesRouter);
 app.route("/api/approvals", approvalsRouter);
 app.route("/api/assistant", assistantRouter);
 app.route("/api/settings", settingsRouter);
+app.route("/api/accurate", accurateRouter);
 
 // Non-API paths reach here because run_worker_first now covers every
 // request (not just /api/*) — see wrangler.toml. Hand those to the static
@@ -74,4 +77,16 @@ app.onError((err, c) => {
   return c.json({ error: "Terjadi kesalahan di server." }, 500);
 });
 
-export default app;
+/* Cron (wrangler.toml [triggers]): advances the Accurate sync cursor a
+   bounded number of API calls per tick. No-op when no token is set. */
+async function scheduled(_controller: ScheduledController, env: Bindings, ctx: ExecutionContext): Promise<void> {
+  ctx.waitUntil(
+    syncTick(env, { deadlineMs: 25_000 }).then(
+      (r) => r.length && console.log("[accurate] tick", JSON.stringify(r)),
+      (err) => console.error("[accurate] tick failed:", err),
+    ),
+  );
+}
+
+export default { fetch: app.fetch, scheduled } satisfies ExportedHandler<Bindings>;
+export { app };

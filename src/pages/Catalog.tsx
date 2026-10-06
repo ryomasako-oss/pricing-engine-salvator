@@ -5,6 +5,7 @@ import { useToast } from "../context/ToastContext";
 import { Icon } from "../components/Icon";
 import { Modal } from "../components/Modal";
 import { ImportDialog } from "../components/ImportDialog";
+import { AccuratePanel } from "../components/AccuratePanel";
 import { fmtDateTime, grp } from "@shared/format";
 import type { CatalogItem, UnitFactor } from "@shared/types";
 import { cleanUnits, sameUom } from "@shared/uom";
@@ -183,6 +184,8 @@ export function CatalogPage() {
           </div>
         </div>
       )}
+
+      {can("import_catalog") && <AccuratePanel onApplied={load} />}
 
       {stats && stats.total > 0 && stats.priced / stats.total < 0.6 && (
         <p className="notice warn" style={{ marginBottom: 12 }}>
