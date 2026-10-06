@@ -182,7 +182,6 @@ accurateRouter.post("/apply", requirePermission("import_catalog"), async (c) => 
   const st = await loadState(c.env.DB, entity);
   const staged = await get<{ n: number }>(c.env.DB, "SELECT COUNT(*) AS n FROM accurate_items WHERE entity = ?", entity);
   if (!staged?.n) return c.json({ error: `Belum ada data Accurate ${entity}. Jalankan sinkron dulu.` }, 409);
-  const stockReady = st.last_success_at && st.phase === "idle" ? 1 : 0;
 
   const db = c.env.DB;
   const scope = `i.entity = ?1 AND i.suspended = 0 AND i.code <> ''
@@ -199,8 +198,13 @@ accurateRouter.post("/apply", requirePermission("import_catalog"), async (c) => 
   );
   const upsertUnitChanged =
     "(catalog_items.cogs > 0 AND lower(trim(catalog_items.uom)) <> lower(trim(excluded.uom)))";
+  // Stock only from a completed run, decided inside the batch (one transaction)
+  // so a run that starts after these checks can't slip in before the write.
+  const stockReady = `COALESCE((SELECT last_success_at IS NOT NULL AND phase = 'idle'
+                                 FROM accurate_sync_state WHERE entity = ?1), 0) = 1`;
   const keepUnit = `NOT EXISTS (SELECT 1 FROM catalog_items c WHERE c.code = i.code AND ${unitChanged("c")})`;
-  const [upsert, , units] = await batch(db, [
+  const [ready, upsert, , units] = await batch(db, [
+    stmt(db, `SELECT ${stockReady} AS ok`, entity),
     stmt(
       db,
       `INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock, category, source)
@@ -216,13 +220,12 @@ accurateRouter.post("/apply", requirePermission("import_catalog"), async (c) => 
                     WHEN excluded.uom <> '' THEN excluded.uom ELSE catalog_items.uom END,
          list_price = CASE WHEN ${upsertUnitChanged} THEN catalog_items.list_price
                            WHEN excluded.list_price > 0 THEN excluded.list_price ELSE catalog_items.list_price END,
-         stock = CASE WHEN ?3 = 1 AND NOT ${upsertUnitChanged} THEN excluded.stock ELSE catalog_items.stock END,
+         stock = CASE WHEN ${stockReady} AND NOT ${upsertUnitChanged} THEN excluded.stock ELSE catalog_items.stock END,
          category = CASE WHEN excluded.category <> '' THEN excluded.category ELSE catalog_items.category END,
          source = excluded.source,
          updated_at = datetime('now')`,
       entity,
       insertNew ? 1 : 0,
-      stockReady,
     ),
     // Unit ratios: only replace an item's units when Accurate actually has some.
     stmt(
@@ -247,7 +250,7 @@ accurateRouter.post("/apply", requirePermission("import_catalog"), async (c) => 
     insertNew,
     changed: upsert.meta.changes,
     unitRows: units.meta.changes,
-    stockApplied: !!stockReady,
+    stockApplied: Boolean((ready.results[0] as { ok: number } | undefined)?.ok),
     // Kept on their catalog unit; a manager reconciles unit and COGS by hand.
     unitMismatch: mismatched.map((r) => r.code),
   };

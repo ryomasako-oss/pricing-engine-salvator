@@ -251,6 +251,30 @@ describe("POST /api/accurate/apply keeps cost, unit and stock consistent (Codex 
     expect(during.json.stockApplied).toBe(false);
     expect(sqlite.prepare("SELECT stock FROM catalog_items WHERE code = 'C1'").get()).toEqual({ stock: 5 });
   });
+
+  // Codex re-review: the check ran before the write, so a run starting in
+  // between still had its half-read stock (2 + 5 = 7) applied.
+  it("doesn't apply stock when a sync run starts between apply's checks and its write", async () => {
+    const { sqlite, db } = freshDb();
+    sqlite.exec(`INSERT INTO users(id, email, name, password_hash, role) VALUES (1, 'm@x', 'M', 'x', 'manager')`);
+    sqlite.exec(`INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock) VALUES ('C1', 'Kertas', 'Pcs', 1000, 1500, 0)`);
+    const items = [{ id: 1, no: "C1", name: "Kertas", unitPrice: 1500, unit1Name: "Pcs" }];
+    await runToIdle(db, fakeAccurate({ items, stock: { 1: [{ no: "C1", quantity: 5 }] } }).impl, cfg, "PT");
+    // The run starts right before apply's write reaches the database.
+    const racing = new Proxy(db, {
+      get(target, prop, receiver) {
+        if (prop !== "batch") return Reflect.get(target, prop, receiver);
+        return (statements: D1PreparedStatement[]) => {
+          sqlite.exec(`UPDATE accurate_sync_state SET phase = 'stock', run_id = 'run-2' WHERE entity = 'PT'`);
+          sqlite.exec(`INSERT INTO accurate_stock(entity, warehouse_id, item_code, quantity, run_id) VALUES ('PT', 2, 'C1', 2, 'run-2')`);
+          return target.batch(statements);
+        };
+      },
+    });
+    const r = await applier(racing)({ entity: "PT" });
+    expect(r.json.stockApplied).toBe(false);
+    expect(sqlite.prepare("SELECT stock FROM catalog_items WHERE code = 'C1'").get()).toEqual({ stock: 0 });
+  });
 });
 
 describe("AccurateClient", () => {
