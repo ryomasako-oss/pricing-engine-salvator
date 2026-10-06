@@ -262,7 +262,7 @@ export function ListToQuote({
               </div>
             </div>
             <label className="btn" aria-disabled={busy}>
-              {busy ? "Mencocokkan…" : "Pilih file"}
+              {busy ? "Membaca & mencocokkan… (PDF/foto bisa sampai 1 menit)" : "Pilih file"}
               <input
                 type="file"
                 accept=".xlsx,.xls,.csv,.pdf,.png,.jpg,.jpeg,.webp,.heic,.heif,application/pdf,image/*"

@@ -43,7 +43,9 @@ const SYSTEM =
 const PROMPT =
   "List every requested item in this document. For each row give: name (as written), code (item code if the " +
   "document has one), qty (the number requested), uom (the unit written next to it, e.g. pcs, box, rim) and " +
-  "price (a unit price the customer states, only if there is one). Skip headers, totals, signatures and notes.";
+  "price (a unit price the customer states, only if there is one). Include EVERY item row, even when its quantity is " +
+  "missing, '-', or text such as 'disesuaikan' (then leave qty out); never drop a row because a field is unclear. " +
+  "Skip only headers, totals, signatures and notes.";
 
 const RESPONSE_SCHEMA = {
   type: "OBJECT",
@@ -124,12 +126,15 @@ export async function handleOcr(mime: string | undefined | null, base64: string,
   if (!BASE64.test(data)) return fail(400, "File tidak valid.");
 
   const model = (deps.model || DEFAULT_GEMINI_MODEL).replace(/[^\w.-]/g, "");
+  // Measured on a real 69-row PDF (gemini-3.5-flash): low thinking took 9 s but dropped 1-3 rows whose
+  // quantity was "-" or text; medium took 30 s and kept all of them. A silently missing item is worse
+  // for a quote than a wait, so medium.
   // Built by hand so the large base64 string is concatenated, not re-parsed or re-encoded.
   const body =
     `{"systemInstruction":{"parts":[{"text":${JSON.stringify(SYSTEM)}}]},` +
     `"contents":[{"role":"user","parts":[{"inlineData":{"mimeType":${JSON.stringify(type)},"data":"${data}"}},` +
     `{"text":${JSON.stringify(PROMPT)}}]}],` +
-    `"generationConfig":{"temperature":0,"responseMimeType":"application/json","responseSchema":${JSON.stringify(RESPONSE_SCHEMA)}}}`;
+    `"generationConfig":{"temperature":0,"thinkingConfig":{"thinkingLevel":"medium"},"responseMimeType":"application/json","responseSchema":${JSON.stringify(RESPONSE_SCHEMA)}}}`;
 
   let res: Response;
   try {

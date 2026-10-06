@@ -72,7 +72,7 @@ export async function ocrRequestList(file: File, mime: string): Promise<{ lines:
   return {
     lines: data.lines,
     notes: [
-      "Daftar ini dibaca otomatis dari file. Periksa nama dan qty tiap baris sebelum dipakai.",
+      `${data.lines.length} baris dibaca otomatis dari file. Cocokkan jumlahnya dengan file asli dan periksa nama serta qty tiap baris.`,
       ...(data.truncated ? ["File berisi lebih dari 500 baris; hanya 500 pertama yang dibaca."] : []),
     ],
   };
