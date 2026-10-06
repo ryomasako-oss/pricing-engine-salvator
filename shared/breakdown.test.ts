@@ -100,6 +100,15 @@ describe("explainLine wording", () => {
     expect(ex.price).toBeGreaterThan(Math.floor(11500 * 0.9));
   });
 
+  // Regression: with the floor above the ceiling the text said "held at Rp 52.000"
+  // right after naming a Rp 53.450 floor, as if 52.000 were the floor.
+  it("S3 floor above the RRP ceiling says the price stops at RRP, below the minimum margin", () => {
+    const e = explain(line({ cogs: 47000, rrp: 52000 }), 2);
+    expect(e.price).toBe(52000);
+    expect(e.steps.join(" ")).toMatch(/di atas plafon RRP Rp 52\.000, jadi harga berhenti di RRP dan marginnya di bawah minimum/);
+    expect(e.steps.join(" ")).not.toMatch(/ditahan di Rp 52\.000/);
+  });
+
   it("S2 leader and profit roles are named", () => {
     expect(explain(line({ role: "LEADER" }), 1).steps.join(" ")).toContain("Item LEADER");
     expect(explain(line({ role: "PROFIT" }), 1).steps.join(" ")).toContain("Item PROFIT");

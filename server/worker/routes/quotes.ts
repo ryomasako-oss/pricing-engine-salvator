@@ -805,7 +805,7 @@ quotesRouter.get("/:id/sales-review", async (c) => {
 
 /**
  * All ACC: recorded, the quote stays approved. Any Tolak: the quote goes
- * back to draft as the next revision with the reasons as its note, and the
+ * back to draft as the next revision (reasons kept in sales_reviews), and the
  * managers are told, so the price is revised and approved again.
  */
 quotesRouter.post("/:id/sales-review", async (c) => {
@@ -835,11 +835,14 @@ quotesRouter.post("/:id/sales-review", async (c) => {
         "INSERT INTO quote_revisions(quote_id, rev_no, snapshot, note, created_by) VALUES(?, ?, ?, ?, ?)",
         id, quote.rev_no, JSON.stringify(quote), `Ditolak sales: ${rejected} baris`, user.id,
       ),
+      // Like a reopen, the note is cleared: the reasons live in sales_reviews
+      // (the banner reads them there), so they can't follow the quote into
+      // its next approval.
       stmt(
         c.env.DB,
         `UPDATE quotes SET status = 'draft', rev_no = ?, approved_by = NULL, approved_at = NULL,
-                decision_note = ?, updated_at = datetime('now') WHERE id = ?`,
-        quote.rev_no + 1, note, id,
+                decision_note = NULL, updated_at = datetime('now') WHERE id = ?`,
+        quote.rev_no + 1, id,
       ),
     );
   }

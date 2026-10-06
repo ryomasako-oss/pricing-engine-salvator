@@ -2,7 +2,8 @@
 -- "Cek harga" Excel; sales mark each line ACC or Tolak and the file is
 -- imported back. One row per import. `lines` holds only
 -- [{id, lineNo, name, decision, reason}] (no prices: the file's numbers are
--- never read). Any Tolak sends the quote back to draft for the manager.
+-- never read). Any Tolak sends the quote back to draft for the manager;
+-- the banner on the quote reads the reasons from here.
 
 CREATE TABLE IF NOT EXISTS sales_reviews (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,

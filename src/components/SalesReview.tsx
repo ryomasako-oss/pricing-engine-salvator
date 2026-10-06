@@ -81,7 +81,13 @@ export function SalesReviewImport({
         <>
           <button className="btn ghost" onClick={onClose}>Batal</button>
           <button className="btn primary" onClick={() => void send()} disabled={!ready || busy}>
-            {busy ? "Menyimpan…" : rejected.length ? `Kirim ${rejected.length} tolakan ke manajer` : "Simpan: semua ACC"}
+            {busy
+              ? "Menyimpan…"
+              : !ready
+                ? "Kirim hasil cek"
+                : rejected.length
+                  ? `Kirim ${rejected.length} tolakan ke manajer`
+                  : "Simpan: semua ACC"}
           </button>
         </>
       }

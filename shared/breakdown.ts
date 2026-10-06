@@ -115,9 +115,12 @@ export function explainLine(
     const floor = up(row.landed / (1 - marginFloor));
     steps.push(`RRP ${rp(row.rrp)} − diskon ${pct(rrpDiscount)} = ${rp(discounted)} (dibulatkan ke bawah).`);
     steps.push(
-      discounted < floor
-        ? `Itu menembus margin minimum ${pct(marginFloor)} (batas ${rp(floor)}), jadi harga ditahan di ${rp(cap(floor))}.`
-        : `Masih di atas batas margin minimum ${pct(marginFloor)} (${rp(floor)}), jadi harga ${rp(cap(discounted))}.`,
+      discounted >= floor
+        ? `Masih di atas batas margin minimum ${pct(marginFloor)} (${rp(floor)}), jadi harga ${rp(cap(discounted))}.`
+        : floor > row.rrp
+          ? `Itu menembus margin minimum ${pct(marginFloor)} (batas ${rp(floor)}), tapi batas itu di atas plafon RRP ${rp(row.rrp)}, ` +
+            `jadi harga berhenti di RRP dan marginnya di bawah minimum.`
+          : `Itu menembus margin minimum ${pct(marginFloor)} (batas ${rp(floor)}), jadi harga ditahan di ${rp(floor)}.`,
     );
     computed = Math.min(row.rrp, Math.max(discounted, floor));
   }

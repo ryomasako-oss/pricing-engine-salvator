@@ -73,7 +73,7 @@ export function checkSalesReview(quote: ReviewableQuote, p: SalesReviewPayload):
   return { ok: true, lines, rejected: lines.filter((l) => l.decision === "tolak") };
 }
 
-/** The note the reopened quote carries for the manager. */
+/** The reasons in one line, for the managers' email. */
 export function rejectionNote(reviewer: string, rejected: StoredReviewLine[]): string {
   return (
     `Ditolak sales (${reviewer}): ` +

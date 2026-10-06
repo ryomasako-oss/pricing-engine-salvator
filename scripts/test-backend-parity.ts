@@ -1720,7 +1720,11 @@ scenario("PE-2: a Tolak sends the quote back to draft (next revision) with the r
   });
   assert.equal(r.json.quote.status, "draft");
   assert.equal(r.json.quote.rev_no, rev_no + 1);
-  assert.match(r.json.quote.decision_note, /baris 2 Kertas — klien minta 48rb/);
+  assert.equal(r.json.quote.decision_note, null);
+  assert.deepEqual(
+    r.json.review.lines.filter((l: { decision: string }) => l.decision === "tolak").map((l: { lineNo: number; reason: string }) => [l.lineNo, l.reason]),
+    [[2, "klien minta 48rb"]],
+  );
   assert.equal(again.status, 409);
   return {
     status: r.status, quoteStatus: r.json.quote.status, rev: r.json.quote.rev_no - rev_no,
