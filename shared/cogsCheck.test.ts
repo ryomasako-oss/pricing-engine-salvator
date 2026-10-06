@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { COGS_JUMP, cogsProblem } from "./cogsCheck";
+import { cogsProblem } from "./cogsCheck";
 
 describe("cogsProblem", () => {
   it("passes a normal item", () => {
@@ -36,15 +36,18 @@ describe("cogsProblem", () => {
   });
 });
 
-describe("COGS_JUMP and the reference triggers", () => {
-  // The triggers move the reference only within the same limit the check
-  // flags at; if the two disagree, an item can be flagged while its
-  // reference silently moves on (or the other way round).
-  it("uses the same limit as the triggers in migration 0009 and its Express copy", () => {
-    for (const file of ["../migrations/0009_cogs_sanity.sql", "../server/db.ts"]) {
+describe("reference triggers (migration 0010)", () => {
+  // Since 0010 only a manager's confirmation (verify-cogs) moves the reference:
+  // no trigger may update catalog_cogs_baseline, in the migration or in the
+  // Express copy. A trigger that moved it within COGS_JUMP let small steps
+  // carry COGS +106% from its start without a flag.
+  it("no trigger updates the reference, in the migration or its Express copy", () => {
+    for (const file of ["../migrations/0010_cogs_reference_by_manager.sql", "../server/db.ts"]) {
       const sql = readFileSync(new URL(file, import.meta.url), "utf8");
-      const limits = [...sql.matchAll(/<=\s*([\d.]+)\s*\*\s*cogs/g)].map((m) => Number(m[1]));
-      expect(limits, file).toEqual([COGS_JUMP, COGS_JUMP]);
+      const triggers = [...sql.matchAll(/CREATE TRIGGER[\s\S]*?\bEND;/g)].map((m) => m[0]);
+      const replaced = triggers.filter((t) => /trg_cogs_(update|insert)/.test(t) && !/IF NOT EXISTS/.test(t));
+      expect(replaced.length, file).toBe(2);
+      for (const t of replaced) expect(t, file).not.toMatch(/UPDATE\s+catalog_cogs_baseline/i);
     }
   });
 });

@@ -134,6 +134,7 @@ async function makeWorkerDriver(): Promise<Driver> {
     "0007_catalog_item_uoms.sql",
     "0008_catalog_aliases.sql",
     "0009_cogs_sanity.sql",
+    "0010_cogs_reference_by_manager.sql",
   ]) {
     sqlite.exec(readFileSync(path.join(migrationsDir, file), "utf8"));
   }
@@ -1299,7 +1300,7 @@ async function problemOf(d: Driver, code: string): Promise<string | null> {
   return (r.json.items as { code: string; cogs_problem: string | null }[]).find((i) => i.code === code)!.cogs_problem;
 }
 
-scenario("COGS reference: small moves follow it, a >50% jump is flagged, a manager's confirmation moves it", async (d) => {
+scenario("COGS reference: imports never move it; a manager's confirmation does", async (d) => {
   await importRows(d, [{ code: "C-JMP", name: "Jump item", cogs: 1000, list_price: 9000 }]);
   await importRows(d, [{ code: "C-JMP", name: "Jump item", cogs: 1100 }]);
   const small = await problemOf(d, "C-JMP");
@@ -1308,7 +1309,7 @@ scenario("COGS reference: small moves follow it, a >50% jump is flagged, a manag
 
   const rep = await loginCached(d, "rep@test.local", "password123");
   const manager = await loginCached(d, "manager@test.local", "password123");
-  const list = await d.api("GET", "/api/catalog?q=C-JMP", { session: rep });
+  const list = await d.api("GET", "/api/catalog?q=C-JMP", { session: manager });
   const id = list.json.items[0].id;
   const repVerify = await d.api("POST", `/api/catalog/${id}/verify-cogs`, { session: rep });
   const mgrVerify = await d.api("POST", `/api/catalog/${id}/verify-cogs`, { session: manager });
@@ -1319,13 +1320,28 @@ scenario("COGS reference: small moves follow it, a >50% jump is flagged, a manag
   const jumpedAgain = await problemOf(d, "C-JMP");
 
   assert.equal(small, null);
-  assert.equal(jumped, "COGS Rp 2.500 berubah 127% dari COGS acuan Rp 1.100; perlu dicek manajer");
+  // The 1.100 import did not move the reference (0010): still measured from 1.000.
+  assert.equal(jumped, "COGS Rp 2.500 berubah 150% dari COGS acuan Rp 1.000; perlu dicek manajer");
   assert.equal(repVerify.status, 403);
   assert.equal(mgrVerify.status, 200);
   assert.equal(afterVerify, null);
   assert.equal(smallAfterVerify, null);
-  assert.match(jumpedAgain!, /dari COGS acuan Rp 2.600/);
+  assert.match(jumpedAgain!, /dari COGS acuan Rp 2.500/);
   return { small, jumped, repVerify: repVerify.status, mgrVerify: mgrVerify.json, afterVerify, smallAfterVerify, jumpedAgain };
+});
+
+// Regression (DEVA, review of #2): under 0009 each change within 50% moved the
+// reference, so 50.000 -> 72.000 (+44%) -> 103.000 (+43%) was never flagged
+// although COGS had moved +106%. Since 0010 imports never move the reference.
+scenario("small steps can't walk COGS away from its reference without a flag", async (d) => {
+  await importRows(d, [{ code: "C-STEP", name: "Steps", cogs: 50000, list_price: 900000 }]);
+  await importRows(d, [{ code: "C-STEP", name: "Steps", cogs: 72000 }]);
+  const first = await problemOf(d, "C-STEP");
+  await importRows(d, [{ code: "C-STEP", name: "Steps", cogs: 103000 }]);
+  const second = await problemOf(d, "C-STEP");
+  assert.equal(first, null);
+  assert.equal(second, "COGS Rp 103.000 berubah 106% dari COGS acuan Rp 50.000; perlu dicek manajer");
+  return { first, second };
 });
 
 // Regression: with "average of history", the jumped value itself entered the
