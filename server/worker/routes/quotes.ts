@@ -7,7 +7,7 @@ import { hasPermission } from "../../../shared/permissions";
 import { salesReviewSchema, snapshotSchema, unmatchedSchema, zodMessage } from "../../validate";
 import { checkSalesReview, rejectionNote, salesOutcome } from "../../../shared/salesReview";
 import { tasksFromItems, tasksFromSalesRejection, tasksFromUnmatched, type NewFixTask } from "../../../shared/fixTasks";
-import { INSERT_TASK_SQL, insertTaskParams } from "../../fixTasks";
+import { INSERT_TASKS_SQL, insertTasksParams } from "../../fixTasks";
 import {
   EDITABLE_STATUSES,
   STATUS_FLOW,
@@ -54,7 +54,7 @@ const view = (role: Role, quote: Quote | null) => quote && quoteForViewer(role, 
 
 /** "Perlu diperbaiki": one open task per problem (server/fixTasks.ts), as batch statements. */
 const taskStmts = (db: D1Database, tasks: NewFixTask[], userId: number) =>
-  tasks.map((t) => stmt(db, INSERT_TASK_SQL, ...insertTaskParams(t, userId)));
+  insertTasksParams(tasks, userId).map((params) => stmt(db, INSERT_TASKS_SQL, ...params));
 
 /** Reps may only change their own quotes or one reassigned to them; managers/admins may change any. */
 function canEdit(user: User, createdBy: number, assignedTo: number | null): boolean {
@@ -266,9 +266,17 @@ quotesRouter.post("/", async (c) => {
       number = await nextQuoteNumber(c.env.DB);
     }
   }
-  await saveRevision(c.env.DB, id!, 1, snapshot!, user.id, "Dibuat");
-  const listTasks = taskStmts(c.env.DB, tasksFromUnmatched(id!, parsed.data.unmatched ?? []), user.id);
-  if (listTasks.length) await batch(c.env.DB, listTasks);
+  // The first revision and the list's missing rows go in one batch (one
+  // transaction). The quote row itself is inserted just before (its number
+  // may need a retry), so a failure here leaves a quote without them.
+  await batch(c.env.DB, [
+    stmt(
+      c.env.DB,
+      "INSERT INTO quote_revisions(quote_id, rev_no, snapshot, note, created_by) VALUES(?, ?, ?, ?, ?)",
+      id!, 1, JSON.stringify(snapshot!), "Dibuat", user.id,
+    ),
+    ...taskStmts(c.env.DB, tasksFromUnmatched(id!, parsed.data.unmatched ?? []), user.id),
+  ]);
 
   await audit(c.env.DB, user.id, "quote", id!, "created", { number, title: parsed.data.title });
   return c.json({ quote: view(user.role, await findQuote(c.env.DB, id!)) }, 201);

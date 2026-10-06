@@ -5,15 +5,41 @@ import { dedupeKey, type NewFixTask, type FixKind } from "../shared/fixTasks.js"
 import type { Role } from "../shared/types.js";
 import { canSeeCosts } from "./staffView.js";
 
-/** Insert unless the same problem is already open (WHERE NOT EXISTS, safe on D1). */
-export const INSERT_TASK_SQL = `
+/**
+ * Inserts a JSON array of tasks in one statement, skipping any problem that
+ * is already open (WHERE NOT EXISTS, safe on D1). One statement per chunk,
+ * not per task: D1 on the Free plan allows 50 queries per invocation, and a
+ * client's list can have many rows with no catalog item.
+ */
+export const INSERT_TASKS_SQL = `
   INSERT INTO fix_tasks(kind, quote_id, line_id, code, item_name, qty, uom, detail, dedupe, created_by)
-  SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-   WHERE NOT EXISTS (SELECT 1 FROM fix_tasks WHERE dedupe = ? AND status = 'open')`;
+  SELECT json_extract(j.value, '$.kind'), json_extract(j.value, '$.quote_id'), json_extract(j.value, '$.line_id'),
+         json_extract(j.value, '$.code'), json_extract(j.value, '$.item_name'), json_extract(j.value, '$.qty'),
+         json_extract(j.value, '$.uom'), json_extract(j.value, '$.detail'), json_extract(j.value, '$.dedupe'), ?
+    FROM json_each(?) AS j
+   WHERE NOT EXISTS (SELECT 1 FROM fix_tasks f WHERE f.dedupe = json_extract(j.value, '$.dedupe') AND f.status = 'open')`;
 
-export function insertTaskParams(t: NewFixTask, userId: number | null) {
-  const key = dedupeKey(t);
-  return [t.kind, t.quote_id, t.line_id, t.code, t.item_name.slice(0, 300), t.qty, t.uom.slice(0, 32), t.detail.slice(0, 1000), key, userId, key] as const;
+export const TASKS_PER_STATEMENT = 250;
+
+/**
+ * [userId, json] per statement. Duplicates within the batch are dropped
+ * first: the open-dedupe unique index would otherwise refuse the whole insert.
+ */
+export function insertTasksParams(tasks: NewFixTask[], userId: number | null): [number | null, string][] {
+  const seen = new Set<string>();
+  const rows = [];
+  for (const t of tasks) {
+    const dedupe = dedupeKey(t);
+    if (seen.has(dedupe)) continue;
+    seen.add(dedupe);
+    rows.push({
+      kind: t.kind, quote_id: t.quote_id, line_id: t.line_id, code: t.code.slice(0, 64), item_name: t.item_name.slice(0, 300),
+      qty: t.qty, uom: t.uom.slice(0, 32), detail: t.detail.slice(0, 1000), dedupe,
+    });
+  }
+  const out: [number | null, string][] = [];
+  for (let i = 0; i < rows.length; i += TASKS_PER_STATEMENT) out.push([userId, JSON.stringify(rows.slice(i, i + TASKS_PER_STATEMENT))]);
+  return out;
 }
 
 const BASE = `

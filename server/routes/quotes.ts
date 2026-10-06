@@ -7,7 +7,7 @@ import { hasPermission } from "../../shared/permissions.js";
 import { salesReviewSchema, snapshotSchema, unmatchedSchema, zodMessage } from "../validate.js";
 import { checkSalesReview, rejectionNote, salesOutcome } from "../../shared/salesReview.js";
 import { tasksFromItems, tasksFromSalesRejection, tasksFromUnmatched, type NewFixTask } from "../../shared/fixTasks.js";
-import { INSERT_TASK_SQL, insertTaskParams } from "../fixTasks.js";
+import { INSERT_TASKS_SQL, insertTasksParams } from "../fixTasks.js";
 import {
   EDITABLE_STATUSES,
   STATUS_FLOW,
@@ -53,7 +53,7 @@ const view = (req: AuthedRequest, quote: Quote | null) => quote && quoteForViewe
 
 /** "Perlu diperbaiki": one open task per problem (server/fixTasks.ts). Call inside tx(). */
 const recordTasks = (tasks: NewFixTask[], userId: number) => {
-  for (const t of tasks) run(INSERT_TASK_SQL, ...insertTaskParams(t, userId));
+  for (const params of insertTasksParams(tasks, userId)) run(INSERT_TASKS_SQL, ...params);
 };
 
 /** Reps may only change their own quotes or one reassigned to them; managers/admins may change any. */
