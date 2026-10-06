@@ -3,6 +3,7 @@ import { all, get, run } from "../../db.d1";
 import { audit } from "../audit";
 import { requireAuth, requirePermission } from "../auth";
 import { clientSchema, zodMessage } from "../../validate";
+import { sameClient } from "../../../shared/clients";
 import type { Client } from "../../../shared/types";
 import type { Env } from "../env";
 
@@ -23,6 +24,8 @@ clientsRouter.post("/", async (c) => {
   const parsed = clientSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
   const d = parsed.data;
+  const existing = sameClient(d.name, await all<Client>(c.env.DB, "SELECT * FROM clients"));
+  if (existing) return c.json({ error: `Klien ini sudah ada sebagai \"${existing.name}\". Pakai yang itu, atau bedakan namanya.`, existing }, 409);
   const info = await run(
     c.env.DB,
     `INSERT INTO clients(name, code, address, contact_name, contact_email, contact_phone,
@@ -46,6 +49,8 @@ clientsRouter.put("/:id", async (c) => {
     return c.json({ error: "Klien tidak ditemukan." }, 404);
   }
   const d = parsed.data;
+  const existing = sameClient(d.name, await all<Client>(c.env.DB, "SELECT * FROM clients"), id);
+  if (existing) return c.json({ error: `Klien ini sudah ada sebagai \"${existing.name}\". Pakai yang itu, atau bedakan namanya.`, existing }, 409);
   await run(
     c.env.DB,
     `UPDATE clients SET name = ?, code = ?, address = ?, contact_name = ?, contact_email = ?,
