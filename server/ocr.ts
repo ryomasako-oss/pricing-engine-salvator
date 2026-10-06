@@ -21,14 +21,13 @@
 
 import { z } from "zod";
 import type { RequestLine } from "../shared/match.js";
+import { DEFAULT_GEMINI_MODEL, type GeminiDeps, geminiGenerate } from "./gemini.js";
 
 export const OCR_MIME_TYPES = ["application/pdf", "image/png", "image/jpeg", "image/webp", "image/heic", "image/heif"] as const;
 /** Largest file accepted, in bytes before base64. */
 export const OCR_MAX_BYTES = 4 * 1024 * 1024;
 export const OCR_MAX_LINES = 500;
-/** A stable (not preview) Flash model: reads tables more reliably than Flash-Lite, and at a few
- *  hundred rows a day the price difference is small. Override with GEMINI_MODEL. */
-export const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash";
+export { DEFAULT_GEMINI_MODEL };
 
 const MAX_BASE64_CHARS = Math.ceil(OCR_MAX_BYTES / 3) * 4;
 const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
@@ -104,11 +103,7 @@ export function toRequestLines(answer: z.infer<typeof answerSchema>): { lines: R
   return { lines: lines.slice(0, OCR_MAX_LINES), truncated: lines.length > OCR_MAX_LINES };
 }
 
-export interface OcrDeps {
-  apiKey?: string;
-  model?: string;
-  fetchFn?: typeof fetch;
-}
+export type OcrDeps = GeminiDeps;
 
 /**
  * @param mime   the file's declared type (header sent by the browser)
@@ -125,7 +120,7 @@ export async function handleOcr(mime: string | undefined | null, base64: string,
   if (data.length > MAX_BASE64_CHARS) return fail(413, `File terlalu besar (maksimal ${OCR_MAX_BYTES / 1024 / 1024} MB).`);
   if (!BASE64.test(data)) return fail(400, "File tidak valid.");
 
-  const model = (deps.model || DEFAULT_GEMINI_MODEL).replace(/[^\w.-]/g, "");
+  const model = deps.model;
   // Measured on a real 69-row PDF (gemini-3.5-flash): low thinking took 9 s but dropped 1-3 rows whose
   // quantity was "-" or text; medium took 30 s and kept all of them. A silently missing item is worse
   // for a quote than a wait, so medium.
@@ -136,27 +131,9 @@ export async function handleOcr(mime: string | undefined | null, base64: string,
     `{"text":${JSON.stringify(PROMPT)}}]}],` +
     `"generationConfig":{"temperature":0,"thinkingConfig":{"thinkingLevel":"medium"},"responseMimeType":"application/json","responseSchema":${JSON.stringify(RESPONSE_SCHEMA)}}}`;
 
-  let res: Response;
-  try {
-    res = await (deps.fetchFn ?? fetch)(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-goog-api-key": deps.apiKey },
-      body,
-    });
-  } catch {
-    return fail(503, "Tidak bisa menghubungi layanan OCR. Coba lagi sebentar lagi.");
-  }
-  if (res.status === 429) return fail(429, "Layanan OCR sedang kena batas pemakaian. Coba lagi sebentar lagi.");
-  if (res.status === 401 || res.status === 403) return fail(502, "Kunci Gemini ditolak. Periksa GEMINI_API_KEY di server.");
-  if (!res.ok) return fail(502, `Layanan OCR mengembalikan error ${res.status}.`);
-
-  let text = "";
-  try {
-    const payload = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
-    text = payload.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
-  } catch {
-    return fail(502, "Jawaban OCR tidak terbaca.");
-  }
+  const out = await geminiGenerate(body, { ...deps, model }, "OCR");
+  if (!out.ok) return fail(out.status, out.error);
+  const text = out.text;
   let answer: unknown;
   try {
     answer = JSON.parse(text);

@@ -51,16 +51,19 @@ export function ListToQuote({
   clients,
   onClose,
   onCreated,
+  initial,
 }: {
   clients: Client[];
   onClose: () => void;
   onCreated: (id: number) => void;
+  /** A list that is already read (from chat): skips the file step and goes straight to review. */
+  initial?: { lines: RequestLine[]; clientId: number | ""; title: string };
 }) {
   const toast = useToast();
   // Staff see the price the server will charge instead of COGS (PE-1).
   const seeCosts = useAuth().can("view_costs");
-  const [clientId, setClientId] = useState<number | "">("");
-  const [title, setTitle] = useState("");
+  const [clientId, setClientId] = useState<number | "">(initial?.clientId ?? "");
+  const [title, setTitle] = useState(initial?.title ?? "");
   const [fileName, setFileName] = useState("");
   const [notes, setNotes] = useState<string[]>([]);
   const [rows, setRows] = useState<Row[] | null>(null);
@@ -69,6 +72,40 @@ export function ListToQuote({
   const [error, setError] = useState("");
   const [drag, setDrag] = useState(false);
   const [searchRow, setSearchRow] = useState<number | null>(null);
+
+  /** Match request rows against the catalog and open the review. */
+  const match = async (lines: RequestLine[], extraNotes: string[], label: string) => {
+    if (lines.length > MAX_LINES) {
+      throw new Error(`Daftar berisi ${lines.length} baris; maksimal ${MAX_LINES} per quotation. Pecah dulu.`);
+    }
+    const res = await api.post<MatchResponse>("/catalog/match", {
+      client_id: clientId === "" ? null : clientId,
+      lines,
+    });
+    setItems(new Map(res.items.map((i) => [i.id, i])));
+    setRows(
+      res.results.map((result) => ({
+        request: lines[result.index],
+        result,
+        chosen: result.status === "none" ? null : result.candidates[0]?.id ?? null,
+        confirmed: result.status === "exact" || result.status === "match",
+        extra: [],
+      })),
+    );
+    setNotes(extraNotes);
+    setFileName(label);
+  };
+
+  // A list handed over from chat is matched as soon as the dialog opens.
+  useEffect(() => {
+    if (!initial) return;
+    setBusy(true);
+    match(initial.lines, [], "Chat")
+      .catch((e) => setError(e instanceof Error ? e.message : "Daftar tidak bisa dicocokkan."))
+      .finally(() => setBusy(false));
+    // Once, on open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const read = async (file?: File | null) => {
     if (!file) return;
@@ -81,25 +118,7 @@ export function ListToQuote({
       const { lines, report } = mime
         ? await (await import("../import/ocr")).ocrRequestList(file, mime).then((r) => ({ lines: r.lines, report: { notes: r.notes } }))
         : await (await import("../import/parsers")).parseRequestList(file);
-      if (lines.length > MAX_LINES) {
-        throw new Error(`File berisi ${lines.length} baris; maksimal ${MAX_LINES} per quotation. Pecah filenya dulu.`);
-      }
-      const res = await api.post<MatchResponse>("/catalog/match", {
-        client_id: clientId === "" ? null : clientId,
-        lines,
-      });
-      setItems(new Map(res.items.map((i) => [i.id, i])));
-      setRows(
-        res.results.map((result) => ({
-          request: lines[result.index],
-          result,
-          chosen: result.status === "none" ? null : result.candidates[0]?.id ?? null,
-          confirmed: result.status === "exact" || result.status === "match",
-          extra: [],
-        })),
-      );
-      setNotes(report.notes);
-      setFileName(file.name);
+      await match(lines, report.notes, file.name);
       if (!title) {
         const client = clients.find((c) => c.id === clientId);
         setTitle(client ? `Penawaran ${client.name}` : file.name.replace(/\.[^.]+$/, ""));
@@ -200,7 +219,7 @@ export function ListToQuote({
   return (
     <Modal
       title="Quotation dari list klien"
-      sub="Upload daftar kebutuhan klien. Setiap baris dicocokkan ke katalog; harga dan COGS diambil dari database."
+      sub={initial ? "Daftar dari chat. Setiap baris dicocokkan ke katalog; harga diambil dari database." : "Upload daftar kebutuhan klien. Setiap baris dicocokkan ke katalog; harga dan COGS diambil dari database."}
       size={rows ? "full" : "normal"}
       onClose={onClose}
       footer={
@@ -211,7 +230,7 @@ export function ListToQuote({
               {pending ? ` · ${pending} perlu dicek dulu` : ""}
               {heldCount ? ` · ${heldCount} ditahan (COGS dicek manajer)` : ""}
             </span>
-            <button className="btn ghost" onClick={() => setRows(null)} disabled={busy}>Ganti file</button>
+            <button className="btn ghost" onClick={() => (initial ? onClose() : setRows(null))} disabled={busy}>{initial ? "Kembali ke chat" : "Ganti file"}</button>
             <button className="btn primary" onClick={create} disabled={busy || !used || pending > 0 || !title.trim()}>
               {busy ? "Membuat…" : `Buat quotation (${used} item)`}
             </button>

@@ -60,6 +60,7 @@ async function makeExpressDriver(): Promise<Driver> {
   const { settingsRouter } = await import("../server/routes/settings.js");
   const { assistantRouter } = await import("../server/routes/assistant.js");
   const { ocrRouter } = await import("../server/routes/ocr.js");
+  const { chatRouter } = await import("../server/routes/chat.js");
   const { run } = await import("../server/db.js");
 
   const app = express();
@@ -74,6 +75,7 @@ async function makeExpressDriver(): Promise<Driver> {
   app.use("/api/settings", settingsRouter);
   app.use("/api/assistant", assistantRouter);
   app.use("/api/ocr", ocrRouter);
+  app.use("/api/chat", chatRouter);
 
   let server: Server;
   await new Promise<void>((resolve) => {
@@ -142,6 +144,7 @@ async function makeWorkerDriver(): Promise<Driver> {
   const { settingsRouter } = await import("../server/worker/routes/settings.js");
   const { assistantRouter } = await import("../server/worker/routes/assistant.js");
   const { ocrRouter } = await import("../server/worker/routes/ocr.js");
+  const { chatRouter } = await import("../server/worker/routes/chat.js");
   const { run } = await import("../server/db.d1.js");
 
   const app = new Hono();
@@ -154,6 +157,7 @@ async function makeWorkerDriver(): Promise<Driver> {
   app.route("/api/settings", settingsRouter);
   app.route("/api/assistant", assistantRouter);
   app.route("/api/ocr", ocrRouter);
+  app.route("/api/chat", chatRouter);
 
   const env = {
     DB: db,
@@ -1677,6 +1681,15 @@ scenario("OCR endpoint: login required, and off (503) until a Gemini key is set"
   const rep = await loginCached(d, "rep@test.local", "password123");
   const anon = await d.api("POST", "/api/ocr/extract", { body: {} });
   const off = await d.api("POST", "/api/ocr/extract", { body: {}, session: rep });
+  assert.equal(anon.status, 401);
+  assert.equal(off.status, 503, JSON.stringify(off.json));
+  return { anon: anon.status, off: off.status, error: off.json.error };
+});
+
+scenario("Chat endpoint: login required, off (503) without a key, bad input is 400 for staff too", async (d) => {
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const anon = await d.api("POST", "/api/chat", { body: { messages: [{ role: "user", content: "halo" }] } });
+  const off = await d.api("POST", "/api/chat", { body: { messages: [{ role: "user", content: "halo" }] }, session: rep });
   assert.equal(anon.status, 401);
   assert.equal(off.status, 503, JSON.stringify(off.json));
   return { anon: anon.status, off: off.status, error: off.json.error };
