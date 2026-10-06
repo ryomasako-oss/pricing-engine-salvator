@@ -52,6 +52,12 @@ export const staffItemSchema = z.object({
   rrp: z.number().min(0).max(50_000_000).optional(),
   /** Unit price the rep typed for this line (the quote's own scenario). 0 clears it; absent leaves it alone. */
   price: z.number().min(0).max(50_000_000).optional(),
+  /**
+   * The unit `rrp` and `price` are expressed in. The staff screen sends it so
+   * a unit change never has to be guessed; without it (an older screen) values
+   * sent together with a unit change are taken to be in the old unit.
+   */
+  valuesUom: z.string().max(32).optional(),
   notes: z.string().max(500).optional(),
 });
 
@@ -104,12 +110,13 @@ export function mergeStaffItems(
         const to = known.find((u) => u && sameUom(u, line.uom!)) ?? line.uom!;
         next = changeLineUom(next, to, cat ? { baseUom: cat.uom || "Pcs", units: cat.units ?? [] } : undefined);
       }
-      // The staff screen converts its ceiling when the unit changes and clears
-      // a typed price, so a ceiling or price it sends is in the line's new
-      // unit and is taken. A ceiling still equal to the stored one is the
-      // old-unit value an older screen sent unconverted: the converted one stands.
-      if (line.rrp != null && !(unitChanged && line.rrp === old.rrp)) next = { ...next, rrp: Math.round(line.rrp) };
-      if (line.price != null) next = withManualPrice(next, scenario, line.price);
+      // A ceiling and price sent with a unit change are taken only when the
+      // screen says they are in the new unit (valuesUom); otherwise they are
+      // still in the old one and the converted stored values stand.
+      if (!unitChanged || (line.valuesUom != null && sameUom(line.valuesUom, line.uom!))) {
+        if (line.rrp != null) next = { ...next, rrp: Math.round(line.rrp) };
+        if (line.price != null) next = withManualPrice(next, scenario, line.price);
+      }
     } else {
       const cat = catalog.get(normalizeCode(line.code));
       if (!cat) return { error: OUTSIDE_CATALOG, code: line.code || line.name };

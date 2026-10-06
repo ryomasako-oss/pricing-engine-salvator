@@ -1702,7 +1702,7 @@ scenario("a rep's ceiling and price typed after a unit change are kept, in the n
   const quote = created.json.quote as { id: number; version: number };
   const saved = await d.api("PUT", `/api/quotes/${quote.id}`, {
     body: {
-      snapshot: { items: [{ id: "u1", code: "U-BOX", name: "Spidol", uom: "Box", qty: 1, rrp: 5000, price: 4000 }] },
+      snapshot: { items: [{ id: "u1", code: "U-BOX", name: "Spidol", uom: "Box", valuesUom: "Box", qty: 1, rrp: 5000, price: 4000 }] },
       expected_version: quote.version,
     },
     session: rep,

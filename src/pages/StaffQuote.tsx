@@ -53,6 +53,8 @@ export interface StaffLine {
   manual?: boolean;
   /** Client-only: a price the rep typed and the server has not stored yet (0 = go back to the computed price). */
   setPrice?: number;
+  /** Client-only: the unit `rrp` is in after a unit change (the new one, or the old one when no ratio converted it). */
+  valuesUom?: string;
   /** COGS awaits a manager: shown, but not offered or totalled until released. */
   held?: boolean;
 }
@@ -82,7 +84,11 @@ interface Detail {
 
 /** What staff send: the editable fields of each line. */
 const toSend = (lines: StaffLine[]) =>
-  lines.map(({ id, code, name, uom, qty, rrp, notes, setPrice }) => ({ id, code, name, uom, qty, rrp, notes, price: setPrice }));
+  lines.map(({ id, code, name, uom, qty, rrp, notes, setPrice, valuesUom, priceUom }) => ({
+    id, code, name, uom, qty, rrp, notes, price: setPrice,
+    // Which unit rrp and price are in, so the server never guesses after a unit change.
+    valuesUom: valuesUom ?? priceUom ?? uom,
+  }));
 
 /**
  * The quotation document and PDF take an engine result; for staff it is built
@@ -392,16 +398,14 @@ export function StaffQuotePage() {
                       label={`Satuan ${l.name}`}
                       readOnly={readOnly}
                       warning={l.priceUom ? "Rasio satuan belum ada; harga masih per " + l.priceUom : null}
-                      // Everything sent is in the line's current unit: the ceiling is converted
-                      // here (kept as is without a ratio; the server then marks the line), and a
-                      // price typed in the old unit is dropped. The server converts a stored price.
-                      onChange={(u) =>
-                        edit(l.id, {
-                          uom: u,
-                          rrp: amountInUnit(units[l.code], l.priceUom ?? l.uom, u, l.rrp) ?? l.rrp,
-                          setPrice: undefined,
-                        })
-                      }
+                      // The ceiling is converted here and valuesUom tells the server which unit it is
+                      // in (still the old one when there's no ratio). A price typed in the old unit is
+                      // dropped; the server converts a stored one.
+                      onChange={(u) => {
+                        const from = l.valuesUom ?? l.priceUom ?? l.uom;
+                        const rrp = amountInUnit(units[l.code], from, u, l.rrp);
+                        edit(l.id, { uom: u, rrp: rrp ?? l.rrp, valuesUom: rrp === null ? from : u, setPrice: undefined });
+                      }}
                     />
                   </td>
                   <td>
@@ -621,7 +625,8 @@ export function StaffQuotePage() {
 
 /** Fields the preview answers for a line. */
 const pick = (l?: StaffLine) =>
-  l ? { price: l.price, uom: l.uom, rrp: l.rrp, priceUom: l.priceUom, held: l.held, manual: l.manual } : {};
+  // The server's numbers are per its uom/priceUom, so any client-side valuesUom is done with.
+  l ? { price: l.price, uom: l.uom, rrp: l.rrp, priceUom: l.priceUom, held: l.held, manual: l.manual, valuesUom: undefined } : {};
 
 /** What the rep edited, ignoring the prices the preview fills in, so a preview doesn't trigger another. */
 const editKey = (lines: StaffLine[]) => JSON.stringify(lines.map((l) => [l.id, l.code, l.uom, l.qty, l.rrp, l.notes, l.setPrice]));
