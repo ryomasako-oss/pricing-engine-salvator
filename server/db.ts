@@ -147,6 +147,62 @@ CREATE TABLE IF NOT EXISTS catalog_item_uoms (
   factor REAL NOT NULL CHECK (factor > 0),
   PRIMARY KEY (code, uom)
 );
+
+-- Mirrors migrations/0009_cogs_sanity.sql. The 0.5 is COGS_JUMP (shared/cogsCheck.ts).
+CREATE TABLE IF NOT EXISTS catalog_cogs_baseline (
+  code TEXT PRIMARY KEY,
+  cogs REAL NOT NULL CHECK (cogs > 0)
+);
+INSERT OR IGNORE INTO catalog_cogs_baseline(code, cogs)
+  SELECT code, cogs FROM catalog_items WHERE cogs > 0;
+
+CREATE TABLE IF NOT EXISTS catalog_cogs_history (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  code        TEXT NOT NULL,
+  cogs        REAL NOT NULL,
+  recorded_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_cogs_history_code ON catalog_cogs_history(code, id);
+
+CREATE TRIGGER IF NOT EXISTS trg_cogs_update
+AFTER UPDATE OF cogs ON catalog_items
+WHEN NEW.cogs <> OLD.cogs
+BEGIN
+  INSERT INTO catalog_cogs_history(code, cogs) SELECT OLD.code, OLD.cogs WHERE OLD.cogs > 0;
+  INSERT INTO catalog_cogs_baseline(code, cogs) SELECT OLD.code, OLD.cogs
+   WHERE OLD.cogs > 0 AND NOT EXISTS (SELECT 1 FROM catalog_cogs_baseline WHERE code = OLD.code);
+  INSERT INTO catalog_cogs_baseline(code, cogs) SELECT NEW.code, NEW.cogs
+   WHERE NEW.cogs > 0 AND NOT EXISTS (SELECT 1 FROM catalog_cogs_baseline WHERE code = NEW.code);
+  UPDATE catalog_cogs_baseline SET cogs = NEW.cogs
+   WHERE code = NEW.code AND NEW.cogs > 0 AND abs(NEW.cogs - cogs) <= 0.5 * cogs;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_cogs_insert
+AFTER INSERT ON catalog_items
+WHEN NEW.cogs > 0
+BEGIN
+  INSERT INTO catalog_cogs_baseline(code, cogs) SELECT NEW.code, NEW.cogs
+   WHERE NOT EXISTS (SELECT 1 FROM catalog_cogs_baseline WHERE code = NEW.code);
+  UPDATE catalog_cogs_baseline SET cogs = NEW.cogs
+   WHERE code = NEW.code AND abs(NEW.cogs - cogs) <= 0.5 * cogs;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_cogs_delete
+AFTER DELETE ON catalog_items
+WHEN OLD.cogs > 0
+BEGIN
+  INSERT INTO catalog_cogs_history(code, cogs) VALUES (OLD.code, OLD.cogs);
+END;
+
+-- Mirrors migrations/0008_catalog_aliases.sql.
+CREATE TABLE IF NOT EXISTS catalog_aliases (
+  alias      TEXT NOT NULL,
+  client_id  INTEGER NOT NULL DEFAULT 0,
+  code       TEXT NOT NULL,
+  created_by INTEGER,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (alias, client_id)
+);
 `);
 
 // The CREATE TABLE above only adds `version` for a fresh database; migrate

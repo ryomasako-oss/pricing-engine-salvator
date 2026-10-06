@@ -27,9 +27,12 @@ import { ItemsTable } from "../components/ItemsTable";
 import { changeLineUom, priceUnitOf, toBaseUnit, type ItemUnits } from "@shared/uom";
 import { QuotationDoc, type CompanyInfo } from "../components/QuotationDoc";
 import { CatalogPicker } from "../components/CatalogPicker";
+import { Breakdown } from "../components/Breakdown";
+import { TermsBox } from "../components/TermsBox";
 import { ImportDialog } from "../components/ImportDialog";
 import { DuplicateAddModal, DuplicateBanner } from "../components/Duplicates";
 import { AssistantPanel, applyActions, type AssistantAction } from "../components/AssistantPanel";
+import { missingTerms, missingTermsMessage } from "@shared/terms";
 import {
   BreachList, CompareTable, DeliveryTable, LEVERS, Lever, ScenarioCards, StatusChip,
 } from "../components/pricing";
@@ -106,7 +109,7 @@ export function QuoteEditorPage() {
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"items" | "assumptions" | "delivery" | "document" | "history">("items");
+  const [tab, setTab] = useState<"items" | "breakdown" | "assumptions" | "delivery" | "document" | "history">("items");
   const [modal, setModal] = useState<null | { kind: string; payload?: unknown }>(null);
   const [assignableUsers, setAssignableUsers] = useState<AssignableUser[]>([]);
   const [uomOptions, setUomOptions] = useState<string[]>([]);
@@ -254,6 +257,29 @@ export function QuoteEditorPage() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [dirty, readOnly, save]);
+
+  // Catalog items whose COGS looks wrong (shared/cogsCheck.ts) block submit on
+  // the server; check when the submit dialog opens so the rep sees why first.
+  const [cogsBlocked, setCogsBlocked] = useState<{ lineNo: number; name: string; problem: string }[] | null>(null);
+  useEffect(() => {
+    if (modal?.kind !== "submit" || !snapshot) return;
+    setCogsBlocked(null);
+    const codes = [...new Set(snapshot.items.map((it) => it.code).filter(Boolean))];
+    if (!codes.length) {
+      setCogsBlocked([]);
+      return;
+    }
+    api
+      .post<{ problems: Record<string, string> }>("/catalog/cogs-check", { codes })
+      .then((r) =>
+        setCogsBlocked(
+          snapshot.items
+            .filter((it) => it.code && r.problems[it.code])
+            .map((it) => ({ lineNo: it.lineNo, name: it.name, problem: r.problems[it.code] })),
+        ),
+      )
+      .catch(() => setCogsBlocked([])); // the server still enforces it on submit
+  }, [modal, snapshot]);
 
   if (loading || !detail || !snapshot || !engine) {
     return (
@@ -499,6 +525,7 @@ export function QuoteEditorPage() {
               <div className="tabs">
                 {([
                   ["items", "Item"],
+                  ["breakdown", "Penjelasan"],
                   ["assumptions", "Asumsi"],
                   ["delivery", "Logistik"],
                   ["document", "Dokumen"],
@@ -538,6 +565,16 @@ export function QuoteEditorPage() {
                   onOpenCatalog={() => setModal({ kind: "catalog" })}
                   onPushToCatalog={can("edit_catalog") ? pushToCatalog : undefined}
                   uomOptions={uomOptions}
+                />
+              )}
+
+              {tab === "breakdown" && engine && snapshot && (
+                <Breakdown
+                  engine={engine}
+                  scenario={snapshot.scenario}
+                  assumptions={snapshot.assumptions}
+                  policy={policy}
+                  breaches={breaches}
                 />
               )}
 
@@ -671,14 +708,6 @@ export function QuoteEditorPage() {
                       />
                     </label>
                     <label className="field">
-                      <span>Termin pembayaran</span>
-                      <input
-                        className="input" disabled={readOnly}
-                        value={snapshot.meta.payment}
-                        onChange={(e) => update({ meta: { ...snapshot.meta, payment: e.target.value } })}
-                      />
-                    </label>
-                    <label className="field">
                       <span>Pengiriman</span>
                       <input
                         className="input" disabled={readOnly}
@@ -687,6 +716,13 @@ export function QuoteEditorPage() {
                       />
                     </label>
                   </div>
+                  <TermsBox
+                    meta={snapshot.meta}
+                    targetMargin={snapshot.assumptions.targetMargin}
+                    readOnly={readOnly}
+                    onMeta={(patch) => update({ meta: { ...snapshot.meta, ...patch } })}
+                    onTargetMargin={(v) => update({ assumptions: { ...snapshot.assumptions, targetMargin: v } })}
+                  />
                   <label className="field no-print">
                     <span>Catatan tambahan di penawaran</span>
                     <textarea
@@ -918,12 +954,43 @@ export function QuoteEditorPage() {
           footer={
             <>
               <button className="btn ghost" onClick={() => setModal(null)}>Batal</button>
-              <button className="btn primary" onClick={() => void submit()}>
+              <button
+                className="btn primary"
+                onClick={() => void submit()}
+                disabled={missingTerms(snapshot.meta).length > 0 || cogsBlocked == null || cogsBlocked.length > 0}
+              >
                 {blocked.length ? "Ajukan ke manajer" : "Ajukan"}
               </button>
             </>
           }
         >
+          {missingTerms(snapshot.meta).length > 0 && (
+            <div className="notice error" style={{ marginBottom: 12 }}>
+              {missingTermsMessage(missingTerms(snapshot.meta))}{" "}
+              <button
+                className="btn small"
+                onClick={() => {
+                  setModal(null);
+                  setTab("document");
+                }}
+              >
+                Isi sekarang
+              </button>
+            </div>
+          )}
+          {cogsBlocked && cogsBlocked.length > 0 && (
+            <div className="notice error" style={{ marginBottom: 12 }}>
+              <strong>Item dengan COGS tidak wajar tidak boleh dijual:</strong>
+              <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+                {cogsBlocked.map((l) => (
+                  <li key={l.lineNo}>
+                    Baris {l.lineNo} {l.name}: {l.problem}
+                  </li>
+                ))}
+              </ul>
+              Hapus barisnya, atau minta pengelola katalog memperbaiki COGS-nya.
+            </div>
+          )}
           <BreachList breaches={breaches} />
           <p className="muted small" style={{ marginTop: 12 }}>
             {blocked.length

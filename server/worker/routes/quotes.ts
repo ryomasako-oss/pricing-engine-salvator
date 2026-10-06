@@ -9,6 +9,7 @@ import {
   EDITABLE_STATUSES,
   STATUS_FLOW,
   breachesFor,
+  cogsProblemsFor,
   findQuote,
   listQuoteRows,
   nextQuoteNumber,
@@ -16,6 +17,8 @@ import {
   saveRevision,
 } from "../quoteService";
 import { isWithinPolicy } from "../../../shared/policy";
+import { defaultPayment, missingTerms, missingTermsMessage } from "../../../shared/terms";
+import { blockedLines, blockedMessage } from "../../cogsCheck";
 import { DEFAULT_ASSUMPTIONS, DEFAULT_REGIONS } from "../../../shared/engine";
 import {
   notifyQuoteDecided,
@@ -160,7 +163,8 @@ quotesRouter.post("/", async (c) => {
         quoteNo: number,
         date: new Date().toISOString().slice(0, 10),
         validity: 30,
-        payment: client?.payment_terms || "30 hari setelah invoice",
+        ...defaultPayment(client?.payment_terms),
+        warrantyYears: null,
         delivery: client?.delivery_terms || "Franco Jakarta, jadwal mingguan",
         notes: "",
         preparedBy: user.name,
@@ -470,6 +474,15 @@ quotesRouter.post("/:id/submit", async (c) => {
   if (!quote) return c.json({ error: "Quotation tidak ditemukan." }, 404);
   if (!canEdit(user, quote.created_by, quote.assigned_to)) return c.json({ error: "Quotation ini milik pengguna lain." }, 403);
   if (!EDITABLE_STATUSES.includes(quote.status)) return c.json({ error: "Hanya draft yang bisa diajukan." }, 409);
+  // Term of payment and warranty must be on the customer's document.
+  const missing = missingTerms(quote.meta);
+  if (missing.length) return c.json({ error: missingTermsMessage(missing), missing }, 400);
+  // An item whose catalog COGS looks wrong must not be sold (shared/cogsCheck.ts).
+  const cogsBlocked = blockedLines(
+    quote.items,
+    await cogsProblemsFor(c.env.DB, quote.items.map((it) => it.code)),
+  );
+  if (cogsBlocked.length) return c.json({ error: blockedMessage(cogsBlocked), cogsBlocked }, 400);
 
   const { breaches, monthly_value, net_margin } = await breachesFor(c.env.DB, quote);
   const clean = isWithinPolicy(breaches);

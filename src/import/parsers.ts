@@ -11,6 +11,7 @@
 
 import * as XLSX from "xlsx";
 import { toNum } from "@shared/format";
+import type { RequestLine } from "@shared/match";
 import type { ItemRole, QuoteItem, UnitFactor } from "@shared/types";
 import { cleanUnits } from "@shared/uom";
 
@@ -382,7 +383,11 @@ export interface ParsedItems {
 const CITY =
   /jakarta|bogor|bandung|surabaya|medan|semarang|makassar|palembang|pekanbaru|lampung|jambi|riau|kalimantan|sumatera|bekasi|tangerang|depok|solo|yogya|malang|denpasar|balikpapan/;
 
-export async function parseClientList(file: File): Promise<ParsedItems> {
+/**
+ * Finds the client list's sheet, header row and columns. Shared by both
+ * client-list readers; a bare request list may have only "Nama | Qty".
+ */
+async function readClientSheet(file: File, minHeaderCells: number) {
   const wb = await readWorkbook(file);
   const sheetName =
     wb.SheetNames.find((n) => /base_economics/i.test(n)) ||
@@ -394,7 +399,7 @@ export async function parseClientList(file: File): Promise<ParsedItems> {
     rows,
     (c) =>
       c.some((x) => /item|nama barang|nama|deskripsi|description|barang/.test(x)) &&
-      c.filter(Boolean).length >= 3,
+      c.filter(Boolean).length >= minHeaderCells,
     30,
   );
   if (hi < 0) {
@@ -416,6 +421,63 @@ export async function parseClientList(file: File): Promise<ParsedItems> {
   if (col.name < 0) throw new Error("Kolom nama item tidak ditemukan di baris judul.");
 
   const cityCols = header.map((h, i) => (CITY.test(h) ? i : -1)).filter((i) => i >= 0);
+  return { sheetName, rows, hi, col, cityCols };
+}
+
+const isTotalRow = (name: string) => /^(total|subtotal|jumlah|grand total)/i.test(name);
+
+/**
+ * A client's list as plain requests (name, code, unit, qty, optional ceiling),
+ * for matching against the catalog. Unlike parseClientList, a row needs no
+ * price: COGS and the default ceiling come from the catalog item it matches.
+ */
+export async function parseRequestList(file: File): Promise<{ lines: RequestLine[]; report: ImportReport }> {
+  const { sheetName, rows, hi, col, cityCols } = await readClientSheet(file, 2);
+  const lines: RequestLine[] = [];
+  let fromRegion = 0;
+  let noQty = 0;
+  for (const row of rows.slice(hi + 1)) {
+    const name = text(row[col.name]);
+    if (!name || isTotalRow(name)) continue;
+    let rrp = col.rrp >= 0 ? toNum(row[col.rrp]) : NaN;
+    // Ceilings quoted per city: the lowest one is the binding constraint.
+    if (!(rrp > 0) && cityCols.length) {
+      const values = cityCols.map((i) => toNum(row[i])).filter((v) => v > 0);
+      if (values.length) {
+        rrp = Math.min(...values);
+        fromRegion++;
+      }
+    }
+    const qty = col.qty >= 0 ? toNum(row[col.qty]) : NaN;
+    const hasQty = Number.isFinite(qty) && qty >= 0;
+    if (!hasQty) noQty++;
+    lines.push({
+      name: name.slice(0, 300),
+      code: col.code >= 0 ? text(row[col.code]).slice(0, 64) || undefined : undefined,
+      // No qty (meeting 2026-10-05, 9b): quote 1 of the lowest unit, so the
+      // client's unit is dropped and the catalog's base unit is used. A ceiling
+      // they stated was per their unit, so it is dropped too.
+      uom: hasQty && col.uom >= 0 ? text(row[col.uom]).slice(0, 32) || undefined : undefined,
+      // An explicit 0 is kept as-is.
+      qty: hasQty ? qty : 1,
+      rrp: hasQty && rrp > 0 ? rrp : undefined,
+      ...(hasQty ? {} : { noQty: true }),
+    });
+  }
+  if (!lines.length) throw new Error("Tidak ada baris item yang terbaca. Pastikan ada kolom nama item.");
+  const notes = [
+    col.qty < 0
+      ? "Kolom qty tidak ditemukan: semua item dihitung 1 per satuan terkecil."
+      : noQty
+        ? `${noQty} baris tanpa qty: dihitung 1 per satuan terkecil.`
+        : "",
+    fromRegion ? `${fromRegion} item memakai plafon terendah dari kolom kota.` : "",
+  ].filter(Boolean);
+  return { lines, report: { sheetName, count: lines.length, skipped: 0, notes } };
+}
+
+export async function parseClientList(file: File): Promise<ParsedItems> {
+  const { sheetName, rows, hi, col, cityCols } = await readClientSheet(file, 3);
 
   const items: QuoteItem[] = [];
   let skipped = 0;
@@ -424,7 +486,7 @@ export async function parseClientList(file: File): Promise<ParsedItems> {
 
   for (const row of rows.slice(hi + 1)) {
     const name = text(row[col.name]);
-    if (!name || /^(total|subtotal|jumlah|grand total)/i.test(name)) continue;
+    if (!name || isTotalRow(name)) continue;
 
     let rrp = col.rrp >= 0 ? toNum(row[col.rrp]) : NaN;
     // Ceilings quoted per city: the lowest one is the binding constraint.

@@ -4,6 +4,7 @@ import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { Icon } from "../components/Icon";
+import { ListToQuote } from "../components/ListToQuote";
 import { Modal } from "../components/Modal";
 import { StatusChip } from "../components/pricing";
 import { fmtDateTime, pct, rp } from "@shared/format";
@@ -46,6 +47,7 @@ export function DashboardPage() {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [fromList, setFromList] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const userIdFilter = searchParams.get("user_id");
   const userNameFilter = searchParams.get("user_name");
@@ -114,10 +116,16 @@ export function DashboardPage() {
             Selamat datang, {user?.name.split(" ")[0]}. {quotes.length} quotation terlihat oleh Anda.
           </p>
         </div>
-        <button className="btn primary" onClick={() => setCreating(true)}>
-          <Icon name="plus" size={16} />
-          Quotation baru
-        </button>
+        <div className="row" style={{ gap: 8 }}>
+          <button className="btn" onClick={() => setCreating(true)}>
+            <Icon name="plus" size={16} />
+            Quotation kosong
+          </button>
+          <button className="btn primary" onClick={() => setFromList(true)}>
+            <Icon name="upload" size={16} />
+            Dari list klien
+          </button>
+        </div>
       </div>
 
       <div className="kpi-grid" style={{ marginBottom: 16 }}>
@@ -244,6 +252,14 @@ export function DashboardPage() {
           </div>
         )}
       </div>
+
+      {fromList && (
+        <ListToQuote
+          clients={clients}
+          onClose={() => setFromList(false)}
+          onCreated={(id) => navigate(`/quotes/${id}`)}
+        />
+      )}
 
       {creating && (
         <NewQuoteModal

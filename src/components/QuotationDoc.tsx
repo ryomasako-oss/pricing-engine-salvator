@@ -5,6 +5,7 @@
 import { SCENARIOS } from "@shared/engine";
 import { fmtDate, grp, pct, rp } from "@shared/format";
 import type { Assumptions, EngineResult, QuoteMeta, ScenarioIndex } from "@shared/types";
+import { paymentLabel, warrantyLabel } from "@shared/terms";
 
 export interface CompanyInfo {
   name: string;
@@ -98,6 +99,14 @@ export function QuotationDoc({
           <span>Berlaku sampai</span>
           <strong>{fmtDate(validUntil)}</strong>
         </div>
+        <div>
+          <span>Term of payment</span>
+          <strong>{paymentLabel(meta) || "—"}</strong>
+        </div>
+        <div>
+          <span>Garansi</span>
+          <strong>{warrantyLabel(meta) || "—"}</strong>
+        </div>
         {meta.preparedBy && (
           <div>
             <span>Disiapkan oleh</span>
@@ -158,12 +167,29 @@ export function QuotationDoc({
       </div>
 
       <p className="small muted">
-        Harga dalam Rupiah per satuan dan belum termasuk PPN. Pembayaran {meta.payment}.
+        Harga dalam Rupiah per satuan dan belum termasuk PPN.
         Pengiriman {meta.delivery}. Penawaran berlaku {meta.validity} hari sejak tanggal di atas.
         {company.bank ? ` Pembayaran ke ${company.bank}.` : ""}
         {company.npwp ? ` NPWP ${company.npwp}.` : ""}
       </p>
       {meta.notes && <p className="small">{meta.notes}</p>}
+
+      {/* Meeting 2026-10-05: room for a wet or digital signature on both sides. */}
+      <div className="quote-sign">
+        <div>
+          <span>Hormat kami,</span>
+          <strong>{company.name}</strong>
+          <div className="sign-space" aria-label="Tempat tanda tangan dan cap perusahaan" />
+          <div className="sign-name">{meta.preparedBy || "Nama"}</div>
+        </div>
+        <div>
+          <span>Disetujui oleh,</span>
+          <strong>{clientName}</strong>
+          <div className="sign-space" aria-label="Tempat tanda tangan customer" />
+          <div className="sign-name">Nama &amp; jabatan:</div>
+          <div className="sign-date">Tanggal:</div>
+        </div>
+      </div>
 
       {showInternal && (
         <div className="internal no-print">

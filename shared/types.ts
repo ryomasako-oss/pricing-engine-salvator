@@ -204,6 +204,12 @@ export interface QuoteMeta {
   delivery: string;
   notes: string;
   preparedBy?: string;
+  /** Term of payment in days (0 = cash). Required to submit; see shared/terms.ts. */
+  paymentDays?: number | null;
+  /** Warranty in years (0 = none, 0.5 = six months). Required to submit. */
+  warrantyYears?: number | null;
+  /** Optional detail shown after the warranty, e.g. "servis gratis". */
+  warrantyNote?: string;
 }
 
 export interface Client {
@@ -276,6 +282,8 @@ export interface CatalogItem {
   updated_at: string;
   /** Extra units and how many base units (`uom`) each holds, e.g. Box = 24. */
   units?: UnitFactor[];
+  /** Why this item must not be sold right now, or null. Set by the API. */
+  cogs_problem?: string | null;
 }
 
 export interface UnitFactor {

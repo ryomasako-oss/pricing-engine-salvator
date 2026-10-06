@@ -7,7 +7,9 @@
    via [data-theme] on <html> (see src/context/ThemeContext.tsx).
    ============================================================ */
 
-:root {
+/* .quote-doc re-declares the light tokens: the quotation is always a white
+   printable sheet, so tables inside it must not pick up dark-mode values. */
+:root, .quote-doc {
   color-scheme: light;
 
   --paper: #F2F2F7;
@@ -351,6 +353,9 @@ select.cell { text-align: left; width: 88px; }
 
 .overlay {
   position: fixed; inset: 0; background: var(--overlay); display: grid; place-items: center;
+  /* One column capped at the viewport: an "auto" column grows to a wide
+     table's content and pushes a modal past the screen edge on phones. */
+  grid-template-columns: minmax(0, 1fr);
   padding: 16px; z-index: 60; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
 }
 .modal {
@@ -371,6 +376,21 @@ select.cell { text-align: left; width: 88px; }
   padding: 12px 20px; border-top: 1px solid var(--rule); flex-wrap: wrap;
 }
 .modal-foot .grow { flex: 1; }
+
+/* ---------------- commercial terms box ---------------- */
+.terms-box { border: 1px solid var(--rule); border-radius: 14px; padding: 10px 14px 14px; margin: 0; min-width: 0; }
+.terms-box > legend { padding: 0 6px; font-size: 12px; font-weight: 650; color: var(--muted); }
+.terms-box small { font-size: 11px; }
+.input.invalid { border-color: var(--danger); }
+
+/* ---------------- quote breakdown (internal) ---------------- */
+.breakdown-points { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 13px; color: var(--ink); }
+.breakdown-line { border: 1px solid var(--rule); border-radius: 12px; background: var(--sheet); }
+.breakdown-line > summary {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 9px 12px; cursor: pointer; font-size: 13px;
+}
+.breakdown-line > summary .grow { flex: 1 1 180px; min-width: 0; }
+.breakdown-line > ol { margin: 0; padding: 0 14px 12px 34px; display: grid; gap: 4px; font-size: 12.5px; color: var(--muted); }
 
 /* ---------------- toasts ---------------- */
 
@@ -501,6 +521,12 @@ input[type=checkbox] { accent-color: var(--navy); width: 17px; height: 17px; fle
 .quote-totals { margin: 12px 0 12px auto; max-width: 360px; display: flex; flex-direction: column; gap: 3px; font-size: 13px; }
 .quote-totals div { display: flex; justify-content: space-between; gap: 12px; }
 .quote-totals .grand { font-weight: 750; border-top: 2px solid var(--c); padding-top: 5px; margin-top: 2px; }
+.quote-sign { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 24px; margin-top: 18px; break-inside: avoid; page-break-inside: avoid; }
+.quote-sign > div { display: flex; flex-direction: column; font-size: 12.5px; }
+.quote-sign span { color: #667384; font-size: 11.5px; }
+.quote-sign .sign-space { height: 72px; }
+.quote-sign .sign-name, .quote-sign .sign-date { border-top: 1px solid #1B2530; padding-top: 4px; min-height: 18px; }
+.quote-sign .sign-date { border-top: 0; color: #667384; }
 .internal { margin-top: 12px; background: #FEF3F2; border: 1px solid #F1C6C0; color: #7A271A; border-radius: 10px; padding: 9px 11px; font-size: 12px; }
 
 /* ---------------- misc ---------------- */

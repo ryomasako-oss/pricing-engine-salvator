@@ -4,6 +4,19 @@ import { all, get, run, stmt, batch } from "../../db.d1";
 import { audit } from "../audit";
 import { requireAuth, requirePermission } from "../auth";
 import { catalogRowSchema, unitsSchema, zodMessage } from "../../validate";
+import {
+  type AliasRow,
+  GLOBAL_ALIAS_DENIED,
+  MATCH_COLUMNS,
+  aliasInput,
+  cleanAliasPairs,
+  matchInput,
+  matchResponse,
+  mayStoreAlias,
+  runMatch,
+} from "../../catalogMatch";
+import { VERIFY_COGS_SQL, cogsCheckInput, withProblems } from "../../cogsCheck";
+import { cogsProblemsFor } from "../quoteService";
 import { cleanUnits, type ItemUnits } from "../../../shared/uom";
 import type { CatalogItem, UnitFactor } from "../../../shared/types";
 import type { Env } from "../env";
@@ -80,8 +93,10 @@ catalogRouter.get("/", async (c) => {
     limit,
     offset,
   );
-  const units = await unitsByCode(c.env.DB, items.map((i) => i.code));
-  return c.json({ items: items.map((i) => ({ ...i, units: units.get(i.code) ?? [] })), total: total?.n ?? 0 });
+  const codes = items.map((i) => i.code);
+  const units = await unitsByCode(c.env.DB, codes);
+  const withUnits = items.map((i) => ({ ...i, units: units.get(i.code) ?? [] }));
+  return c.json({ items: withProblems(withUnits, await cogsProblemsFor(c.env.DB, codes)), total: total?.n ?? 0 });
 });
 
 /**
@@ -105,6 +120,90 @@ catalogRouter.post("/units", async (c) => {
     for (const b of bases) out[b.code] = { baseUom: b.uom, units: units.get(b.code) ?? [] };
   }
   return c.json({ units: out });
+});
+
+/**
+ * Matches a client's request list to catalog items (code, learned alias, then
+ * name similarity). Read-only: the rep reviews the result before any quote is
+ * created, and prices always come from these catalog rows.
+ */
+catalogRouter.post("/match", async (c) => {
+  const parsed = matchInput.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
+  const catalog = await all<CatalogItem>(c.env.DB, `SELECT ${MATCH_COLUMNS} FROM catalog_items`);
+  const aliases = await all<AliasRow>(
+    c.env.DB,
+    "SELECT alias, client_id, code FROM catalog_aliases WHERE client_id IN (0, ?)",
+    parsed.data.client_id ?? 0,
+  );
+  const { results, referenced } = runMatch(parsed.data, catalog, aliases);
+  const codes = referenced.map((i) => i.code);
+  const body = matchResponse(results, referenced, await unitsByCode(c.env.DB, codes));
+  return c.json({ ...body, items: withProblems(body.items, await cogsProblemsFor(c.env.DB, codes)) });
+});
+
+/** Which of these codes have a COGS that must not be sold on (shared/cogsCheck.ts). */
+catalogRouter.post("/cogs-check", async (c) => {
+  const parsed = cogsCheckInput.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
+  return c.json({ problems: Object.fromEntries(await cogsProblemsFor(c.env.DB, parsed.data.codes)) });
+});
+
+/** A manager confirms an item's current COGS is right despite a big jump from its history. */
+catalogRouter.post("/:id/verify-cogs", requirePermission("edit_catalog"), async (c) => {
+  const user = c.get("user")!;
+  const id = Number(c.req.param("id"));
+  const item = await get<CatalogItem>(c.env.DB, "SELECT * FROM catalog_items WHERE id = ?", id);
+  if (!item) return c.json({ error: "Item tidak ditemukan." }, 404);
+  if (!(item.cogs > 0)) return c.json({ error: "COGS item ini kosong; isi dulu sebelum ditandai sudah dicek." }, 400);
+  await run(c.env.DB, VERIFY_COGS_SQL, item.code, item.cogs);
+  await audit(c.env.DB, user.id, "catalog", id, "cogs_verified", { code: item.code, cogs: item.cogs });
+  const problems = await cogsProblemsFor(c.env.DB, [item.code]);
+  return c.json({ code: item.code, reference: item.cogs, cogs_problem: problems.get(item.code) ?? null });
+});
+
+/** Remembers which catalog item a client's wording means, for the next list. */
+catalogRouter.post("/aliases", async (c) => {
+  const user = c.get("user")!;
+  const parsed = aliasInput.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
+  const clientId = parsed.data.client_id ?? 0;
+  if (!mayStoreAlias(user.role, clientId)) return c.json({ error: GLOBAL_ALIAS_DENIED }, 403);
+  if (clientId && !(await get(c.env.DB, "SELECT id FROM clients WHERE id = ?", clientId))) {
+    return c.json({ error: "Klien tidak ditemukan." }, 400);
+  }
+  const codes = [...new Set(parsed.data.pairs.map((p) => p.code))];
+  const found: { code: string }[] = [];
+  for (const chunk of chunks(codes, CHUNK)) {
+    found.push(
+      ...(await all<{ code: string }>(
+        c.env.DB,
+        `SELECT code FROM catalog_items WHERE code COLLATE NOCASE IN (${chunk.map(() => "?").join(",")})`,
+        ...chunk,
+      )),
+    );
+  }
+  const { pairs, unknown } = cleanAliasPairs(parsed.data.pairs, found.map((f) => f.code));
+  if (unknown.length) return c.json({ error: `Kode tidak ada di katalog: ${unknown.slice(0, 5).join(", ")}` }, 400);
+  if (pairs.length) {
+    await batch(
+      c.env.DB,
+      pairs.map((p) =>
+        stmt(
+          c.env.DB,
+          `INSERT INTO catalog_aliases(alias, client_id, code, created_by) VALUES(?, ?, ?, ?)
+           ON CONFLICT(alias, client_id) DO UPDATE SET code = excluded.code,
+             created_by = excluded.created_by, updated_at = datetime('now')`,
+          p.alias,
+          clientId,
+          p.code,
+          user.id,
+        ),
+      ),
+    );
+  }
+  await audit(c.env.DB, user.id, "catalog", 0, "aliases_saved", { client_id: clientId, count: pairs.length });
+  return c.json({ saved: pairs.length });
 });
 
 /** Managed UOM list — any manager/admin can extend it. Per-item ratios live in catalog_item_uoms. */
