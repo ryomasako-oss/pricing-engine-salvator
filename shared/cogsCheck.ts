@@ -7,20 +7,16 @@
    1. No COGS at all.
    2. COGS above the catalog's own selling price (list price): selling at
       list would lose money, so one of the two numbers is wrong.
-   3. COGS more than 50% away from its reference COGS: the last value that
-      was accepted (catalog_cogs_baseline, kept by triggers in migration
-      0009). A jump does not move the reference, so re-importing the same
-      file never clears the flag; a manager confirming the new COGS does.
+   3. COGS more than 50% away from its reference COGS (catalog_cogs_baseline):
+      the item's first COGS, and after that only a value a manager confirmed
+      ("COGS ini benar", migration 0010). Imports never move it, so neither
+      re-importing a file nor several small steps can clear the flag.
 
    Pure, so both backends and the client share it.
    ============================================================ */
 
 import { grp, pct } from "./format.js";
 
-/**
- * Also written as `0.5 * cogs` in the reference triggers (migrations/0009_cogs_sanity.sql,
- * copied in server/db.ts). Change all three together; cogsCheck.test.ts fails if they differ.
- */
 export const COGS_JUMP = 0.5;
 
 export interface CogsFacts {

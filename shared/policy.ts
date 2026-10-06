@@ -26,6 +26,9 @@ const pctText = (x: number, d = 1) =>
 const rpText = (n: number) =>
   "Rp " + Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 
+/** Lines on offer: held lines (COGS awaiting a manager) are left out of every check. */
+const activeRows = (engine: EngineResult) => engine.rows.filter((r) => !r.held);
+
 export function evaluatePolicy(
   engine: EngineResult,
   scenario: ScenarioIndex,
@@ -35,7 +38,7 @@ export function evaluatePolicy(
   const s = engine.scen[scenario];
   if (!s) return breaches;
 
-  if (engine.rows.length === 0) {
+  if (activeRows(engine).length === 0) {
     breaches.push({
       code: "NET_MARGIN",
       severity: "block",
@@ -54,7 +57,7 @@ export function evaluatePolicy(
     });
   }
 
-  const belowCost = engine.rows.filter((r) => r.margins[scenario] < 0);
+  const belowCost = activeRows(engine).filter((r) => r.margins[scenario] < 0);
   if (belowCost.length && !policy.allowBelowCost) {
     breaches.push({
       code: "BELOW_COST",
@@ -64,7 +67,7 @@ export function evaluatePolicy(
     });
   }
 
-  const thinLines = engine.rows.filter(
+  const thinLines = activeRows(engine).filter(
     (r) => r.margins[scenario] >= 0 && r.margins[scenario] < policy.minLineMargin,
   );
   if (thinLines.length) {
@@ -98,7 +101,7 @@ export function evaluatePolicy(
     });
   }
 
-  const estimated = engine.rows.filter((r) => r.estCogs);
+  const estimated = activeRows(engine).filter((r) => r.estCogs);
   if (estimated.length) {
     breaches.push({
       code: "MISSING_COGS",

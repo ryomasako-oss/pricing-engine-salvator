@@ -114,10 +114,11 @@ export function ListToQuote({
     if (!rows) return [];
     return rows.map((r) => {
       const item = r.chosen != null ? items.get(r.chosen) : undefined;
-      // A catalog item with a bad COGS must not be sold (shared/cogsCheck.ts).
-      return item && !item.cogs_problem
-        ? lineFromCatalog(item, r.request.qty ?? 1, { uom: r.request.uom, rrp: r.request.rrp })
-        : null;
+      if (!item) return null;
+      const line = lineFromCatalog(item, r.request.qty ?? 1, { uom: r.request.uom, rrp: r.request.rrp });
+      // A catalog item with a bad COGS goes on the quote held (server/cogsCheck.ts):
+      // not offered or totalled until a manager checks it, but not forgotten.
+      return item.cogs_problem ? { ...line, held: true } : line;
     });
   }, [rows, items]);
 
@@ -147,11 +148,11 @@ export function ListToQuote({
   }, [previewKey, seeCosts]);
 
   const blockedOf = (r: Row) => (r.chosen != null ? items.get(r.chosen)?.cogs_problem ?? null : null);
-  const pending = rows?.filter((r) => r.chosen != null && !r.confirmed && !blockedOf(r)).length ?? 0;
-  const blockedCount = rows?.filter((r) => blockedOf(r)).length ?? 0;
+  const pending = rows?.filter((r) => r.chosen != null && !r.confirmed).length ?? 0;
+  const heldCount = rows?.filter((r) => blockedOf(r)).length ?? 0;
   const used = lines.filter(Boolean).length;
-  // Rows left out by choice (or with nothing found), not counting blocked ones.
-  const skipped = (rows?.length ?? 0) - used - blockedCount;
+  // Rows left out by choice (or with nothing found).
+  const skipped = (rows?.length ?? 0) - used;
 
 
   const create = async () => {
@@ -171,7 +172,7 @@ export function ListToQuote({
       // every rep and every client, so one hurried "Benar" would become a
       // company-wide rule.
       const pairs = clientId === "" ? [] : rows
-        .filter((row) => row.chosen != null && !blockedOf(row) && row.result.via !== "code")
+        .filter((row) => row.chosen != null && row.result.via !== "code")
         .filter((row) => row.result.status === "review" || row.result.status === "none" || row.chosen !== row.result.candidates[0]?.id)
         .map((row) => ({ text: row.request.name, code: items.get(row.chosen!)!.code }));
       if (pairs.length) {
@@ -204,7 +205,7 @@ export function ListToQuote({
             <span className="grow muted small">
               {used} item masuk{skipped ? ` · ${skipped} tidak dipakai` : ""}
               {pending ? ` · ${pending} perlu dicek dulu` : ""}
-              {blockedCount ? ` · ${blockedCount} diblokir (COGS tidak wajar)` : ""}
+              {heldCount ? ` · ${heldCount} ditahan (COGS dicek manajer)` : ""}
             </span>
             <button className="btn ghost" onClick={() => setRows(null)} disabled={busy}>Ganti file</button>
             <button className="btn primary" onClick={create} disabled={busy || !used || pending > 0 || !title.trim()}>
@@ -281,7 +282,7 @@ export function ListToQuote({
               <span className="badge green">{summary!.sure} cocok</span>
               {summary!.review > 0 && <span className="badge amber">{summary!.review} perlu dicek</span>}
               {summary!.none > 0 && <span className="badge red">{summary!.none} tidak ketemu</span>}
-              {blockedCount > 0 && <span className="badge red">{blockedCount} diblokir</span>}
+              {heldCount > 0 && <span className="badge amber">{heldCount} ditahan</span>}
             </div>
           </div>
           {notes.map((n) => (
@@ -367,15 +368,13 @@ export function ListToQuote({
                         )}
                         {warn && <div className="small" style={{ color: "var(--warn)" }}>⚠ {warn}</div>}
                         {blockedOf(row) && (
-                          <div className="small" style={{ color: "var(--danger)" }}>
-                            ⛔ {blockedOf(row)}. Item ini tidak boleh dijual; pilih item lain atau perbaiki COGS di katalog.
+                          <div className="small" style={{ color: "var(--warn)" }}>
+                            ⚠ {blockedOf(row)}. Masuk sebagai baris ditahan: tidak ikut total dan dokumen sampai dicek manajer.
                           </div>
                         )}
                       </td>
                       <td className="l">
-                        {blockedOf(row) ? (
-                          <span className="badge red">Diblokir</span>
-                        ) : row.chosen != null && !row.confirmed ? (
+                        {row.chosen != null && !row.confirmed ? (
                           <button
                             className="btn small"
                             onClick={() => update(i, { confirmed: true })}
@@ -383,6 +382,8 @@ export function ListToQuote({
                           >
                             <Icon name="check" size={13} /> Benar
                           </button>
+                        ) : blockedOf(row) ? (
+                          <span className="badge amber">Ditahan</span>
                         ) : (
                           <span className={`badge ${row.chosen == null ? "grey" : row.result.status === "review" ? "green" : label.cls}`}>
                             {row.chosen == null ? "Tidak dipakai" : row.result.status === "review" ? "Sudah dicek" : label.text}
@@ -392,6 +393,8 @@ export function ListToQuote({
                       <td className="num">
                         {!line ? (
                           <span className="muted">—</span>
+                        ) : line.held && !seeCosts ? (
+                          <span className="muted">ditahan</span>
                         ) : seeCosts ? (
                           grp(line.cogs)
                         ) : prices[i] != null ? (

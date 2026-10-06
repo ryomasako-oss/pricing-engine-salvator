@@ -199,6 +199,11 @@ export function ItemsTable({
                           {[r.code, r.estCogs ? "COGS estimasi" : ""].filter(Boolean).join(" · ")}
                         </div>
                       )}
+                      {r.held && (
+                        <span className="badge amber" title="COGS item ini perlu dicek manajer. Tidak ikut total dan dokumen sampai dilepas.">
+                          Ditahan
+                        </span>
+                      )}
                     </td>
                     <td>
                       <input

@@ -278,3 +278,25 @@ describe("policy", () => {
     expect(isWithinPolicy(evaluatePolicy(empty, 0, DEFAULT_POLICY))).toBe(false);
   });
 });
+
+describe("held lines (COGS awaiting a manager)", () => {
+  const a = { id: "a", lineNo: 1, code: "A", name: "A", uom: "Pcs", qty: 10, cogs: 1000, rrp: 2000, role: "CORE" as const };
+  const b = { id: "b", lineNo: 2, code: "B", name: "B", uom: "Pcs", qty: 5, cogs: 9000, rrp: 8000, role: "LEADER" as const };
+
+  it("are priced but count toward no total: a quote with a held line totals like one without it", () => {
+    const withHeld = computeEngine(DEFAULT_ASSUMPTIONS, [a, { ...b, held: true }], DEFAULT_REGIONS);
+    const without = computeEngine(DEFAULT_ASSUMPTIONS, [a], DEFAULT_REGIONS);
+    expect(withHeld.rows).toHaveLength(2);
+    expect(withHeld.rows[1].prices[0]).toBeGreaterThan(0);
+    expect(withHeld.scen).toEqual(without.scen);
+    expect(withHeld.cogsValue).toBe(without.cogsValue);
+    expect(withHeld.rrpValue).toBe(without.rrpValue);
+    expect(withHeld.subsidy).toEqual(without.subsidy);
+  });
+
+  it("released (held false) count again", () => {
+    const both = computeEngine(DEFAULT_ASSUMPTIONS, [a, b], DEFAULT_REGIONS);
+    const released = computeEngine(DEFAULT_ASSUMPTIONS, [a, { ...b, held: false }], DEFAULT_REGIONS);
+    expect(released.scen).toEqual(both.scen);
+  });
+});

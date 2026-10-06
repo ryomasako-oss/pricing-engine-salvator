@@ -8,6 +8,7 @@ import { fmtDate, grp, pct } from "@shared/format";
 import type { Assumptions, EngineResult, QuoteMeta, ScenarioIndex } from "@shared/types";
 import type { CompanyInfo } from "../components/QuotationDoc";
 import { paymentLabel, warrantyLabel } from "@shared/terms";
+import { heldNote, offeredRows } from "@shared/holds";
 
 interface Input {
   engine: EngineResult;
@@ -97,7 +98,7 @@ export function quotationPdf(input: Input): jsPDF {
   autoTable(doc, {
     startY: (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 14,
     head: [["No", "Item", "Satuan", "Qty", "Harga satuan", "Total per bulan"]],
-    body: engine.rows.map((r) => [
+    body: offeredRows(engine.rows).map((r) => [
       String(r.lineNo),
       r.code ? `${r.name}\n${r.code}` : r.name,
       r.uom,
@@ -151,6 +152,13 @@ export function quotationPdf(input: Input): jsPDF {
   ) as string[];
   doc.text(terms, M, y);
   y += terms.length * 10;
+
+  const following = heldNote(engine.rows);
+  if (following) {
+    const lines = doc.splitTextToSize(`Item menyusul: ${following}`, W - M * 2) as string[];
+    doc.text(lines, M, y + 6);
+    y += lines.length * 10 + 6;
+  }
 
   if (meta.notes) {
     const notes = doc.splitTextToSize(meta.notes, W - M * 2) as string[];

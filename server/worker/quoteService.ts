@@ -6,7 +6,7 @@
 
 import { all, get, getSetting, run } from "../db.d1";
 import { computeEngine } from "../../shared/engine";
-import { type CogsRow, cogsLookupKeys, cogsRowsSql, problemsByCode } from "../cogsCheck";
+import { type CogsRow, applyHolds, cogsLookupKeys, cogsRowsSql, liveHoldCodes, problemsByCode } from "../cogsCheck";
 import { type CatalogByKey, catalogByKeysSql, staffLookupKeys } from "../staffView";
 import { normalizeCode } from "../../shared/duplicates";
 import type { CatalogItem, UnitFactor } from "../../shared/types";
@@ -106,9 +106,12 @@ export function hydrate(row: QuoteRow): Quote {
   };
 }
 
+/** A quote with its line holds applied (server/cogsCheck.ts applyHolds). */
 export async function findQuote(d1: D1Database, id: number): Promise<Quote | null> {
   const row = await get<QuoteRow>(d1, `${SELECT_QUOTE} WHERE q.id = ?`, id);
-  return row ? hydrate(row) : null;
+  if (!row) return null;
+  const quote = hydrate(row);
+  return applyHolds(quote, await cogsProblemsFor(d1, liveHoldCodes([quote])));
 }
 
 export async function listQuoteRows(
@@ -117,7 +120,9 @@ export async function listQuoteRows(
   ...params: (string | number)[]
 ): Promise<Quote[]> {
   const rows = await all<QuoteRow>(d1, `${SELECT_QUOTE} ${where} ORDER BY q.updated_at DESC`, ...params);
-  return rows.map(hydrate);
+  const quotes = rows.map(hydrate);
+  const problems = await cogsProblemsFor(d1, liveHoldCodes(quotes));
+  return quotes.map((q) => applyHolds(q, problems));
 }
 
 /** Monthly revenue and net margin of a quote at its selected scenario. */

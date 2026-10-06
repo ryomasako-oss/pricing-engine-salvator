@@ -148,7 +148,7 @@ CREATE TABLE IF NOT EXISTS catalog_item_uoms (
   PRIMARY KEY (code, uom)
 );
 
--- Mirrors migrations/0009_cogs_sanity.sql. The 0.5 is COGS_JUMP (shared/cogsCheck.ts).
+-- Mirrors migrations/0009_cogs_sanity.sql (its reference triggers are replaced below, as in 0010).
 CREATE TABLE IF NOT EXISTS catalog_cogs_baseline (
   code TEXT PRIMARY KEY,
   cogs REAL NOT NULL CHECK (cogs > 0)
@@ -203,6 +203,31 @@ CREATE TABLE IF NOT EXISTS catalog_aliases (
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (alias, client_id)
 );
+`);
+
+// Mirrors migrations/0010_cogs_reference_by_manager.sql: the reference COGS
+// moves only through verify-cogs. Dropped and recreated on every start so a
+// dev database made with 0009's triggers gets the new ones.
+db.exec(`
+DROP TRIGGER IF EXISTS trg_cogs_update;
+DROP TRIGGER IF EXISTS trg_cogs_insert;
+CREATE TRIGGER trg_cogs_update
+AFTER UPDATE OF cogs ON catalog_items
+WHEN NEW.cogs <> OLD.cogs
+BEGIN
+  INSERT INTO catalog_cogs_history(code, cogs) SELECT OLD.code, OLD.cogs WHERE OLD.cogs > 0;
+  INSERT INTO catalog_cogs_baseline(code, cogs) SELECT OLD.code, OLD.cogs
+   WHERE OLD.cogs > 0 AND NOT EXISTS (SELECT 1 FROM catalog_cogs_baseline WHERE code = OLD.code);
+  INSERT INTO catalog_cogs_baseline(code, cogs) SELECT NEW.code, NEW.cogs
+   WHERE NEW.cogs > 0 AND NOT EXISTS (SELECT 1 FROM catalog_cogs_baseline WHERE code = NEW.code);
+END;
+CREATE TRIGGER trg_cogs_insert
+AFTER INSERT ON catalog_items
+WHEN NEW.cogs > 0
+BEGIN
+  INSERT INTO catalog_cogs_baseline(code, cogs) SELECT NEW.code, NEW.cogs
+   WHERE NOT EXISTS (SELECT 1 FROM catalog_cogs_baseline WHERE code = NEW.code);
+END;
 `);
 
 // The CREATE TABLE above only adds `version` for a fresh database; migrate

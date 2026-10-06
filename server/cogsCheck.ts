@@ -64,15 +64,28 @@ export function withProblems<T extends { code: string }>(items: T[], problems: M
   return items.map((it) => ({ ...it, cogs_problem: problems.get(it.code) ?? null }));
 }
 
-/** Quote lines whose catalog item has a COGS problem. Lines not from the catalog are left to the pricing policy. */
-export function blockedLines(items: QuoteItem[], problems: Map<string, string>) {
-  return items
-    .filter((it) => it.code && problems.has(it.code))
-    .map((it) => ({ lineNo: it.lineNo, code: it.code, name: it.name, problem: problems.get(it.code)! }));
+/** Statuses whose holds follow the catalog live; from submit on they stay as frozen. */
+const LIVE_HOLD_STATUSES = new Set(["draft", "rejected"]);
+
+/**
+ * A quote with each line's hold set from the catalog (meeting 2026-10-05 #6,
+ * Ryoma 2026-10-06): a line whose catalog COGS has a problem is held, not
+ * offered, totalled or checked against policy, while the rest of the quote
+ * goes ahead. While the quote is editable this follows the catalog, so a fixed
+ * or confirmed COGS releases the line; once submitted the holds stay as they
+ * were, so an approved document never changes by itself.
+ */
+export function applyHolds<T extends { status: string; items: QuoteItem[] }>(quote: T, problems: Map<string, string>): T {
+  if (!LIVE_HOLD_STATUSES.has(quote.status)) return quote;
+  return {
+    ...quote,
+    items: quote.items.map(({ held: _h, ...it }) => (it.code && problems.has(it.code) ? { ...it, held: true } : it)),
+  };
 }
 
-export const blockedMessage = (lines: { lineNo: number; name: string }[]) =>
-  `${lines.length} item memakai COGS katalog yang tidak wajar dan tidak boleh dijual: ` +
-  lines.slice(0, 5).map((l) => `baris ${l.lineNo} ${l.name}`).join(", ") +
-  (lines.length > 5 ? ", …" : "") +
-  ". Perbaiki COGS di katalog (atau minta manajer menandai sudah dicek), lalu ajukan lagi.";
+/** Codes on quotes whose holds follow the catalog, for one problem lookup over a list. */
+export const liveHoldCodes = (quotes: { status: string; items: QuoteItem[] }[]) =>
+  quotes.filter((q) => LIVE_HOLD_STATUSES.has(q.status)).flatMap((q) => q.items.map((it) => it.code));
+
+export const ALL_HELD =
+  "Semua item ditahan karena COGS-nya perlu dicek manajer, jadi belum ada yang bisa diajukan.";

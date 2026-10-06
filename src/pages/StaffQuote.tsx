@@ -47,6 +47,8 @@ export interface StaffLine {
   price: number;
   notes?: string;
   priceUom?: string;
+  /** COGS awaits a manager: shown, but not offered or totalled until released. */
+  held?: boolean;
 }
 
 export interface StaffPricing {
@@ -219,8 +221,8 @@ export function StaffQuotePage() {
     }
   };
 
-  // Lines whose catalog COGS must not be sold block submit on the server;
-  // check when the submit dialog opens so the rep sees which ones first.
+  // Lines whose catalog COGS needs a manager are held at submit (left off the
+  // offer, the rest goes ahead); show which ones when the dialog opens.
   useEffect(() => {
     if (modal !== "submit") return;
     setCogsBlocked(null);
@@ -346,6 +348,11 @@ export function StaffQuotePage() {
                   <td className="l">
                     <div style={{ fontWeight: 550 }}>{l.name}</div>
                     <div className="muted small">{l.code}</div>
+                    {l.held && (
+                      <span className="badge amber" title="Harga item ini sedang dicek manajer. Tidak ikut total dan dokumen; di dokumen ditulis sebagai item menyusul.">
+                        Ditahan
+                      </span>
+                    )}
                   </td>
                   <td className="l">
                     <UomCell
@@ -373,8 +380,8 @@ export function StaffQuotePage() {
                       onChange={(e) => edit(l.id, { rrp: Math.max(0, Number(e.target.value)) })}
                     />
                   </td>
-                  <td className="num"><strong>{grp(l.price)}</strong></td>
-                  <td className="num">{grp(l.price * l.qty)}</td>
+                  <td className="num">{l.held ? <span className="muted">ditahan</span> : <strong>{grp(l.price)}</strong>}</td>
+                  <td className="num">{l.held ? <span className="muted">—</span> : grp(l.price * l.qty)}</td>
                   {!readOnly && (
                     <td>
                       <button
@@ -508,7 +515,7 @@ export function StaffQuotePage() {
               <button className="btn ghost" onClick={() => setModal(null)}>Batal</button>
               <button
                 className="btn primary"
-                disabled={missing.length > 0 || cogsBlocked == null || cogsBlocked.length > 0}
+                disabled={missing.length > 0 || cogsBlocked == null || (lines.length > 0 && cogsBlocked.length === lines.length)}
                 onClick={() => void act(() => api.post(`/quotes/${quoteId}/submit`), "Quotation diajukan.")}
               >
                 Ajukan
@@ -518,11 +525,16 @@ export function StaffQuotePage() {
         >
           {missing.length > 0 && <p className="notice error">{missingTermsMessage(missing)}</p>}
           {cogsBlocked && cogsBlocked.length > 0 && (
-            <div className="notice error" style={{ marginTop: 8 }}>
-              <strong>Item ini perlu dicek manajer dulu dan belum bisa dijual:</strong>
+            <div className={`notice ${cogsBlocked.length === lines.length ? "error" : "warn"}`} style={{ marginTop: 8 }}>
+              <strong>
+                {cogsBlocked.length === lines.length
+                  ? "Semua item sedang dicek manajer, jadi belum ada yang bisa diajukan:"
+                  : `${cogsBlocked.length} item ditahan (harganya sedang dicek manajer) dan tidak ikut penawaran:`}
+              </strong>
               <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
                 {cogsBlocked.map((b) => <li key={b}>{b}</li>)}
               </ul>
+              Di dokumen ke customer, item ini ditulis sebagai "item menyusul".
             </div>
           )}
           <p className="muted small" style={{ marginTop: 10 }}>
@@ -554,7 +566,8 @@ export function StaffQuotePage() {
 }
 
 /** Fields the preview answers for a line. */
-const pick = (l?: StaffLine) => (l ? { price: l.price, uom: l.uom, rrp: l.rrp, priceUom: l.priceUom } : {});
+const pick = (l?: StaffLine) =>
+  l ? { price: l.price, uom: l.uom, rrp: l.rrp, priceUom: l.priceUom, held: l.held } : {};
 
 /** What the rep edited, ignoring the prices the preview fills in, so a preview doesn't trigger another. */
 const editKey = (lines: StaffLine[]) => JSON.stringify(lines.map((l) => [l.id, l.code, l.uom, l.qty, l.rrp, l.notes]));
