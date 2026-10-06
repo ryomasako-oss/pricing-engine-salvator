@@ -26,7 +26,9 @@ export const OCR_MIME_TYPES = ["application/pdf", "image/png", "image/jpeg", "im
 /** Largest file accepted, in bytes before base64. */
 export const OCR_MAX_BYTES = 4 * 1024 * 1024;
 export const OCR_MAX_LINES = 500;
-export const DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite";
+/** A stable (not preview) Flash model: reads tables more reliably than Flash-Lite, and at a few
+ *  hundred rows a day the price difference is small. Override with GEMINI_MODEL. */
+export const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash";
 
 const MAX_BASE64_CHARS = Math.ceil(OCR_MAX_BYTES / 3) * 4;
 const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;

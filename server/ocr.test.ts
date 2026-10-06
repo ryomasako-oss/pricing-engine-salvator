@@ -35,10 +35,10 @@ describe("handleOcr", () => {
 
   it("sends only the file and a fixed instruction, with the key in a header and a response schema", async () => {
     const f = fakeFetch(answer({ lines: [{ name: "Pulpen", qty: 10, uom: "pcs" }] }));
-    const r = await handleOcr("application/pdf; charset=x", b64, { apiKey: "secret-key", model: "gemini-3.1-flash-lite", fetchFn: f.fn });
+    const r = await handleOcr("application/pdf; charset=x", b64, { apiKey: "secret-key", model: "gemini-3.5-flash", fetchFn: f.fn });
     expect(r.status).toBe(200);
     const call = f.calls[0];
-    expect(call.url).toBe("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent");
+    expect(call.url).toBe("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent");
     expect(call.url).not.toContain("secret-key");
     expect((call.init.headers as Record<string, string>)["x-goog-api-key"]).toBe("secret-key");
     const body = JSON.parse(call.init.body as string);
