@@ -75,8 +75,12 @@ export function ListToQuote({
     setError("");
     setBusy(true);
     try {
-      const { parseRequestList } = await import("../import/parsers");
-      const { lines, report } = await parseRequestList(file);
+      // PDF and photos go through the server's OCR; spreadsheets are parsed here.
+      const { ocrMimeFor } = await import("../import/ocr");
+      const mime = ocrMimeFor(file);
+      const { lines, report } = mime
+        ? await (await import("../import/ocr")).ocrRequestList(file, mime).then((r) => ({ lines: r.lines, report: { notes: r.notes } }))
+        : await (await import("../import/parsers")).parseRequestList(file);
       if (lines.length > MAX_LINES) {
         throw new Error(`File berisi ${lines.length} baris; maksimal ${MAX_LINES} per quotation. Pecah filenya dulu.`);
       }
@@ -252,16 +256,16 @@ export function ListToQuote({
           >
             <Icon name="upload" size={24} />
             <div>
-              <strong>Tarik file Excel klien ke sini</strong>
+              <strong>Tarik file daftar klien ke sini</strong>
               <div className="muted small">
-                Cukup kolom nama barang dan qty. Kolom kode, satuan, dan harga maksimal dipakai kalau ada.
+                Excel, PDF, atau foto. Cukup nama barang dan qty; kode, satuan, dan harga maksimal dipakai kalau ada.
               </div>
             </div>
             <label className="btn" aria-disabled={busy}>
               {busy ? "Mencocokkan…" : "Pilih file"}
               <input
                 type="file"
-                accept=".xlsx,.xls,.csv"
+                accept=".xlsx,.xls,.csv,.pdf,.png,.jpg,.jpeg,.webp,.heic,.heif,application/pdf,image/*"
                 hidden
                 disabled={busy}
                 onChange={(e) => void read(e.target.files?.[0])}

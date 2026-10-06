@@ -20,6 +20,7 @@ import { catalogRouter } from "./routes/catalog.js";
 import { quotesRouter } from "./routes/quotes.js";
 import { approvalsRouter } from "./routes/approvals.js";
 import { assistantRouter, assistantEnabled } from "./routes/assistant.js";
+import { ocrRouter } from "./routes/ocr.js";
 import { settingsRouter } from "./routes/settings.js";
 import { ensureSeed } from "./seed.js";
 
@@ -80,6 +81,7 @@ app.use("/api/catalog", catalogRouter);
 app.use("/api/quotes", quotesRouter);
 app.use("/api/approvals", approvalsRouter);
 app.use("/api/assistant", assistantRouter);
+app.use("/api/ocr", ocrRouter);
 app.use("/api/settings", settingsRouter);
 
 app.use("/api", (_req, res) => {

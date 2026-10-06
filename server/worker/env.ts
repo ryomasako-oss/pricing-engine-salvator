@@ -7,6 +7,9 @@ export interface Bindings {
   NODE_ENV?: string;
   ANTHROPIC_API_KEY?: string;
   ANTHROPIC_MODEL?: string;
+  /* Reads PDF/photo request lists (server/ocr.ts). Set with `wrangler secret put GEMINI_API_KEY`. */
+  GEMINI_API_KEY?: string;
+  GEMINI_MODEL?: string;
   ADMIN_EMAIL?: string;
   ADMIN_PASSWORD?: string;
   ADMIN_NAME?: string;

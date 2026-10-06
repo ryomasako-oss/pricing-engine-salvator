@@ -59,6 +59,7 @@ async function makeExpressDriver(): Promise<Driver> {
   const { clientsRouter } = await import("../server/routes/clients.js");
   const { settingsRouter } = await import("../server/routes/settings.js");
   const { assistantRouter } = await import("../server/routes/assistant.js");
+  const { ocrRouter } = await import("../server/routes/ocr.js");
   const { run } = await import("../server/db.js");
 
   const app = express();
@@ -72,6 +73,7 @@ async function makeExpressDriver(): Promise<Driver> {
   app.use("/api/clients", clientsRouter);
   app.use("/api/settings", settingsRouter);
   app.use("/api/assistant", assistantRouter);
+  app.use("/api/ocr", ocrRouter);
 
   let server: Server;
   await new Promise<void>((resolve) => {
@@ -139,6 +141,7 @@ async function makeWorkerDriver(): Promise<Driver> {
   const { clientsRouter } = await import("../server/worker/routes/clients.js");
   const { settingsRouter } = await import("../server/worker/routes/settings.js");
   const { assistantRouter } = await import("../server/worker/routes/assistant.js");
+  const { ocrRouter } = await import("../server/worker/routes/ocr.js");
   const { run } = await import("../server/db.d1.js");
 
   const app = new Hono();
@@ -150,6 +153,7 @@ async function makeWorkerDriver(): Promise<Driver> {
   app.route("/api/clients", clientsRouter);
   app.route("/api/settings", settingsRouter);
   app.route("/api/assistant", assistantRouter);
+  app.route("/api/ocr", ocrRouter);
 
   const env = {
     DB: db,
@@ -1667,6 +1671,15 @@ scenario("A rep can type a price: past the ceiling, or where there is no ceiling
     above: asRep.policy.breaches.filter((b: { code: string }) => b.code === "ABOVE_CEILING").map((b: { lines?: number[] }) => b.lines),
     afterClear: cleared.json.quote.items.map((i: { price: number; manual?: boolean }) => [i.price > 0, i.manual ?? false]),
   };
+});
+
+scenario("OCR endpoint: login required, and off (503) until a Gemini key is set", async (d) => {
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const anon = await d.api("POST", "/api/ocr/extract", { body: {} });
+  const off = await d.api("POST", "/api/ocr/extract", { body: {}, session: rep });
+  assert.equal(anon.status, 401);
+  assert.equal(off.status, 503, JSON.stringify(off.json));
+  return { anon: anon.status, off: off.status, error: off.json.error };
 });
 
 scenario("PE-1: sorting the catalog by COGS is ignored for staff (the order would rank costs)", async (d) => {
