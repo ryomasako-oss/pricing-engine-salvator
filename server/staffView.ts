@@ -24,9 +24,19 @@ import { computeEngine } from "../shared/engine.js";
 import { normalizeCode } from "../shared/duplicates.js";
 import { lineFromCatalog } from "../shared/match.js";
 import { hasPermission } from "../shared/permissions.js";
-import type { AuditEntry, CatalogItem, PolicyBreach, Quote, QuoteItem, Role } from "../shared/types.js";
+import type { AuditEntry, CatalogItem, PolicyBreach, Quote, QuoteItem, Role, ScenarioIndex } from "../shared/types.js";
 import { changeLineUom, sameUom } from "../shared/uom.js";
 import { metaSchema } from "./validate.js";
+
+/** A new quote's scenario (S2), used when a line is priced before the quote exists. */
+export const DEFAULT_STAFF_SCENARIO: ScenarioIndex = 1;
+
+/** Set (price > 0) or clear (0) the hand-typed price for one scenario. */
+function withManualPrice(item: QuoteItem, scenario: ScenarioIndex, price: number): QuoteItem {
+  const manual: (number | null)[] = [...(item.manualPrice ?? [null, null, null])];
+  manual[scenario] = price > 0 ? Math.round(price) : null;
+  return { ...item, manualPrice: manual };
+}
 
 export const canSeeCosts = (role: Role): boolean => hasPermission(role, "view_costs");
 
@@ -40,6 +50,8 @@ export const staffItemSchema = z.object({
   uom: z.string().max(32).optional(),
   qty: z.number().min(0).max(50_000),
   rrp: z.number().min(0).max(50_000_000).optional(),
+  /** Unit price the rep typed for this line (the quote's own scenario). 0 clears it; absent leaves it alone. */
+  price: z.number().min(0).max(50_000_000).optional(),
   notes: z.string().max(500).optional(),
 });
 
@@ -64,14 +76,16 @@ export const OUTSIDE_CATALOG =
 
 /**
  * The lines to store after a staff edit. A line whose id is already on the
- * quote keeps its stored cost, role and manual price; staff change only qty,
- * unit (converted with the item's ratio), ceiling and notes. A new line must
- * carry a catalog code and is built from that catalog row.
+ * quote keeps its stored cost and role; staff change only qty, unit
+ * (converted with the item's ratio), ceiling, notes and the price they type
+ * for the quote's scenario (policy decides at submit whether it needs a
+ * manager). A new line must carry a catalog code and is built from that row.
  */
 export function mergeStaffItems(
   stored: QuoteItem[],
   incoming: StaffItem[],
   catalog: CatalogByKey,
+  scenario: ScenarioIndex = DEFAULT_STAFF_SCENARIO,
 ): { items: QuoteItem[] } | { error: string; code?: string } {
   const byId = new Map(stored.map((it) => [it.id, it]));
   const out: QuoteItem[] = [];
@@ -89,14 +103,16 @@ export function mergeStaffItems(
         const known = cat ? [cat.uom, ...(cat.units ?? []).map((u) => u.uom)] : [];
         const to = known.find((u) => u && sameUom(u, line.uom!)) ?? line.uom;
         next = changeLineUom(next, to, cat ? { baseUom: cat.uom || "Pcs", units: cat.units ?? [] } : undefined);
-      } else if (line.rrp != null) {
-        next = { ...next, rrp: Math.round(line.rrp) };
+      } else {
+        if (line.rrp != null) next = { ...next, rrp: Math.round(line.rrp) };
+        if (line.price != null) next = withManualPrice(next, scenario, line.price);
       }
     } else {
       const cat = catalog.get(normalizeCode(line.code));
       if (!cat) return { error: OUTSIDE_CATALOG, code: line.code || line.name };
       next = { ...lineFromCatalog(cat, line.qty, { uom: line.uom, rrp: line.rrp }), id: line.id };
       if (line.notes) next.notes = line.notes;
+      if (line.price != null) next = withManualPrice(next, scenario, line.price);
     }
     out.push({ ...next, lineNo: i + 1 });
   }
@@ -123,6 +139,7 @@ const STAFF_BREACH: Record<PolicyBreach["code"], string> = {
   BELOW_COST: "Ada item yang dijual di bawah modal.",
   VALUE_THRESHOLD: "Nilai penawaran perlu persetujuan manajer.",
   MISSING_COGS: "Ada item yang biayanya belum pasti.",
+  ABOVE_CEILING: "Ada item yang dihargai di atas plafon klien.",
 };
 
 /** The same breaches with every number taken out of the wording; line numbers stay. */
@@ -142,6 +159,8 @@ export interface StaffLine {
   /** Unit price in the quote's active scenario, computed on the server. */
   price: number;
   notes?: string;
+  /** The price was typed by hand rather than computed. */
+  manual?: boolean;
   /** Set when the unit changed without a known ratio: prices are still in this unit. */
   priceUom?: string;
   /** COGS awaits a manager: shown, but not offered or totalled (server/cogsCheck.ts applyHolds). */
@@ -179,6 +198,7 @@ export function quoteForViewer(role: Role, quote: Quote) {
     rrp: r.rrp,
     price: r.prices[k],
     ...(r.notes ? { notes: r.notes } : {}),
+    ...(r.overridden[k] ? { manual: true } : {}),
     ...(r.priceUom ? { priceUom: r.priceUom } : {}),
     ...(r.held ? { held: true } : {}),
   }));

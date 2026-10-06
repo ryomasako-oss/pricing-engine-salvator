@@ -184,7 +184,8 @@ export interface PolicyBreach {
     | "BASKET_DISCOUNT"
     | "BELOW_COST"
     | "VALUE_THRESHOLD"
-    | "MISSING_COGS";
+    | "MISSING_COGS"
+    | "ABOVE_CEILING";
   severity: BreachSeverity;
   message: string;
   /** Line numbers involved, when the breach is line-specific. */

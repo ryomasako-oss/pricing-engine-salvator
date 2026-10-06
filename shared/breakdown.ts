@@ -130,7 +130,9 @@ export function explainLine(
     const manual = Number(row.manualPrice?.[k]);
     steps.push(
       `Harga diisi manual ${rp(manual)}` +
-        (manual > row.rrp ? `, dipotong ke plafon RRP ${rp(row.rrp)}.` : ` (hitungan otomatis ${rp(computed)}).`),
+        (row.rrp > 0 && manual > row.rrp
+          ? `, di atas plafon RRP ${rp(row.rrp)} (perlu persetujuan manajer).`
+          : ` (hitungan otomatis ${rp(computed)}).`),
     );
   }
 

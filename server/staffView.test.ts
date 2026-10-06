@@ -55,6 +55,23 @@ describe("mergeStaffItems", () => {
     expect("items" in r && r.items.map((i) => [i.id, i.lineNo])).toEqual([["b", 1]]);
   });
 
+  it("sets the price a rep types for the quote's scenario only, rounding it", () => {
+    const r = mergeStaffItems([stored], [{ id: "a", code: "PEN", name: "", qty: 10, price: 2699.6 }], catalog, 2);
+    expect("items" in r && r.items[0].manualPrice).toEqual([2500, null, 2700]);
+  });
+
+  it("clears the typed price with 0 and leaves it alone when absent", () => {
+    const cleared = mergeStaffItems([stored], [{ id: "a", code: "PEN", name: "", qty: 10, price: 0 }], catalog, 0);
+    expect("items" in cleared && cleared.items[0].manualPrice).toEqual([null, null, null]);
+    const kept = mergeStaffItems([stored], [{ id: "a", code: "PEN", name: "", qty: 10 }], catalog, 0);
+    expect("items" in kept && kept.items[0].manualPrice).toEqual([2500, null, null]);
+  });
+
+  it("does not apply a price sent with a unit change (it is still in the old unit)", () => {
+    const r = mergeStaffItems([stored], [{ id: "a", code: "PEN", name: "", qty: 1, uom: "box", price: 999 }], catalog, 0);
+    expect("items" in r && r.items[0].manualPrice).toEqual([30000, null, null]);
+  });
+
   it("never reads cost fields an old client still sends", () => {
     const sneaky = { id: "a", code: "PEN", name: "", qty: 10, cogs: 1, role: "PROFIT", manualPrice: [1, 1, 1] } as never;
     const r = mergeStaffItems([stored], [sneaky], catalog);

@@ -51,6 +51,25 @@ describe("NET_MARGIN", () => {
   });
 });
 
+describe("ABOVE_CEILING", () => {
+  it("sends a manual price above the client ceiling to a manager", () => {
+    const e = computeEngine(A(), [item({ cogs: 1000, rrp: 2000, manualPrice: [2600, null, null] })], []);
+    const b = evaluatePolicy(e, 0, DEFAULT_POLICY).find((x) => x.code === "ABOVE_CEILING");
+    expect(b?.severity).toBe("block");
+    expect(b?.lines).toEqual([1]);
+  });
+
+  it("does not fire for a price at or under the ceiling", () => {
+    const e = computeEngine(A(), [item({ cogs: 1000, rrp: 2000, manualPrice: [2000, null, null] })], []);
+    expect(evaluatePolicy(e, 0, DEFAULT_POLICY).some((x) => x.code === "ABOVE_CEILING")).toBe(false);
+  });
+
+  it("does not fire for an item with no ceiling on file (priced by hand)", () => {
+    const e = computeEngine(A(), [item({ cogs: 1000, rrp: 0, manualPrice: [1500, null, null] })], []);
+    expect(evaluatePolicy(e, 0, DEFAULT_POLICY).some((x) => x.code === "ABOVE_CEILING")).toBe(false);
+  });
+});
+
 describe("BELOW_COST", () => {
   it("blocks when a line prices below landed cost", () => {
     const e = computeEngine(A(), [item({ manualPrice: [500, null, null] })], []);

@@ -1631,6 +1631,44 @@ scenario("PE-1: preview prices exactly what a save would, without saving", async
 });
 
 
+scenario("A rep can type a price: past the ceiling, or where there is no ceiling; policy asks a manager, nothing cost-derived goes back", async (d) => {
+  await seedLeakCatalog(d);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const created = await d.api("POST", "/api/quotes", {
+    body: { title: "Typed price", snapshot: { ...snapshotFor([]), items: [{ id: "t1", code: "LEAK-1", qty: 2, rrp: 99000 }, { id: "t2", code: "LEAK-1", qty: 1, rrp: 0 }] } },
+    session: rep,
+  });
+  const id = created.json.quote.id;
+  const v = created.json.quote.version;
+  const typed = { items: [{ id: "t1", code: "LEAK-1", qty: 2, rrp: 99000, price: 120000 }, { id: "t2", code: "LEAK-1", qty: 1, rrp: 0, price: 5000 }] };
+  const preview = await d.api("POST", "/api/quotes/preview", { body: { quote_id: id, snapshot: typed }, session: rep });
+  const saved = await d.api("PUT", `/api/quotes/${id}`, { body: { snapshot: typed, expected_version: v }, session: rep });
+  const asRep = (await d.api("GET", `/api/quotes/${id}`, { session: rep })).json;
+  const asManager = (await d.api("GET", `/api/quotes/${id}`, { session: manager })).json;
+  const k = asManager.quote.scenario;
+  // Back to the computed price with 0.
+  const clearedBody = { items: [{ id: "t1", code: "LEAK-1", qty: 2, rrp: 99000, price: 0 }, { id: "t2", code: "LEAK-1", qty: 1, rrp: 0 }] };
+  const cleared = await d.api("PUT", `/api/quotes/${id}`, { body: { snapshot: clearedBody, expected_version: saved.json.quote.version }, session: rep });
+
+  assert.equal(preview.status, 200, JSON.stringify(preview.json));
+  assert.equal(saved.status, 200, JSON.stringify(saved.json));
+  assert.deepEqual(preview.json.quote.items, saved.json.quote.items);
+  assert.deepEqual(saved.json.quote.items.map((i: { price: number }) => i.price), [120000, 5000]);
+  assert.equal(saved.json.quote.items[0].manual, true);
+  assert.deepEqual(asManager.quote.items.map((i: { manualPrice: (number | null)[] }) => i.manualPrice[k]), [120000, 5000]);
+  assert.ok(asRep.policy.breaches.some((b: { code: string; message: string }) => b.code === "ABOVE_CEILING" && !/\d/.test(b.message)));
+  assert.ok(!JSON.stringify(asRep).includes(String(LEAK_COGS)), "typed price must not bring cost data back to staff");
+  assert.equal(cleared.status, 200, JSON.stringify(cleared.json));
+  assert.equal(cleared.json.quote.items[0].manual, undefined);
+  assert.equal(cleared.json.quote.items[1].price, 5000);
+  return {
+    prices: saved.json.quote.items.map((i: { price: number }) => i.price),
+    above: asRep.policy.breaches.filter((b: { code: string }) => b.code === "ABOVE_CEILING").map((b: { lines?: number[] }) => b.lines),
+    afterClear: cleared.json.quote.items.map((i: { price: number; manual?: boolean }) => [i.price > 0, i.manual ?? false]),
+  };
+});
+
 scenario("PE-1: sorting the catalog by COGS is ignored for staff (the order would rank costs)", async (d) => {
   await importRows(d, [
     { code: "SRT-A", name: "SRT Alpha", cogs: 3000, list_price: 9000 },

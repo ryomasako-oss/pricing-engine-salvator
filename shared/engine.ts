@@ -142,8 +142,10 @@ export function computeEngine(
       const manual = it.manualPrice?.[k];
       if (manual == null || !Number.isFinite(manual) || manual <= 0) return p;
       overridden[k] = true;
-      // A manual price still respects the client's ceiling.
-      return Math.min(finite(manual), rrp);
+      // A manual price is the rep's call and may go past the client's ceiling
+      // (or stand in for a missing one); policy flags it for approval instead
+      // (ABOVE_CEILING), so a quote can chase a sale without being unreviewable.
+      return finite(manual);
     });
 
     const margins = prices.map((p) => (p > 0 ? (p - landed) / p : 0));

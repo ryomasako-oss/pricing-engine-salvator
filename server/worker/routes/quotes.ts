@@ -128,7 +128,7 @@ quotesRouter.post("/preview", async (c) => {
   const stored = base?.items ?? [];
   const lines = parsed.data.snapshot.items;
   const catalog = await catalogByKeys(c.env.DB, [...stored.map((i) => i.code), ...lines.map((l) => l.code)]);
-  const merged = mergeStaffItems(stored, lines, catalog);
+  const merged = mergeStaffItems(stored, lines, catalog, base?.scenario);
   if ("error" in merged) return c.json(merged, 400);
   const draft = {
     ...(base ?? { id: 0, number: "", title: "", status: "draft", rev_no: 1, version: 0 }),
@@ -297,7 +297,7 @@ quotesRouter.put("/:id", async (c) => {
     const staff = staffSnapshotSchema.safeParse(parsed.data.snapshot);
     if (!staff.success) return c.json({ error: zodMessage(staff.error) }, 400);
     const codes = [...existing.items.map((it) => it.code), ...staff.data.items.map((l) => l.code)];
-    const merged = mergeStaffItems(existing.items, staff.data.items, await catalogByKeys(c.env.DB, codes));
+    const merged = mergeStaffItems(existing.items, staff.data.items, await catalogByKeys(c.env.DB, codes), existing.scenario);
     if ("error" in merged) return c.json(merged, 400);
     s = {
       assumptions: existing.assumptions,
