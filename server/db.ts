@@ -203,6 +203,18 @@ CREATE TABLE IF NOT EXISTS catalog_aliases (
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (alias, client_id)
 );
+
+-- Mirrors migrations/0012_sales_reviews.sql.
+CREATE TABLE IF NOT EXISTS sales_reviews (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  quote_id    INTEGER NOT NULL REFERENCES quotes(id) ON DELETE CASCADE,
+  rev_no      INTEGER NOT NULL,
+  reviewed_by INTEGER NOT NULL REFERENCES users(id),
+  lines       TEXT NOT NULL,
+  rejected    INTEGER NOT NULL DEFAULT 0,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_sales_reviews_quote ON sales_reviews(quote_id, id);
 `);
 
 // Mirrors migrations/0010_cogs_reference_by_manager.sql: the reference COGS

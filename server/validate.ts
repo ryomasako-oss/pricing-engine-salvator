@@ -132,3 +132,22 @@ export function zodMessage(err: z.ZodError): string {
     .map((i) => `${i.path.join(".") || "input"}: ${i.message}`)
     .join("; ");
 }
+
+/** PE-2: what an imported "Cek harga" file sends back — decisions only, never prices. */
+export const salesReviewSchema = z.object({
+  rev_no: z.number().int(),
+  version: z.number().int(),
+  lines: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(64),
+        decision: z.enum(["acc", "tolak"], { message: "Setiap baris harus diisi ACC atau Tolak." }),
+        reason: z.string().max(500).default(""),
+      }),
+    )
+    .max(2000),
+});
+
+export const excelPasswordSchema = z.object({
+  password: z.string().min(6, "Password Excel minimal 6 karakter.").max(100),
+});

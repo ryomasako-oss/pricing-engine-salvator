@@ -29,6 +29,7 @@ import { QuotationDoc, type CompanyInfo } from "../components/QuotationDoc";
 import { CatalogPicker } from "../components/CatalogPicker";
 import { Breakdown } from "../components/Breakdown";
 import { TermsBox } from "../components/TermsBox";
+import { SalesReviewBanner, SalesReviewImport, type SalesReviewRecord } from "../components/SalesReview";
 import { ImportDialog } from "../components/ImportDialog";
 import { DuplicateAddModal, DuplicateBanner } from "../components/Duplicates";
 import { AssistantPanel, applyActions, type AssistantAction } from "../components/AssistantPanel";
@@ -105,6 +106,9 @@ export function QuoteEditorPage() {
   const [snapshot, setSnapshot] = useState<QuoteSnapshot | null>(null);
   const [policy, setPolicy] = useState<PricingPolicy | null>(null);
   const [company, setCompany] = useState<CompanyInfo | null>(null);
+  // PE-2: office password for the "Cek harga" Excel (managers/admins only receive it).
+  const [excelPassword, setExcelPassword] = useState("");
+  const [salesReview, setSalesReview] = useState<SalesReviewRecord | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -123,8 +127,12 @@ export function QuoteEditorPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const d = await api.get<QuoteDetail>(`/quotes/${quoteId}`);
+      const [d, sr] = await Promise.all([
+        api.get<QuoteDetail>(`/quotes/${quoteId}`),
+        api.get<{ review: SalesReviewRecord | null }>(`/quotes/${quoteId}/sales-review`).catch(() => ({ review: null })),
+      ]);
       setDetail(d);
+      setSalesReview(sr.review);
       const snap: QuoteSnapshot = {
         assumptions: d.quote.assumptions,
         items: d.quote.items,
@@ -149,10 +157,11 @@ export function QuoteEditorPage() {
 
   useEffect(() => {
     api
-      .get<{ policy: PricingPolicy; company: CompanyInfo }>("/settings")
+      .get<{ policy: PricingPolicy; company: CompanyInfo; excelPassword?: string }>("/settings")
       .then((r) => {
         setPolicy(r.policy);
         setCompany(r.company);
+        setExcelPassword(r.excelPassword ?? "");
       })
       .catch(() => undefined);
     api.get<{ clients: Client[] }>("/clients").then((r) => setClients(r.clients)).catch(() => undefined);
@@ -476,6 +485,11 @@ export function QuoteEditorPage() {
           <button className="btn" onClick={() => setModal({ kind: "export" })}>
             <Icon name="download" size={15} /> Ekspor
           </button>
+          {quote.status === "approved" && (quote.created_by === user?.id || quote.assigned_to === user?.id || can("edit_all_quotes")) && (
+            <button className="btn" onClick={() => setModal({ kind: "sales-import" })}>
+              <Icon name="upload" size={15} /> Import cek sales
+            </button>
+          )}
           {can("decide_quotes") && (
             <button
               className="btn"
@@ -505,6 +519,7 @@ export function QuoteEditorPage() {
         </div>
       </div>
 
+      <SalesReviewBanner quote={quote} review={salesReview} />
       {quote.status === "rejected" && quote.decision_note && (
         <p className="notice error" style={{ marginBottom: 12 }}>
           <strong>Ditolak{quote.approved_by_name ? ` oleh ${quote.approved_by_name}` : ""}:</strong>{" "}
@@ -894,6 +909,21 @@ export function QuoteEditorPage() {
         />
       )}
 
+      {modal?.kind === "sales-import" && (
+        <SalesReviewImport
+          quote={quote}
+          onClose={() => setModal(null)}
+          onDone={(rejected) => {
+            setModal(null);
+            toast(
+              rejected ? `${rejected} baris ditolak sales. Quotation kembali ke draft untuk manajer.` : "Semua baris ACC. Hasil cek tersimpan.",
+              rejected ? "error" : "success",
+            );
+            void load();
+          }}
+        />
+      )}
+
       {modal?.kind === "export" && (
         <Modal title="Ekspor quotation" onClose={() => setModal(null)}>
           <div className="list">
@@ -929,6 +959,35 @@ export function QuoteEditorPage() {
                 <small className="muted"> Penawaran, analisis margin internal, perbandingan, dan asumsi.</small>
               </span>
             </button>
+            {can("view_costs") && (
+              <button
+                className="list-row"
+                disabled={quote.status !== "approved" || dirty || !excelPassword}
+                onClick={async () => {
+                  const { downloadSalesReview } = await import("../export/salesReview");
+                  await downloadSalesReview({
+                    ...exportInput, policy: policy ?? undefined, quoteId: quote.id, revNo: quote.rev_no,
+                    version: quote.version, password: excelPassword,
+                  });
+                  setModal(null);
+                }}
+              >
+                <Icon name="table" />
+                <span>
+                  <strong>Excel cek harga untuk sales</strong>
+                  <small className="muted">
+                    {" "}
+                    {quote.status !== "approved"
+                      ? "Tersedia setelah quotation disetujui."
+                      : dirty
+                        ? "Simpan perubahan dulu."
+                        : !excelPassword
+                          ? "Admin belum mengatur password Excel di Pengaturan."
+                          : "Rincian cara harga keluar per baris (termasuk COGS), terkunci password kantor. Sales hanya mengisi ACC/Tolak."}
+                  </small>
+                </span>
+              </button>
+            )}
             <button
               className="list-row"
               onClick={() => {

@@ -566,6 +566,7 @@ input[type=checkbox] { accent-color: var(--navy); width: 17px; height: 17px; fle
 }
 .list > li > button:hover { background: var(--soft); }
 .list-row + .list-row { border-top: 1px solid var(--rule); }
+.list-row:disabled { opacity: 0.55; cursor: not-allowed; }
 
 .search-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .search-bar .input { max-width: 320px; min-width: 180px; }

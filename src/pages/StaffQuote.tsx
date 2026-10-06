@@ -20,6 +20,7 @@ import { StatusChip } from "../components/pricing";
 import { TermsBox } from "../components/TermsBox";
 import { UomCell } from "../components/UomCell";
 import { downloadQuotationPdf } from "../export/pdf";
+import { SalesReviewBanner, SalesReviewImport, type SalesReviewRecord } from "../components/SalesReview";
 import { WorkflowButtons } from "./QuoteEditor";
 import { DEFAULT_ASSUMPTIONS } from "@shared/engine";
 import { grp, pct, rp } from "@shared/format";
@@ -118,14 +119,19 @@ export function StaffQuotePage() {
   const [company, setCompany] = useState<CompanyInfo | null>(null);
   const [uomOptions, setUomOptions] = useState<string[]>([]);
   const [units, setUnits] = useState<Record<string, ItemUnits>>({});
-  const [modal, setModal] = useState<"catalog" | "submit" | "reopen" | null>(null);
+  const [modal, setModal] = useState<"catalog" | "submit" | "reopen" | "sales-import" | null>(null);
+  const [salesReview, setSalesReview] = useState<SalesReviewRecord | null>(null);
   const [showDoc, setShowDoc] = useState(false);
   const [cogsBlocked, setCogsBlocked] = useState<string[] | null>(null);
   const previewSeq = useRef(0);
 
   const load = useCallback(async () => {
-    const d = await api.get<Detail>(`/quotes/${quoteId}`);
+    const [d, sr] = await Promise.all([
+      api.get<Detail>(`/quotes/${quoteId}`),
+      api.get<{ review: SalesReviewRecord | null }>(`/quotes/${quoteId}/sales-review`).catch(() => ({ review: null })),
+    ]);
     setDetail(d);
+    setSalesReview(sr.review);
     setLines(d.quote.items);
     setMeta(d.quote.meta);
     setPricing(d.quote.pricing);
@@ -290,6 +296,11 @@ export function StaffQuotePage() {
               {saving ? "Menyimpan…" : dirty ? "Simpan" : "Tersimpan"}
             </button>
           )}
+          {quote.status === "approved" && isResponsible && (
+            <button className="btn" onClick={() => setModal("sales-import")}>
+              <Icon name="upload" size={15} /> Import cek sales
+            </button>
+          )}
           <button className="btn" onClick={exportPdf} disabled={!company || dirty}>
             <Icon name="download" size={15} /> PDF
           </button>
@@ -306,6 +317,21 @@ export function StaffQuotePage() {
         </div>
       </div>
 
+      <SalesReviewBanner quote={quote as unknown as Quote} review={salesReview} />
+      {modal === "sales-import" && (
+        <SalesReviewImport
+          quote={quote as unknown as Quote}
+          onClose={() => setModal(null)}
+          onDone={(rejected) => {
+            setModal(null);
+            toast(
+              rejected ? `${rejected} baris ditolak. Quotation kembali ke manajer untuk perbaikan harga.` : "Semua baris ACC. Hasil cek tersimpan.",
+              rejected ? "error" : "success",
+            );
+            void load();
+          }}
+        />
+      )}
       {quote.status === "rejected" && quote.decision_note && (
         <p className="notice error" style={{ marginBottom: 12 }}>
           <strong>Ditolak{quote.approved_by_name ? ` oleh ${quote.approved_by_name}` : ""}:</strong> {quote.decision_note}

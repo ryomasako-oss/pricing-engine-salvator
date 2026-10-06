@@ -16,6 +16,8 @@ export function SettingsPage() {
   const navigate = useNavigate();
   const [policy, setPolicy] = useState<PricingPolicy | null>(null);
   const [company, setCompany] = useState<CompanyInfo | null>(null);
+  const [excelPassword, setExcelPassword] = useState("");
+  const [excelPasswordSet, setExcelPasswordSet] = useState(false);
   const [users, setUsers] = useState<User[]>([]);
   const [creating, setCreating] = useState(false);
   const [password, setPassword] = useState({ current: "", next: "", confirm: "" });
@@ -39,10 +41,11 @@ export function SettingsPage() {
 
   useEffect(() => {
     api
-      .get<{ policy: PricingPolicy; company: CompanyInfo }>("/settings")
+      .get<{ policy: PricingPolicy; company: CompanyInfo; excelPassword?: string }>("/settings")
       .then((r) => {
         setPolicy(r.policy);
         setCompany(r.company);
+        setExcelPasswordSet(!!r.excelPassword);
       })
       .catch((e) => toast(e.message, "error"));
     loadUsers();
@@ -273,6 +276,44 @@ export function SettingsPage() {
                   <button className="btn primary" onClick={saveCompany}>Simpan identitas</button>
                 </div>
               )}
+            </div>
+          </section>
+        )}
+
+        {can("manage_company") && (
+          <section className="card">
+            <div className="card-head"><h2>Password Excel cek harga</h2></div>
+            <div className="card-body">
+              <p className="muted small" style={{ marginTop: 0, marginBottom: 12 }}>
+                Mengunci file "Cek harga" yang manajer kirim ke sales, supaya sales hanya bisa mengisi ACC/Tolak.
+                Manajer dan admin bisa melihat password ini; sales tidak. Kunci Excel mudah dibongkar, jadi angka di file
+                tidak pernah dibaca balik oleh aplikasi; yang dibaca hanya ACC/Tolak dan alasannya.
+                {" "}
+                <strong>{excelPasswordSet ? "Password sudah diatur." : "Belum diatur: file cek harga belum bisa dibuat."}</strong>
+              </p>
+              <div className="row-wrap">
+                <label className="field" style={{ minWidth: 240 }}>
+                  <span>{excelPasswordSet ? "Password baru" : "Password"}</span>
+                  <PasswordInput value={excelPassword} onChange={setExcelPassword} autoComplete="new-password" />
+                </label>
+                <button
+                  className="btn primary"
+                  style={{ alignSelf: "flex-end" }}
+                  disabled={excelPassword.length < 6}
+                  onClick={async () => {
+                    try {
+                      await api.put("/settings/excel-password", { password: excelPassword });
+                      setExcelPassword("");
+                      setExcelPasswordSet(true);
+                      toast("Password Excel disimpan.", "success");
+                    } catch (e) {
+                      toast(e instanceof Error ? e.message : "Gagal menyimpan.", "error");
+                    }
+                  }}
+                >
+                  Simpan password
+                </button>
+              </div>
             </div>
           </section>
         )}
