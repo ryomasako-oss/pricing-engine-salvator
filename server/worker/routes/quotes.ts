@@ -20,7 +20,7 @@ import {
 } from "../quoteService";
 import { isWithinPolicy } from "../../../shared/policy";
 import { defaultPayment, missingTerms, missingTermsMessage } from "../../../shared/terms";
-import { ALL_HELD, applyHolds } from "../../cogsCheck";
+import { ALL_HELD, applyHolds, recostCodes } from "../../cogsCheck";
 import {
   approvalsForViewer,
   auditForViewer,
@@ -139,7 +139,8 @@ quotesRouter.post("/preview", async (c) => {
     items: merged.items,
     status: "draft",
   } as Quote;
-  const held = applyHolds(draft, await cogsProblemsFor(c.env.DB, merged.items.map((i) => i.code)));
+  const problems = await cogsProblemsFor(c.env.DB, merged.items.map((i) => i.code));
+  const held = applyHolds(draft, problems, await catalogByKeys(c.env.DB, recostCodes([draft], problems)));
   return c.json({ quote: view(user.role, held) });
 });
 

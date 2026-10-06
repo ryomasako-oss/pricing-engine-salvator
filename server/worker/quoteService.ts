@@ -6,7 +6,7 @@
 
 import { all, get, getSetting, run } from "../db.d1";
 import { computeEngine } from "../../shared/engine";
-import { type CogsRow, applyHolds, cogsLookupKeys, cogsRowsSql, liveHoldCodes, problemsByCode } from "../cogsCheck";
+import { type CogsRow, applyHolds, cogsLookupKeys, cogsRowsSql, liveHoldCodes, problemsByCode, recostCodes } from "../cogsCheck";
 import { type CatalogByKey, catalogByKeysSql, staffLookupKeys } from "../staffView";
 import { normalizeCode } from "../../shared/duplicates";
 import type { CatalogItem, UnitFactor } from "../../shared/types";
@@ -111,7 +111,8 @@ export async function findQuote(d1: D1Database, id: number): Promise<Quote | nul
   const row = await get<QuoteRow>(d1, `${SELECT_QUOTE} WHERE q.id = ?`, id);
   if (!row) return null;
   const quote = hydrate(row);
-  return applyHolds(quote, await cogsProblemsFor(d1, liveHoldCodes([quote])));
+  const problems = await cogsProblemsFor(d1, liveHoldCodes([quote]));
+  return applyHolds(quote, problems, await catalogByKeys(d1, recostCodes([quote], problems)));
 }
 
 export async function listQuoteRows(
@@ -122,7 +123,8 @@ export async function listQuoteRows(
   const rows = await all<QuoteRow>(d1, `${SELECT_QUOTE} ${where} ORDER BY q.updated_at DESC`, ...params);
   const quotes = rows.map(hydrate);
   const problems = await cogsProblemsFor(d1, liveHoldCodes(quotes));
-  return quotes.map((q) => applyHolds(q, problems));
+  const catalog = await catalogByKeys(d1, recostCodes(quotes, problems));
+  return quotes.map((q) => applyHolds(q, problems, catalog));
 }
 
 /** Monthly revenue and net margin of a quote at its selected scenario. */

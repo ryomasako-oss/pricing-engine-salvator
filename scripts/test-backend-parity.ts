@@ -1851,6 +1851,36 @@ scenario("PE-2: refused imports: stale file, missing line, Tolak without reason,
   };
 });
 
+// Regression (Codex review of develop 41764fe): a line made while its item
+// had no COGS stores COGS 0. Fixing the catalog released the hold but kept the
+// 0, so the line showed a 100% margin and a manager's submit auto-approved it.
+scenario("a line released from a hold takes the catalog's COGS (in its unit), not the 0 it was made with", async (d) => {
+  await importRows(d, [
+    { code: "C-REL", name: "Released item", uom: "Pcs", cogs: 0, list_price: 2000, units: [{ uom: "Box", factor: 12 }] },
+  ]);
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const q = await createDraft(d, manager, [
+    cleanItem({ id: "r1", lineNo: 1, code: "C-REL", name: "Released item", uom: "Pcs", qty: 10, cogs: 0, estCogs: true, rrp: 2000, manualPrice: [150, 150, 150] }),
+    cleanItem({ id: "r2", lineNo: 2, code: "C-REL", name: "Released item", uom: "Box", qty: 1, cogs: 0, estCogs: true, rrp: 24000 }),
+  ]);
+  const line = (quote: { items: { id: string; held?: boolean; cogs: number; estCogs?: boolean }[] }, id: string) => {
+    const it = quote.items.find((i) => i.id === id)!;
+    return { held: Boolean(it.held), cogs: it.cogs, estCogs: Boolean(it.estCogs) };
+  };
+  const before = (await d.api("GET", `/api/quotes/${q.id}`, { session: manager })).json.quote;
+  await importRows(d, [{ code: "C-REL", name: "Released item", cogs: 1000 }]);
+  const after = (await d.api("GET", `/api/quotes/${q.id}`, { session: manager })).json.quote;
+  const submit = await d.api("POST", `/api/quotes/${q.id}/submit`, { session: manager });
+
+  assert.deepEqual(line(before, "r1"), { held: true, cogs: 0, estCogs: true });
+  assert.deepEqual(line(after, "r1"), { held: false, cogs: 1000, estCogs: false });
+  assert.deepEqual(line(after, "r2"), { held: false, cogs: 12000, estCogs: false });
+  assert.equal(submit.status, 200, JSON.stringify(submit.json));
+  assert.notEqual(submit.json.quote.status, "approved", "a price of 150 on a 1,000 cost must not auto-approve");
+  return { before: line(before, "r1"), afterPcs: line(after, "r1"), afterBox: line(after, "r2"), status: submit.json.quote.status };
+});
+
+
 // ---------------------------------------------------------------
 // Run: ONE pair of backends for the whole run (Node caches the
 // dynamically-imported server/db.js module by URL, so "fresh drivers

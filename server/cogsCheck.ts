@@ -7,7 +7,8 @@
 import { z } from "zod";
 import { cogsProblem } from "../shared/cogsCheck.js";
 import { normalizeCode } from "../shared/duplicates.js";
-import type { QuoteItem } from "../shared/types.js";
+import type { CatalogItem, QuoteItem } from "../shared/types.js";
+import { priceUnitOf, unitFactor } from "../shared/uom.js";
 
 export const cogsCheckInput = z.object({ codes: z.array(z.string().max(64)).max(2000) });
 
@@ -75,13 +76,47 @@ const LIVE_HOLD_STATUSES = new Set(["draft", "rejected"]);
  * or confirmed COGS releases the line; once submitted the holds stay as they
  * were, so an approved document never changes by itself.
  */
-export function applyHolds<T extends { status: string; items: QuoteItem[] }>(quote: T, problems: Map<string, string>): T {
+export function applyHolds<T extends { status: string; items: QuoteItem[] }>(
+  quote: T,
+  problems: Map<string, string>,
+  catalog: Map<string, CatalogItem> = new Map(),
+): T {
   if (!LIVE_HOLD_STATUSES.has(quote.status)) return quote;
   return {
     ...quote,
-    items: quote.items.map(({ held: _h, ...it }) => (it.code && problems.has(it.code) ? { ...it, held: true } : it)),
+    items: quote.items.map(({ held: _h, ...it }) => {
+      if (it.code && problems.has(it.code)) return { ...it, held: true };
+      if (!madeWithoutCost(it)) return it;
+      // Released, but still carrying the COGS 0 it was made with while the
+      // catalog had none: take the catalog's cost now. Without a ratio for the
+      // line's unit the cost can't be known, so the line stays held rather
+      // than being offered at a 100% margin.
+      const item = catalog.get(normalizeCode(it.code));
+      if (!item) return it; // not in the catalog: left to the pricing policy, as before
+      const cogs = catalogCogsIn(item, it);
+      return cogs === null ? { ...it, held: true } : { ...it, cogs, estCogs: false };
+    }),
   };
 }
+
+/**
+ * A coded line whose COGS is still 0: it was made from a catalog item that
+ * had no COGS yet (lineFromCatalog), so the number is a placeholder, not a cost.
+ */
+const madeWithoutCost = (it: QuoteItem) => Boolean(it.code) && !(Number(it.cogs) > 0);
+
+/** The catalog item's COGS in the unit this line is priced in; null when no ratio is known. */
+function catalogCogsIn(item: CatalogItem, line: QuoteItem): number | null {
+  if (!(item.cogs > 0)) return null;
+  const factor = unitFactor({ baseUom: item.uom || "Pcs", units: item.units ?? [] }, priceUnitOf(line));
+  return factor === undefined ? null : Math.round(item.cogs * factor * 100) / 100;
+}
+
+/** Codes whose catalog row applyHolds needs to re-cost released lines; usually none. */
+export const recostCodes = (quotes: { status: string; items: QuoteItem[] }[], problems: Map<string, string>) =>
+  quotes
+    .filter((q) => LIVE_HOLD_STATUSES.has(q.status))
+    .flatMap((q) => q.items.filter((it) => madeWithoutCost(it) && !problems.has(it.code)).map((it) => it.code));
 
 /** Codes on quotes whose holds follow the catalog, for one problem lookup over a list. */
 export const liveHoldCodes = (quotes: { status: string; items: QuoteItem[] }[]) =>

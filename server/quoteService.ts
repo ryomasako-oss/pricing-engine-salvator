@@ -5,7 +5,7 @@
 
 import { all, get, getSetting, run } from "./db.js";
 import { computeEngine } from "../shared/engine.js";
-import { type CogsRow, applyHolds, cogsLookupKeys, cogsRowsSql, liveHoldCodes, problemsByCode } from "./cogsCheck.js";
+import { type CogsRow, applyHolds, cogsLookupKeys, cogsRowsSql, liveHoldCodes, problemsByCode, recostCodes } from "./cogsCheck.js";
 import { type CatalogByKey, catalogByKeysSql, staffLookupKeys } from "./staffView.js";
 import { normalizeCode } from "../shared/duplicates.js";
 import type { CatalogItem, UnitFactor } from "../shared/types.js";
@@ -109,13 +109,15 @@ export function findQuote(id: number): Quote | null {
   const row = get<QuoteRow>(`${SELECT_QUOTE} WHERE q.id = ?`, id);
   if (!row) return null;
   const quote = hydrate(row);
-  return applyHolds(quote, cogsProblemsFor(liveHoldCodes([quote])));
+  const problems = cogsProblemsFor(liveHoldCodes([quote]));
+  return applyHolds(quote, problems, catalogByKeys(recostCodes([quote], problems)));
 }
 
 export function listQuoteRows(where = "", ...params: (string | number)[]): Quote[] {
   const quotes = all<QuoteRow>(`${SELECT_QUOTE} ${where} ORDER BY q.updated_at DESC`, ...params).map(hydrate);
   const problems = cogsProblemsFor(liveHoldCodes(quotes));
-  return quotes.map((q) => applyHolds(q, problems));
+  const catalog = catalogByKeys(recostCodes(quotes, problems));
+  return quotes.map((q) => applyHolds(q, problems, catalog));
 }
 
 /** Monthly revenue and net margin of a quote at its selected scenario. */
