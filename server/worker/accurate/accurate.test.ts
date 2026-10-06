@@ -6,7 +6,7 @@ import { Hono } from "hono";
 import { D1DatabaseShim } from "../../../scripts/d1-sqlite-shim";
 import { AccurateClient, signTimestamp } from "./client";
 import { mapItem, mapStock } from "./mapping";
-import { syncStep, type SyncConfig } from "./sync";
+import { syncConfig, syncStep, type EntityKey, type SyncConfig } from "./sync";
 import { accurateRouter } from "../routes/accurate";
 import type { Env } from "../env";
 
@@ -85,10 +85,10 @@ function freshDb() {
 const cfg: SyncConfig = { pageSize: 2, callsPerTick: 100, everyHours: 6 };
 const creds = { token: "aat.test", signatureSecret: "secret" };
 
-async function runToIdle(db: D1Database, f: typeof fetch, c = cfg) {
+async function runToIdle(db: D1Database, f: typeof fetch, c = cfg, entity: EntityKey = "CV") {
   const outcomes: string[] = [];
   for (let i = 0; i < 50; i++) {
-    const r = await syncStep(db, "CV", creds, c, { deadline: Date.now() + 10_000, fetchImpl: f, gapMs: 0 });
+    const r = await syncStep(db, entity, creds, c, { deadline: Date.now() + 10_000, fetchImpl: f, gapMs: 0 });
     outcomes.push(r.outcome);
     if (r.outcome === "error") throw new Error(r.error);
     if (r.outcome === "finished" || r.outcome === "idle") break;
@@ -154,13 +154,13 @@ describe("syncStep", () => {
 });
 
 describe("POST /api/accurate/apply", () => {
-  it("promotes one entity into the catalog without touching COGS, and flags cross-entity mismatches", async () => {
+  it("promotes PT into the catalog without touching COGS, refuses CV, and flags cross-entity mismatches", async () => {
     const { sqlite, db } = freshDb();
     sqlite.exec(`INSERT INTO users(id, email, name, password_hash, role) VALUES (1, 'm@x', 'M', 'x', 'manager')`);
     sqlite.exec(`INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock) VALUES ('A1', 'Kertas lama', 'Rim', 41000, 0, 0)`);
-    await runToIdle(db, fakeAccurate({ items: ITEMS, stock: { 1: [{ no: "A1", quantity: 10 }], 2: [{ no: "A1", quantity: 5 }] } }).impl);
-    // A PT row with the same code but a different price.
-    sqlite.exec(`INSERT INTO accurate_items(entity, accurate_id, code, name, uom, unit_price, run_id) VALUES ('PT', 1, 'A1', 'Kertas A4', 'Rim', 52000, 'x')`);
+    await runToIdle(db, fakeAccurate({ items: ITEMS, stock: { 1: [{ no: "A1", quantity: 10 }], 2: [{ no: "A1", quantity: 5 }] } }).impl, cfg, "PT");
+    // A CV row with the same code but a different price.
+    sqlite.exec(`INSERT INTO accurate_items(entity, accurate_id, code, name, uom, unit_price, run_id) VALUES ('CV', 1, 'A1', 'Kertas A4', 'Rim', 52000, 'x')`);
 
     const app = new Hono<Env>();
     app.use(async (c, next) => {
@@ -169,15 +169,22 @@ describe("POST /api/accurate/apply", () => {
     });
     app.route("/api/accurate", accurateRouter);
     const env = { DB: db } as unknown as Env["Bindings"];
+    const apply = (body: unknown) =>
+      app.request("/api/accurate/apply", { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" } }, env);
 
-    const onlyExisting = await app.request("/api/accurate/apply", { method: "POST", body: JSON.stringify({ entity: "CV" }), headers: { "content-type": "application/json" } }, env);
+    // CV is synced for checking only; applying it would overwrite PT's prices and stock.
+    const cv = await apply({ entity: "CV" });
+    expect(cv.status).toBe(400);
+    expect(((await cv.json()) as { error: string }).error).toMatch(/PT/);
+
+    const onlyExisting = await apply({ entity: "PT" });
     expect(onlyExisting.status).toBe(200);
     expect(sqlite.prepare("SELECT code, name, cogs, list_price, stock, source FROM catalog_items").all()).toEqual([
-      { code: "A1", name: "Kertas A4", cogs: 41000, list_price: 50000, stock: 15, source: "accurate:CV" },
+      { code: "A1", name: "Kertas A4", cogs: 41000, list_price: 50000, stock: 15, source: "accurate:PT" },
     ]);
     expect(sqlite.prepare("SELECT uom, factor FROM catalog_item_uoms WHERE code = 'A1'").all()).toEqual([{ uom: "Box", factor: 5 }]);
 
-    await app.request("/api/accurate/apply", { method: "POST", body: JSON.stringify({ entity: "CV", insertNew: true }), headers: { "content-type": "application/json" } }, env);
+    await apply({ entity: "PT", insertNew: true });
     expect(sqlite.prepare("SELECT COUNT(*) AS n FROM catalog_items").get()).toEqual({ n: 3 });
 
     const flags = (await (await app.request("/api/accurate/flags", {}, env)).json()) as {
@@ -238,5 +245,72 @@ describe("AccurateClient only sends credentials to Accurate", () => {
         : respond({ s: true, d: [], sp: { page: 1, pageCount: 1, rowCount: 0 } })) as typeof fetch, 0);
     await client.list("item/list.do", {});
     expect(client.movedTo).toBe("https://hera.accurate.id");
+  });
+});
+
+describe("Workers Free plan budget (Ryoma, 2026-10-06)", () => {
+  // Free plan: 50 subrequests per invocation, and D1 queries count as
+  // subrequests (developers.cloudflare.com/workers/platform/limits). The
+  // deployed tick size in wrangler.toml must keep every tick under that.
+  const toml = readFileSync(new URL("../../../wrangler.toml", import.meta.url), "utf8");
+  const v = (k: string) => toml.match(new RegExp(`^${k}\\s*=\\s*"([^"]*)"`, "m"))?.[1];
+
+  it("every sync tick with the deployed settings stays within 50 subrequests (Accurate + D1)", async () => {
+    const { db: raw } = freshDb();
+    let d1 = 0;
+    // One batch() is one round trip; the shim runs its statements one by one,
+    // so those must not be counted again.
+    let inBatch = false;
+    const count = (st: D1PreparedStatement): D1PreparedStatement =>
+      new Proxy(st, {
+        get(t, k) {
+          const f = (t as unknown as Record<string | symbol, unknown>)[k];
+          if (k === "bind") return (...a: unknown[]) => count((f as (...x: unknown[]) => D1PreparedStatement).apply(t, a));
+          if (k === "run" || k === "all" || k === "first")
+            return (...a: unknown[]) => (inBatch || d1++, (f as (...x: unknown[]) => unknown).apply(t, a));
+          return typeof f === "function" ? (f as (...x: unknown[]) => unknown).bind(t) : f;
+        },
+      });
+    const db = new Proxy(raw, {
+      get(t, k) {
+        if (k === "prepare") return (sql: string) => count(t.prepare(sql));
+        if (k === "batch")
+          return async (sts: D1PreparedStatement[]) => {
+            d1++;
+            inBatch = true;
+            try {
+              return await t.batch(sts);
+            } finally {
+              inBatch = false;
+            }
+          };
+        const f = (t as unknown as Record<string | symbol, unknown>)[k];
+        return typeof f === "function" ? (f as (...x: unknown[]) => unknown).bind(t) : f;
+      },
+    }) as D1Database;
+    const items = Array.from({ length: 1234 }, (_, i) => ({ id: i + 1, no: `C${i}`, name: `Item ${i}`, unitPrice: 1000, unit1Name: "Pcs" }));
+    const stock = { 1: items.slice(0, 700).map((i) => ({ no: i.no, quantity: 3 })), 2: items.slice(0, 300).map((i) => ({ no: i.no, quantity: 1 })) };
+    const fake = fakeAccurate({ items, stock });
+    let calls = 0;
+    const counted: typeof fetch = (u, i) => (calls++, fake.impl(u, i));
+    const deployed = syncConfig({ ACCURATE_PAGE_SIZE: v("ACCURATE_PAGE_SIZE"), ACCURATE_CALLS_PER_TICK: v("ACCURATE_CALLS_PER_TICK") } as never);
+
+    let finished = false;
+    let ticks = 0;
+    let worst = 0;
+    for (; ticks < 200 && !finished; ticks++) {
+      calls = 0;
+      d1 = 0;
+      const r = await syncStep(db, "PT", creds, deployed, { deadline: Date.now() + 10_000, fetchImpl: counted, gapMs: 0 });
+      if (r.outcome === "error") throw new Error(r.error);
+      worst = Math.max(worst, calls + d1);
+      finished = r.outcome === "finished";
+    }
+    expect(finished).toBe(true);
+    expect(worst).toBeLessThanOrEqual(50);
+  });
+
+  it("the catalog takes Accurate data from PT", () => {
+    expect(v("ACCURATE_CATALOG_ENTITY")).toBe("PT");
   });
 });

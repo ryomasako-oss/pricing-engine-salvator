@@ -14,6 +14,7 @@ import { AccurateClient } from "../accurate/client";
 import { ITEM_FIELDS } from "../accurate/mapping";
 import {
   ENTITY_KEYS,
+  catalogEntity,
   configuredEntities,
   credsFor,
   loadState,
@@ -59,7 +60,12 @@ accurateRouter.get("/status", requirePermission("import_catalog"), async (c) => 
       ...counts,
     });
   }
-  return c.json({ hasSecret: !!c.env.ACCURATE_SIGNATURE_SECRET, config: syncConfig(c.env), entities });
+  return c.json({
+    hasSecret: !!c.env.ACCURATE_SIGNATURE_SECRET,
+    config: syncConfig(c.env),
+    catalogEntity: catalogEntity(c.env),
+    entities,
+  });
 });
 
 /** Starts a fresh run (restart: true) and/or advances the cursor for ~20 s. */
@@ -157,6 +163,15 @@ accurateRouter.post("/apply", requirePermission("import_catalog"), async (c) => 
     .safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
   const { entity, insertNew } = parsed.data;
+  // Only one Data Usaha feeds the catalog: applying the other would overwrite
+  // its prices and stock instead of adding to them.
+  const target = catalogEntity(c.env);
+  if (entity !== target) {
+    return c.json(
+      { error: `Katalog memakai data Accurate ${target}. Data ${entity} hanya untuk pengecekan, tidak diterapkan ke katalog.` },
+      400,
+    );
+  }
   const st = await loadState(c.env.DB, entity);
   const staged = await get<{ n: number }>(c.env.DB, "SELECT COUNT(*) AS n FROM accurate_items WHERE entity = ?", entity);
   if (!staged?.n) return c.json({ error: `Belum ada data Accurate ${entity}. Jalankan sinkron dulu.` }, 409);

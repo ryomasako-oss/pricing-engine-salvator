@@ -29,6 +29,8 @@ export interface Bindings {
   ACCURATE_CALLS_PER_TICK?: string;
   ACCURATE_SYNC_EVERY_HOURS?: string;
   ACCURATE_SYNC_ENABLED?: string;
+  /** The Data Usaha whose data may be applied to the catalog ("PT" or "CV"; default PT). */
+  ACCURATE_CATALOG_ENTITY?: string;
 }
 
 /** Client IP as seen by Cloudflare's edge, for keying rate limits. */

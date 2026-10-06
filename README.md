@@ -116,9 +116,16 @@ Alurnya:
 - **Penanda kualitas data** (`GET /api/accurate/flags`): stok minus, kode yang
   sama di CV dan PT tapi beda nama/harga/satuan, nama sama dengan kode beda,
   barang tanpa harga jual.
-- **Terapkan ke katalog** (`POST /api/accurate/apply`, per entitas) menyalin
-  nama, satuan + rasio, harga jual acuan, dan total stok. COGS tidak disentuh;
-  tetap dari laporan Nilai Persediaan.
+- **Terapkan ke katalog** (`POST /api/accurate/apply`) menyalin nama, satuan +
+  rasio, harga jual acuan, dan total stok. **Hanya data PT** yang diterapkan
+  (`ACCURATE_CATALOG_ENTITY`); data CV, bila tokennya dipasang, hanya dipakai
+  untuk pengecekan silang. COGS tidak disentuh; tetap dari laporan Nilai
+  Persediaan.
+- **Paket Workers gratis**: batas 50 subrequest per eksekusi (query D1 ikut
+  dihitung), jadi `ACCURATE_CALLS_PER_TICK = 5`; satu putaran ~30.000 barang
+  makan sekitar 5 jam. Naikkan setelah pindah ke paket berbayar
+  (`accurate.test.ts` menjaga batasnya). Pasang token PT saja dulu supaya
+  jatahnya tidak terbagi dua.
 
 Semua tombolnya ada di halaman Katalog (peran manajer ke atas). Sinkron ini
 hanya ada di backend Workers; server Express lokal tidak memilikinya.

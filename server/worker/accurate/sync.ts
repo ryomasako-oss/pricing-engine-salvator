@@ -65,6 +65,15 @@ export function credsFor(env: Bindings, entity: EntityKey): AccurateCreds | null
   return { token, signatureSecret: env.ACCURATE_SIGNATURE_SECRET };
 }
 
+/**
+ * The one Data Usaha applied to the catalog (Ryoma, 2026-10-06: PT). Applying
+ * both would make the second overwrite the first's prices and stock; the
+ * other entity is synced, if it has a token, for the cross-entity checks only.
+ */
+export function catalogEntity(env: Pick<Bindings, "ACCURATE_CATALOG_ENTITY">): EntityKey {
+  return env.ACCURATE_CATALOG_ENTITY === "CV" ? "CV" : "PT";
+}
+
 export function configuredEntities(env: Bindings): EntityKey[] {
   return ENTITY_KEYS.filter((e) => credsFor(env, e));
 }

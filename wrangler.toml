@@ -31,7 +31,12 @@ crons = ["*/5 * * * *"]
 NODE_ENV = "production"
 APP_URL = "https://pricing.salvator.co.id"
 ACCURATE_PAGE_SIZE = "100"
-ACCURATE_CALLS_PER_TICK = "40"
+# Workers Free plan: 50 subrequests per invocation, D1 queries included
+# (accurate.test.ts checks every tick stays under it). Raise after upgrading.
+ACCURATE_CALLS_PER_TICK = "5"
+# Only this Data Usaha is applied to the catalog (Ryoma, 2026-10-06); the
+# other is synced, if it has a token, for the cross-entity checks only.
+ACCURATE_CATALOG_ENTITY = "PT"
 ACCURATE_SYNC_EVERY_HOURS = "6"
 
 # Brute-force protection: Workers isolates have no shared in-memory counter,

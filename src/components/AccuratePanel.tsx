@@ -46,11 +46,18 @@ const PHASE: Record<EntityStatus["phase"], string> = {
 export function AccuratePanel({ onApplied }: { onApplied: () => void }) {
   const toast = useToast();
   const [entities, setEntities] = useState<EntityStatus[] | null>(null);
+  const [catalogEntity, setCatalogEntity] = useState<Entity>("PT");
   const [flags, setFlags] = useState<Flags | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    api.get<{ entities: EntityStatus[] }>("/accurate/status").then((r) => setEntities(r.entities)).catch(() => setEntities(null));
+    api
+      .get<{ entities: EntityStatus[]; catalogEntity?: Entity }>("/accurate/status")
+      .then((r) => {
+        setEntities(r.entities);
+        if (r.catalogEntity) setCatalogEntity(r.catalogEntity);
+      })
+      .catch(() => setEntities(null));
     api.get<Flags>("/accurate/flags?limit=1").then(setFlags).catch(() => undefined);
   }, []);
 
@@ -139,9 +146,13 @@ export function AccuratePanel({ onApplied }: { onApplied: () => void }) {
                   <button className="btn small ghost" disabled={!!busy} onClick={() => sync(e.entity)}>
                     <Icon name="history" size={13} /> {e.phase === "idle" ? "Sinkron sekarang" : "Lanjutkan"}
                   </button>
-                  <button className="btn small" disabled={!!busy || e.items === 0} onClick={() => apply(e.entity)}>
-                    <Icon name="download" size={13} /> Terapkan ke katalog
-                  </button>
+                  {e.entity === catalogEntity ? (
+                    <button className="btn small" disabled={!!busy || e.items === 0} onClick={() => apply(e.entity)}>
+                      <Icon name="download" size={13} /> Terapkan ke katalog
+                    </button>
+                  ) : (
+                    <span className="muted small">Untuk pengecekan saja</span>
+                  )}
                 </div>
               </div>
             ))}
