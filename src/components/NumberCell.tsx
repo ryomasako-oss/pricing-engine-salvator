@@ -32,9 +32,11 @@ export function NumberCell({ value, onCommit, live, display, className, disabled
   const [draft, setDraft] = useState<string | null>(null);
   const editing = draft !== null;
   const cancelled = useRef(false);
+  /** The text the cell showed when it got focus; leaving without changing it is not an edit. */
+  const opened = useRef("");
 
   const commit = () => {
-    if (draft !== null && !cancelled.current) onCommit(toNumber(draft));
+    if (draft !== null && !cancelled.current && draft !== opened.current) onCommit(toNumber(draft));
     cancelled.current = false;
     setDraft(null);
   };
@@ -50,7 +52,8 @@ export function NumberCell({ value, onCommit, live, display, className, disabled
       aria-label={rest["aria-label"]}
       value={editing ? draft : (display ?? String(value))}
       onFocus={(e) => {
-        setDraft(display ?? String(value));
+        opened.current = display ?? String(value);
+        setDraft(opened.current);
         e.target.select();
       }}
       onChange={(e) => {

@@ -45,6 +45,12 @@ function bottomOffset(doc: ReturnType<typeof pdfFor>, text: string): number {
 
 describe("quotation PDF columns", () => {
   const has = (doc: ReturnType<typeof pdfFor>, t: string) => pagesWith(doc, t).length > 0;
+  /** How many times this exact text is drawn on any page. */
+  const draws = (doc: ReturnType<typeof pdfFor>, t: string) =>
+    (doc.internal as unknown as { pages: (string[] | undefined)[] }).pages.reduce(
+      (n, ops) => n + (ops?.filter((op) => op.includes(`(${t})`)).length ?? 0),
+      0,
+    );
 
   it("shows Qty, line totals and the totals block by default", () => {
     const d = pdfFor(2);
@@ -57,7 +63,9 @@ describe("quotation PDF columns", () => {
     const d = pdfFor(2, { hideLineTotal: true });
     expect(has(d, "Qty")).toBe(true);
     expect(has(d, "Harga satuan")).toBe(true);
-    // The head cell "Total per bulan" is gone; the totals block still says "Total per bulan" once.
+    // "Total per bulan" is the column head and also a row of the totals block.
+    expect(draws(pdfFor(2), "Total per bulan")).toBe(2);
+    expect(draws(d, "Total per bulan")).toBe(1);
     expect(has(d, "Subtotal per bulan")).toBe(true);
   });
 
