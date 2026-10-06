@@ -95,18 +95,21 @@ export function mergeStaffItems(
     if (old) {
       next = { ...old, qty: line.qty, notes: line.notes ?? old.notes };
       const cat = catalog.get(normalizeCode(old.code));
-      if (line.uom && !sameUom(line.uom, old.uom)) {
-        // Unit first: the conversion rescales the ceiling, so a ceiling sent
-        // with the same edit was still in the old unit and is not applied.
+      const unitChanged = Boolean(line.uom) && !sameUom(line.uom!, old.uom);
+      if (unitChanged) {
+        // Unit first: the conversion rescales the stored ceiling and price.
         // The catalog's spelling of a known unit ("box" -> "Box") is kept, so
         // the line's unit dropdown recognises it.
         const known = cat ? [cat.uom, ...(cat.units ?? []).map((u) => u.uom)] : [];
-        const to = known.find((u) => u && sameUom(u, line.uom!)) ?? line.uom;
+        const to = known.find((u) => u && sameUom(u, line.uom!)) ?? line.uom!;
         next = changeLineUom(next, to, cat ? { baseUom: cat.uom || "Pcs", units: cat.units ?? [] } : undefined);
-      } else {
-        if (line.rrp != null) next = { ...next, rrp: Math.round(line.rrp) };
-        if (line.price != null) next = withManualPrice(next, scenario, line.price);
       }
+      // The staff screen converts its ceiling when the unit changes and clears
+      // a typed price, so a ceiling or price it sends is in the line's new
+      // unit and is taken. A ceiling still equal to the stored one is the
+      // old-unit value an older screen sent unconverted: the converted one stands.
+      if (line.rrp != null && !(unitChanged && line.rrp === old.rrp)) next = { ...next, rrp: Math.round(line.rrp) };
+      if (line.price != null) next = withManualPrice(next, scenario, line.price);
     } else {
       const cat = catalog.get(normalizeCode(line.code));
       if (!cat) return { error: OUTSIDE_CATALOG, code: line.code || line.name };

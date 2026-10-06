@@ -34,7 +34,7 @@ import type {
   QuoteMeta,
   ScenarioIndex,
 } from "@shared/types";
-import { type ItemUnits, uomChoices } from "@shared/uom";
+import { type ItemUnits, amountInUnit, uomChoices } from "@shared/uom";
 import { NumberCell } from "../components/NumberCell";
 
 /** A line as the server sends it to staff. */
@@ -392,8 +392,16 @@ export function StaffQuotePage() {
                       label={`Satuan ${l.name}`}
                       readOnly={readOnly}
                       warning={l.priceUom ? "Rasio satuan belum ada; harga masih per " + l.priceUom : null}
-                      // A price typed in the old unit would be wrong in the new one; the server converts a stored one.
-                      onChange={(u) => edit(l.id, { uom: u, setPrice: undefined })}
+                      // Everything sent is in the line's current unit: the ceiling is converted
+                      // here (kept as is without a ratio; the server then marks the line), and a
+                      // price typed in the old unit is dropped. The server converts a stored price.
+                      onChange={(u) =>
+                        edit(l.id, {
+                          uom: u,
+                          rrp: amountInUnit(units[l.code], l.priceUom ?? l.uom, u, l.rrp) ?? l.rrp,
+                          setPrice: undefined,
+                        })
+                      }
                     />
                   </td>
                   <td>

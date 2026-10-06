@@ -30,9 +30,16 @@ describe("mergeStaffItems", () => {
     expect(r).toEqual({ items: [{ ...stored, qty: 4, rrp: 2800, notes: "n" }] });
   });
 
-  it("converts a unit change with the item's ratio and ignores a ceiling sent in the same edit", () => {
-    const r = mergeStaffItems([stored], [{ id: "a", code: "PEN", name: "x", qty: 2, uom: "box", rrp: 1 }], catalog);
+  it("converts a unit change with the item's ratio; an unchanged old-unit ceiling (an older screen) is converted, not taken", () => {
+    const r = mergeStaffItems([stored], [{ id: "a", code: "PEN", name: "x", qty: 2, uom: "box", rrp: 3000 }], catalog);
     expect("items" in r && r.items[0]).toMatchObject({ uom: "Box", qty: 2, cogs: 24000, rrp: 36000, role: "LEADER" });
+  });
+
+  // Codex review of develop 41764fe: Pcs -> Box, then ceiling 5,000 and price
+  // 4,000 typed before saving came back as ceiling 36,000 (converted) and no price.
+  it("takes a ceiling and a price typed after a unit change: the screen sends them in the new unit", () => {
+    const r = mergeStaffItems([stored], [{ id: "a", code: "PEN", name: "", qty: 1, uom: "Box", rrp: 5000, price: 4000 }], catalog, 1);
+    expect("items" in r && r.items[0]).toMatchObject({ uom: "Box", cogs: 24000, rrp: 5000, manualPrice: [30000, 4000, null] });
   });
 
   it("builds a new line from the catalog by code, whatever its case or spacing", () => {
@@ -67,8 +74,8 @@ describe("mergeStaffItems", () => {
     expect("items" in kept && kept.items[0].manualPrice).toEqual([2500, null, null]);
   });
 
-  it("does not apply a price sent with a unit change (it is still in the old unit)", () => {
-    const r = mergeStaffItems([stored], [{ id: "a", code: "PEN", name: "", qty: 1, uom: "box", price: 999 }], catalog, 0);
+  it("converts the stored price with a unit change when no new price is sent", () => {
+    const r = mergeStaffItems([stored], [{ id: "a", code: "PEN", name: "", qty: 1, uom: "box" }], catalog, 0);
     expect("items" in r && r.items[0].manualPrice).toEqual([30000, null, null]);
   });
 
