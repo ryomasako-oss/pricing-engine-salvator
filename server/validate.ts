@@ -64,6 +64,8 @@ export const metaSchema = z.object({
   paymentDays: z.number().int().min(0).max(365).nullable().optional(),
   warrantyYears: z.number().min(0).max(20).multipleOf(0.5).nullable().optional(),
   warrantyNote: z.string().max(200).optional(),
+  hideQty: z.boolean().optional(),
+  hideLineTotal: z.boolean().optional(),
 });
 
 export const snapshotSchema = z.object({

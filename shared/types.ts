@@ -216,6 +216,10 @@ export interface QuoteMeta {
   warrantyYears?: number | null;
   /** Optional detail shown after the warranty, e.g. "servis gratis". */
   warrantyNote?: string;
+  /** Customer document without quantities (a plain price list). Also drops line totals and the totals block. */
+  hideQty?: boolean;
+  /** Customer document without the per-line total column. */
+  hideLineTotal?: boolean;
 }
 
 export interface Client {
