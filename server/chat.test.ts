@@ -28,6 +28,13 @@ describe("handleChat", () => {
     expect((await handleChat({ messages: [user("x".repeat(4001))] }, deps)).status).toBe(400);
   });
 
+  it("tells the model its name is Salvi", async () => {
+    const f = fakeFetch(reply({ reply: "Halo, saya Salvi.", lines: [] }));
+    await handleChat({ messages: [user("kamu siapa?")] }, { apiKey: "k", fetchFn: f.fn });
+    const system = JSON.parse(f.calls[0].init.body as string).systemInstruction.parts[0].text as string;
+    expect(system).toContain("Namamu Salvi");
+  });
+
   it("returns the reply, request rows and the client it was told about", async () => {
     const f = fakeFetch(reply({ reply: "Siap, 2 item. Tekan Tinjau.", client: "pt bahtera adi jaya.", lines: [{ name: "Pulpen", qty: 10, uom: "lusin" }, { name: "Kertas A4" }] }));
     const r = await handleChat({ messages: [user("untuk PT Bahtera: pulpen 10 lusin, kertas A4")], clients: ["BAHTERA ADI JAYA PT", "Maju Jaya"] }, { apiKey: "k", fetchFn: f.fn });

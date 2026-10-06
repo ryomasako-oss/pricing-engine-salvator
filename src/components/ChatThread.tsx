@@ -13,10 +13,10 @@ const SUGGESTIONS = [
 
 // True of what the server does for a chat turn; the last line says what the AI does not do.
 const WAITING = [
-  "Membaca pesan Anda…",
-  "Menyusun daftar barang dan qty…",
+  "Salvi membaca pesan Anda…",
+  "Salvi menyusun daftar barang dan qty…",
   "Mencocokkan nama klien dengan daftar klien…",
-  "AI hanya menyusun daftar. Harga nanti diambil dari katalog, bukan dari AI.",
+  "Salvi hanya menyusun daftar. Harga nanti diambil dari katalog, bukan dari AI.",
 ];
 
 function Bubble({ m, onReview }: { m: ChatMessage; onReview: (m: ChatMessage) => void }) {
@@ -65,7 +65,7 @@ export function ChatThread({ maxHeight = 320 }: { maxHeight?: number | string })
       {messages.length === 0 && (
         <div className="card-body" style={{ paddingBottom: 4 }}>
           <p className="muted small" style={{ margin: "0 0 8px" }}>
-            Ceritakan kebutuhan klien dengan kata-kata sendiri. Daftar yang tersusun bisa Anda tinjau sebelum jadi quotation;
+            Halo, saya Salvi. Ceritakan kebutuhan klien dengan kata-kata sendiri. Daftar yang tersusun bisa Anda tinjau sebelum jadi quotation;
             harga selalu diambil dari katalog.
           </p>
           <div className="chips">
@@ -95,7 +95,7 @@ export function ChatThread({ maxHeight = 320 }: { maxHeight?: number | string })
         <textarea
           rows={1}
           value={input}
-          placeholder="Mis. untuk PT Maju Jaya: pulpen 10 lusin, kertas A4 5 rim"
+          placeholder="Tanya Salvi, mis. untuk PT Maju Jaya: pulpen 10 lusin, kertas A4 5 rim"
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
