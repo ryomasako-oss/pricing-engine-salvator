@@ -198,8 +198,9 @@ accurateRouter.post("/apply", requirePermission("import_catalog"), async (c) => 
   );
   const upsertUnitChanged =
     "(catalog_items.cogs > 0 AND lower(trim(catalog_items.uom)) <> lower(trim(excluded.uom)))";
-  // Stock only from a completed run, decided inside the batch (one transaction)
-  // so a run that starts after these checks can't slip in before the write.
+  // Stock only from a completed run, for inserted and updated items alike, decided
+  // inside the batch (one transaction) so a run that starts after these checks
+  // can't slip in before the write.
   const stockReady = `COALESCE((SELECT last_success_at IS NOT NULL AND phase = 'idle'
                                  FROM accurate_sync_state WHERE entity = ?1), 0) = 1`;
   const keepUnit = `NOT EXISTS (SELECT 1 FROM catalog_items c WHERE c.code = i.code AND ${unitChanged("c")})`;
@@ -209,7 +210,7 @@ accurateRouter.post("/apply", requirePermission("import_catalog"), async (c) => 
       db,
       `INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock, category, source)
        SELECT i.code, i.name, COALESCE(NULLIF(i.uom, ''), 'Pcs'), 0, i.unit_price,
-              COALESCE(s.qty, 0), i.category, 'accurate:' || i.entity
+              CASE WHEN ${stockReady} THEN COALESCE(s.qty, 0) ELSE 0 END, i.category, 'accurate:' || i.entity
          FROM accurate_items i
          LEFT JOIN (SELECT item_code, SUM(quantity) AS qty FROM accurate_stock
                      WHERE entity = ?1 GROUP BY item_code) s ON s.item_code = i.code

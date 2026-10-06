@@ -275,6 +275,20 @@ describe("POST /api/accurate/apply keeps cost, unit and stock consistent (Codex 
     expect(r.json.stockApplied).toBe(false);
     expect(sqlite.prepare("SELECT stock FROM catalog_items WHERE code = 'C1'").get()).toEqual({ stock: 0 });
   });
+
+  // Codex re-review: the guard covered updates only; a new item inserted
+  // during a run still took the mixed stock (2 + 5 = 7).
+  it("doesn't give a newly inserted item stock while a sync run is in progress", async () => {
+    const { sqlite, db } = freshDb();
+    sqlite.exec(`INSERT INTO users(id, email, name, password_hash, role) VALUES (1, 'm@x', 'M', 'x', 'manager')`);
+    const items = [{ id: 1, no: "N1", name: "Baru", unitPrice: 1500, unit1Name: "Pcs" }];
+    await runToIdle(db, fakeAccurate({ items, stock: { 1: [{ no: "N1", quantity: 5 }] } }).impl, cfg, "PT");
+    sqlite.exec(`UPDATE accurate_sync_state SET phase = 'stock', run_id = 'run-2' WHERE entity = 'PT'`);
+    sqlite.exec(`INSERT INTO accurate_stock(entity, warehouse_id, item_code, quantity, run_id) VALUES ('PT', 2, 'N1', 2, 'run-2')`);
+    const r = await applier(db)({ entity: "PT", insertNew: true });
+    expect(r.json.stockApplied).toBe(false);
+    expect(sqlite.prepare("SELECT stock FROM catalog_items WHERE code = 'N1'").get()).toEqual({ stock: 0 });
+  });
 });
 
 describe("AccurateClient", () => {
