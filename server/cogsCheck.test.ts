@@ -68,3 +68,25 @@ describe("applyHolds keeps a draft's catalog copies in step with the catalog", (
     expect([stale.cogs, stale.held]).toEqual([100, true]);
   });
 });
+
+// Codex re-review: when the line's unit has no ratio to the catalog's, the
+// cost can't be checked, so a catalog copy (or a cost with no record) must not
+// be released on the strength of a number nobody can compare.
+describe("applyHolds when the line's unit has no ratio to the catalog", () => {
+  const noBox = catalog(catalogItem({ cogs: 1200, units: [] }));
+
+  it("keeps a catalog copy and an unrecorded cost held", () => {
+    const [copy, unrecorded] = applyHolds(
+      draft([line({ uom: "Box", cogs: 1000, catalogCogs: 1000, estCogs: false }), line({ id: "l2", uom: "Box", cogs: 1000, estCogs: false })]),
+      new Map(),
+      noBox,
+    ).items;
+    expect([copy.cogs, copy.held]).toEqual([1000, true]);
+    expect([unrecorded.cogs, unrecorded.held]).toEqual([1000, true]);
+  });
+
+  it("keeps a cost someone typed: it never came from the catalog", () => {
+    const typed = line({ uom: "Box", cogs: 900, catalogCogs: 1000, estCogs: false });
+    expect(applyHolds(draft([typed]), new Map(), noBox).items[0]).toEqual(typed);
+  });
+});

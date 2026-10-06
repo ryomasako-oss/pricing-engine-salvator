@@ -105,10 +105,14 @@ export function applyHolds<T extends { status: string; items: QuoteItem[] }>(
  * - No record (a line from before catalogCogs): adopt the record when the cost
  *   matches; otherwise it may be a stale copy of a wrong COGS, so it stays held
  *   until the line is re-added from the catalog.
+ * - No ratio to compare with: held, unless the cost was typed.
  */
 function followCatalog(it: QuoteItem, current: number | null): QuoteItem {
   const placeholder = !(Number(it.cogs) > 0) || Boolean(it.estCogs);
-  if (current === null) return placeholder ? { ...it, held: true } : it;
+  const typed = !placeholder && it.catalogCogs != null && it.cogs !== it.catalogCogs;
+  // No ratio from the line's unit to the catalog's: the cost can't be checked,
+  // so only a cost someone typed (which never came from the catalog) is kept.
+  if (current === null) return typed ? it : { ...it, held: true };
   if (placeholder) return { ...it, cogs: current, catalogCogs: current, estCogs: false };
   if (it.catalogCogs != null) {
     return it.cogs === it.catalogCogs && current !== it.catalogCogs ? { ...it, cogs: current, catalogCogs: current } : it;

@@ -1913,6 +1913,29 @@ scenario("a draft line copied from the catalog follows a corrected catalog COGS;
 });
 
 
+// Codex re-review: with the Box ratio gone, a held Box line copied at 1,000
+// could not be compared to the catalog, lost its hold anyway, and auto-approved
+// at 1,500 with no breaches.
+scenario("a catalog-copied line whose unit lost its ratio stays held instead of being released unchecked", async (d) => {
+  await importRows(d, [{ code: "C-NR", name: "No ratio", uom: "Pcs", cogs: 100, list_price: 50, units: [{ uom: "Box", factor: 10 }] }]);
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const q = await createDraft(d, manager, [
+    cleanItem({ id: "n1", lineNo: 1, code: "C-NR", name: "No ratio", uom: "Box", qty: 1, cogs: 1000, catalogCogs: 1000, rrp: 20000, manualPrice: [1500, 1500, 1500] }),
+  ]);
+  const held = (quote: { items: { id: string; held?: boolean }[] }) => Boolean(quote.items.find((i) => i.id === "n1")!.held);
+  const before = (await d.api("GET", `/api/quotes/${q.id}`, { session: manager })).json.quote;
+  // Corrected (+50% from the reference, not a jump) and the Box ratio removed.
+  await importRows(d, [{ code: "C-NR", name: "No ratio", cogs: 150, list_price: 300, units: [] }]);
+  const after = (await d.api("GET", `/api/quotes/${q.id}`, { session: manager })).json.quote;
+  const submit = await d.api("POST", `/api/quotes/${q.id}/submit`, { session: manager });
+
+  assert.equal(held(before), true);
+  assert.equal(held(after), true);
+  assert.notEqual(submit.json.quote?.status, "approved", "an unchecked cost must not auto-approve");
+  return { before: held(before), after: held(after), submit: submit.status };
+});
+
+
 // ---------------------------------------------------------------
 // Run: ONE pair of backends for the whole run (Node caches the
 // dynamically-imported server/db.js module by URL, so "fresh drivers
