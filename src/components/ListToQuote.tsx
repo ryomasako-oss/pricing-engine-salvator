@@ -20,8 +20,26 @@ import type { CatalogItem, Client, QuoteItem } from "@shared/types";
 import { uomWarning } from "@shared/uom";
 import { Icon } from "./Icon";
 import { Modal } from "./Modal";
+import { WaitingLine } from "./WaitingLine";
 
 const MAX_LINES = 500;
+
+// What is really happening in each step. The AI step is the slow one (a scan can take a minute).
+const WAITING: Record<"file" | "ai" | "match", string[]> = {
+  file: ["Membaca file Excel…", "Mencari kolom nama barang dan qty…"],
+  ai: [
+    "Mengirim dokumen ke AI pembaca…",
+    "AI membaca tabel baris demi baris…",
+    "Menyalin nama barang, qty, dan satuan…",
+    "AI hanya membaca isi dokumen. Harga tidak dikarang, hanya plafon yang tertulis di dokumen.",
+    "File scan atau besar bisa sampai 1 menit. Mohon tunggu…",
+  ],
+  match: [
+    "Mencocokkan tiap baris ke katalog…",
+    "Harga dan COGS diambil dari database, bukan dari AI.",
+    "Menyiapkan tampilan tinjau…",
+  ],
+};
 
 interface MatchResponse {
   results: MatchResult[];
@@ -69,6 +87,8 @@ export function ListToQuote({
   const [rows, setRows] = useState<Row[] | null>(null);
   const [items, setItems] = useState<Map<number, CatalogItem>>(new Map());
   const [busy, setBusy] = useState(false);
+  /** What the wait is for, so the waiting line only says things that are true right now. */
+  const [stage, setStage] = useState<"file" | "ai" | "match">("match");
   const [error, setError] = useState("");
   const [drag, setDrag] = useState(false);
   const [searchRow, setSearchRow] = useState<number | null>(null);
@@ -115,9 +135,11 @@ export function ListToQuote({
       // PDF and photos go through the server's OCR; spreadsheets are parsed here.
       const { ocrMimeFor } = await import("../import/ocr");
       const mime = ocrMimeFor(file);
+      setStage(mime ? "ai" : "file");
       const { lines, report } = mime
         ? await (await import("../import/ocr")).ocrRequestList(file, mime).then((r) => ({ lines: r.lines, report: { notes: r.notes } }))
         : await (await import("../import/parsers")).parseRequestList(file);
+      setStage("match");
       await match(lines, report.notes, file.name);
       if (!title) {
         const client = clients.find((c) => c.id === clientId);
@@ -240,7 +262,13 @@ export function ListToQuote({
         )
       }
     >
-      {!rows ? (
+      {!rows && initial ? (
+        // A list from chat has no file step: just the wait for matching, or why it failed.
+        <div className="col" style={{ gap: 12 }}>
+          {busy && <WaitingLine lines={WAITING.match} />}
+          {error && <p className="notice error">{error}</p>}
+        </div>
+      ) : !rows ? (
         <div className="col" style={{ gap: 12 }}>
           <label className="field">
             <span>Klien</span>
@@ -281,7 +309,7 @@ export function ListToQuote({
               </div>
             </div>
             <label className="btn" aria-disabled={busy}>
-              {busy ? "Membaca & mencocokkan… (PDF/foto bisa sampai 1 menit)" : "Pilih file"}
+              {busy ? "Memproses…" : "Pilih file"}
               <input
                 type="file"
                 accept=".xlsx,.xls,.csv,.pdf,.png,.jpg,.jpeg,.webp,.heic,.heif,application/pdf,image/*"
@@ -291,6 +319,7 @@ export function ListToQuote({
               />
             </label>
           </div>
+          {busy && <WaitingLine lines={WAITING[stage]} />}
           {error && <p className="notice error">{error}</p>}
         </div>
       ) : (

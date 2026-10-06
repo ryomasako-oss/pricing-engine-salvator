@@ -5,7 +5,7 @@ import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { Icon } from "../components/Icon";
 import { ListToQuote } from "../components/ListToQuote";
-import { ChatHome, type ChatDraft } from "../components/ChatHome";
+import { ChatHome } from "../components/ChatHome";
 import { Modal } from "../components/Modal";
 import { StatusChip } from "../components/pricing";
 import { fmtDateTime, pct, rp } from "@shared/format";
@@ -51,7 +51,6 @@ export function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [fromList, setFromList] = useState(false);
-  const [chatDraft, setChatDraft] = useState<ChatDraft | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const userIdFilter = searchParams.get("user_id");
   const userNameFilter = searchParams.get("user_name");
@@ -132,7 +131,7 @@ export function DashboardPage() {
         </div>
       </div>
 
-      <ChatHome clients={clients} onReview={setChatDraft} />
+      <ChatHome />
 
       <div className="kpi-grid" style={{ marginBottom: 16 }}>
         <div className="kpi">
@@ -262,15 +261,6 @@ export function DashboardPage() {
           </div>
         )}
       </div>
-
-      {chatDraft && (
-        <ListToQuote
-          clients={clients}
-          initial={chatDraft}
-          onClose={() => setChatDraft(null)}
-          onCreated={(id) => navigate(`/quotes/${id}`)}
-        />
-      )}
 
       {fromList && (
         <ListToQuote
