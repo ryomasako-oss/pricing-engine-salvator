@@ -86,24 +86,35 @@ export function applyHolds<T extends { status: string; items: QuoteItem[] }>(
     ...quote,
     items: quote.items.map(({ held: _h, ...it }) => {
       if (it.code && problems.has(it.code)) return { ...it, held: true };
-      if (!madeWithoutCost(it)) return it;
-      // Released, but still carrying the COGS 0 it was made with while the
-      // catalog had none: take the catalog's cost now. Without a ratio for the
-      // line's unit the cost can't be known, so the line stays held rather
-      // than being offered at a 100% margin.
-      const item = catalog.get(normalizeCode(it.code));
-      if (!item) return it; // not in the catalog: left to the pricing policy, as before
-      const cogs = catalogCogsIn(item, it);
-      return cogs === null ? { ...it, held: true } : { ...it, cogs, estCogs: false };
+      const item = it.code ? catalog.get(normalizeCode(it.code)) : undefined;
+      if (!item) return it; // not from the catalog: left to the pricing policy, as before
+      return followCatalog(it, catalogCogsIn(item, it));
     }),
   };
 }
 
 /**
- * A coded line whose COGS is still 0: it was made from a catalog item that
- * had no COGS yet (lineFromCatalog), so the number is a placeholder, not a cost.
+ * A draft line's cost against the catalog's current COGS (`current`, in the
+ * line's unit; null when no ratio converts it). A held line released after
+ * its catalog COGS was fixed must not keep the number it was held for: with
+ * a price of 150, a stale COGS of 100 against a real 1,000 auto-approved.
+ *
+ * - No real cost yet (0, or estimated from a client's file): take the catalog's.
+ * - Still the catalog copy it was made with (cogs === catalogCogs): follow the catalog.
+ * - A cost someone typed (cogs differs from catalogCogs): keep it.
+ * - No record (a line from before catalogCogs): adopt the record when the cost
+ *   matches; otherwise it may be a stale copy of a wrong COGS, so it stays held
+ *   until the line is re-added from the catalog.
  */
-const madeWithoutCost = (it: QuoteItem) => Boolean(it.code) && !(Number(it.cogs) > 0);
+function followCatalog(it: QuoteItem, current: number | null): QuoteItem {
+  const placeholder = !(Number(it.cogs) > 0) || Boolean(it.estCogs);
+  if (current === null) return placeholder ? { ...it, held: true } : it;
+  if (placeholder) return { ...it, cogs: current, catalogCogs: current, estCogs: false };
+  if (it.catalogCogs != null) {
+    return it.cogs === it.catalogCogs && current !== it.catalogCogs ? { ...it, cogs: current, catalogCogs: current } : it;
+  }
+  return Math.abs(it.cogs - current) < 0.01 ? { ...it, catalogCogs: current } : { ...it, held: true };
+}
 
 /** The catalog item's COGS in the unit this line is priced in; null when no ratio is known. */
 function catalogCogsIn(item: CatalogItem, line: QuoteItem): number | null {
@@ -112,11 +123,11 @@ function catalogCogsIn(item: CatalogItem, line: QuoteItem): number | null {
   return factor === undefined ? null : Math.round(item.cogs * factor * 100) / 100;
 }
 
-/** Codes whose catalog row applyHolds needs to re-cost released lines; usually none. */
+/** Codes whose catalog row applyHolds compares draft lines against: coded lines not already held. */
 export const recostCodes = (quotes: { status: string; items: QuoteItem[] }[], problems: Map<string, string>) =>
   quotes
     .filter((q) => LIVE_HOLD_STATUSES.has(q.status))
-    .flatMap((q) => q.items.filter((it) => madeWithoutCost(it) && !problems.has(it.code)).map((it) => it.code));
+    .flatMap((q) => q.items.filter((it) => it.code && !problems.has(it.code)).map((it) => it.code));
 
 /** Codes on quotes whose holds follow the catalog, for one problem lookup over a list. */
 export const liveHoldCodes = (quotes: { status: string; items: QuoteItem[] }[]) =>

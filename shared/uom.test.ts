@@ -31,6 +31,14 @@ describe("unitFactor", () => {
   });
 });
 
+describe("changeLineUom keeps the recorded catalog COGS in the line's unit", () => {
+  it("rescales catalogCogs with cogs", () => {
+    const units = { baseUom: "Pcs", units: [{ uom: "Box", factor: 12 }] };
+    const line = { id: "x", lineNo: 1, code: "P", name: "P", uom: "Pcs", qty: 1, cogs: 100, catalogCogs: 100, rrp: 150, role: "CORE" as const };
+    expect(changeLineUom(line, "Box", units)).toMatchObject({ cogs: 1200, catalogCogs: 1200 });
+  });
+});
+
 describe("changeLineUom", () => {
   it("scales COGS, RRP and manual prices from base to a bigger unit", () => {
     const out = changeLineUom(line({ manualPrice: [null, 1200, null] }), "Box", PEN);

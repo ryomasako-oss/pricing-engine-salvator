@@ -1881,6 +1881,38 @@ scenario("a line released from a hold takes the catalog's COGS (in its unit), no
 });
 
 
+// Codex re-review: a line held because its COGS looked wrong (here: above the
+// list price) kept that COGS after the catalog was corrected, so a price of
+// 150 on a real cost of 1,000 showed a 28% margin and auto-approved.
+scenario("a draft line copied from the catalog follows a corrected catalog COGS; one without that record stays held", async (d) => {
+  await importRows(d, [{ code: "C-FIX", name: "Corrected item", uom: "Pcs", cogs: 100, list_price: 50 }]);
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const q = await createDraft(d, manager, [
+    cleanItem({ id: "f1", lineNo: 1, code: "C-FIX", name: "Corrected item", uom: "Pcs", qty: 10, cogs: 100, catalogCogs: 100, rrp: 2000, manualPrice: [150, 150, 150] }),
+    cleanItem({ id: "f2", lineNo: 2, code: "C-FIX", name: "Corrected item", uom: "Pcs", qty: 1, cogs: 100, rrp: 2000 }),
+  ]);
+  const line = (quote: { items: { id: string; held?: boolean; cogs: number }[] }, id: string) => {
+    const it = quote.items.find((i) => i.id === id)!;
+    return { held: Boolean(it.held), cogs: it.cogs };
+  };
+  const before = (await d.api("GET", `/api/quotes/${q.id}`, { session: manager })).json.quote;
+  await importRows(d, [{ code: "C-FIX", name: "Corrected item", cogs: 1000, list_price: 2000 }]);
+  // 100 -> 1,000 is itself a jump from the reference, so a manager confirms the corrected COGS.
+  const fixId = (await d.api("GET", "/api/catalog?q=C-FIX", { session: manager })).json.items[0].id;
+  const verified = await d.api("POST", `/api/catalog/${fixId}/verify-cogs`, { session: manager });
+  assert.equal(verified.status, 200, JSON.stringify(verified.json));
+  const after = (await d.api("GET", `/api/quotes/${q.id}`, { session: manager })).json.quote;
+  const submit = await d.api("POST", `/api/quotes/${q.id}/submit`, { session: manager });
+
+  assert.deepEqual(line(before, "f1"), { held: true, cogs: 100 });
+  assert.deepEqual(line(after, "f1"), { held: false, cogs: 1000 });
+  assert.deepEqual(line(after, "f2"), { held: true, cogs: 100 });
+  assert.equal(submit.status, 200, JSON.stringify(submit.json));
+  assert.notEqual(submit.json.quote.status, "approved", "a price of 150 on a 1,000 cost must not auto-approve");
+  return { before: line(before, "f1"), copied: line(after, "f1"), unrecorded: line(after, "f2"), status: submit.json.quote.status };
+});
+
+
 // ---------------------------------------------------------------
 // Run: ONE pair of backends for the whole run (Node caches the
 // dynamically-imported server/db.js module by URL, so "fresh drivers
