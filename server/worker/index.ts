@@ -13,6 +13,8 @@ import { catalogRouter } from "./routes/catalog";
 import { quotesRouter } from "./routes/quotes";
 import { approvalsRouter } from "./routes/approvals";
 import { assistantRouter, assistantEnabled } from "./routes/assistant";
+import { ocrRouter } from "./routes/ocr";
+import { chatRouter } from "./routes/chat";
 import { settingsRouter } from "./routes/settings";
 import { accurateRouter } from "./routes/accurate";
 import { syncTick } from "./accurate/sync";
@@ -55,6 +57,8 @@ app.route("/api/catalog", catalogRouter);
 app.route("/api/quotes", quotesRouter);
 app.route("/api/approvals", approvalsRouter);
 app.route("/api/assistant", assistantRouter);
+app.route("/api/ocr", ocrRouter);
+app.route("/api/chat", chatRouter);
 app.route("/api/settings", settingsRouter);
 app.route("/api/accurate", accurateRouter);
 

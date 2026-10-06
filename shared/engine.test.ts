@@ -176,11 +176,18 @@ describe("manual overrides", () => {
     expect(e.rows[0].prices[1]).not.toBe(1337);
   });
 
-  it("is still clamped to the client ceiling", () => {
+  it("may go past the client ceiling; policy flags it instead", () => {
     const e = computeEngine(A(), [
       item({ cogs: 1000, rrp: 2000, manualPrice: [9999, null, null] }),
     ], []);
-    expect(e.rows[0].prices[0]).toBe(2000);
+    expect(e.rows[0].prices[0]).toBe(9999);
+  });
+
+  it("prices an item that has no ceiling at all", () => {
+    const e = computeEngine(A(), [
+      item({ cogs: 1000, rrp: 0, manualPrice: [1500, null, null] }),
+    ], []);
+    expect(e.rows[0].prices[0]).toBe(1500);
   });
 
   it("ignores zero and non-numeric overrides", () => {

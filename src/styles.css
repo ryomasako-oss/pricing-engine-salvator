@@ -573,6 +573,7 @@ input[type=checkbox] { accent-color: var(--navy); width: 17px; height: 17px; fle
 }
 .list > li > button:hover { background: var(--soft); }
 .list-row + .list-row { border-top: 1px solid var(--rule); }
+.list-row:disabled { opacity: 0.55; cursor: not-allowed; }
 
 .search-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .search-bar .input { max-width: 320px; min-width: 180px; }
@@ -616,4 +617,32 @@ input[type=checkbox] { accent-color: var(--navy); width: 17px; height: 17px; fle
 
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
+}
+
+/* ---------------- waiting line + floating chat ---------------- */
+
+.waiting { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; padding: 4px 0; }
+.waiting .wl-text { animation: wl-in .45s ease; flex: 1; min-width: 0; }
+.waiting .wl-sec { font-variant-numeric: tabular-nums; opacity: .7; font-size: 12px; flex: none; }
+@keyframes wl-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .waiting .wl-text { animation: none; } }
+
+.chat-fab {
+  position: fixed; right: 20px; bottom: 20px; z-index: 50;
+  width: 52px; height: 52px; border-radius: 50%; border: 0;
+  background: var(--navy); color: #fff; display: grid; place-items: center;
+  box-shadow: var(--shadow-lg); cursor: pointer;
+}
+.chat-fab:hover { background: var(--navy-dark); }
+.chat-fab-dot { position: absolute; top: 12px; right: 12px; width: 9px; height: 9px; border-radius: 50%; background: var(--marker); border: 2px solid var(--navy); }
+.chat-dock {
+  position: fixed; right: 20px; bottom: 84px; z-index: 50;
+  width: min(420px, calc(100vw - 24px)); height: min(580px, calc(100vh - 110px));
+  display: flex; flex-direction: column; overflow: hidden; box-shadow: var(--shadow-lg);
+}
+.chat-dock .chat-scroll { flex: 1; min-height: 0; overflow: auto; }
+.chat-dock .composer { margin-top: auto; }
+@media (max-width: 560px) {
+  .chat-fab { right: 14px; bottom: 14px; }
+  .chat-dock { right: 12px; left: 12px; width: auto; bottom: 78px; height: min(72vh, calc(100vh - 100px)); }
 }

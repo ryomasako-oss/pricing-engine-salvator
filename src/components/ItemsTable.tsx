@@ -8,6 +8,7 @@ import type { ComputedRow, EngineResult, ItemRole, QuoteItem, ScenarioIndex } fr
 import { uomChoices, uomWarning, type ItemUnits } from "@shared/uom";
 import { Icon } from "./Icon";
 import { UomCell } from "./UomCell";
+import { NumberCell } from "./NumberCell";
 import { LineBadge } from "./pricing";
 
 interface Props {
@@ -34,7 +35,6 @@ type SortKey = "lineNo" | "name" | "qty" | "cogs" | "rrp" | "margin" | "value";
 
 // Selects the whole value on focus so typing a new number replaces it
 // instead of appending after a leading 0.
-const selectOnFocus = (e: React.FocusEvent<HTMLInputElement>) => e.target.select();
 
 export function ItemsTable({
   engine,
@@ -206,14 +206,12 @@ export function ItemsTable({
                       )}
                     </td>
                     <td>
-                      <input
+                      <NumberCell
+                        live
                         className="cell"
-                        type="number"
-                        min="0"
                         value={r.qty}
                         disabled={readOnly}
-                        onChange={(e) => onUpdate(r.id, { qty: Math.max(0, Number(e.target.value)) })}
-                        onFocus={selectOnFocus}
+                        onCommit={(v) => onUpdate(r.id, { qty: v })}
                         aria-label={`Qty ${r.name}`}
                       />
                     </td>
@@ -233,28 +231,22 @@ export function ItemsTable({
                       />
                     </td>
                     <td>
-                      <input
+                      <NumberCell
+                        live
                         className={`cell ${r.estCogs ? "est" : ""}`}
-                        type="number"
-                        min="0"
                         value={r.cogs}
                         disabled={readOnly}
-                        onChange={(e) =>
-                          onUpdate(r.id, { cogs: Math.max(0, Number(e.target.value)), estCogs: false })
-                        }
-                        onFocus={selectOnFocus}
+                        onCommit={(v) => onUpdate(r.id, { cogs: v, estCogs: false })}
                         aria-label={`COGS ${r.name}`}
                       />
                     </td>
                     <td>
-                      <input
+                      <NumberCell
+                        live
                         className="cell"
-                        type="number"
-                        min="0"
                         value={r.rrp}
                         disabled={readOnly}
-                        onChange={(e) => onUpdate(r.id, { rrp: Math.max(0, Number(e.target.value)) })}
-                        onFocus={selectOnFocus}
+                        onCommit={(v) => onUpdate(r.id, { rrp: v })}
                         aria-label={`RRP ${r.name}`}
                       />
                     </td>
@@ -277,20 +269,16 @@ export function ItemsTable({
                         className={k === scenario ? "col-selected" : ""}
                         style={k === scenario ? { ["--c" as string]: SCENARIOS[k].color } : undefined}
                       >
-                        {k === scenario && !readOnly ? (
-                          <input
+                        {!readOnly ? (
+                          <NumberCell
                             className={`cell ${r.overridden[k] ? "manual" : ""}`}
-                            type="number"
-                            min="0"
                             value={Math.round(r.prices[k])}
-                            title="Ubah untuk mengunci harga manual pada skenario ini"
-                            onChange={(e) => {
-                              const v = Number(e.target.value);
+                            title="Ubah untuk mengunci harga manual pada skenario ini. Kosongkan atau 0 untuk kembali ke harga hitungan."
+                            onCommit={(v) => {
                               const next = [...(r.manualPrice ?? [null, null, null])];
                               next[k] = v > 0 ? v : null;
                               onUpdate(r.id, { manualPrice: next });
                             }}
-                            onFocus={selectOnFocus}
                             aria-label={`Harga ${SCENARIOS[k].key} untuk ${r.name}`}
                           />
                         ) : (

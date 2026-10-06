@@ -4,7 +4,8 @@ import { all, get, run, stmt, batch } from "../../db.d1";
 import { audit, auditFor } from "../audit";
 import { requireAuth, requirePermission } from "../auth";
 import { hasPermission } from "../../../shared/permissions";
-import { snapshotSchema, zodMessage } from "../../validate";
+import { salesReviewSchema, snapshotSchema, zodMessage } from "../../validate";
+import { checkSalesReview, rejectionNote } from "../../../shared/salesReview";
 import {
   EDITABLE_STATUSES,
   STATUS_FLOW,
@@ -127,7 +128,7 @@ quotesRouter.post("/preview", async (c) => {
   const stored = base?.items ?? [];
   const lines = parsed.data.snapshot.items;
   const catalog = await catalogByKeys(c.env.DB, [...stored.map((i) => i.code), ...lines.map((l) => l.code)]);
-  const merged = mergeStaffItems(stored, lines, catalog);
+  const merged = mergeStaffItems(stored, lines, catalog, base?.scenario);
   if ("error" in merged) return c.json(merged, 400);
   const draft = {
     ...(base ?? { id: 0, number: "", title: "", status: "draft", rev_no: 1, version: 0 }),
@@ -296,7 +297,7 @@ quotesRouter.put("/:id", async (c) => {
     const staff = staffSnapshotSchema.safeParse(parsed.data.snapshot);
     if (!staff.success) return c.json({ error: zodMessage(staff.error) }, 400);
     const codes = [...existing.items.map((it) => it.code), ...staff.data.items.map((l) => l.code)];
-    const merged = mergeStaffItems(existing.items, staff.data.items, await catalogByKeys(c.env.DB, codes));
+    const merged = mergeStaffItems(existing.items, staff.data.items, await catalogByKeys(c.env.DB, codes), existing.scenario);
     if ("error" in merged) return c.json(merged, 400);
     s = {
       assumptions: existing.assumptions,
@@ -779,6 +780,94 @@ quotesRouter.post("/:id/reopen", async (c) => {
   await batch(c.env.DB, statements);
   await audit(c.env.DB, user.id, "quote", id, "reopened", { rev_no: nextRev });
   return c.json({ quote: view(c.get("user")!.role, await findQuote(c.env.DB, id)) });
+});
+
+/* ---------------- PE-2: sales check the locked "Cek harga" Excel ---------------- */
+
+async function latestSalesReview(db: D1Database, id: number) {
+  const r = await get<{ lines: string } & Record<string, unknown>>(
+    db,
+    `SELECT s.id, s.rev_no, s.lines, s.rejected, s.created_at, u.name AS reviewed_by_name
+       FROM sales_reviews s LEFT JOIN users u ON u.id = s.reviewed_by
+      WHERE s.quote_id = ? ORDER BY s.id DESC LIMIT 1`,
+    id,
+  );
+  return r ? { ...r, lines: JSON.parse(r.lines) } : null;
+}
+
+quotesRouter.get("/:id/sales-review", async (c) => {
+  const id = Number(c.req.param("id"));
+  if (!(await get(c.env.DB, "SELECT id FROM quotes WHERE id = ?", id))) {
+    return c.json({ error: "Quotation tidak ditemukan." }, 404);
+  }
+  return c.json({ review: await latestSalesReview(c.env.DB, id) });
+});
+
+/**
+ * All ACC: recorded, the quote stays approved. Any Tolak: the quote goes
+ * back to draft as the next revision (reasons kept in sales_reviews), and the
+ * managers are told, so the price is revised and approved again.
+ */
+quotesRouter.post("/:id/sales-review", async (c) => {
+  const user = c.get("user")!;
+  const id = Number(c.req.param("id"));
+  const quote = await findQuote(c.env.DB, id);
+  if (!quote) return c.json({ error: "Quotation tidak ditemukan." }, 404);
+  if (!canEdit(user, quote.created_by, quote.assigned_to)) return c.json({ error: "Quotation ini milik pengguna lain." }, 403);
+  const parsed = salesReviewSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
+  const check = checkSalesReview(quote, parsed.data);
+  if (!check.ok) return c.json({ error: check.error }, check.status);
+
+  const rejected = check.rejected.length;
+  const note = rejected ? rejectionNote(user.name, check.rejected) : "";
+  const statements = [
+    stmt(
+      c.env.DB,
+      "INSERT INTO sales_reviews(quote_id, rev_no, reviewed_by, lines, rejected) VALUES(?, ?, ?, ?, ?)",
+      id, quote.rev_no, user.id, JSON.stringify(check.lines), rejected,
+    ),
+  ];
+  if (rejected) {
+    statements.push(
+      stmt(
+        c.env.DB,
+        "INSERT INTO quote_revisions(quote_id, rev_no, snapshot, note, created_by) VALUES(?, ?, ?, ?, ?)",
+        id, quote.rev_no, JSON.stringify(quote), `Ditolak sales: ${rejected} baris`, user.id,
+      ),
+      // Like a reopen, the note is cleared: the reasons live in sales_reviews
+      // (the banner reads them there), so they can't follow the quote into
+      // its next approval.
+      stmt(
+        c.env.DB,
+        `UPDATE quotes SET status = 'draft', rev_no = ?, approved_by = NULL, approved_at = NULL,
+                decision_note = NULL, updated_at = datetime('now') WHERE id = ?`,
+        quote.rev_no + 1, id,
+      ),
+    );
+  }
+  await batch(c.env.DB, statements);
+  await audit(c.env.DB, user.id, "quote", id, rejected ? "sales_rejected" : "sales_accepted", {
+    rev_no: quote.rev_no,
+    rejected: check.rejected.map((l) => l.lineNo),
+  });
+  if (rejected) {
+    const managers = await all<{ name: string; email: string; phone: string }>(
+      c.env.DB,
+      "SELECT name, email, phone FROM users WHERE role = 'manager' AND active = 1",
+    );
+    c.executionCtx.waitUntil(
+      Promise.all(
+        managers.map((recipient) =>
+          notifyQuoteDecided(c.env, {
+            recipient, quoteNumber: quote.number, quoteTitle: quote.title, decision: "rejected",
+            decidedBy: `${user.name} (cek sales)`, note, quoteId: id,
+          }),
+        ),
+      ),
+    );
+  }
+  return c.json({ quote: view(user.role, await findQuote(c.env.DB, id)), review: await latestSalesReview(c.env.DB, id) });
 });
 
 quotesRouter.delete("/:id", async (c) => {

@@ -184,7 +184,8 @@ export interface PolicyBreach {
     | "BASKET_DISCOUNT"
     | "BELOW_COST"
     | "VALUE_THRESHOLD"
-    | "MISSING_COGS";
+    | "MISSING_COGS"
+    | "ABOVE_CEILING";
   severity: BreachSeverity;
   message: string;
   /** Line numbers involved, when the breach is line-specific. */
@@ -216,6 +217,10 @@ export interface QuoteMeta {
   warrantyYears?: number | null;
   /** Optional detail shown after the warranty, e.g. "servis gratis". */
   warrantyNote?: string;
+  /** Customer document without quantities (a plain price list). Also drops line totals and the totals block. */
+  hideQty?: boolean;
+  /** Customer document without the per-line total column. */
+  hideLineTotal?: boolean;
 }
 
 export interface Client {

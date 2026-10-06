@@ -4,7 +4,8 @@ import { all, get, run, tx } from "../db.js";
 import { audit, auditFor } from "../audit.js";
 import { type AuthedRequest, requireAuth, requirePermission } from "../auth.js";
 import { hasPermission } from "../../shared/permissions.js";
-import { snapshotSchema, zodMessage } from "../validate.js";
+import { salesReviewSchema, snapshotSchema, zodMessage } from "../validate.js";
+import { checkSalesReview, rejectionNote } from "../../shared/salesReview.js";
 import {
   EDITABLE_STATUSES,
   STATUS_FLOW,
@@ -133,7 +134,7 @@ quotesRouter.post("/preview", (req: AuthedRequest, res) => {
   }
   const stored = base?.items ?? [];
   const lines = parsed.data.snapshot.items;
-  const merged = mergeStaffItems(stored, lines, catalogByKeys([...stored.map((i) => i.code), ...lines.map((l) => l.code)]));
+  const merged = mergeStaffItems(stored, lines, catalogByKeys([...stored.map((i) => i.code), ...lines.map((l) => l.code)]), base?.scenario);
   if ("error" in merged) {
     res.status(400).json(merged);
     return;
@@ -329,7 +330,7 @@ quotesRouter.put("/:id", (req: AuthedRequest, res) => {
       return;
     }
     const codes = [...existing.items.map((it) => it.code), ...staff.data.items.map((l) => l.code)];
-    const merged = mergeStaffItems(existing.items, staff.data.items, catalogByKeys(codes));
+    const merged = mergeStaffItems(existing.items, staff.data.items, catalogByKeys(codes), existing.scenario);
     if ("error" in merged) {
       res.status(400).json(merged);
       return;
@@ -749,6 +750,90 @@ quotesRouter.post("/:id/reopen", (req: AuthedRequest, res) => {
   });
   audit(req.user!.id, "quote", id, "reopened", { rev_no: nextRev });
   res.json({ quote: view(req, findQuote(id)) });
+});
+
+/* ---------------- PE-2: sales check the locked "Cek harga" Excel ---------------- */
+
+const latestSalesReview = (id: number) => {
+  const r = get<{ lines: string } & Record<string, unknown>>(
+    `SELECT s.id, s.rev_no, s.lines, s.rejected, s.created_at, u.name AS reviewed_by_name
+       FROM sales_reviews s LEFT JOIN users u ON u.id = s.reviewed_by
+      WHERE s.quote_id = ? ORDER BY s.id DESC LIMIT 1`,
+    id,
+  );
+  return r ? { ...r, lines: JSON.parse(r.lines) } : null;
+};
+
+quotesRouter.get("/:id/sales-review", (req: AuthedRequest, res) => {
+  const id = Number(req.params.id);
+  if (!get("SELECT id FROM quotes WHERE id = ?", id)) {
+    res.status(404).json({ error: "Quotation tidak ditemukan." });
+    return;
+  }
+  res.json({ review: latestSalesReview(id) });
+});
+
+/**
+ * All ACC: recorded, the quote stays approved. Any Tolak: the quote goes
+ * back to draft as the next revision (reasons kept in sales_reviews), and the
+ * managers are told, so the price is revised and approved again.
+ */
+quotesRouter.post("/:id/sales-review", (req: AuthedRequest, res) => {
+  const id = Number(req.params.id);
+  const quote = findQuote(id);
+  if (!quote) {
+    res.status(404).json({ error: "Quotation tidak ditemukan." });
+    return;
+  }
+  if (!canEdit(req, quote.created_by, quote.assigned_to)) {
+    res.status(403).json({ error: "Quotation ini milik pengguna lain." });
+    return;
+  }
+  const parsed = salesReviewSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: zodMessage(parsed.error) });
+    return;
+  }
+  const check = checkSalesReview(quote, parsed.data);
+  if (!check.ok) {
+    res.status(check.status).json({ error: check.error });
+    return;
+  }
+  const rejected = check.rejected.length;
+  const note = rejected ? rejectionNote(req.user!.name, check.rejected) : "";
+  tx(() => {
+    run(
+      "INSERT INTO sales_reviews(quote_id, rev_no, reviewed_by, lines, rejected) VALUES(?, ?, ?, ?, ?)",
+      id, quote.rev_no, req.user!.id, JSON.stringify(check.lines), rejected,
+    );
+    if (rejected) {
+      saveRevision(id, quote.rev_no, quote, req.user!.id, `Ditolak sales: ${rejected} baris`);
+      // Like a reopen, the note is cleared: the reasons live in sales_reviews
+      // (the banner reads them there), so they can't follow the quote into
+      // its next approval.
+      run(
+        `UPDATE quotes SET status = 'draft', rev_no = ?, approved_by = NULL, approved_at = NULL,
+                decision_note = NULL, updated_at = datetime('now') WHERE id = ?`,
+        quote.rev_no + 1, id,
+      );
+    }
+  });
+  audit(req.user!.id, "quote", id, rejected ? "sales_rejected" : "sales_accepted", {
+    rev_no: quote.rev_no,
+    rejected: check.rejected.map((l) => l.lineNo),
+  });
+  if (rejected) {
+    const managers = all<{ name: string; email: string; phone: string }>(
+      "SELECT name, email, phone FROM users WHERE role = 'manager' AND active = 1",
+    );
+    for (const recipient of managers) {
+      void notifyQuoteDecided({
+        recipient, quoteNumber: quote.number, quoteTitle: quote.title, decision: "rejected",
+        decidedBy: `${req.user!.name} (cek sales)`, note, quoteId: id,
+      });
+    }
+  }
+  res.json({ quote: view(req, findQuote(id)), review: latestSalesReview(id) });
 });
 
 quotesRouter.delete("/:id", (req: AuthedRequest, res) => {

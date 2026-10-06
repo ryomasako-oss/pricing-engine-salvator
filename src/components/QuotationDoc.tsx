@@ -7,6 +7,7 @@ import { fmtDate, grp, pct, rp } from "@shared/format";
 import type { Assumptions, EngineResult, QuoteMeta, ScenarioIndex } from "@shared/types";
 import { paymentLabel, warrantyLabel } from "@shared/terms";
 import { heldNote, offeredRows } from "@shared/holds";
+import { docColumns } from "@shared/docColumns";
 
 export interface CompanyInfo {
   name: string;
@@ -45,6 +46,7 @@ export function QuotationDoc({
   showInternal = true,
   draft,
 }: Props) {
+  const cols = docColumns(meta);
   const s = engine.scen[scenario];
   const sc = SCENARIOS[scenario];
   const ppn = s.revenue * assumptions.ppn;
@@ -123,9 +125,9 @@ export function QuotationDoc({
               <th>No</th>
               <th className="l">Item</th>
               <th>Satuan</th>
-              <th>Qty</th>
+              {cols.qty && <th>Qty</th>}
               <th>Harga satuan</th>
-              <th>Total per bulan</th>
+              {cols.lineTotal && <th>Total per bulan</th>}
             </tr>
           </thead>
           <tbody>
@@ -137,17 +139,18 @@ export function QuotationDoc({
                   {r.code && <div className="muted small">{r.code}</div>}
                 </td>
                 <td className="c">{r.uom}</td>
-                <td className="num">{grp(r.qty)}</td>
+                {cols.qty && <td className="num">{grp(r.qty)}</td>}
                 <td className="num">
                   <strong>{grp(r.prices[scenario])}</strong>
                 </td>
-                <td className="num">{grp(r.prices[scenario] * r.qty)}</td>
+                {cols.lineTotal && <td className="num">{grp(r.prices[scenario] * r.qty)}</td>}
               </tr>
             ))}
           </tbody>
         </table>
       </div>
 
+      {cols.totals && (
       <div className="quote-totals">
         <div>
           <span>Subtotal per bulan</span>
@@ -166,6 +169,7 @@ export function QuotationDoc({
           <span className="num">{rp(s.annual)}</span>
         </div>
       </div>
+      )}
 
       <p className="small muted">
         Harga dalam Rupiah per satuan dan belum termasuk PPN.

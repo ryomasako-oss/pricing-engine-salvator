@@ -22,7 +22,7 @@
    ============================================================ */
 
 import { DatabaseSync } from "node:sqlite";
-import { readFileSync, mkdtempSync, rmSync } from "node:fs";
+import { readFileSync, readdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import assert from "node:assert/strict";
@@ -59,6 +59,8 @@ async function makeExpressDriver(): Promise<Driver> {
   const { clientsRouter } = await import("../server/routes/clients.js");
   const { settingsRouter } = await import("../server/routes/settings.js");
   const { assistantRouter } = await import("../server/routes/assistant.js");
+  const { ocrRouter } = await import("../server/routes/ocr.js");
+  const { chatRouter } = await import("../server/routes/chat.js");
   const { run } = await import("../server/db.js");
 
   const app = express();
@@ -72,6 +74,8 @@ async function makeExpressDriver(): Promise<Driver> {
   app.use("/api/clients", clientsRouter);
   app.use("/api/settings", settingsRouter);
   app.use("/api/assistant", assistantRouter);
+  app.use("/api/ocr", ocrRouter);
+  app.use("/api/chat", chatRouter);
 
   let server: Server;
   await new Promise<void>((resolve) => {
@@ -124,19 +128,8 @@ async function makeExpressDriver(): Promise<Driver> {
 async function makeWorkerDriver(): Promise<Driver> {
   const sqlite = new DatabaseSync(":memory:");
   const migrationsDir = path.resolve(import.meta.dirname, "../migrations");
-  for (const file of [
-    "0001_init.sql",
-    "0002_consistency.sql",
-    "0003_password_reset_requests.sql",
-    "0004_user_phone.sql",
-    "0005_reassignment_and_restore.sql",
-    "0006_uom_options.sql",
-    "0007_catalog_item_uoms.sql",
-    "0008_catalog_aliases.sql",
-    "0009_cogs_sanity.sql",
-    "0010_cogs_reference_by_manager.sql",
-    "0011_accurate_sync.sql",
-  ]) {
+  // Every migration, in order, so a new one can't be left out of the Worker run.
+  for (const file of readdirSync(migrationsDir).filter((f) => f.endsWith(".sql")).sort()) {
     sqlite.exec(readFileSync(path.join(migrationsDir, file), "utf8"));
   }
   const db = new D1DatabaseShim(sqlite) as unknown as D1Database;
@@ -150,6 +143,8 @@ async function makeWorkerDriver(): Promise<Driver> {
   const { clientsRouter } = await import("../server/worker/routes/clients.js");
   const { settingsRouter } = await import("../server/worker/routes/settings.js");
   const { assistantRouter } = await import("../server/worker/routes/assistant.js");
+  const { ocrRouter } = await import("../server/worker/routes/ocr.js");
+  const { chatRouter } = await import("../server/worker/routes/chat.js");
   const { run } = await import("../server/db.d1.js");
 
   const app = new Hono();
@@ -161,6 +156,8 @@ async function makeWorkerDriver(): Promise<Driver> {
   app.route("/api/clients", clientsRouter);
   app.route("/api/settings", settingsRouter);
   app.route("/api/assistant", assistantRouter);
+  app.route("/api/ocr", ocrRouter);
+  app.route("/api/chat", chatRouter);
 
   const env = {
     DB: db,
@@ -1642,6 +1639,62 @@ scenario("PE-1: preview prices exactly what a save would, without saving", async
 });
 
 
+scenario("A rep can type a price: past the ceiling, or where there is no ceiling; policy asks a manager, nothing cost-derived goes back", async (d) => {
+  await seedLeakCatalog(d);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const created = await d.api("POST", "/api/quotes", {
+    body: { title: "Typed price", snapshot: { ...snapshotFor([]), items: [{ id: "t1", code: "LEAK-1", qty: 2, rrp: 99000 }, { id: "t2", code: "LEAK-1", qty: 1, rrp: 0 }] } },
+    session: rep,
+  });
+  const id = created.json.quote.id;
+  const v = created.json.quote.version;
+  const typed = { items: [{ id: "t1", code: "LEAK-1", qty: 2, rrp: 99000, price: 120000 }, { id: "t2", code: "LEAK-1", qty: 1, rrp: 0, price: 5000 }] };
+  const preview = await d.api("POST", "/api/quotes/preview", { body: { quote_id: id, snapshot: typed }, session: rep });
+  const saved = await d.api("PUT", `/api/quotes/${id}`, { body: { snapshot: typed, expected_version: v }, session: rep });
+  const asRep = (await d.api("GET", `/api/quotes/${id}`, { session: rep })).json;
+  const asManager = (await d.api("GET", `/api/quotes/${id}`, { session: manager })).json;
+  const k = asManager.quote.scenario;
+  // Back to the computed price with 0.
+  const clearedBody = { items: [{ id: "t1", code: "LEAK-1", qty: 2, rrp: 99000, price: 0 }, { id: "t2", code: "LEAK-1", qty: 1, rrp: 0 }] };
+  const cleared = await d.api("PUT", `/api/quotes/${id}`, { body: { snapshot: clearedBody, expected_version: saved.json.quote.version }, session: rep });
+
+  assert.equal(preview.status, 200, JSON.stringify(preview.json));
+  assert.equal(saved.status, 200, JSON.stringify(saved.json));
+  assert.deepEqual(preview.json.quote.items, saved.json.quote.items);
+  assert.deepEqual(saved.json.quote.items.map((i: { price: number }) => i.price), [120000, 5000]);
+  assert.equal(saved.json.quote.items[0].manual, true);
+  assert.deepEqual(asManager.quote.items.map((i: { manualPrice: (number | null)[] }) => i.manualPrice[k]), [120000, 5000]);
+  assert.ok(asRep.policy.breaches.some((b: { code: string; message: string }) => b.code === "ABOVE_CEILING" && !/\d/.test(b.message)));
+  assert.ok(!JSON.stringify(asRep).includes(String(LEAK_COGS)), "typed price must not bring cost data back to staff");
+  assert.equal(cleared.status, 200, JSON.stringify(cleared.json));
+  assert.equal(cleared.json.quote.items[0].manual, undefined);
+  assert.equal(cleared.json.quote.items[1].price, 5000);
+  return {
+    prices: saved.json.quote.items.map((i: { price: number }) => i.price),
+    above: asRep.policy.breaches.filter((b: { code: string }) => b.code === "ABOVE_CEILING").map((b: { lines?: number[] }) => b.lines),
+    afterClear: cleared.json.quote.items.map((i: { price: number; manual?: boolean }) => [i.price > 0, i.manual ?? false]),
+  };
+});
+
+scenario("OCR endpoint: login required, and off (503) until a Gemini key is set", async (d) => {
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const anon = await d.api("POST", "/api/ocr/extract", { body: {} });
+  const off = await d.api("POST", "/api/ocr/extract", { body: {}, session: rep });
+  assert.equal(anon.status, 401);
+  assert.equal(off.status, 503, JSON.stringify(off.json));
+  return { anon: anon.status, off: off.status, error: off.json.error };
+});
+
+scenario("Chat endpoint: login required, off (503) without a key, bad input is 400 for staff too", async (d) => {
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const anon = await d.api("POST", "/api/chat", { body: { messages: [{ role: "user", content: "halo" }] } });
+  const off = await d.api("POST", "/api/chat", { body: { messages: [{ role: "user", content: "halo" }] }, session: rep });
+  assert.equal(anon.status, 401);
+  assert.equal(off.status, 503, JSON.stringify(off.json));
+  return { anon: anon.status, off: off.status, error: off.json.error };
+});
+
 scenario("PE-1: sorting the catalog by COGS is ignored for staff (the order would rank costs)", async (d) => {
   await importRows(d, [
     { code: "SRT-A", name: "SRT Alpha", cogs: 3000, list_price: 9000 },
@@ -1688,6 +1741,116 @@ scenario("creating a client that already exists under another spelling -> 409 wi
   };
 });
 
+
+// ---------------------------------------------------------------
+// PE-2 (meeting 2026-10-05 #2): the locked "Cek harga" Excel for sales.
+// ---------------------------------------------------------------
+
+/** A rep's quote with two lines, approved by the manager. */
+async function approvedForSales(d: Driver) {
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const quote = await createDraft(d, rep, [
+    cleanItem({ id: "s1", lineNo: 1, code: "SR-1", name: "Pulpen" }),
+    cleanItem({ id: "s2", lineNo: 2, code: "SR-2", name: "Kertas", cogs: 41000, rrp: 60000 }),
+  ]);
+  await d.api("POST", `/api/quotes/${quote.id}/submit`, { session: rep });
+  const got = await d.api("GET", `/api/quotes/${quote.id}`, { session: manager });
+  if (got.json.quote.status !== "approved") {
+    await d.api("POST", `/api/quotes/${quote.id}/decide`, { body: { decision: "approved", note: "" }, session: manager });
+  }
+  const q = (await d.api("GET", `/api/quotes/${quote.id}`, { session: rep })).json.quote;
+  return { rep, manager, id: q.id as number, rev_no: q.rev_no as number, version: q.version as number };
+}
+
+scenario("PE-2: office Excel password: admin sets it, managers read it, reps never see it", async (d) => {
+  const admin = await loginCached(d, "admin@test.local", "password123");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const byManager = await d.api("PUT", "/api/settings/excel-password", { body: { password: "x1234567" }, session: manager });
+  const tooShort = await d.api("PUT", "/api/settings/excel-password", { body: { password: "abc" }, session: admin });
+  const set = await d.api("PUT", "/api/settings/excel-password", { body: { password: "Kantor-2026" }, session: admin });
+  const forManager = await d.api("GET", "/api/settings", { session: manager });
+  const forRep = await d.api("GET", "/api/settings", { session: rep });
+  assert.equal(forManager.json.excelPassword, "Kantor-2026");
+  assert.ok(!JSON.stringify(forRep.json).includes("Kantor-2026"), "rep received the Excel password");
+  return {
+    byManager: byManager.status, tooShort: tooShort.status, set: set.status,
+    managerSees: forManager.json.excelPassword, repKeys: Object.keys(forRep.json).sort(),
+  };
+});
+
+scenario("PE-2: sales ACC every line -> quote stays approved, review recorded", async (d) => {
+  const { rep, id, rev_no, version } = await approvedForSales(d);
+  const r = await d.api("POST", `/api/quotes/${id}/sales-review`, {
+    body: { rev_no, version, lines: [{ id: "s1", decision: "acc", reason: "" }, { id: "s2", decision: "acc", reason: "" }] },
+    session: rep,
+  });
+  const latest = await d.api("GET", `/api/quotes/${id}/sales-review`, { session: rep });
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  assert.equal(r.json.quote.status, "approved");
+  assert.equal(r.json.quote.rev_no, rev_no);
+  assert.equal(latest.json.review.rejected, 0);
+  return {
+    status: r.status, quoteStatus: r.json.quote.status, rev: r.json.quote.rev_no - rev_no, rejected: r.json.review.rejected,
+    latest: latest.json.review && { rev: latest.json.review.rev_no - rev_no, by: latest.json.review.reviewed_by_name, lines: latest.json.review.lines },
+  };
+});
+
+scenario("PE-2: a Tolak sends the quote back to draft (next revision) with the reasons", async (d) => {
+  const { rep, manager, id, rev_no, version } = await approvedForSales(d);
+  const r = await d.api("POST", `/api/quotes/${id}/sales-review`, {
+    body: { rev_no, version, lines: [{ id: "s1", decision: "acc", reason: "" }, { id: "s2", decision: "tolak", reason: "klien minta 48rb" }] },
+    session: rep,
+  });
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  // The manager can now revise the line and submit again.
+  const forManager = await d.api("GET", `/api/quotes/${id}`, { session: manager });
+  const again = await d.api("POST", `/api/quotes/${id}/sales-review`, {
+    body: { rev_no, version, lines: [{ id: "s1", decision: "acc", reason: "" }, { id: "s2", decision: "acc", reason: "" }] },
+    session: rep,
+  });
+  assert.equal(r.json.quote.status, "draft");
+  assert.equal(r.json.quote.rev_no, rev_no + 1);
+  assert.equal(r.json.quote.decision_note, null);
+  assert.deepEqual(
+    r.json.review.lines.filter((l: { decision: string }) => l.decision === "tolak").map((l: { lineNo: number; reason: string }) => [l.lineNo, l.reason]),
+    [[2, "klien minta 48rb"]],
+  );
+  assert.equal(again.status, 409);
+  return {
+    status: r.status, quoteStatus: r.json.quote.status, rev: r.json.quote.rev_no - rev_no,
+    note: r.json.quote.decision_note, approvedBy: r.json.quote.approved_by, rejected: r.json.review.rejected,
+    managerSeesDraft: forManager.json.quote.status, secondImport: again.status,
+  };
+});
+
+scenario("PE-2: refused imports: stale file, missing line, Tolak without reason, not approved, someone else's quote", async (d) => {
+  const { rep, id, rev_no, version } = await approvedForSales(d);
+  const rep2 = await loginCached(d, "rep2@test.local", "password123");
+  const both = (a: string, b: string, reason = "") => [{ id: "s1", decision: a, reason: "" }, { id: "s2", decision: b, reason }];
+  const post = (body: unknown, session = rep) => d.api("POST", `/api/quotes/${id}/sales-review`, { body, session });
+  const stale = await post({ rev_no, version: version - 1, lines: both("acc", "acc") });
+  const missing = await post({ rev_no, version, lines: [{ id: "s1", decision: "acc", reason: "" }] });
+  const blank = await post({ rev_no, version, lines: both("acc", "") });
+  const noReason = await post({ rev_no, version, lines: both("acc", "tolak", " ") });
+  const other = await post({ rev_no, version, lines: both("acc", "acc") }, rep2);
+  const draft = await createDraft(d, rep, [cleanItem({ id: "s1" })]);
+  const notApproved = await d.api("POST", `/api/quotes/${draft.id}/sales-review`, {
+    body: { rev_no: 1, version: draft.version, lines: [{ id: "s1", decision: "acc", reason: "" }] }, session: rep,
+  });
+  const after = await d.api("GET", `/api/quotes/${id}`, { session: rep });
+  assert.deepEqual(
+    [stale.status, missing.status, blank.status, noReason.status, other.status, notApproved.status, after.json.quote.status],
+    [409, 400, 400, 400, 403, 409, "approved"],
+  );
+  return {
+    stale: [stale.status, stale.json.error], missing: [missing.status, missing.json.error], blank: blank.status,
+    noReason: [noReason.status, noReason.json.error], other: other.status, notApproved: notApproved.status,
+    stillApproved: after.json.quote.status,
+  };
+});
+
 // ---------------------------------------------------------------
 // Run: ONE pair of backends for the whole run (Node caches the
 // dynamically-imported server/db.js module by URL, so "fresh drivers
@@ -1705,6 +1868,7 @@ async function main() {
     await d.seedUser("rep@test.local", "Rep One", "rep", "password123");
     await d.seedUser("manager@test.local", "Manager One", "manager", "password123");
     await d.seedUser("rep2@test.local", "Rep Two", "rep", "password123");
+    await d.seedUser("admin@test.local", "Admin One", "admin", "password123");
   }
 
   let passed = 0;

@@ -13,6 +13,8 @@ import { ApprovalsPage } from "./pages/Approvals";
 import { CatalogPage } from "./pages/Catalog";
 import { ClientsPage } from "./pages/Clients";
 import { SettingsPage } from "./pages/Settings";
+import { ChatProvider } from "./context/ChatContext";
+import { ChatDock } from "./components/ChatDock";
 import type { Approval } from "@shared/types";
 import type { Permission } from "@shared/permissions";
 
@@ -135,6 +137,7 @@ export function App() {
   if (!user) return <LoginPage />;
 
   return (
+    <ChatProvider>
     <div className="hk-app">
       <TopBar />
       <Routes>
@@ -155,6 +158,8 @@ export function App() {
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/quotes" replace />} />
       </Routes>
+      <ChatDock />
     </div>
+    </ChatProvider>
   );
 }

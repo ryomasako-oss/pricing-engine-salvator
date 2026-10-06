@@ -12,12 +12,12 @@ const meta: QuoteMeta = {
 };
 const company = { name: "PT Salvator Inti Pratama", brand: "", tagline: "", address: "Jakarta", phone: "", email: "", npwp: "", bank: "" };
 
-function pdfFor(n: number) {
+function pdfFor(n: number, over: Partial<QuoteMeta> = {}) {
   const items: QuoteItem[] = Array.from({ length: n }, (_, i) => ({
     id: `i${i}`, lineNo: i + 1, code: `C${i}`, name: `Item nomor ${i + 1}`, uom: "Pcs", qty: 1, cogs: 1000, rrp: 2000, role: "CORE",
   }));
   return quotationPdf({
-    engine: computeEngine(DEFAULT_ASSUMPTIONS, items, DEFAULT_REGIONS), meta, assumptions: DEFAULT_ASSUMPTIONS,
+    engine: computeEngine(DEFAULT_ASSUMPTIONS, items, DEFAULT_REGIONS), meta: { ...meta, ...over }, assumptions: DEFAULT_ASSUMPTIONS,
     scenario: 0, company, clientName: "PT Klien", number: "Q-1", draft: false,
   });
 }
@@ -42,6 +42,42 @@ function bottomOffset(doc: ReturnType<typeof pdfFor>, text: string): number {
   }
   throw new Error(`"${text}" not drawn`);
 }
+
+describe("quotation PDF columns", () => {
+  const has = (doc: ReturnType<typeof pdfFor>, t: string) => pagesWith(doc, t).length > 0;
+  /** How many times this exact text is drawn on any page. */
+  const draws = (doc: ReturnType<typeof pdfFor>, t: string) =>
+    (doc.internal as unknown as { pages: (string[] | undefined)[] }).pages.reduce(
+      (n, ops) => n + (ops?.filter((op) => op.includes(`(${t})`)).length ?? 0),
+      0,
+    );
+
+  it("shows Qty, line totals and the totals block by default", () => {
+    const d = pdfFor(2);
+    expect(has(d, "Qty")).toBe(true);
+    expect(has(d, "Total per bulan")).toBe(true);
+    expect(has(d, "Subtotal per bulan")).toBe(true);
+  });
+
+  it("drops only the line total when hideLineTotal is set", () => {
+    const d = pdfFor(2, { hideLineTotal: true });
+    expect(has(d, "Qty")).toBe(true);
+    expect(has(d, "Harga satuan")).toBe(true);
+    // "Total per bulan" is the column head and also a row of the totals block.
+    expect(draws(pdfFor(2), "Total per bulan")).toBe(2);
+    expect(draws(d, "Total per bulan")).toBe(1);
+    expect(has(d, "Subtotal per bulan")).toBe(true);
+  });
+
+  it("is a plain price list when hideQty is set: no Qty, no totals, price still right-aligned", () => {
+    const d = pdfFor(2, { hideQty: true });
+    expect(has(d, "Qty")).toBe(false);
+    expect(has(d, "Total per bulan")).toBe(false);
+    expect(has(d, "Subtotal per bulan")).toBe(false);
+    expect(has(d, "Harga satuan")).toBe(true);
+    expect(has(d, "Hormat kami,")).toBe(true);
+  });
+});
 
 describe("quotation PDF", () => {
   it("shows term of payment and warranty", () => {

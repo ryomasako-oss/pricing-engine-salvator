@@ -21,8 +21,26 @@ import { uomWarning } from "@shared/uom";
 import { Icon } from "./Icon";
 import { ClientQuickAdd } from "./ClientQuickAdd";
 import { Modal } from "./Modal";
+import { WaitingLine } from "./WaitingLine";
 
 const MAX_LINES = 500;
+
+// What is really happening in each step. The AI step is the slow one (a scan can take a minute).
+const WAITING: Record<"file" | "ai" | "match", string[]> = {
+  file: ["Membaca file Excel…", "Mencari kolom nama barang dan qty…"],
+  ai: [
+    "Mengirim dokumen ke AI pembaca…",
+    "AI membaca tabel baris demi baris…",
+    "Menyalin nama barang, qty, dan satuan…",
+    "AI hanya membaca isi dokumen. Harga tidak dikarang, hanya plafon yang tertulis di dokumen.",
+    "File scan atau besar bisa sampai 1 menit. Mohon tunggu…",
+  ],
+  match: [
+    "Mencocokkan tiap baris ke katalog…",
+    "Harga dan COGS diambil dari database, bukan dari AI.",
+    "Menyiapkan tampilan tinjau…",
+  ],
+};
 
 interface MatchResponse {
   results: MatchResult[];
@@ -53,16 +71,19 @@ export function ListToQuote({
   onClose,
   onCreated,
   onClientAdded,
+  initial,
 }: {
   clients: Client[];
   onClose: () => void;
   onCreated: (id: number) => void;
   onClientAdded?: (client: Client) => void;
+  /** A list that is already read (from chat): skips the file step and goes straight to review. */
+  initial?: { lines: RequestLine[]; clientId: number | ""; title: string };
 }) {
   const toast = useToast();
   // Staff see the price the server will charge instead of COGS (PE-1).
   const seeCosts = useAuth().can("view_costs");
-  const [clientId, setClientId] = useState<number | "">("");
+  const [clientId, setClientId] = useState<number | "">(initial?.clientId ?? "");
   const [list, setList] = useState(clients);
   const [adding, setAdding] = useState(false);
   const chooseClient = (client: Client, isNew: boolean) => {
@@ -73,42 +94,66 @@ export function ListToQuote({
     setClientId(client.id);
     setAdding(false);
   };
-  const [title, setTitle] = useState("");
+  const [title, setTitle] = useState(initial?.title ?? "");
   const [fileName, setFileName] = useState("");
   const [notes, setNotes] = useState<string[]>([]);
   const [rows, setRows] = useState<Row[] | null>(null);
   const [items, setItems] = useState<Map<number, CatalogItem>>(new Map());
   const [busy, setBusy] = useState(false);
+  /** What the wait is for, so the waiting line only says things that are true right now. */
+  const [stage, setStage] = useState<"file" | "ai" | "match">("match");
   const [error, setError] = useState("");
   const [drag, setDrag] = useState(false);
   const [searchRow, setSearchRow] = useState<number | null>(null);
+
+  /** Match request rows against the catalog and open the review. */
+  const match = async (lines: RequestLine[], extraNotes: string[], label: string) => {
+    if (lines.length > MAX_LINES) {
+      throw new Error(`Daftar berisi ${lines.length} baris; maksimal ${MAX_LINES} per quotation. Pecah dulu.`);
+    }
+    const res = await api.post<MatchResponse>("/catalog/match", {
+      client_id: clientId === "" ? null : clientId,
+      lines,
+    });
+    setItems(new Map(res.items.map((i) => [i.id, i])));
+    setRows(
+      res.results.map((result) => ({
+        request: lines[result.index],
+        result,
+        chosen: result.status === "none" ? null : result.candidates[0]?.id ?? null,
+        confirmed: result.status === "exact" || result.status === "match",
+        extra: [],
+      })),
+    );
+    setNotes(extraNotes);
+    setFileName(label);
+  };
+
+  // A list handed over from chat is matched as soon as the dialog opens.
+  useEffect(() => {
+    if (!initial) return;
+    setBusy(true);
+    match(initial.lines, [], "Chat")
+      .catch((e) => setError(e instanceof Error ? e.message : "Daftar tidak bisa dicocokkan."))
+      .finally(() => setBusy(false));
+    // Once, on open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const read = async (file?: File | null) => {
     if (!file) return;
     setError("");
     setBusy(true);
     try {
-      const { parseRequestList } = await import("../import/parsers");
-      const { lines, report } = await parseRequestList(file);
-      if (lines.length > MAX_LINES) {
-        throw new Error(`File berisi ${lines.length} baris; maksimal ${MAX_LINES} per quotation. Pecah filenya dulu.`);
-      }
-      const res = await api.post<MatchResponse>("/catalog/match", {
-        client_id: clientId === "" ? null : clientId,
-        lines,
-      });
-      setItems(new Map(res.items.map((i) => [i.id, i])));
-      setRows(
-        res.results.map((result) => ({
-          request: lines[result.index],
-          result,
-          chosen: result.status === "none" ? null : result.candidates[0]?.id ?? null,
-          confirmed: result.status === "exact" || result.status === "match",
-          extra: [],
-        })),
-      );
-      setNotes(report.notes);
-      setFileName(file.name);
+      // PDF and photos go through the server's OCR; spreadsheets are parsed here.
+      const { ocrMimeFor } = await import("../import/ocr");
+      const mime = ocrMimeFor(file);
+      setStage(mime ? "ai" : "file");
+      const { lines, report } = mime
+        ? await (await import("../import/ocr")).ocrRequestList(file, mime).then((r) => ({ lines: r.lines, report: { notes: r.notes } }))
+        : await (await import("../import/parsers")).parseRequestList(file);
+      setStage("match");
+      await match(lines, report.notes, file.name);
       if (!title) {
         const client = list.find((c) => c.id === clientId);
         setTitle(client ? `Penawaran ${client.name}` : file.name.replace(/\.[^.]+$/, ""));
@@ -209,7 +254,7 @@ export function ListToQuote({
   return (
     <Modal
       title="Quotation dari list klien"
-      sub="Upload daftar kebutuhan klien. Setiap baris dicocokkan ke katalog; harga dan COGS diambil dari database."
+      sub={initial ? "Daftar dari chat. Setiap baris dicocokkan ke katalog; harga diambil dari database." : "Upload daftar kebutuhan klien. Setiap baris dicocokkan ke katalog; harga dan COGS diambil dari database."}
       size={rows ? "full" : "normal"}
       onClose={onClose}
       footer={
@@ -220,7 +265,7 @@ export function ListToQuote({
               {pending ? ` · ${pending} perlu dicek dulu` : ""}
               {heldCount ? ` · ${heldCount} ditahan (COGS dicek manajer)` : ""}
             </span>
-            <button className="btn ghost" onClick={() => setRows(null)} disabled={busy}>Ganti file</button>
+            <button className="btn ghost" onClick={() => (initial ? onClose() : setRows(null))} disabled={busy}>{initial ? "Kembali ke chat" : "Ganti file"}</button>
             <button className="btn primary" onClick={create} disabled={busy || !used || pending > 0 || !title.trim()}>
               {busy ? "Membuat…" : `Buat quotation (${used} item)`}
             </button>
@@ -230,7 +275,13 @@ export function ListToQuote({
         )
       }
     >
-      {!rows ? (
+      {!rows && initial ? (
+        // A list from chat has no file step: just the wait for matching, or why it failed.
+        <div className="col" style={{ gap: 12 }}>
+          {busy && <WaitingLine lines={WAITING.match} />}
+          {error && <p className="notice error">{error}</p>}
+        </div>
+      ) : !rows ? (
         <div className="col" style={{ gap: 12 }}>
           {adding ? (
             <ClientQuickAdd clients={list} onDone={chooseClient} onCancel={() => setAdding(false)} />
@@ -274,22 +325,23 @@ export function ListToQuote({
           >
             <Icon name="upload" size={24} />
             <div>
-              <strong>Tarik file Excel klien ke sini</strong>
+              <strong>Tarik file daftar klien ke sini</strong>
               <div className="muted small">
-                Cukup kolom nama barang dan qty. Kolom kode, satuan, dan harga maksimal dipakai kalau ada.
+                Excel, PDF, atau foto. Cukup nama barang dan qty; kode, satuan, dan harga maksimal dipakai kalau ada.
               </div>
             </div>
             <label className="btn" aria-disabled={busy}>
-              {busy ? "Mencocokkan…" : "Pilih file"}
+              {busy ? "Memproses…" : "Pilih file"}
               <input
                 type="file"
-                accept=".xlsx,.xls,.csv"
+                accept=".xlsx,.xls,.csv,.pdf,.png,.jpg,.jpeg,.webp,.heic,.heif,application/pdf,image/*"
                 hidden
                 disabled={busy}
                 onChange={(e) => void read(e.target.files?.[0])}
               />
             </label>
           </div>
+          {busy && <WaitingLine lines={WAITING[stage]} />}
           {error && <p className="notice error">{error}</p>}
         </div>
       ) : (

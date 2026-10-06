@@ -6,6 +6,7 @@ import { useToast } from "../context/ToastContext";
 import { ClientQuickAdd } from "../components/ClientQuickAdd";
 import { Icon } from "../components/Icon";
 import { ListToQuote } from "../components/ListToQuote";
+import { ChatHome } from "../components/ChatHome";
 import { Modal } from "../components/Modal";
 import { StatusChip } from "../components/pricing";
 import { fmtDateTime, pct, rp } from "@shared/format";
@@ -130,6 +131,8 @@ export function DashboardPage() {
           </button>
         </div>
       </div>
+
+      <ChatHome />
 
       <div className="kpi-grid" style={{ marginBottom: 16 }}>
         <div className="kpi">

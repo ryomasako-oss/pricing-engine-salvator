@@ -20,6 +20,7 @@ import { StatusChip } from "../components/pricing";
 import { TermsBox } from "../components/TermsBox";
 import { UomCell } from "../components/UomCell";
 import { downloadQuotationPdf } from "../export/pdf";
+import { SalesReviewBanner, SalesReviewImport, type SalesReviewRecord } from "../components/SalesReview";
 import { WorkflowButtons } from "./QuoteEditor";
 import { DEFAULT_ASSUMPTIONS } from "@shared/engine";
 import { grp, pct, rp } from "@shared/format";
@@ -34,6 +35,7 @@ import type {
   ScenarioIndex,
 } from "@shared/types";
 import { type ItemUnits, uomChoices } from "@shared/uom";
+import { NumberCell } from "../components/NumberCell";
 
 /** A line as the server sends it to staff. */
 export interface StaffLine {
@@ -47,6 +49,10 @@ export interface StaffLine {
   price: number;
   notes?: string;
   priceUom?: string;
+  /** The price was typed by hand rather than computed. */
+  manual?: boolean;
+  /** Client-only: a price the rep typed and the server has not stored yet (0 = go back to the computed price). */
+  setPrice?: number;
   /** COGS awaits a manager: shown, but not offered or totalled until released. */
   held?: boolean;
 }
@@ -76,7 +82,7 @@ interface Detail {
 
 /** What staff send: the editable fields of each line. */
 const toSend = (lines: StaffLine[]) =>
-  lines.map(({ id, code, name, uom, qty, rrp, notes }) => ({ id, code, name, uom, qty, rrp, notes }));
+  lines.map(({ id, code, name, uom, qty, rrp, notes, setPrice }) => ({ id, code, name, uom, qty, rrp, notes, price: setPrice }));
 
 /**
  * The quotation document and PDF take an engine result; for staff it is built
@@ -118,14 +124,19 @@ export function StaffQuotePage() {
   const [company, setCompany] = useState<CompanyInfo | null>(null);
   const [uomOptions, setUomOptions] = useState<string[]>([]);
   const [units, setUnits] = useState<Record<string, ItemUnits>>({});
-  const [modal, setModal] = useState<"catalog" | "submit" | "reopen" | null>(null);
+  const [modal, setModal] = useState<"catalog" | "submit" | "reopen" | "sales-import" | null>(null);
+  const [salesReview, setSalesReview] = useState<SalesReviewRecord | null>(null);
   const [showDoc, setShowDoc] = useState(false);
   const [cogsBlocked, setCogsBlocked] = useState<string[] | null>(null);
   const previewSeq = useRef(0);
 
   const load = useCallback(async () => {
-    const d = await api.get<Detail>(`/quotes/${quoteId}`);
+    const [d, sr] = await Promise.all([
+      api.get<Detail>(`/quotes/${quoteId}`),
+      api.get<{ review: SalesReviewRecord | null }>(`/quotes/${quoteId}/sales-review`).catch(() => ({ review: null })),
+    ]);
     setDetail(d);
+    setSalesReview(sr.review);
     setLines(d.quote.items);
     setMeta(d.quote.meta);
     setPricing(d.quote.pricing);
@@ -290,6 +301,11 @@ export function StaffQuotePage() {
               {saving ? "Menyimpan…" : dirty ? "Simpan" : "Tersimpan"}
             </button>
           )}
+          {quote.status === "approved" && isResponsible && (
+            <button className="btn" onClick={() => setModal("sales-import")}>
+              <Icon name="upload" size={15} /> Import cek sales
+            </button>
+          )}
           <button className="btn" onClick={exportPdf} disabled={!company || dirty}>
             <Icon name="download" size={15} /> PDF
           </button>
@@ -306,6 +322,21 @@ export function StaffQuotePage() {
         </div>
       </div>
 
+      <SalesReviewBanner quote={quote as unknown as Quote} review={salesReview} />
+      {modal === "sales-import" && (
+        <SalesReviewImport
+          quote={quote as unknown as Quote}
+          onClose={() => setModal(null)}
+          onDone={(rejected) => {
+            setModal(null);
+            toast(
+              rejected ? `${rejected} baris ditolak. Quotation kembali ke manajer untuk perbaikan harga.` : "Semua baris ACC. Hasil cek tersimpan.",
+              rejected ? "error" : "success",
+            );
+            void load();
+          }}
+        />
+      )}
       {quote.status === "rejected" && quote.decision_note && (
         <p className="notice error" style={{ marginBottom: 12 }}>
           <strong>Ditolak{quote.approved_by_name ? ` oleh ${quote.approved_by_name}` : ""}:</strong> {quote.decision_note}
@@ -361,26 +392,41 @@ export function StaffQuotePage() {
                       label={`Satuan ${l.name}`}
                       readOnly={readOnly}
                       warning={l.priceUom ? "Rasio satuan belum ada; harga masih per " + l.priceUom : null}
-                      onChange={(u) => edit(l.id, { uom: u })}
+                      // A price typed in the old unit would be wrong in the new one; the server converts a stored one.
+                      onChange={(u) => edit(l.id, { uom: u, setPrice: undefined })}
                     />
                   </td>
                   <td>
-                    <input
-                      className="cell" type="number" min="0" disabled={readOnly}
+                    <NumberCell
+                      live className="cell" disabled={readOnly}
                       aria-label={`Qty ${l.name}`}
                       value={l.qty}
-                      onChange={(e) => edit(l.id, { qty: Math.max(0, Number(e.target.value)) })}
+                      onCommit={(v) => edit(l.id, { qty: v })}
                     />
                   </td>
                   <td>
-                    <input
-                      className="cell" type="number" min="0" disabled={readOnly}
+                    <NumberCell
+                      live className="cell" disabled={readOnly}
                       aria-label={`Plafon klien ${l.name}`}
                       value={l.rrp}
-                      onChange={(e) => edit(l.id, { rrp: Math.max(0, Number(e.target.value)) })}
+                      onCommit={(v) => edit(l.id, { rrp: v })}
                     />
                   </td>
-                  <td className="num">{l.held ? <span className="muted">ditahan</span> : <strong>{grp(l.price)}</strong>}</td>
+                  <td className="num">
+                    {l.held ? (
+                      <span className="muted">ditahan</span>
+                    ) : readOnly ? (
+                      <strong>{grp(l.price)}</strong>
+                    ) : (
+                      <NumberCell
+                        className={`cell ${l.manual || l.setPrice ? "manual" : ""}`}
+                        aria-label={`Harga satuan ${l.name}`}
+                        title="Ubah untuk mengisi harga sendiri. Kosongkan atau 0 untuk kembali ke harga hitungan."
+                        value={Math.round(l.price)}
+                        onCommit={(v) => edit(l.id, { setPrice: v })}
+                      />
+                    )}
+                  </td>
                   <td className="num">{l.held ? <span className="muted">—</span> : grp(l.price * l.qty)}</td>
                   {!readOnly && (
                     <td>
@@ -567,7 +613,7 @@ export function StaffQuotePage() {
 
 /** Fields the preview answers for a line. */
 const pick = (l?: StaffLine) =>
-  l ? { price: l.price, uom: l.uom, rrp: l.rrp, priceUom: l.priceUom, held: l.held } : {};
+  l ? { price: l.price, uom: l.uom, rrp: l.rrp, priceUom: l.priceUom, held: l.held, manual: l.manual } : {};
 
 /** What the rep edited, ignoring the prices the preview fills in, so a preview doesn't trigger another. */
-const editKey = (lines: StaffLine[]) => JSON.stringify(lines.map((l) => [l.id, l.code, l.uom, l.qty, l.rrp, l.notes]));
+const editKey = (lines: StaffLine[]) => JSON.stringify(lines.map((l) => [l.id, l.code, l.uom, l.qty, l.rrp, l.notes, l.setPrice]));

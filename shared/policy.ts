@@ -101,6 +101,17 @@ export function evaluatePolicy(
     });
   }
 
+  // A line with no ceiling at all (rrp 0) can't be "above" it: those are priced by hand.
+  const aboveCeiling = activeRows(engine).filter((r) => r.rrp > 0 && r.prices[scenario] > r.rrp);
+  if (aboveCeiling.length) {
+    breaches.push({
+      code: "ABOVE_CEILING",
+      severity: "block",
+      message: `${aboveCeiling.length} item dihargai di atas plafon klien (RRP).`,
+      lines: aboveCeiling.map((r) => r.lineNo),
+    });
+  }
+
   const estimated = activeRows(engine).filter((r) => r.estCogs);
   if (estimated.length) {
     breaches.push({
