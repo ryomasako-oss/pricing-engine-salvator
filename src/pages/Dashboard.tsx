@@ -39,7 +39,9 @@ const FILTERS: { key: string; label: string }[] = [
 export function DashboardPage() {
   const navigate = useNavigate();
   const toast = useToast();
-  const { user } = useAuth();
+  const { user, can } = useAuth();
+  // Staff never receive margins (PE-1).
+  const seeCosts = can("view_costs");
   const [quotes, setQuotes] = useState<QuoteRow[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [filter, setFilter] = useState("all");
@@ -144,11 +146,13 @@ export function DashboardPage() {
           <div className="value num">{pct(kpi.winRate, 0)}</div>
           <div className="foot">Dari yang sudah diputus</div>
         </div>
-        <div className="kpi">
-          <div className="label">Rata-rata net margin</div>
-          <div className="value num">{pct(kpi.avgMargin)}</div>
-          <div className="foot">Semua quotation terlihat</div>
-        </div>
+        {seeCosts && (
+          <div className="kpi">
+            <div className="label">Rata-rata net margin</div>
+            <div className="value num">{pct(kpi.avgMargin)}</div>
+            <div className="foot">Semua quotation terlihat</div>
+          </div>
+        )}
         <div className="kpi">
           <div className="label">Menunggu persetujuan</div>
           <div className="value num">{kpi.waiting}</div>
@@ -221,7 +225,7 @@ export function DashboardPage() {
                   <th className="l">Status</th>
                   <th>Item</th>
                   <th>Nilai/bulan</th>
-                  <th>Net margin</th>
+                  {seeCosts && <th>Net margin</th>}
                   <th className="l">Dibuat oleh</th>
                   <th className="l">Diubah</th>
                 </tr>
@@ -238,11 +242,13 @@ export function DashboardPage() {
                     <td className="l"><StatusChip status={q.status} /></td>
                     <td className="num">{q.item_count}</td>
                     <td className="num">{rp(q.monthly_value)}</td>
-                    <td className="num">
-                      <span style={{ color: q.net_margin < 0.15 ? "var(--danger)" : undefined }}>
-                        {pct(q.net_margin)}
-                      </span>
-                    </td>
+                    {seeCosts && (
+                      <td className="num">
+                        <span style={{ color: q.net_margin < 0.15 ? "var(--danger)" : undefined }}>
+                          {pct(q.net_margin)}
+                        </span>
+                      </td>
+                    )}
                     <td className="l muted">{q.created_by_name}</td>
                     <td className="l muted nowrap">{fmtDateTime(q.updated_at)}</td>
                   </tr>

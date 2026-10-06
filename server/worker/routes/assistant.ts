@@ -6,10 +6,20 @@ import { audit } from "../audit";
 import { currentPolicy } from "../quoteService";
 import { DOCS, buildContext, chatSystem, docSystem } from "../../assistantContext";
 import { snapshotSchema, zodMessage } from "../../validate";
+import { STAFF_ASSISTANT_DENIED, canSeeCosts } from "../../staffView";
 import { clientIp, type Env } from "../env";
 
 export const assistantRouter = new Hono<Env>();
 assistantRouter.use(requireAuth);
+
+// The assistant is grounded on COGS and margins the browser sends, so staff
+// can't use it (PE-1). /status stays open so the UI knows to hide it.
+assistantRouter.use(async (c, next) => {
+  if (!c.req.path.endsWith("/status") && !canSeeCosts(c.get("user")!.role)) {
+    return c.json({ error: STAFF_ASSISTANT_DENIED }, 403);
+  }
+  await next();
+});
 
 export const assistantEnabled = (apiKey?: string): boolean => Boolean(apiKey);
 

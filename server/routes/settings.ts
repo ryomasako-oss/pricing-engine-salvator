@@ -4,6 +4,7 @@ import { audit } from "../audit.js";
 import { type AuthedRequest, requireAuth, requirePermission } from "../auth.js";
 import { companySchema, policySchema, zodMessage } from "../validate.js";
 import { DEFAULT_POLICY } from "../../shared/policy.js";
+import { settingsForViewer } from "../staffView.js";
 
 export const settingsRouter = Router();
 settingsRouter.use(requireAuth);
@@ -20,11 +21,14 @@ export const DEFAULT_COMPANY = {
   logo: "",
 };
 
-settingsRouter.get("/", (_req, res) => {
-  res.json({
-    policy: getSetting("policy", DEFAULT_POLICY),
-    company: getSetting("company", DEFAULT_COMPANY),
-  });
+settingsRouter.get("/", (req: AuthedRequest, res) => {
+  // Staff need the company details for documents, not the pricing policy (PE-1).
+  res.json(
+    settingsForViewer(req.user!.role, {
+      policy: getSetting("policy", DEFAULT_POLICY),
+      company: getSetting("company", DEFAULT_COMPANY),
+    }),
+  );
 });
 
 settingsRouter.put("/policy", requirePermission("manage_policy"), (req: AuthedRequest, res) => {

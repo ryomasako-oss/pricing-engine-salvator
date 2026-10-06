@@ -17,6 +17,7 @@ import {
 } from "../catalogMatch.js";
 import { VERIFY_COGS_SQL, cogsCheckInput, withProblems } from "../cogsCheck.js";
 import { cogsProblemsFor } from "../quoteService.js";
+import { canSeeCosts, catalogItemsForViewer, problemsForViewer } from "../staffView.js";
 import { cleanUnits, type ItemUnits } from "../../shared/uom.js";
 import type { CatalogItem, UnitFactor } from "../../shared/types.js";
 
@@ -69,7 +70,9 @@ catalogRouter.get("/", (req, res) => {
     cogs: "cogs",
     list_price: "list_price",
   };
-  const sortField = sortColumns[String(req.query.sortBy ?? "")] ?? "name";
+  // Sorting by COGS would tell staff which items cost more (PE-1).
+  const sortKey = String(req.query.sortBy ?? "");
+  const sortField = (sortKey === "cogs" && !canSeeCosts((req as AuthedRequest).user!.role) ? undefined : sortColumns[sortKey]) ?? "name";
   const sortDir = String(req.query.sortDir ?? "").toLowerCase() === "desc" ? "DESC" : "ASC";
   const orderBy = sortField === "name" ? "name" : `${sortField} ${sortDir}, name`;
 
@@ -83,7 +86,8 @@ catalogRouter.get("/", (req, res) => {
   const codes = items.map((i) => i.code);
   const units = unitsByCode(codes);
   const withUnits = items.map((i) => ({ ...i, units: units.get(i.code) ?? [] }));
-  res.json({ items: withProblems(withUnits, cogsProblemsFor(codes)), total: total?.n ?? 0 });
+  const role = (req as AuthedRequest).user!.role;
+  res.json({ items: catalogItemsForViewer(role, withProblems(withUnits, cogsProblemsFor(codes))), total: total?.n ?? 0 });
 });
 
 /**
@@ -130,7 +134,8 @@ catalogRouter.post("/match", (req, res) => {
   const { results, referenced } = runMatch(parsed.data, catalog, aliases);
   const codes = referenced.map((i) => i.code);
   const body = matchResponse(results, referenced, unitsByCode(codes));
-  res.json({ ...body, items: withProblems(body.items, cogsProblemsFor(codes)) });
+  const role = (req as AuthedRequest).user!.role;
+  res.json({ ...body, items: catalogItemsForViewer(role, withProblems(body.items, cogsProblemsFor(codes))) });
 });
 
 /** Which of these codes have a COGS that must not be sold on (shared/cogsCheck.ts). */
@@ -140,7 +145,8 @@ catalogRouter.post("/cogs-check", (req, res) => {
     res.status(400).json({ error: zodMessage(parsed.error) });
     return;
   }
-  res.json({ problems: Object.fromEntries(cogsProblemsFor(parsed.data.codes)) });
+  const role = (req as AuthedRequest).user!.role;
+  res.json({ problems: Object.fromEntries(problemsForViewer(role, cogsProblemsFor(parsed.data.codes))) });
 });
 
 /** A manager confirms an item's current COGS is right despite a big jump from its history. */

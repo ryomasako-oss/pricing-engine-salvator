@@ -94,13 +94,22 @@ function snapshotFor(items: ReturnType<typeof cleanItem>[], overAssumptions: Rec
   };
 }
 
+/**
+ * A draft owned by `session`. Staff can't send cost inputs or assumptions
+ * (PE-1): their lines are priced from the catalog row seeded in setup(), and
+ * a requested policy breach becomes a client ceiling just above cost, so the
+ * price is capped there and the margin breaks the policy.
+ */
 async function createDraft(
   session: Session,
   items: ReturnType<typeof cleanItem>[],
   overAssumptions: Record<string, unknown> = {},
 ) {
+  const isRep = session === repSession;
+  const breach = isRep && Object.keys(overAssumptions).length > 0;
+  const lines = breach ? items.map((it) => ({ ...it, rrp: Math.round(Number(it.cogs) * 1.1) })) : items;
   const created = await api("POST", "/api/quotes", {
-    body: { title: "Test quote", snapshot: snapshotFor(items, overAssumptions) },
+    body: { title: "Test quote", snapshot: snapshotFor(lines, overAssumptions) },
     session,
   });
   assert.equal(created.status, 201, `create draft failed: ${JSON.stringify(created.json)}`);
@@ -140,6 +149,15 @@ async function setup() {
   app.use("/api/quotes", quotesRouter);
   app.use("/api/approvals", approvalsRouter);
 
+  // The catalog row staff quote ATK-001 from: same cost and ceiling as cleanItem().
+  run(
+    "INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock, category, source) VALUES(?, ?, ?, ?, ?, 0, '', 'test')",
+    "ATK-001",
+    "Kertas A4 80gsm",
+    "rim",
+    38000,
+    55000,
+  );
   run(
     "INSERT INTO users(email, name, password_hash, role) VALUES(?, ?, ?, 'rep')",
     "rep@test.local",

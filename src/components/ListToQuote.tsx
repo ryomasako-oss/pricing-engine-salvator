@@ -10,8 +10,9 @@
    chosen client, so that client's next list matches by itself. With no
    client chosen nothing is saved (see create()). */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
+import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { grp } from "@shared/format";
 import { lineFromCatalog, type MatchResult, type RequestLine } from "@shared/match";
@@ -56,6 +57,8 @@ export function ListToQuote({
   onCreated: (id: number) => void;
 }) {
   const toast = useToast();
+  // Staff see the price the server will charge instead of COGS (PE-1).
+  const seeCosts = useAuth().can("view_costs");
   const [clientId, setClientId] = useState<number | "">("");
   const [title, setTitle] = useState("");
   const [fileName, setFileName] = useState("");
@@ -117,6 +120,31 @@ export function ListToQuote({
         : null;
     });
   }, [rows, items]);
+
+  // Prices for staff: the same lines the quote will be built from, priced by
+  // the server without saving anything. Index i -> unit price.
+  const [prices, setPrices] = useState<Record<number, number>>({});
+  const previewKey = JSON.stringify(lines.map((l) => l && [l.code, l.qty, l.uom, l.rrp]));
+  useEffect(() => {
+    if (seeCosts || !rows) return;
+    const send = lines
+      .map((l, i) => l && { id: `r${i}`, code: l.code, name: l.name, qty: l.qty, uom: l.uom, rrp: l.rrp })
+      .filter(Boolean);
+    if (!send.length) return setPrices({});
+    let live = true;
+    const t = setTimeout(() => {
+      api
+        .post<{ quote: { items: { id: string; price: number }[] } }>("/quotes/preview", { snapshot: { items: send } })
+        .then((r) => live && setPrices(Object.fromEntries(r.quote.items.map((it) => [Number(it.id.slice(1)), it.price]))))
+        .catch(() => live && setPrices({}));
+    }, 300);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
+    // previewKey stands for `lines`, which is a new array on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewKey, seeCosts]);
 
   const blockedOf = (r: Row) => (r.chosen != null ? items.get(r.chosen)?.cogs_problem ?? null : null);
   const pending = rows?.filter((r) => r.chosen != null && !r.confirmed && !blockedOf(r)).length ?? 0;
@@ -269,7 +297,7 @@ export function ListToQuote({
                   <th>Qty</th>
                   <th className="l">Item katalog</th>
                   <th className="l">Status</th>
-                  <th>COGS</th>
+                  <th>{seeCosts ? "COGS" : "Harga satuan"}</th>
                   <th>Plafon (RRP)</th>
                 </tr>
               </thead>
@@ -361,7 +389,17 @@ export function ListToQuote({
                           </span>
                         )}
                       </td>
-                      <td className="num">{line ? grp(line.cogs) : <span className="muted">—</span>}</td>
+                      <td className="num">
+                        {!line ? (
+                          <span className="muted">—</span>
+                        ) : seeCosts ? (
+                          grp(line.cogs)
+                        ) : prices[i] != null ? (
+                          <strong>{grp(prices[i])}</strong>
+                        ) : (
+                          <span className="muted">…</span>
+                        )}
+                      </td>
                       <td className="num">{line ? grp(line.rrp) : <span className="muted">—</span>}</td>
                     </tr>
                   );

@@ -1056,7 +1056,7 @@ export function QuoteEditorPage() {
 
 /* ---------------- workflow buttons ---------------- */
 
-function WorkflowButtons({
+export function WorkflowButtons({
   quote, canManage, isResponsible, blocked, onSubmit, onDecide, onReopen, onStatus,
 }: {
   quote: Quote;

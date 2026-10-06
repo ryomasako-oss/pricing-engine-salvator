@@ -6,6 +6,9 @@
 import { all, get, getSetting, run } from "./db.js";
 import { computeEngine } from "../shared/engine.js";
 import { type CogsRow, cogsLookupKeys, cogsRowsSql, problemsByCode } from "./cogsCheck.js";
+import { type CatalogByKey, catalogByKeysSql, staffLookupKeys } from "./staffView.js";
+import { normalizeCode } from "../shared/duplicates.js";
+import type { CatalogItem, UnitFactor } from "../shared/types.js";
 import { DEFAULT_POLICY, evaluatePolicy } from "../shared/policy.js";
 import type {
   PolicyBreach,
@@ -173,4 +176,23 @@ export function cogsProblemsFor(codes: string[]): Map<string, string> {
   const keys = cogsLookupKeys(codes);
   if (!keys.length) return new Map();
   return problemsByCode(codes, all<CogsRow>(cogsRowsSql(keys.length), ...keys));
+}
+
+/** Catalog rows with their units for these codes, keyed by normalizeCode (PE-1 staff edits). */
+export function catalogByKeys(codes: string[]): CatalogByKey {
+  const keys = staffLookupKeys(codes);
+  const out: CatalogByKey = new Map();
+  if (!keys.length) return out;
+  const rows = all<CatalogItem>(catalogByKeysSql(keys.length), ...keys);
+  const units = rows.length
+    ? all<{ code: string; uom: string; factor: number }>(
+        `SELECT code, uom, factor FROM catalog_item_uoms WHERE code IN (${rows.map(() => "?").join(",")}) ORDER BY factor`,
+        ...rows.map((r) => r.code),
+      )
+    : [];
+  for (const r of rows) {
+    const own: UnitFactor[] = units.filter((u) => u.code === r.code).map((u) => ({ uom: u.uom, factor: u.factor }));
+    if (!out.has(normalizeCode(r.code))) out.set(normalizeCode(r.code), { ...r, units: own });
+  }
+  return out;
 }

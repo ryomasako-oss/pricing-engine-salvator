@@ -8,6 +8,7 @@ import { Icon } from "./components/Icon";
 import { LoginPage } from "./pages/Login";
 import { DashboardPage } from "./pages/Dashboard";
 import { QuoteEditorPage } from "./pages/QuoteEditor";
+import { StaffQuotePage } from "./pages/StaffQuote";
 import { ApprovalsPage } from "./pages/Approvals";
 import { CatalogPage } from "./pages/Catalog";
 import { ClientsPage } from "./pages/Clients";
@@ -118,7 +119,7 @@ function RequirePermission({ permission, children }: { permission: Permission; c
 }
 
 export function App() {
-  const { user, loading } = useAuth();
+  const { user, loading, can } = useAuth();
 
   if (loading) {
     return (
@@ -139,7 +140,8 @@ export function App() {
       <Routes>
         <Route path="/" element={<Navigate to="/quotes" replace />} />
         <Route path="/quotes" element={<DashboardPage />} />
-        <Route path="/quotes/:id" element={<QuoteEditorPage />} />
+        {/* Staff get a screen without cost data; the server sends them none (PE-1). */}
+        <Route path="/quotes/:id" element={can("view_costs") ? <QuoteEditorPage /> : <StaffQuotePage />} />
         <Route
           path="/approvals"
           element={

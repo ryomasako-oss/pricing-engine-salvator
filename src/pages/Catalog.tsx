@@ -24,6 +24,8 @@ type EditingItem = typeof EMPTY_ITEM & { id?: number };
 export function CatalogPage() {
   const toast = useToast();
   const { can } = useAuth();
+  // Staff receive no COGS and can't sort by it either (PE-1).
+  const seeCosts = can("view_costs");
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [total, setTotal] = useState(0);
   const [stats, setStats] = useState<Stats | null>(null);
@@ -228,16 +230,18 @@ export function CatalogPage() {
                     <th className="l">Kategori</th>
                     <th className="l">Satuan</th>
                     <th className="l">Konversi</th>
-                    <th
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => toggleSort("cogs")}
-                      onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && toggleSort("cogs")}
-                      style={{ cursor: "pointer", userSelect: "none" }}
-                      title="Urutkan berdasarkan COGS"
-                    >
-                      COGS{sortBy === "cogs" && (sortDir === "asc" ? " ▲" : " ▼")}
-                    </th>
+                    {seeCosts && (
+                      <th
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => toggleSort("cogs")}
+                        onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && toggleSort("cogs")}
+                        style={{ cursor: "pointer", userSelect: "none" }}
+                        title="Urutkan berdasarkan COGS"
+                      >
+                        COGS{sortBy === "cogs" && (sortDir === "asc" ? " ▲" : " ▼")}
+                      </th>
+                    )}
                     <th
                       role="button"
                       tabIndex={0}
@@ -263,11 +267,11 @@ export function CatalogPage() {
                 </thead>
                 <tbody>
                   {items.map((item) => (
-                    <tr key={item.id} className={item.cogs > 0 ? "" : "flagged"}>
+                    <tr key={item.id} className={(seeCosts ? item.cogs > 0 : !item.cogs_problem) ? "" : "flagged"}>
                       <td className="l muted num">{item.code}</td>
                       <td className="l">
                         {item.name}
-                        {item.cogs_problem && item.cogs > 0 && (
+                        {item.cogs_problem && (!seeCosts || item.cogs > 0) && (
                           <div className="small" style={{ color: "var(--danger)" }}>
                             ⚠ {item.cogs_problem}. Tidak bisa dipakai di penawaran.
                             {can("edit_catalog") && /COGS acuan/.test(item.cogs_problem) && (
@@ -297,9 +301,11 @@ export function CatalogPage() {
                           <span className="muted">—</span>
                         )}
                       </td>
-                      <td className="num">
-                        {item.cogs > 0 ? grp(item.cogs) : <span className="badge amber">kosong</span>}
-                      </td>
+                      {seeCosts && (
+                        <td className="num">
+                          {item.cogs > 0 ? grp(item.cogs) : <span className="badge amber">kosong</span>}
+                        </td>
+                      )}
                       <td className="num">{item.list_price > 0 ? grp(item.list_price) : "—"}</td>
                       <td className="num muted">{grp(item.stock)}</td>
                       {can("edit_catalog") && (

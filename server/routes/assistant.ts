@@ -7,9 +7,20 @@ import { audit } from "../audit.js";
 import { currentPolicy } from "../quoteService.js";
 import { DOCS, buildContext, chatSystem, docSystem } from "../assistantContext.js";
 import { snapshotSchema, zodMessage } from "../validate.js";
+import { STAFF_ASSISTANT_DENIED, canSeeCosts } from "../staffView.js";
 
 export const assistantRouter = Router();
 assistantRouter.use(requireAuth);
+
+// The assistant is grounded on COGS and margins the browser sends, so staff
+// can't use it (PE-1). /status stays open so the UI knows to hide it.
+assistantRouter.use((req: AuthedRequest, res, next) => {
+  if (req.path !== "/status" && !canSeeCosts(req.user!.role)) {
+    res.status(403).json({ error: STAFF_ASSISTANT_DENIED });
+    return;
+  }
+  next();
+});
 
 const MODEL = process.env.ANTHROPIC_MODEL || "claude-opus-5";
 
