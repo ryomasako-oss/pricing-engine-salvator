@@ -135,6 +135,7 @@ async function makeWorkerDriver(): Promise<Driver> {
     "0008_catalog_aliases.sql",
     "0009_cogs_sanity.sql",
     "0010_cogs_reference_by_manager.sql",
+    "0011_accurate_sync.sql",
   ]) {
     sqlite.exec(readFileSync(path.join(migrationsDir, file), "utf8"));
   }

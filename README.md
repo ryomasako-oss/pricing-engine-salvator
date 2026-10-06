@@ -87,6 +87,51 @@ seluruh quotation hilang saat kontainer dibuat ulang.
 
 ---
 
+## Sinkron Accurate Online
+
+Worker menarik data dari Accurate lewat **API Token** (hanya baca, tidak pernah
+menulis ke Accurate) untuk dua Data Usaha: **CV** dan **PT**.
+
+1. Di tiap Data Usaha (CV dan PT): *Pengaturan → Accurate Store → Aplikasi Saya →
+   Install Aplikasi* pakai App Key aplikasi "pricing engine salvator", lalu
+   *Accurate Store → API Token → Buat API Token*.
+2. Pasang secret (jangan pernah di-commit):
+   ```bash
+   wrangler secret put ACCURATE_SIGNATURE_SECRET
+   wrangler secret put ACCURATE_TOKEN_CV
+   wrangler secret put ACCURATE_TOKEN_PT
+   npm run d1:migrate:remote        # tabel staging 0011_accurate_sync.sql
+   ```
+3. Admin cek koneksi: `GET /api/accurate/probe?entity=CV` (mengembalikan 2 baris
+   barang dan 1 baris stok mentah untuk memastikan nama field).
+
+Alurnya:
+
+- **Cron tiap 5 menit** memajukan kursor sinkron (maks. `ACCURATE_CALLS_PER_TICK`
+  panggilan per tick, batas Accurate 8/detik dipatuhi). Satu putaran penuh:
+  barang & harga jual → gudang → stok per gudang. Putaran baru tiap
+  `ACCURATE_SYNC_EVERY_HOURS` jam. Barang yang dihapus di Accurate ikut dibersihkan.
+- Data masuk ke tabel **staging** (`accurate_items`, `accurate_stock`,
+  `accurate_warehouses`), terpisah per entitas, belum menyentuh katalog.
+- **Penanda kualitas data** (`GET /api/accurate/flags`): stok minus, kode yang
+  sama di CV dan PT tapi beda nama/harga/satuan, nama sama dengan kode beda,
+  barang tanpa harga jual.
+- **Terapkan ke katalog** (`POST /api/accurate/apply`) menyalin nama, satuan +
+  rasio, harga jual acuan, dan total stok. **Hanya data PT** yang diterapkan
+  (`ACCURATE_CATALOG_ENTITY`); data CV, bila tokennya dipasang, hanya dipakai
+  untuk pengecekan silang. COGS tidak disentuh; tetap dari laporan Nilai
+  Persediaan.
+- **Paket Workers gratis**: batas 50 subrequest per eksekusi (query D1 ikut
+  dihitung), jadi `ACCURATE_CALLS_PER_TICK = 5`; satu putaran ~30.000 barang
+  makan sekitar 5 jam. Naikkan setelah pindah ke paket berbayar
+  (`accurate.test.ts` menjaga batasnya). Pasang token PT saja dulu supaya
+  jatahnya tidak terbagi dua.
+
+Semua tombolnya ada di halaman Katalog (peran manajer ke atas). Sinkron ini
+hanya ada di backend Workers; server Express lokal tidak memilikinya.
+
+---
+
 ## Peran pengguna
 
 | Peran | Bisa melakukan |

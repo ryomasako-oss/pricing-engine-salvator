@@ -18,9 +18,26 @@ binding = "ASSETS"
 # responses. Non-API requests fall through to ASSETS.fetch() in index.ts.
 run_worker_first = true
 
+# Accurate Online sync: every tick advances the resumable cursor by at most
+# ACCURATE_CALLS_PER_TICK calls; a new full run starts every
+# ACCURATE_SYNC_EVERY_HOURS. Secrets (never commit them):
+#   wrangler secret put ACCURATE_SIGNATURE_SECRET
+#   wrangler secret put ACCURATE_TOKEN_CV
+#   wrangler secret put ACCURATE_TOKEN_PT
+[triggers]
+crons = ["*/5 * * * *"]
+
 [vars]
 NODE_ENV = "production"
 APP_URL = "https://pricing.salvator.co.id"
+ACCURATE_PAGE_SIZE = "100"
+# Workers Free plan: 50 subrequests per invocation, D1 queries included
+# (accurate.test.ts checks every tick stays under it). Raise after upgrading.
+ACCURATE_CALLS_PER_TICK = "5"
+# Only this Data Usaha is applied to the catalog (Ryoma, 2026-10-06); the
+# other is synced, if it has a token, for the cross-entity checks only.
+ACCURATE_CATALOG_ENTITY = "PT"
+ACCURATE_SYNC_EVERY_HOURS = "6"
 
 # Brute-force protection: Workers isolates have no shared in-memory counter,
 # so login/password attempts and the AI assistant are throttled through
