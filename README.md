@@ -100,7 +100,7 @@ menulis ke Accurate) untuk dua Data Usaha: **CV** dan **PT**.
    wrangler secret put ACCURATE_SIGNATURE_SECRET
    wrangler secret put ACCURATE_TOKEN_CV
    wrangler secret put ACCURATE_TOKEN_PT
-   npm run d1:migrate:remote        # tabel staging 0008_accurate_sync.sql
+   npm run d1:migrate:remote        # tabel staging 0011_accurate_sync.sql
    ```
 3. Admin cek koneksi: `GET /api/accurate/probe?entity=CV` (mengembalikan 2 baris
    barang dan 1 baris stok mentah untuk memastikan nama field).
