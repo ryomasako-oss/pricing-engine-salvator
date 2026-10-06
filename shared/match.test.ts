@@ -159,6 +159,15 @@ describe("lineFromCatalog", () => {
     expect(lineFromCatalog(boxed, 1, { uom: "PCS" })).toMatchObject({ uom: "Pcs", cogs: 2000 });
   });
 
+  // Regression: for staff the catalog row has no `cogs` (PE-1); an item with
+  // no list price then got rrp NaN, sent as null, and the quote was refused.
+  it("never produces NaN when the row has no COGS (staff) and no list price", () => {
+    const staffRow = { ...item(11, "Y", "Y", { list_price: 0 }), cogs: undefined } as unknown as CatalogItem;
+    const line = lineFromCatalog(staffRow, 2);
+    expect(line).toMatchObject({ cogs: 0, rrp: 0, estCogs: true });
+    expect(JSON.parse(JSON.stringify(line)).rrp).toBe(0);
+  });
+
   it("marks COGS as estimated when the catalog has none", () => {
     const line = lineFromCatalog(item(10, "X", "X", { cogs: 0, list_price: 500 }), 1);
     expect(line).toMatchObject({ cogs: 0, rrp: 500, estCogs: true });
