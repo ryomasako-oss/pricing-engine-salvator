@@ -34,7 +34,7 @@ import type {
   QuoteMeta,
   ScenarioIndex,
 } from "@shared/types";
-import { type ItemUnits, uomChoices } from "@shared/uom";
+import { type ItemUnits, amountInUnit, uomChoices } from "@shared/uom";
 import { NumberCell } from "../components/NumberCell";
 
 /** A line as the server sends it to staff. */
@@ -53,6 +53,8 @@ export interface StaffLine {
   manual?: boolean;
   /** Client-only: a price the rep typed and the server has not stored yet (0 = go back to the computed price). */
   setPrice?: number;
+  /** Client-only: the unit `rrp` is in after a unit change (the new one, or the old one when no ratio converted it). */
+  valuesUom?: string;
   /** COGS awaits a manager: shown, but not offered or totalled until released. */
   held?: boolean;
   holdReason?: "cogs" | "sales";
@@ -83,7 +85,11 @@ interface Detail {
 
 /** What staff send: the editable fields of each line. */
 const toSend = (lines: StaffLine[]) =>
-  lines.map(({ id, code, name, uom, qty, rrp, notes, setPrice }) => ({ id, code, name, uom, qty, rrp, notes, price: setPrice }));
+  lines.map(({ id, code, name, uom, qty, rrp, notes, setPrice, valuesUom, priceUom }) => ({
+    id, code, name, uom, qty, rrp, notes, price: setPrice,
+    // Which unit rrp and price are in, so the server never guesses after a unit change.
+    valuesUom: valuesUom ?? priceUom ?? uom,
+  }));
 
 /**
  * The quotation document and PDF take an engine result; for staff it is built
@@ -241,11 +247,14 @@ export function StaffQuotePage() {
     if (modal !== "submit") return;
     setCogsBlocked(null);
     const cs = [...new Set(lines.map((l) => l.code).filter(Boolean))];
-    if (!cs.length) return setCogsBlocked([]);
+    // Lines the server already holds count too (some have no catalog problem).
+    const blocked = (problems: Record<string, string>) =>
+      lines.filter((l) => l.held || problems[l.code]).map((l) => `Baris ${l.lineNo} ${l.name}`);
+    if (!cs.length) return setCogsBlocked(blocked({}));
     api
       .post<{ problems: Record<string, string> }>("/catalog/cogs-check", { codes: cs })
-      .then((r) => setCogsBlocked(lines.filter((l) => r.problems[l.code]).map((l) => `Baris ${l.lineNo} ${l.name}`)))
-      .catch(() => setCogsBlocked([]));
+      .then((r) => setCogsBlocked(blocked(r.problems)))
+      .catch(() => setCogsBlocked(blocked({})));
   }, [modal, lines]);
 
   if (!detail || !meta || !pricing) {
@@ -400,8 +409,14 @@ export function StaffQuotePage() {
                       label={`Satuan ${l.name}`}
                       readOnly={readOnly}
                       warning={l.priceUom ? "Rasio satuan belum ada; harga masih per " + l.priceUom : null}
-                      // A price typed in the old unit would be wrong in the new one; the server converts a stored one.
-                      onChange={(u) => edit(l.id, { uom: u, setPrice: undefined })}
+                      // The ceiling is converted here and valuesUom tells the server which unit it is
+                      // in (still the old one when there's no ratio). A price typed in the old unit is
+                      // dropped; the server converts a stored one.
+                      onChange={(u) => {
+                        const from = l.valuesUom ?? l.priceUom ?? l.uom;
+                        const rrp = amountInUnit(units[l.code], from, u, l.rrp);
+                        edit(l.id, { uom: u, rrp: rrp ?? l.rrp, valuesUom: rrp === null ? from : u, setPrice: undefined });
+                      }}
                     />
                   </td>
                   <td>
@@ -621,7 +636,8 @@ export function StaffQuotePage() {
 
 /** Fields the preview answers for a line. */
 const pick = (l?: StaffLine) =>
-  l ? { price: l.price, uom: l.uom, rrp: l.rrp, priceUom: l.priceUom, held: l.held, manual: l.manual } : {};
+  // The server's numbers are per its uom/priceUom, so any client-side valuesUom is done with.
+  l ? { price: l.price, uom: l.uom, rrp: l.rrp, priceUom: l.priceUom, held: l.held, manual: l.manual, valuesUom: undefined } : {};
 
 /** What the rep edited, ignoring the prices the preview fills in, so a preview doesn't trigger another. */
 const editKey = (lines: StaffLine[]) => JSON.stringify(lines.map((l) => [l.id, l.code, l.uom, l.qty, l.rrp, l.notes, l.setPrice]));

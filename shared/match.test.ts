@@ -173,3 +173,12 @@ describe("lineFromCatalog", () => {
     expect(line).toMatchObject({ cogs: 0, rrp: 500, estCogs: true });
   });
 });
+
+describe("lineFromCatalog records the catalog COGS it copied", () => {
+  it("in the line's unit, and not when the catalog has no COGS", () => {
+    const pen = item(20, "P-1", "Pulpen", { cogs: 1000, units: [{ uom: "Box", factor: 12 }] });
+    expect(lineFromCatalog(pen, 1).catalogCogs).toBe(1000);
+    expect(lineFromCatalog(pen, 1, { uom: "Box" }).catalogCogs).toBe(12000);
+    expect(lineFromCatalog(item(21, "P-2", "Kosong", { cogs: 0 }), 1).catalogCogs).toBeUndefined();
+  });
+});

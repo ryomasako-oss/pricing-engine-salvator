@@ -25,7 +25,8 @@ import { normalizeCode } from "../shared/duplicates.js";
 import { lineFromCatalog } from "../shared/match.js";
 import { hasPermission } from "../shared/permissions.js";
 import type { AuditEntry, CatalogItem, PolicyBreach, Quote, QuoteItem, Role, ScenarioIndex } from "../shared/types.js";
-import { changeLineUom, sameUom } from "../shared/uom.js";
+import { amountInUnit, changeLineUom, type ItemUnits, priceUnitOf, sameUom } from "../shared/uom.js";
+import { catalogRowFor } from "./cogsCheck.js";
 import { metaSchema } from "./validate.js";
 
 /** A new quote's scenario (S2), used when a line is priced before the quote exists. */
@@ -52,6 +53,12 @@ export const staffItemSchema = z.object({
   rrp: z.number().min(0).max(50_000_000).optional(),
   /** Unit price the rep typed for this line (the quote's own scenario). 0 clears it; absent leaves it alone. */
   price: z.number().min(0).max(50_000_000).optional(),
+  /**
+   * The unit `rrp` and `price` are expressed in. The staff screen sends it so
+   * a unit change never has to be guessed; without it (an older screen) values
+   * sent together with a unit change are taken to be in the old unit.
+   */
+  valuesUom: z.string().max(32).optional(),
   notes: z.string().max(500).optional(),
 });
 
@@ -63,13 +70,17 @@ export const staffSnapshotSchema = z.object({
 export type StaffItem = z.infer<typeof staffItemSchema>;
 
 /** Catalog rows (with units) keyed by normalizeCode, for building and converting staff lines. */
-export type CatalogByKey = Map<string, CatalogItem>;
+/** Every catalog row (with units) sharing each normalizeCode key; see catalogRowFor. */
+export type CatalogByKey = Map<string, CatalogItem[]>;
 
 /** `?` placeholders, one per lookup key (normalizeCode of each code). */
 export const catalogByKeysSql = (n: number) =>
   `SELECT * FROM catalog_items WHERE lower(trim(code)) IN (${Array.from({ length: n }, () => "?").join(",")})`;
 
 export const staffLookupKeys = (codes: string[]) => [...new Set(codes.map(normalizeCode).filter(Boolean))];
+
+export const UNCLEAR_CODE =
+  "Kode ini cocok dengan lebih dari satu item katalog (beda huruf besar/kecil). Pilih item dari katalog.";
 
 export const OUTSIDE_CATALOG =
   "Item di luar katalog hanya bisa ditambahkan manajer. Pilih item dari katalog, atau minta manajer menambahkannya.";
@@ -94,29 +105,60 @@ export function mergeStaffItems(
     let next: QuoteItem;
     if (old) {
       next = { ...old, qty: line.qty, notes: line.notes ?? old.notes };
-      const cat = catalog.get(normalizeCode(old.code));
-      if (line.uom && !sameUom(line.uom, old.uom)) {
-        // Unit first: the conversion rescales the ceiling, so a ceiling sent
-        // with the same edit was still in the old unit and is not applied.
+      const cat = catalogRowFor(catalog.get(normalizeCode(old.code)) ?? [], old.code);
+      const unitChanged = Boolean(line.uom) && !sameUom(line.uom!, old.uom);
+      if (unitChanged) {
+        // Unit first: the conversion rescales the stored ceiling and price.
         // The catalog's spelling of a known unit ("box" -> "Box") is kept, so
         // the line's unit dropdown recognises it.
         const known = cat ? [cat.uom, ...(cat.units ?? []).map((u) => u.uom)] : [];
-        const to = known.find((u) => u && sameUom(u, line.uom!)) ?? line.uom;
+        const to = known.find((u) => u && sameUom(u, line.uom!)) ?? line.uom!;
         next = changeLineUom(next, to, cat ? { baseUom: cat.uom || "Pcs", units: cat.units ?? [] } : undefined);
-      } else {
-        if (line.rrp != null) next = { ...next, rrp: Math.round(line.rrp) };
-        if (line.price != null) next = withManualPrice(next, scenario, line.price);
       }
+      // Without valuesUom (an older screen), values sent with a unit change
+      // are still in the old unit and the converted stored values stand.
+      const units = cat ? { baseUom: cat.uom || "Pcs", units: cat.units ?? [] } : undefined;
+      const rrp = inLineUnits(line.rrp, line.valuesUom, next, units, !unitChanged);
+      const price = inLineUnits(line.price, line.valuesUom, next, units, !unitChanged);
+      if (rrp != null) next = { ...next, rrp: Math.round(rrp) };
+      if (price != null) next = withManualPrice(next, scenario, price);
     } else {
-      const cat = catalog.get(normalizeCode(line.code));
-      if (!cat) return { error: OUTSIDE_CATALOG, code: line.code || line.name };
-      next = { ...lineFromCatalog(cat, line.qty, { uom: line.uom, rrp: line.rrp }), id: line.id };
+      const rows = catalog.get(normalizeCode(line.code)) ?? [];
+      if (!rows.length) return { error: OUTSIDE_CATALOG, code: line.code || line.name };
+      const cat = catalogRowFor(rows, line.code.trim());
+      if (!cat) return { error: UNCLEAR_CODE, code: line.code };
+      next = { ...lineFromCatalog(cat, line.qty, { uom: line.uom }), id: line.id };
       if (line.notes) next.notes = line.notes;
-      if (line.price != null) next = withManualPrice(next, scenario, line.price);
+      const units = { baseUom: cat.uom || "Pcs", units: cat.units ?? [] };
+      const rrp = inLineUnits(line.rrp, line.valuesUom, next, units, true);
+      const price = inLineUnits(line.price, line.valuesUom, next, units, true);
+      if (rrp != null && rrp > 0) next = { ...next, rrp: Math.round(rrp) };
+      if (price != null) next = withManualPrice(next, scenario, price);
     }
     out.push({ ...next, lineNo: i + 1 });
   }
   return { items: out };
+}
+
+/**
+ * A ceiling or price the screen sent, in the unit the line's numbers are in
+ * (priceUnitOf: the new unit after a converted change, the old one when no
+ * ratio converted it). The screen names the unit it means with valuesUom, so
+ * nothing is guessed: same unit -> as sent, another unit -> converted with
+ * the item's ratio, or dropped when there is none. Without valuesUom (an
+ * older screen) the value is taken as is only when `trustUnnamed`.
+ */
+function inLineUnits(
+  value: number | undefined,
+  valuesUom: string | undefined,
+  line: QuoteItem,
+  units: ItemUnits | undefined,
+  trustUnnamed: boolean,
+): number | undefined {
+  if (value == null) return undefined;
+  if (!valuesUom) return trustUnnamed ? value : undefined;
+  const to = priceUnitOf(line);
+  return sameUom(valuesUom, to) ? value : amountInUnit(units, valuesUom, to, value) ?? undefined;
 }
 
 /**
