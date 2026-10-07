@@ -25,7 +25,7 @@ import { normalizeCode } from "../shared/duplicates.js";
 import { lineFromCatalog } from "../shared/match.js";
 import { hasPermission } from "../shared/permissions.js";
 import type { AuditEntry, CatalogItem, PolicyBreach, Quote, QuoteItem, Role, ScenarioIndex } from "../shared/types.js";
-import { changeLineUom, sameUom } from "../shared/uom.js";
+import { amountInUnit, changeLineUom, type ItemUnits, priceUnitOf, sameUom } from "../shared/uom.js";
 import { metaSchema } from "./validate.js";
 
 /** A new quote's scenario (S2), used when a line is priced before the quote exists. */
@@ -110,23 +110,48 @@ export function mergeStaffItems(
         const to = known.find((u) => u && sameUom(u, line.uom!)) ?? line.uom!;
         next = changeLineUom(next, to, cat ? { baseUom: cat.uom || "Pcs", units: cat.units ?? [] } : undefined);
       }
-      // A ceiling and price sent with a unit change are taken only when the
-      // screen says they are in the new unit (valuesUom); otherwise they are
-      // still in the old one and the converted stored values stand.
-      if (!unitChanged || (line.valuesUom != null && sameUom(line.valuesUom, line.uom!))) {
-        if (line.rrp != null) next = { ...next, rrp: Math.round(line.rrp) };
-        if (line.price != null) next = withManualPrice(next, scenario, line.price);
-      }
+      // Without valuesUom (an older screen), values sent with a unit change
+      // are still in the old unit and the converted stored values stand.
+      const units = cat ? { baseUom: cat.uom || "Pcs", units: cat.units ?? [] } : undefined;
+      const rrp = inLineUnits(line.rrp, line.valuesUom, next, units, !unitChanged);
+      const price = inLineUnits(line.price, line.valuesUom, next, units, !unitChanged);
+      if (rrp != null) next = { ...next, rrp: Math.round(rrp) };
+      if (price != null) next = withManualPrice(next, scenario, price);
     } else {
       const cat = catalog.get(normalizeCode(line.code));
       if (!cat) return { error: OUTSIDE_CATALOG, code: line.code || line.name };
-      next = { ...lineFromCatalog(cat, line.qty, { uom: line.uom, rrp: line.rrp }), id: line.id };
+      next = { ...lineFromCatalog(cat, line.qty, { uom: line.uom }), id: line.id };
       if (line.notes) next.notes = line.notes;
-      if (line.price != null) next = withManualPrice(next, scenario, line.price);
+      const units = { baseUom: cat.uom || "Pcs", units: cat.units ?? [] };
+      const rrp = inLineUnits(line.rrp, line.valuesUom, next, units, true);
+      const price = inLineUnits(line.price, line.valuesUom, next, units, true);
+      if (rrp != null && rrp > 0) next = { ...next, rrp: Math.round(rrp) };
+      if (price != null) next = withManualPrice(next, scenario, price);
     }
     out.push({ ...next, lineNo: i + 1 });
   }
   return { items: out };
+}
+
+/**
+ * A ceiling or price the screen sent, in the unit the line's numbers are in
+ * (priceUnitOf: the new unit after a converted change, the old one when no
+ * ratio converted it). The screen names the unit it means with valuesUom, so
+ * nothing is guessed: same unit -> as sent, another unit -> converted with
+ * the item's ratio, or dropped when there is none. Without valuesUom (an
+ * older screen) the value is taken as is only when `trustUnnamed`.
+ */
+function inLineUnits(
+  value: number | undefined,
+  valuesUom: string | undefined,
+  line: QuoteItem,
+  units: ItemUnits | undefined,
+  trustUnnamed: boolean,
+): number | undefined {
+  if (value == null) return undefined;
+  if (!valuesUom) return trustUnnamed ? value : undefined;
+  const to = priceUnitOf(line);
+  return sameUom(valuesUom, to) ? value : amountInUnit(units, valuesUom, to, value) ?? undefined;
 }
 
 /**
