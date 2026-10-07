@@ -100,8 +100,14 @@ export function AccuratePanel({ onApplied }: { onApplied: () => void }) {
     );
     setBusy(`apply-${entity}`);
     try {
-      const r = await api.post<{ changed: number; stockApplied: boolean }>("/accurate/apply", { entity, insertNew });
+      const r = await api.post<{ changed: number; stockApplied: boolean; unitMismatch: string[] }>("/accurate/apply", { entity, insertNew });
       toast(`${grp(r.changed)} barang diperbarui dari Accurate ${entity}${r.stockApplied ? "" : " (stok belum lengkap, tidak diubah)"}.`);
+      // Items whose base unit changed in Accurate but already have a COGS keep
+      // their catalog unit, price and stock until a manager reconciles them.
+      if (r.unitMismatch.length) {
+        const shown = r.unitMismatch.slice(0, 5).join(", ") + (r.unitMismatch.length > 5 ? ", …" : "");
+        toast(`${r.unitMismatch.length} barang satuannya beda di Accurate dan sudah punya COGS, jadi tidak diubah: ${shown}. Cek satuan dan COGS-nya.`, "error");
+      }
       onApplied();
     } catch (e) {
       toast((e as Error).message, "error");

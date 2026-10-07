@@ -154,8 +154,15 @@ accurateRouter.get("/flags", requirePermission("import_catalog"), async (c) => {
  * statement per table, so 30k rows don't become 30k D1 queries).
  * Same rules as the spreadsheet import: zero/empty never overwrites, COGS is
  * never touched (it still comes from the Nilai Persediaan report). Stock is
- * replaced with that entity's total across warehouses, but only once a full
- * stock pass for the entity has completed.
+ * replaced with that entity's total across warehouses, but only from a
+ * completed run: while a run is in progress, staging mixes rows this run has
+ * re-read with rows from the last one.
+ *
+ * An item that already has a COGS keeps its base unit (and the price, stock
+ * and unit ratios that are expressed in it) when Accurate reports a different
+ * one: its COGS and COGS reference are per the old unit, and switching
+ * "Pcs, COGS 100" to "Box of 24" would make every quote understate the cost
+ * 24 times. Such items are listed for a manager to reconcile.
  */
 accurateRouter.post("/apply", requirePermission("import_catalog"), async (c) => {
   const parsed = z
@@ -175,38 +182,57 @@ accurateRouter.post("/apply", requirePermission("import_catalog"), async (c) => 
   const st = await loadState(c.env.DB, entity);
   const staged = await get<{ n: number }>(c.env.DB, "SELECT COUNT(*) AS n FROM accurate_items WHERE entity = ?", entity);
   if (!staged?.n) return c.json({ error: `Belum ada data Accurate ${entity}. Jalankan sinkron dulu.` }, 409);
-  const stockReady = st.last_success_at ? 1 : 0;
 
   const db = c.env.DB;
   const scope = `i.entity = ?1 AND i.suspended = 0 AND i.code <> ''
                  AND (?2 = 1 OR i.code IN (SELECT code FROM catalog_items))`;
-  const [upsert, , units] = await batch(db, [
+  // Accurate's base unit differs from the catalog's for an item that has a COGS.
+  const unitChanged = (c: string) =>
+    `(${c}.cogs > 0 AND lower(trim(${c}.uom)) <> lower(trim(COALESCE(NULLIF(i.uom, ''), 'Pcs'))))`;
+  const mismatched = await all<{ code: string }>(
+    db,
+    `SELECT i.code FROM accurate_items i JOIN catalog_items c ON c.code = i.code
+      WHERE ${scope} AND ${unitChanged("c")} ORDER BY i.code`,
+    entity,
+    insertNew ? 1 : 0,
+  );
+  const upsertUnitChanged =
+    "(catalog_items.cogs > 0 AND lower(trim(catalog_items.uom)) <> lower(trim(excluded.uom)))";
+  // Stock only from a completed run, for inserted and updated items alike, decided
+  // inside the batch (one transaction) so a run that starts after these checks
+  // can't slip in before the write.
+  const stockReady = `COALESCE((SELECT last_success_at IS NOT NULL AND phase = 'idle'
+                                 FROM accurate_sync_state WHERE entity = ?1), 0) = 1`;
+  const keepUnit = `NOT EXISTS (SELECT 1 FROM catalog_items c WHERE c.code = i.code AND ${unitChanged("c")})`;
+  const [ready, upsert, , units] = await batch(db, [
+    stmt(db, `SELECT ${stockReady} AS ok`, entity),
     stmt(
       db,
       `INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock, category, source)
        SELECT i.code, i.name, COALESCE(NULLIF(i.uom, ''), 'Pcs'), 0, i.unit_price,
-              COALESCE(s.qty, 0), i.category, 'accurate:' || i.entity
+              CASE WHEN ${stockReady} THEN COALESCE(s.qty, 0) ELSE 0 END, i.category, 'accurate:' || i.entity
          FROM accurate_items i
          LEFT JOIN (SELECT item_code, SUM(quantity) AS qty FROM accurate_stock
                      WHERE entity = ?1 GROUP BY item_code) s ON s.item_code = i.code
         WHERE ${scope}
        ON CONFLICT(code) DO UPDATE SET
          name = CASE WHEN excluded.name <> '' THEN excluded.name ELSE catalog_items.name END,
-         uom = CASE WHEN excluded.uom <> '' THEN excluded.uom ELSE catalog_items.uom END,
-         list_price = CASE WHEN excluded.list_price > 0 THEN excluded.list_price ELSE catalog_items.list_price END,
-         stock = CASE WHEN ?3 = 1 THEN excluded.stock ELSE catalog_items.stock END,
+         uom = CASE WHEN ${upsertUnitChanged} THEN catalog_items.uom
+                    WHEN excluded.uom <> '' THEN excluded.uom ELSE catalog_items.uom END,
+         list_price = CASE WHEN ${upsertUnitChanged} THEN catalog_items.list_price
+                           WHEN excluded.list_price > 0 THEN excluded.list_price ELSE catalog_items.list_price END,
+         stock = CASE WHEN ${stockReady} AND NOT ${upsertUnitChanged} THEN excluded.stock ELSE catalog_items.stock END,
          category = CASE WHEN excluded.category <> '' THEN excluded.category ELSE catalog_items.category END,
          source = excluded.source,
          updated_at = datetime('now')`,
       entity,
       insertNew ? 1 : 0,
-      stockReady,
     ),
     // Unit ratios: only replace an item's units when Accurate actually has some.
     stmt(
       db,
       `DELETE FROM catalog_item_uoms WHERE code IN (
-         SELECT i.code FROM accurate_items i WHERE ${scope} AND i.units <> '[]')`,
+         SELECT i.code FROM accurate_items i WHERE ${scope} AND i.units <> '[]' AND ${keepUnit})`,
       entity,
       insertNew ? 1 : 0,
     ),
@@ -215,12 +241,20 @@ accurateRouter.post("/apply", requirePermission("import_catalog"), async (c) => 
       `INSERT OR REPLACE INTO catalog_item_uoms(code, uom, factor)
        SELECT i.code, json_extract(j.value, '$.uom'), json_extract(j.value, '$.factor')
          FROM accurate_items i, json_each(i.units) j
-        WHERE ${scope} AND json_extract(j.value, '$.factor') > 0`,
+        WHERE ${scope} AND json_extract(j.value, '$.factor') > 0 AND ${keepUnit}`,
       entity,
       insertNew ? 1 : 0,
     ),
   ]);
-  const result = { entity, insertNew, changed: upsert.meta.changes, unitRows: units.meta.changes, stockApplied: !!stockReady };
+  const result = {
+    entity,
+    insertNew,
+    changed: upsert.meta.changes,
+    unitRows: units.meta.changes,
+    stockApplied: Boolean((ready.results[0] as { ok: number } | undefined)?.ok),
+    // Kept on their catalog unit; a manager reconciles unit and COGS by hand.
+    unitMismatch: mismatched.map((r) => r.code),
+  };
   const user = c.get("user")!;
   await audit(db, user.id, "catalog", 0, "accurate_applied", result);
   return c.json(result);
