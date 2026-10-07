@@ -691,9 +691,10 @@ quotesRouter.post("/:id/decide", requirePermission("decide_quotes"), (req: Authe
       req.user!.id,
       parsed.data.decision === "approved" ? "Disetujui" : "Ditolak",
     );
+    // The sales-Tolak rule orders decisions by audit id, so the decision
+    // and its audit must become visible together.
+    audit(req.user!.id, "quote", id, parsed.data.decision, { note: parsed.data.note });
   });
-
-  audit(req.user!.id, "quote", id, parsed.data.decision, { note: parsed.data.note });
 
   const submitter = get<{ name: string; email: string; phone: string }>(
     "SELECT name, email, phone FROM users WHERE id = ?",

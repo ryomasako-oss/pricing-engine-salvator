@@ -730,10 +730,19 @@ quotesRouter.post("/:id/decide", requirePermission("decide_quotes"), async (c) =
       parsed.data.decision === "approved" ? "Disetujui" : "Ditolak",
       user.id,
     ),
+    // The sales-Tolak rule orders decisions by audit id. A rejection that
+    // observes this approval must also observe its audit entry.
+    stmt(
+      c.env.DB,
+      "INSERT INTO audit_log(actor_id, entity, entity_id, action, detail) VALUES(?, ?, ?, ?, ?)",
+      user.id,
+      "quote",
+      id,
+      parsed.data.decision,
+      JSON.stringify({ note: parsed.data.note }),
+    ),
   );
   await batch(c.env.DB, statements);
-
-  await audit(c.env.DB, user.id, "quote", id, parsed.data.decision, { note: parsed.data.note });
 
   const submitter = await get<{ name: string; email: string; phone: string }>(
     c.env.DB,

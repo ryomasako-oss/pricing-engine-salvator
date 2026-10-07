@@ -90,3 +90,55 @@ describe("POST /quotes/:id/sales-review when the quote changes before the write"
     expect(JSON.parse(row.items).some((it: { held?: boolean }) => it.held)).toBe(false);
   });
 });
+
+describe("a sales rejection after a manager's decision commits", () => {
+  it("requires another explicit approval even if the decision request has not finished", async () => {
+    const { sqlite, db } = freshDb();
+    try {
+      const setup = appFor(db);
+      const created = await setup("POST", "/api/quotes", {
+        title: "Decision audit race",
+        snapshot: { assumptions: DEFAULT_ASSUMPTIONS, items: [item("a", 1)], regions: [], meta, scenario: 0 },
+      });
+      expect(created.status).toBe(201);
+      const id = created.json.quote.id;
+      const reject = async (quote: { rev_no: number; version: number }) =>
+        setup("POST", `/api/quotes/${id}/sales-review`, {
+          rev_no: quote.rev_no,
+          version: quote.version,
+          lines: [{ id: "a", decision: "tolak", reason: "klien minta lebih murah" }],
+        });
+
+      const initial = await setup("POST", `/api/quotes/${id}/submit`);
+      expect(initial.json.quote.status).toBe("approved");
+      expect((await reject(initial.json.quote)).status).toBe(200);
+      const pending = await setup("POST", `/api/quotes/${id}/submit`);
+      expect(pending.json.quote.status).toBe("submitted");
+
+      // Another request observes the committed approval and rejects it before
+      // the decision handler resumes. Audit order must reflect that order too.
+      const racing = new Proxy(db, {
+        get(target, prop, receiver) {
+          if (prop !== "batch") return Reflect.get(target, prop, receiver);
+          return async (statements: D1PreparedStatement[]) => {
+            const results = await target.batch(statements);
+            const approved = await setup("GET", `/api/quotes/${id}`);
+            expect(approved.json.quote.status).toBe("approved");
+            expect((await reject(approved.json.quote)).status).toBe(200);
+            return results;
+          };
+        },
+      });
+      const decided = await appFor(racing)("POST", `/api/quotes/${id}/decide`, { decision: "approved", note: "" });
+      expect(decided.status).toBe(200);
+      expect(decided.json.quote.status).toBe("draft");
+
+      const resubmitted = await setup("POST", `/api/quotes/${id}/submit`);
+      expect(resubmitted.status).toBe(200);
+      expect(resubmitted.json.autoApproved).toBe(false);
+      expect(resubmitted.json.quote.status).toBe("submitted");
+    } finally {
+      sqlite.close();
+    }
+  });
+});
