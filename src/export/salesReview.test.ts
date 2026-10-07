@@ -83,6 +83,19 @@ describe("sales review workbook", () => {
     expect(read.lines.map((l) => l.id)).toEqual(["a", "b", "c"]);
   });
 
+  it("shows a line already rejected by sales as menyusul, locked, with no decision", async () => {
+    const engine = computeEngine(DEFAULT_ASSUMPTIONS, items.map((it) => (it.id === "b" ? { ...it, held: true, holdReason: "sales" as const } : it)), DEFAULT_REGIONS);
+    const wb = await salesReviewWorkbook({
+      engine, meta, assumptions: DEFAULT_ASSUMPTIONS, scenario: 2, quoteId: 7, number: "Q-1", title: "ATK",
+      clientName: "PT Klien", revNo: 2, version: 6, password: "kantor123",
+    });
+    const row = rowOf(wb.getWorksheet(SHEET)!, "b");
+    expect(row.getCell(COLUMNS.decision).value).toBe("DITAHAN");
+    expect(row.getCell(COLUMNS.decision).protection?.locked).not.toBe(false);
+    expect(String(row.getCell(COLUMNS.how).value)).toMatch(/^Menyusul/);
+    expect((await roundTrip(wb)).lines.map((l) => l.id)).toEqual(["a", "c"]);
+  });
+
   it("reads back the seal and the decisions, accepting any case", async () => {
     const { wb } = await file();
     const ws = wb.getWorksheet(SHEET)!;

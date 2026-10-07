@@ -25,7 +25,11 @@ function appUrl(env: Bindings): string {
   return (env.APP_URL || "http://localhost:5173").replace(/\/$/, "");
 }
 
-async function notifyEmail(env: Bindings, to: string, subject: string, html: string): Promise<void> {
+export function appLink(env: Bindings, path: string): string {
+  return `${appUrl(env)}${path}`;
+}
+
+export async function notifyEmail(env: Bindings, to: string, subject: string, html: string): Promise<void> {
   const clientEmail = env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
   const privateKeyPem = env.GOOGLE_PRIVATE_KEY;
   const impersonatedUser = env.GOOGLE_SEND_AS_EMAIL;

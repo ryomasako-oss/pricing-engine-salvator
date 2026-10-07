@@ -61,6 +61,7 @@ async function makeExpressDriver(): Promise<Driver> {
   const { assistantRouter } = await import("../server/routes/assistant.js");
   const { ocrRouter } = await import("../server/routes/ocr.js");
   const { chatRouter } = await import("../server/routes/chat.js");
+  const { fixTasksRouter } = await import("../server/routes/fixTasks.js");
   const { run } = await import("../server/db.js");
 
   const app = express();
@@ -76,6 +77,7 @@ async function makeExpressDriver(): Promise<Driver> {
   app.use("/api/assistant", assistantRouter);
   app.use("/api/ocr", ocrRouter);
   app.use("/api/chat", chatRouter);
+  app.use("/api/fix-tasks", fixTasksRouter);
 
   let server: Server;
   await new Promise<void>((resolve) => {
@@ -145,6 +147,7 @@ async function makeWorkerDriver(): Promise<Driver> {
   const { assistantRouter } = await import("../server/worker/routes/assistant.js");
   const { ocrRouter } = await import("../server/worker/routes/ocr.js");
   const { chatRouter } = await import("../server/worker/routes/chat.js");
+  const { fixTasksRouter } = await import("../server/worker/routes/fixTasks.js");
   const { run } = await import("../server/db.d1.js");
 
   const app = new Hono();
@@ -158,6 +161,7 @@ async function makeWorkerDriver(): Promise<Driver> {
   app.route("/api/assistant", assistantRouter);
   app.route("/api/ocr", ocrRouter);
   app.route("/api/chat", chatRouter);
+  app.route("/api/fix-tasks", fixTasksRouter);
 
   const env = {
     DB: db,
@@ -1825,32 +1829,54 @@ scenario("PE-2: sales ACC every line -> quote stays approved, review recorded", 
   };
 });
 
-scenario("PE-2: a Tolak sends the quote back to draft (next revision) with the reasons", async (d) => {
+const decide = (s1: string, s2: string, reason = "klien minta 48rb") => [
+  { id: "s1", decision: s1, reason: s1 === "tolak" ? reason : "" },
+  { id: "s2", decision: s2, reason: s2 === "tolak" ? reason : "" },
+];
+
+scenario("PE-2/fix: a partial Tolak keeps the quote approved; the line follows later and becomes a task", async (d) => {
   const { rep, manager, id, rev_no, version } = await approvedForSales(d);
-  const r = await d.api("POST", `/api/quotes/${id}/sales-review`, {
-    body: { rev_no, version, lines: [{ id: "s1", decision: "acc", reason: "" }, { id: "s2", decision: "tolak", reason: "klien minta 48rb" }] },
-    session: rep,
-  });
+  const r = await d.api("POST", `/api/quotes/${id}/sales-review`, { body: { rev_no, version, lines: decide("acc", "tolak") }, session: rep });
   assert.equal(r.status, 200, JSON.stringify(r.json));
-  // The manager can now revise the line and submit again.
-  const forManager = await d.api("GET", `/api/quotes/${id}`, { session: manager });
-  const again = await d.api("POST", `/api/quotes/${id}/sales-review`, {
-    body: { rev_no, version, lines: [{ id: "s1", decision: "acc", reason: "" }, { id: "s2", decision: "acc", reason: "" }] },
-    session: rep,
+  const q = (await d.api("GET", `/api/quotes/${id}`, { session: manager })).json.quote;
+  const tasks = (await d.api("GET", "/api/fix-tasks?status=open", { session: rep })).json.tasks.filter((t: { quote_id: number }) => t.quote_id === id);
+  // The old file is stale now: the offer changed.
+  const again = await d.api("POST", `/api/quotes/${id}/sales-review`, { body: { rev_no, version, lines: decide("acc", "acc") }, session: rep });
+  assert.equal(q.status, "approved");
+  assert.equal(q.rev_no, rev_no);
+  assert.equal(q.version, version + 1);
+  assert.deepEqual(q.items.map((it: { id: string; held?: boolean; holdReason?: string }) => [it.id, !!it.held, it.holdReason ?? null]), [["s1", false, null], ["s2", true, "sales"]]);
+  assert.deepEqual(tasks.map((t: { kind: string; line_id: string; detail: string }) => [t.kind, t.line_id, t.detail]), [["sales_rejected", "s2", "Ditolak Rep One: klien minta 48rb"]]);
+  assert.equal(again.status, 409);
+  return { quoteStatus: q.status, versionUp: q.version - version, tasks: tasks.length, again: again.status };
+});
+
+scenario("PE-2/fix: a partial Tolak that leaves the offer outside policy goes back to the manager as pending", async (d) => {
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const quote = await createDraft(d, manager, [
+    cleanItem({ id: "s1", lineNo: 1, code: "SRB-1", name: "Untung", cogs: 10000, rrp: 18000 }),
+    cleanItem({ id: "s2", lineNo: 2, code: "SRB-2", name: "Tipis", cogs: 10000, rrp: 11500 }),
+  ]);
+  const sub = await d.api("POST", `/api/quotes/${quote.id}/submit`, { session: manager });
+  assert.equal(sub.json.quote.status, "approved", "the whole offer is within policy");
+  const q0 = sub.json.quote;
+  const r = await d.api("POST", `/api/quotes/${quote.id}/sales-review`, {
+    body: { rev_no: q0.rev_no, version: q0.version, lines: decide("tolak", "acc", "terlalu mahal") }, session: manager,
   });
+  const pending = (await d.api("GET", "/api/approvals", { session: manager })).json;
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  assert.equal(r.json.quote.status, "submitted");
+  return { status: r.json.quote.status, pendingListed: JSON.stringify(pending).includes(q0.number) };
+});
+
+scenario("PE-2/fix: Tolak on every line reopens the quote as a draft for the manager", async (d) => {
+  const { rep, id, rev_no, version } = await approvedForSales(d);
+  const r = await d.api("POST", `/api/quotes/${id}/sales-review`, { body: { rev_no, version, lines: decide("tolak", "tolak") }, session: rep });
+  const tasks = (await d.api("GET", "/api/fix-tasks?status=open", { session: rep })).json.tasks.filter((t: { quote_id: number }) => t.quote_id === id);
   assert.equal(r.json.quote.status, "draft");
   assert.equal(r.json.quote.rev_no, rev_no + 1);
-  assert.equal(r.json.quote.decision_note, null);
-  assert.deepEqual(
-    r.json.review.lines.filter((l: { decision: string }) => l.decision === "tolak").map((l: { lineNo: number; reason: string }) => [l.lineNo, l.reason]),
-    [[2, "klien minta 48rb"]],
-  );
-  assert.equal(again.status, 409);
-  return {
-    status: r.status, quoteStatus: r.json.quote.status, rev: r.json.quote.rev_no - rev_no,
-    note: r.json.quote.decision_note, approvedBy: r.json.quote.approved_by, rejected: r.json.review.rejected,
-    managerSeesDraft: forManager.json.quote.status, secondImport: again.status,
-  };
+  assert.equal(tasks.length, 2);
+  return { status: r.json.quote.status, tasks: tasks.length };
 });
 
 scenario("PE-2: refused imports: stale file, missing line, Tolak without reason, not approved, someone else's quote", async (d) => {
@@ -1877,6 +1903,123 @@ scenario("PE-2: refused imports: stale file, missing line, Tolak without reason,
     noReason: [noReason.status, noReason.json.error], other: other.status, notApproved: notApproved.status,
     stillApproved: after.json.quote.status,
   };
+});
+
+
+// ---------------------------------------------------------------
+// "Perlu diperbaiki" (2026-10-06): what didn't make it into an offer.
+// ---------------------------------------------------------------
+
+/** A catalog row whose COGS is above its list price, so lines on it are held. */
+async function badCogsCode(d: Driver, code: string, cogs = 60000) {
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const imp = await d.api("POST", "/api/catalog/import", {
+    body: { rows: [{ code, name: `Barang ${code}`, uom: "Pcs", cogs, list_price: 20000 }], mode: "merge" }, session: manager,
+  });
+  assert.equal(imp.status, 200, JSON.stringify(imp.json));
+}
+
+const tasksOf = async (d: Driver, session: Session, quoteId: number, status = "open") =>
+  ((await d.api("GET", `/api/fix-tasks?status=${status}`, { session })).json.tasks ?? []).filter((t: { quote_id: number }) => t.quote_id === quoteId);
+
+scenario("fix tasks: submit records held-COGS and unit lines once, even after reopen and resubmit", async (d) => {
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  await badCogsCode(d, "FX-COGS");
+  const quote = await createDraft(d, manager, [
+    cleanItem({ id: "f1", lineNo: 1, code: "FX-COGS", name: "Barang FX-COGS", cogs: 60000, rrp: 20000 }),
+    cleanItem({ id: "f2", lineNo: 2, code: "FX-OK", name: "Map lusinan", uom: "Lusin", priceUom: "Pcs" }),
+    cleanItem({ id: "f3", lineNo: 3, code: "FX-OK2", name: "Biasa" }),
+  ]);
+  const before = await tasksOf(d, manager, quote.id);
+  const sub = await d.api("POST", `/api/quotes/${quote.id}/submit`, { session: manager });
+  const first = await tasksOf(d, manager, quote.id);
+  await d.api("POST", `/api/quotes/${quote.id}/reopen`, { session: manager });
+  await d.api("POST", `/api/quotes/${quote.id}/submit`, { session: manager });
+  const second = await tasksOf(d, manager, quote.id);
+  const kinds = (ts: { kind: string; line_id: string }[]) => ts.map((t) => `${t.kind}:${t.line_id}`).sort();
+  assert.equal(before.length, 0, "a draft makes no tasks");
+  assert.deepEqual(kinds(first), ["cogs_held:f1", "unit_unknown:f2"]);
+  assert.deepEqual(kinds(second), kinds(first));
+  return { submit: sub.status, first: kinds(first), second: kinds(second) };
+});
+
+scenario("fix tasks: rows of a client's list with no catalog item become tasks; staff see only their own", async (d) => {
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const rep2 = await loginCached(d, "rep2@test.local", "password123");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const created = await d.api("POST", "/api/quotes", {
+    body: {
+      title: "Dari list", snapshot: { items: [] },
+      unmatched: [{ name: "Galon air 19L", qty: 3, uom: "Pcs", reason: "none" }, { name: "Map plastik", qty: 10, uom: "Pcs", reason: "skipped" }],
+    },
+    session: rep,
+  });
+  assert.equal(created.status, 201, JSON.stringify(created.json));
+  const id = created.json.quote.id;
+  const mine = await tasksOf(d, rep, id);
+  const others = await tasksOf(d, rep2, id);
+  const all = await tasksOf(d, manager, id);
+  const tooMany = await d.api("POST", "/api/quotes", {
+    body: { title: "x", unmatched: Array.from({ length: 2001 }, () => ({ name: "a", qty: 1, uom: "", reason: "none" })) }, session: rep,
+  });
+  const badKind = await d.api("POST", "/api/quotes", { body: { title: "x", unmatched: [{ name: "a", qty: 1, uom: "", reason: "cogs" }] }, session: rep });
+  assert.deepEqual(mine.map((t: { kind: string; item_name: string }) => [t.kind, t.item_name]), [["not_in_catalog", "Galon air 19L"], ["not_in_catalog", "Map plastik"]]);
+  assert.equal(others.length, 0);
+  assert.equal(all.length, 2);
+  return { mine: mine.length, others: others.length, all: all.length, tooMany: tooMany.status, badKind: badKind.status };
+});
+
+scenario("fix tasks: staff cannot resolve; a manager resolves with a note and the open count drops", async (d) => {
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const created = await d.api("POST", "/api/quotes", {
+    body: { title: "Resolve", unmatched: [{ name: "Kursi lipat", qty: 2, uom: "Pcs", reason: "none" }] }, session: rep,
+  });
+  const [task] = await tasksOf(d, rep, created.json.quote.id);
+  const countBefore = (await d.api("GET", "/api/fix-tasks/count", { session: manager })).json.open;
+  const byRep = await d.api("POST", `/api/fix-tasks/${task.id}/resolve`, { body: { note: "sudah" }, session: rep });
+  const noNote = await d.api("POST", `/api/fix-tasks/${task.id}/resolve`, { body: { note: " " }, session: manager });
+  const ok = await d.api("POST", `/api/fix-tasks/${task.id}/resolve`, { body: { note: "Ditambahkan ke katalog: KRS-01" }, session: manager });
+  const twice = await d.api("POST", `/api/fix-tasks/${task.id}/resolve`, { body: { note: "lagi" }, session: manager });
+  const countAfter = (await d.api("GET", "/api/fix-tasks/count", { session: manager })).json.open;
+  const done = await tasksOf(d, rep, created.json.quote.id, "done");
+  assert.deepEqual([byRep.status, noNote.status, ok.status, twice.status], [403, 400, 200, 409]);
+  assert.equal(countBefore - countAfter, 1);
+  assert.equal(done[0].resolution, "Ditambahkan ke katalog: KRS-01");
+  assert.equal(done[0].resolved_by_name, "Manager One");
+  return { statuses: [byRep.status, noNote.status, ok.status, twice.status], drop: countBefore - countAfter };
+});
+
+scenario("PE-1 on fix tasks: a held-COGS task never shows staff the COGS figure", async (d) => {
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  await badCogsCode(d, "LEAK-FX", 31337);
+  await d.api("POST", "/api/catalog/import", {
+    body: { rows: [{ code: "FX-CLEAN", name: "Barang bersih", uom: "Pcs", cogs: 1000, list_price: 2000 }], mode: "merge" }, session: manager,
+  });
+  const created = await d.api("POST", "/api/quotes", {
+    body: {
+      title: "Bocor?",
+      snapshot: { items: [{ id: "x1", code: "LEAK-FX", qty: 2 }, { id: "x2", code: "FX-CLEAN", qty: 1 }], meta: snapshotFor([]).meta },
+    },
+    session: rep,
+  });
+  assert.equal(created.status, 201, JSON.stringify(created.json));
+  const sub = await d.api("POST", `/api/quotes/${created.json.quote.id}/submit`, { session: rep });
+  assert.equal(sub.status, 200, JSON.stringify(sub.json));
+  const forRep = await d.api("GET", "/api/fix-tasks?status=open", { session: rep });
+  const forManager = await tasksOf(d, manager, created.json.quote.id);
+  const body = JSON.stringify(forRep.json);
+  assert.ok(!/31[.,]?337/.test(body), `COGS leaked to staff: ${body}`);
+  assert.ok(forManager.some((t: { kind: string; detail: string }) => t.kind === "cogs_held" && /31\.337/.test(t.detail)), "manager sees the figure");
+  // Review of #9: a manager's resolution note on a COGS task naturally names the figure,
+  // and it reached staff on the done list.
+  const task = forManager.find((t: { kind: string }) => t.kind === "cogs_held");
+  const resolved = await d.api("POST", `/api/fix-tasks/${task.id}/resolve`, { body: { note: "COGS dikoreksi dari Rp 31.337 ke Rp 9.800" }, session: manager });
+  assert.equal(resolved.status, 200, JSON.stringify(resolved.json));
+  const doneForRep = JSON.stringify((await d.api("GET", "/api/fix-tasks?status=done", { session: rep })).json);
+  assert.ok(!/31[.,]?337/.test(doneForRep), `COGS leaked to staff after resolve: ${doneForRep}`);
+  return { repSeesTask: body.includes("LEAK-FX"), repSeesDone: doneForRep.includes("LEAK-FX") };
 });
 
 // Regression (Codex review of develop 41764fe): a line made while its item

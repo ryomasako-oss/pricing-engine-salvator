@@ -86,7 +86,9 @@ export function applyHolds<T extends { status: string; items: QuoteItem[] }>(
   if (!LIVE_HOLD_STATUSES.has(quote.status)) return quote;
   return {
     ...quote,
-    items: quote.items.map(({ held: _h, ...it }) => {
+    // holdReason goes with held: a line sales rejected is offered again once
+    // the quote is reopened, unless its COGS is the problem.
+    items: quote.items.map(({ held: _h, holdReason: _r, ...it }) => {
       if (it.code && problems.has(it.code)) return { ...it, held: true };
       const rows = it.code ? catalog.get(normalizeCode(it.code)) ?? [] : [];
       if (!rows.length) return it; // not from the catalog: left to the pricing policy, as before

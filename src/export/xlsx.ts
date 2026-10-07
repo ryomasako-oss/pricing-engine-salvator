@@ -94,7 +94,7 @@ export function quoteWorkbook(input: Input): XLSX.WorkBook {
   /* Internal analysis */
   const analysis = engine.rows.map((r) => ({
     No: r.lineNo,
-    Ditahan: r.held ? "Ya (COGS perlu dicek)" : "",
+    Ditahan: r.held ? (r.holdReason === "sales" ? "Ya (ditolak sales, menyusul)" : "Ya (COGS perlu dicek)") : "",
     Item: r.name,
     Satuan: r.uom,
     Qty: r.qty,

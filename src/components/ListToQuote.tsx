@@ -218,10 +218,22 @@ export function ListToQuote({
     setBusy(true);
     try {
       const quoteItems = (lines.filter(Boolean) as QuoteItem[]).map((l, i) => ({ ...l, lineNo: i + 1 }));
+      // Rows that don't go on the quote are kept on "Perlu diperbaiki" (saved
+      // with the quote, in the same request), so nothing the client asked for
+      // is silently dropped.
+      const unmatched = rows
+        .filter((_, i) => !lines[i])
+        .map((row) => ({
+          name: row.request.name.slice(0, 300),
+          qty: Math.max(0, Number(row.request.qty) || 0),
+          uom: (row.request.uom ?? "").slice(0, 32),
+          reason: row.result.status === "none" ? "none" : "skipped",
+        }));
       const r = await api.post<{ quote: { id: number } }>("/quotes", {
         title: title.trim(),
         client_id: clientId === "" ? null : clientId,
         snapshot: { items: quoteItems },
+        unmatched,
       });
       // Learn the pairings a person actually looked at: the ones that needed a
       // check or were changed. Code matches need no alias; untouched automatic
@@ -261,7 +273,7 @@ export function ListToQuote({
         rows ? (
           <>
             <span className="grow muted small">
-              {used} item masuk{skipped ? ` · ${skipped} tidak dipakai` : ""}
+              {used} item masuk{skipped ? ` · ${skipped} tidak dipakai (dicatat di Perlu diperbaiki)` : ""}
               {pending ? ` · ${pending} perlu dicek dulu` : ""}
               {heldCount ? ` · ${heldCount} ditahan (COGS dicek manajer)` : ""}
             </span>

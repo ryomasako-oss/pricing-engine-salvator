@@ -8,6 +8,8 @@
 
 export type SalesDecision = "acc" | "tolak";
 
+import type { QuoteItem } from "./types.js";
+
 export interface SalesReviewLine {
   id: string;
   decision: SalesDecision;
@@ -80,4 +82,25 @@ export function rejectionNote(reviewer: string, rejected: StoredReviewLine[]): s
     rejected.map((l) => `baris ${l.lineNo} ${l.name} — ${l.reason}`).join("; ") +
     ". Perbaiki harga baris itu lalu ajukan lagi."
   );
+}
+
+/**
+ * What a sales check does to the quote (Ryoma 2026-10-06: the client gets
+ * what sales accepted without waiting). "none": nothing rejected. "partial":
+ * the rejected lines are held as "sales" (left off the document, named as
+ * "item menyusul") and the rest stays approved. "all": nothing left to
+ * offer, so the quote goes back to draft for the manager.
+ */
+export function salesOutcome(items: QuoteItem[], rejected: { id: string }[]): {
+  mode: "none" | "partial" | "all";
+  items: QuoteItem[];
+} {
+  if (!rejected.length) return { mode: "none", items };
+  const ids = new Set(rejected.map((r) => r.id));
+  const offered = items.filter((it) => !it.held);
+  if (offered.every((it) => ids.has(it.id))) return { mode: "all", items };
+  return {
+    mode: "partial",
+    items: items.map((it) => (ids.has(it.id) ? { ...it, held: true, holdReason: "sales" as const } : it)),
+  };
 }
