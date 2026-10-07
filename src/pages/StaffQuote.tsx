@@ -244,11 +244,14 @@ export function StaffQuotePage() {
     if (modal !== "submit") return;
     setCogsBlocked(null);
     const cs = [...new Set(lines.map((l) => l.code).filter(Boolean))];
-    if (!cs.length) return setCogsBlocked([]);
+    // Lines the server already holds count too (some have no catalog problem).
+    const blocked = (problems: Record<string, string>) =>
+      lines.filter((l) => l.held || problems[l.code]).map((l) => `Baris ${l.lineNo} ${l.name}`);
+    if (!cs.length) return setCogsBlocked(blocked({}));
     api
       .post<{ problems: Record<string, string> }>("/catalog/cogs-check", { codes: cs })
-      .then((r) => setCogsBlocked(lines.filter((l) => r.problems[l.code]).map((l) => `Baris ${l.lineNo} ${l.name}`)))
-      .catch(() => setCogsBlocked([]));
+      .then((r) => setCogsBlocked(blocked(r.problems)))
+      .catch(() => setCogsBlocked(blocked({})));
   }, [modal, lines]);
 
   if (!detail || !meta || !pricing) {

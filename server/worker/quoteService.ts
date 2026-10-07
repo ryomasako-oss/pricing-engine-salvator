@@ -6,7 +6,7 @@
 
 import { all, get, getSetting, run } from "../db.d1";
 import { computeEngine } from "../../shared/engine";
-import { type CogsRow, applyHolds, cogsLookupKeys, cogsRowsSql, liveHoldCodes, problemsByCode } from "../cogsCheck";
+import { type CogsRow, applyHolds, cogsLookupKeys, cogsRowsSql, liveHoldCodes, problemsByCode, recostCodes } from "../cogsCheck";
 import { type CatalogByKey, catalogByKeysSql, staffLookupKeys } from "../staffView";
 import { normalizeCode } from "../../shared/duplicates";
 import type { CatalogItem, UnitFactor } from "../../shared/types";
@@ -111,7 +111,8 @@ export async function findQuote(d1: D1Database, id: number): Promise<Quote | nul
   const row = await get<QuoteRow>(d1, `${SELECT_QUOTE} WHERE q.id = ?`, id);
   if (!row) return null;
   const quote = hydrate(row);
-  return applyHolds(quote, await cogsProblemsFor(d1, liveHoldCodes([quote])));
+  const problems = await cogsProblemsFor(d1, liveHoldCodes([quote]));
+  return applyHolds(quote, problems, await catalogListsByKeys(d1, recostCodes([quote], problems)));
 }
 
 export async function listQuoteRows(
@@ -122,7 +123,8 @@ export async function listQuoteRows(
   const rows = await all<QuoteRow>(d1, `${SELECT_QUOTE} ${where} ORDER BY q.updated_at DESC`, ...params);
   const quotes = rows.map(hydrate);
   const problems = await cogsProblemsFor(d1, liveHoldCodes(quotes));
-  return quotes.map((q) => applyHolds(q, problems));
+  const catalog = await catalogListsByKeys(d1, recostCodes(quotes, problems));
+  return quotes.map((q) => applyHolds(q, problems, catalog));
 }
 
 /** Monthly revenue and net margin of a quote at its selected scenario. */
@@ -191,8 +193,12 @@ export async function cogsProblemsFor(d1: D1Database, codes: string[]): Promise<
   return problemsByCode(codes, rows);
 }
 
-/** Catalog rows with their units for these codes, keyed by normalizeCode (PE-1 staff edits). */
-export async function catalogByKeys(d1: D1Database, codes: string[]): Promise<CatalogByKey> {
+/**
+ * Every catalog row matching these codes by normalizeCode, with units. Codes
+ * are unique only with exact case, so "atk-01" and "ATK-01" can both exist;
+ * applyHolds needs all of them to pick the exact one.
+ */
+export async function catalogListsByKeys(d1: D1Database, codes: string[]): Promise<CatalogByKey> {
   const keys = staffLookupKeys(codes);
   const out: CatalogByKey = new Map();
   const rows: CatalogItem[] = [];
@@ -214,7 +220,8 @@ export async function catalogByKeys(d1: D1Database, codes: string[]): Promise<Ca
   }
   for (const r of rows) {
     const own: UnitFactor[] = units.filter((u) => u.code === r.code).map((u) => ({ uom: u.uom, factor: u.factor }));
-    if (!out.has(normalizeCode(r.code))) out.set(normalizeCode(r.code), { ...r, units: own });
+    const key = normalizeCode(r.code);
+    out.set(key, [...(out.get(key) ?? []), { ...r, units: own }]);
   }
   return out;
 }

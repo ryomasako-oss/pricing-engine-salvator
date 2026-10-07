@@ -525,6 +525,8 @@ export async function parseClientList(file: File): Promise<ParsedItems> {
       rrp: rrp > 0 ? Math.round(rrp) : 0,
       role: (["LEADER", "CORE", "PROFIT"].includes(roleRaw) ? roleRaw : "CORE") as ItemRole,
       estCogs: est,
+      // A cost read from the sheet was given by someone, not copied from the catalog.
+      ...(est ? {} : { cogsByHand: true }),
     });
   }
 

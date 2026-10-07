@@ -275,20 +275,20 @@ export function QuoteEditorPage() {
     if (modal?.kind !== "submit" || !snapshot) return;
     setCogsBlocked(null);
     const codes = [...new Set(snapshot.items.map((it) => it.code).filter(Boolean))];
+    // Lines the server already holds (server/cogsCheck.ts applyHolds) count too:
+    // some are held without a catalog problem, e.g. a cost that can't be checked.
+    const blocked = (problems: Record<string, string>) =>
+      snapshot.items
+        .filter((it) => it.held || (it.code && problems[it.code]))
+        .map((it) => ({ lineNo: it.lineNo, name: it.name, problem: problems[it.code] ?? "Biaya baris ini perlu dicek manajer." }));
     if (!codes.length) {
-      setCogsBlocked([]);
+      setCogsBlocked(blocked({}));
       return;
     }
     api
       .post<{ problems: Record<string, string> }>("/catalog/cogs-check", { codes })
-      .then((r) =>
-        setCogsBlocked(
-          snapshot.items
-            .filter((it) => it.code && r.problems[it.code])
-            .map((it) => ({ lineNo: it.lineNo, name: it.name, problem: r.problems[it.code] })),
-        ),
-      )
-      .catch(() => setCogsBlocked([])); // the server still enforces it on submit
+      .then((r) => setCogsBlocked(blocked(r.problems)))
+      .catch(() => setCogsBlocked(blocked({}))); // the server still enforces it on submit
   }, [modal, snapshot]);
 
   if (loading || !detail || !snapshot || !engine) {

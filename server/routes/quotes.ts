@@ -10,7 +10,7 @@ import {
   EDITABLE_STATUSES,
   STATUS_FLOW,
   breachesFor,
-  catalogByKeys,
+  catalogListsByKeys,
   cogsProblemsFor,
   findQuote,
   listQuoteRows,
@@ -20,7 +20,7 @@ import {
 } from "../quoteService.js";
 import { isWithinPolicy } from "../../shared/policy.js";
 import { defaultPayment, missingTerms, missingTermsMessage } from "../../shared/terms.js";
-import { ALL_HELD, applyHolds } from "../cogsCheck.js";
+import { ALL_HELD, applyHolds, recostCodes } from "../cogsCheck.js";
 import {
   approvalsForViewer,
   auditForViewer,
@@ -134,7 +134,7 @@ quotesRouter.post("/preview", (req: AuthedRequest, res) => {
   }
   const stored = base?.items ?? [];
   const lines = parsed.data.snapshot.items;
-  const merged = mergeStaffItems(stored, lines, catalogByKeys([...stored.map((i) => i.code), ...lines.map((l) => l.code)]), base?.scenario);
+  const merged = mergeStaffItems(stored, lines, catalogListsByKeys([...stored.map((i) => i.code), ...lines.map((l) => l.code)]), base?.scenario);
   if ("error" in merged) {
     res.status(400).json(merged);
     return;
@@ -148,7 +148,8 @@ quotesRouter.post("/preview", (req: AuthedRequest, res) => {
     items: merged.items,
     status: "draft",
   } as Quote;
-  const held = applyHolds(draft, cogsProblemsFor(merged.items.map((i) => i.code)));
+  const problems = cogsProblemsFor(merged.items.map((i) => i.code));
+  const held = applyHolds(draft, problems, catalogListsByKeys(recostCodes([draft], problems)));
   res.json({ quote: view(req, held) });
 });
 
@@ -217,7 +218,7 @@ quotesRouter.post("/", (req: AuthedRequest, res) => {
         return;
       }
       const lines = staff.data.items ?? [];
-      const merged = mergeStaffItems([], lines, catalogByKeys(lines.map((l) => l.code)));
+      const merged = mergeStaffItems([], lines, catalogListsByKeys(lines.map((l) => l.code)));
       if ("error" in merged) {
         res.status(400).json(merged);
         return;
@@ -330,7 +331,7 @@ quotesRouter.put("/:id", (req: AuthedRequest, res) => {
       return;
     }
     const codes = [...existing.items.map((it) => it.code), ...staff.data.items.map((l) => l.code)];
-    const merged = mergeStaffItems(existing.items, staff.data.items, catalogByKeys(codes), existing.scenario);
+    const merged = mergeStaffItems(existing.items, staff.data.items, catalogListsByKeys(codes), existing.scenario);
     if ("error" in merged) {
       res.status(400).json(merged);
       return;

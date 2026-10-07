@@ -74,6 +74,7 @@ export function changeLineUom(line: QuoteItem, to: string, units?: ItemUnits): Q
     uom: to,
     priceUom: undefined,
     cogs: round2(line.cogs * r),
+    ...(line.catalogCogs != null ? { catalogCogs: round2(line.catalogCogs * r) } : {}),
     rrp: round2(line.rrp * r),
     manualPrice: line.manualPrice?.map((p) => (p === null ? null : round2(p * r))),
   };

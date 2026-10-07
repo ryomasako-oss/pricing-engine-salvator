@@ -83,6 +83,15 @@ export interface QuoteItem {
    * policy. Recomputed on every read while the quote is editable, frozen at submit.
    */
   held?: boolean;
+  /**
+   * The catalog COGS (in this line's unit) that `cogs` was copied from, set by
+   * lineFromCatalog. While `cogs` still equals it the cost is the catalog's,
+   * and a draft follows a corrected catalog; a different `cogs` was typed by
+   * someone and is kept (server/cogsCheck.ts applyHolds).
+   */
+  catalogCogs?: number;
+  /** The cost was typed or imported by someone rather than copied from the catalog: a draft keeps it. */
+  cogsByHand?: boolean;
 }
 
 export interface Region {

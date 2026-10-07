@@ -1879,6 +1879,130 @@ scenario("PE-2: refused imports: stale file, missing line, Tolak without reason,
   };
 });
 
+// Regression (Codex review of develop 41764fe): a line made while its item
+// had no COGS stores COGS 0. Fixing the catalog released the hold but kept the
+// 0, so the line showed a 100% margin and a manager's submit auto-approved it.
+scenario("a line released from a hold takes the catalog's COGS (in its unit), not the 0 it was made with", async (d) => {
+  await importRows(d, [
+    { code: "C-REL", name: "Released item", uom: "Pcs", cogs: 0, list_price: 2000, units: [{ uom: "Box", factor: 12 }] },
+  ]);
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const q = await createDraft(d, manager, [
+    cleanItem({ id: "r1", lineNo: 1, code: "C-REL", name: "Released item", uom: "Pcs", qty: 10, cogs: 0, estCogs: true, rrp: 2000, manualPrice: [150, 150, 150] }),
+    cleanItem({ id: "r2", lineNo: 2, code: "C-REL", name: "Released item", uom: "Box", qty: 1, cogs: 0, estCogs: true, rrp: 24000 }),
+  ]);
+  const line = (quote: { items: { id: string; held?: boolean; cogs: number; estCogs?: boolean }[] }, id: string) => {
+    const it = quote.items.find((i) => i.id === id)!;
+    return { held: Boolean(it.held), cogs: it.cogs, estCogs: Boolean(it.estCogs) };
+  };
+  const before = (await d.api("GET", `/api/quotes/${q.id}`, { session: manager })).json.quote;
+  await importRows(d, [{ code: "C-REL", name: "Released item", cogs: 1000 }]);
+  const after = (await d.api("GET", `/api/quotes/${q.id}`, { session: manager })).json.quote;
+  const submit = await d.api("POST", `/api/quotes/${q.id}/submit`, { session: manager });
+
+  assert.deepEqual(line(before, "r1"), { held: true, cogs: 0, estCogs: true });
+  assert.deepEqual(line(after, "r1"), { held: false, cogs: 1000, estCogs: false });
+  assert.deepEqual(line(after, "r2"), { held: false, cogs: 12000, estCogs: false });
+  assert.equal(submit.status, 200, JSON.stringify(submit.json));
+  assert.notEqual(submit.json.quote.status, "approved", "a price of 150 on a 1,000 cost must not auto-approve");
+  return { before: line(before, "r1"), afterPcs: line(after, "r1"), afterBox: line(after, "r2"), status: submit.json.quote.status };
+});
+
+
+// Codex re-review: a line held because its COGS looked wrong (here: above the
+// list price) kept that COGS after the catalog was corrected, so a price of
+// 150 on a real cost of 1,000 showed a 28% margin and auto-approved.
+scenario("a draft line copied from the catalog follows a corrected catalog COGS; one without that record stays held", async (d) => {
+  await importRows(d, [{ code: "C-FIX", name: "Corrected item", uom: "Pcs", cogs: 100, list_price: 50 }]);
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const q = await createDraft(d, manager, [
+    cleanItem({ id: "f1", lineNo: 1, code: "C-FIX", name: "Corrected item", uom: "Pcs", qty: 10, cogs: 100, catalogCogs: 100, rrp: 2000, manualPrice: [150, 150, 150] }),
+    cleanItem({ id: "f2", lineNo: 2, code: "C-FIX", name: "Corrected item", uom: "Pcs", qty: 1, cogs: 100, rrp: 2000 }),
+  ]);
+  const line = (quote: { items: { id: string; held?: boolean; cogs: number }[] }, id: string) => {
+    const it = quote.items.find((i) => i.id === id)!;
+    return { held: Boolean(it.held), cogs: it.cogs };
+  };
+  const before = (await d.api("GET", `/api/quotes/${q.id}`, { session: manager })).json.quote;
+  await importRows(d, [{ code: "C-FIX", name: "Corrected item", cogs: 1000, list_price: 2000 }]);
+  // 100 -> 1,000 is itself a jump from the reference, so a manager confirms the corrected COGS.
+  const fixId = (await d.api("GET", "/api/catalog?q=C-FIX", { session: manager })).json.items[0].id;
+  const verified = await d.api("POST", `/api/catalog/${fixId}/verify-cogs`, { session: manager });
+  assert.equal(verified.status, 200, JSON.stringify(verified.json));
+  const after = (await d.api("GET", `/api/quotes/${q.id}`, { session: manager })).json.quote;
+  const submit = await d.api("POST", `/api/quotes/${q.id}/submit`, { session: manager });
+
+  assert.deepEqual(line(before, "f1"), { held: true, cogs: 100 });
+  assert.deepEqual(line(after, "f1"), { held: false, cogs: 1000 });
+  assert.deepEqual(line(after, "f2"), { held: true, cogs: 100 });
+  assert.equal(submit.status, 200, JSON.stringify(submit.json));
+  assert.notEqual(submit.json.quote.status, "approved", "a price of 150 on a 1,000 cost must not auto-approve");
+  return { before: line(before, "f1"), copied: line(after, "f1"), unrecorded: line(after, "f2"), status: submit.json.quote.status };
+});
+
+
+// Codex re-review: with the Box ratio gone, a held Box line copied at 1,000
+// could not be compared to the catalog, lost its hold anyway, and auto-approved
+// at 1,500 with no breaches.
+scenario("a catalog-copied line whose unit lost its ratio stays held instead of being released unchecked", async (d) => {
+  await importRows(d, [{ code: "C-NR", name: "No ratio", uom: "Pcs", cogs: 100, list_price: 50, units: [{ uom: "Box", factor: 10 }] }]);
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const q = await createDraft(d, manager, [
+    cleanItem({ id: "n1", lineNo: 1, code: "C-NR", name: "No ratio", uom: "Box", qty: 1, cogs: 1000, catalogCogs: 1000, rrp: 20000, manualPrice: [1500, 1500, 1500] }),
+  ]);
+  const held = (quote: { items: { id: string; held?: boolean }[] }) => Boolean(quote.items.find((i) => i.id === "n1")!.held);
+  const before = (await d.api("GET", `/api/quotes/${q.id}`, { session: manager })).json.quote;
+  // Corrected (+50% from the reference, not a jump) and the Box ratio removed.
+  await importRows(d, [{ code: "C-NR", name: "No ratio", cogs: 150, list_price: 300, units: [] }]);
+  const after = (await d.api("GET", `/api/quotes/${q.id}`, { session: manager })).json.quote;
+  const submit = await d.api("POST", `/api/quotes/${q.id}/submit`, { session: manager });
+
+  assert.equal(held(before), true);
+  assert.equal(held(after), true);
+  assert.notEqual(submit.json.quote?.status, "approved", "an unchecked cost must not auto-approve");
+  return { before: held(before), after: held(after), submit: submit.status };
+});
+
+
+// Independent review of #10: catalog codes are unique only with exact case,
+// and the lookups kept whichever case-variant came first, so a line copied from
+// "K-CASE" (1,000) followed "k-case" (300) and could auto-approve too cheaply,
+// and a COGS problem of one variant was reported for the other.
+scenario("a line follows the catalog row with its exact code, not a code that differs only in case", async (d) => {
+  await importRows(d, [{ code: "k-case", name: "Lower", uom: "Pcs", cogs: 300, list_price: 250 }]);
+  await importRows(d, [{ code: "K-CASE", name: "Upper", uom: "Pcs", cogs: 1000, list_price: 2000 }]);
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const q = await createDraft(d, manager, [
+    cleanItem({ id: "k1", lineNo: 1, code: "K-CASE", name: "Upper", uom: "Pcs", qty: 1, cogs: 1000, catalogCogs: 1000, rrp: 2000 }),
+  ]);
+  const it = (await d.api("GET", `/api/quotes/${q.id}`, { session: manager })).json.quote.items[0];
+  // "k-case" has COGS above its list price; that is its problem, not "K-CASE"'s.
+  const check = await d.api("POST", "/api/catalog/cogs-check", { body: { codes: ["K-CASE", "k-case"] }, session: manager });
+  assert.deepEqual({ cogs: it.cogs, held: Boolean(it.held) }, { cogs: 1000, held: false });
+  assert.deepEqual(Object.keys(check.json.problems), ["k-case"]);
+  return { cogs: it.cogs, held: Boolean(it.held), problems: Object.keys(check.json.problems) };
+});
+
+
+// Independent re-review of #10: the staff paths took whichever case-variant
+// came first, so a rep adding "S-CASE" got "s-case", a different product.
+scenario("a rep's new line is built from the catalog row with its exact code; a code matching only case-variants is refused", async (d) => {
+  await importRows(d, [{ code: "s-case", name: "Lower row", uom: "Pcs", cogs: 300, list_price: 450 }]);
+  await importRows(d, [{ code: "S-CASE", name: "Upper row", uom: "Pcs", cogs: 1000, list_price: 1500 }]);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const make = (code: string) =>
+    d.api("POST", "/api/quotes", { body: { title: "Case", snapshot: { items: [{ id: "c1", code, qty: 1 }], meta: snapshotFor([]).meta } }, session: rep });
+  const exact = await make("S-CASE");
+  const unclear = await make("S-Case");
+  assert.equal(exact.status, 201, JSON.stringify(exact.json));
+  const line = (await d.api("GET", `/api/quotes/${exact.json.quote.id}`, { session: manager })).json.quote.items[0];
+  assert.deepEqual({ code: line.code, name: line.name, cogs: line.cogs }, { code: "S-CASE", name: "Upper row", cogs: 1000 });
+  assert.equal(unclear.status, 400);
+  return { exact: { code: line.code, cogs: line.cogs }, unclear: unclear.status };
+});
+
+
 // ---------------------------------------------------------------
 // Run: ONE pair of backends for the whole run (Node caches the
 // dynamically-imported server/db.js module by URL, so "fresh drivers

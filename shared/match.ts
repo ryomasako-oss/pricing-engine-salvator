@@ -290,6 +290,8 @@ export function lineFromCatalog(
     rrp: Math.round(Number(item.list_price) || (Number(item.cogs) || 0) * 1.4),
     role: "CORE",
     estCogs: !(item.cogs > 0),
+    // Where the cost came from, so a draft can follow a corrected catalog (server/cogsCheck.ts).
+    ...(item.cogs > 0 ? { catalogCogs: Math.round(Number(item.cogs)) } : {}),
   };
   // Use the catalog's spelling of a known unit ("box" -> "Box"), so the line's
   // unit dropdown recognises it.

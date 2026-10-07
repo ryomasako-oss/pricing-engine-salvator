@@ -26,6 +26,7 @@ import { lineFromCatalog } from "../shared/match.js";
 import { hasPermission } from "../shared/permissions.js";
 import type { AuditEntry, CatalogItem, PolicyBreach, Quote, QuoteItem, Role, ScenarioIndex } from "../shared/types.js";
 import { amountInUnit, changeLineUom, type ItemUnits, priceUnitOf, sameUom } from "../shared/uom.js";
+import { catalogRowFor } from "./cogsCheck.js";
 import { metaSchema } from "./validate.js";
 
 /** A new quote's scenario (S2), used when a line is priced before the quote exists. */
@@ -69,13 +70,17 @@ export const staffSnapshotSchema = z.object({
 export type StaffItem = z.infer<typeof staffItemSchema>;
 
 /** Catalog rows (with units) keyed by normalizeCode, for building and converting staff lines. */
-export type CatalogByKey = Map<string, CatalogItem>;
+/** Every catalog row (with units) sharing each normalizeCode key; see catalogRowFor. */
+export type CatalogByKey = Map<string, CatalogItem[]>;
 
 /** `?` placeholders, one per lookup key (normalizeCode of each code). */
 export const catalogByKeysSql = (n: number) =>
   `SELECT * FROM catalog_items WHERE lower(trim(code)) IN (${Array.from({ length: n }, () => "?").join(",")})`;
 
 export const staffLookupKeys = (codes: string[]) => [...new Set(codes.map(normalizeCode).filter(Boolean))];
+
+export const UNCLEAR_CODE =
+  "Kode ini cocok dengan lebih dari satu item katalog (beda huruf besar/kecil). Pilih item dari katalog.";
 
 export const OUTSIDE_CATALOG =
   "Item di luar katalog hanya bisa ditambahkan manajer. Pilih item dari katalog, atau minta manajer menambahkannya.";
@@ -100,7 +105,7 @@ export function mergeStaffItems(
     let next: QuoteItem;
     if (old) {
       next = { ...old, qty: line.qty, notes: line.notes ?? old.notes };
-      const cat = catalog.get(normalizeCode(old.code));
+      const cat = catalogRowFor(catalog.get(normalizeCode(old.code)) ?? [], old.code);
       const unitChanged = Boolean(line.uom) && !sameUom(line.uom!, old.uom);
       if (unitChanged) {
         // Unit first: the conversion rescales the stored ceiling and price.
@@ -118,8 +123,10 @@ export function mergeStaffItems(
       if (rrp != null) next = { ...next, rrp: Math.round(rrp) };
       if (price != null) next = withManualPrice(next, scenario, price);
     } else {
-      const cat = catalog.get(normalizeCode(line.code));
-      if (!cat) return { error: OUTSIDE_CATALOG, code: line.code || line.name };
+      const rows = catalog.get(normalizeCode(line.code)) ?? [];
+      if (!rows.length) return { error: OUTSIDE_CATALOG, code: line.code || line.name };
+      const cat = catalogRowFor(rows, line.code.trim());
+      if (!cat) return { error: UNCLEAR_CODE, code: line.code };
       next = { ...lineFromCatalog(cat, line.qty, { uom: line.uom }), id: line.id };
       if (line.notes) next.notes = line.notes;
       const units = { baseUom: cat.uom || "Pcs", units: cat.units ?? [] };

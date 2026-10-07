@@ -17,7 +17,7 @@ const cat = (over: Partial<CatalogItem> = {}): CatalogItem => ({
   id: 1, code: "PEN", name: "Pulpen", uom: "Pcs", cogs: 2000, list_price: 3000, stock: 0,
   category: "", source: "", updated_at: "", units: [{ uom: "Box", factor: 12 }], ...over,
 });
-const catalog = new Map([["pen", cat()]]);
+const catalog = new Map([["pen", [cat()]]]);
 
 const stored: QuoteItem = {
   id: "a", lineNo: 1, code: "PEN", name: "Pulpen", uom: "Pcs", qty: 10,
@@ -114,6 +114,31 @@ describe("mergeStaffItems", () => {
     const sneaky = { id: "a", code: "PEN", name: "", qty: 10, cogs: 1, role: "PROFIT", manualPrice: [1, 1, 1] } as never;
     const r = mergeStaffItems([stored], [sneaky], catalog);
     expect("items" in r && r.items[0]).toMatchObject({ cogs: 2000, role: "LEADER", manualPrice: [2500, null, null] });
+  });
+});
+
+// Independent re-review of #10: the staff paths took whichever case-variant
+// catalog row came first, so a rep adding "ATK-01" got "atk-01", another product.
+describe("mergeStaffItems with catalog codes that differ only in case", () => {
+  const lower = cat({ id: 2, code: "atk-01", name: "Old spreadsheet row", cogs: 300, units: [{ uom: "Box", factor: 12 }] });
+  const upper = cat({ id: 3, code: "ATK-01", name: "Pulpen ATK", cogs: 1000, units: [{ uom: "Box", factor: 24 }] });
+  const both = new Map([["atk-01", [lower, upper]]]);
+
+  it("builds a new line from the row with the exact code", () => {
+    const r = mergeStaffItems([], [{ id: "n", code: "ATK-01", name: "", qty: 1, uom: "Box" }], both);
+    expect("items" in r && r.items[0]).toMatchObject({ code: "ATK-01", name: "Pulpen ATK", cogs: 24000 });
+  });
+
+  it("refuses a new line whose code matches only case-variants", () => {
+    const r = mergeStaffItems([], [{ id: "n", code: "Atk-01", name: "", qty: 1 }], both);
+    expect(r).toMatchObject({ code: "Atk-01" });
+    expect("error" in r && r.error).toMatch(/lebih dari satu item/);
+  });
+
+  it("converts a unit change with the exact row's ratio", () => {
+    const line: QuoteItem = { id: "a", lineNo: 1, code: "ATK-01", name: "Pulpen ATK", uom: "Pcs", qty: 1, cogs: 1000, rrp: 2000, role: "CORE" };
+    const r = mergeStaffItems([line], [{ id: "a", code: "ATK-01", name: "", qty: 1, uom: "Box" }], both);
+    expect("items" in r && r.items[0]).toMatchObject({ uom: "Box", cogs: 24000, rrp: 48000 });
   });
 });
 
