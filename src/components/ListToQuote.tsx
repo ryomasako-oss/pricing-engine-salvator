@@ -19,6 +19,7 @@ import { lineFromCatalog, type MatchResult, type RequestLine } from "@shared/mat
 import type { CatalogItem, Client, QuoteItem } from "@shared/types";
 import { uomWarning } from "@shared/uom";
 import { Icon } from "./Icon";
+import { ClientQuickAdd } from "./ClientQuickAdd";
 import { Modal } from "./Modal";
 import { WaitingLine } from "./WaitingLine";
 
@@ -69,11 +70,13 @@ export function ListToQuote({
   clients,
   onClose,
   onCreated,
+  onClientAdded,
   initial,
 }: {
   clients: Client[];
   onClose: () => void;
   onCreated: (id: number) => void;
+  onClientAdded?: (client: Client) => void;
   /** A list that is already read (from chat): skips the file step and goes straight to review. */
   initial?: { lines: RequestLine[]; clientId: number | ""; title: string };
 }) {
@@ -81,6 +84,16 @@ export function ListToQuote({
   // Staff see the price the server will charge instead of COGS (PE-1).
   const seeCosts = useAuth().can("view_costs");
   const [clientId, setClientId] = useState<number | "">(initial?.clientId ?? "");
+  const [list, setList] = useState(clients);
+  const [adding, setAdding] = useState(false);
+  const chooseClient = (client: Client, isNew: boolean) => {
+    if (isNew) {
+      setList((l) => [...l, client].sort((a, b) => a.name.localeCompare(b.name)));
+      onClientAdded?.(client);
+    }
+    setClientId(client.id);
+    setAdding(false);
+  };
   const [title, setTitle] = useState(initial?.title ?? "");
   const [fileName, setFileName] = useState("");
   const [notes, setNotes] = useState<string[]>([]);
@@ -142,7 +155,7 @@ export function ListToQuote({
       setStage("match");
       await match(lines, report.notes, file.name);
       if (!title) {
-        const client = clients.find((c) => c.id === clientId);
+        const client = list.find((c) => c.id === clientId);
         setTitle(client ? `Penawaran ${client.name}` : file.name.replace(/\.[^.]+$/, ""));
       }
     } catch (e) {
@@ -205,10 +218,22 @@ export function ListToQuote({
     setBusy(true);
     try {
       const quoteItems = (lines.filter(Boolean) as QuoteItem[]).map((l, i) => ({ ...l, lineNo: i + 1 }));
+      // Rows that don't go on the quote are kept on "Perlu diperbaiki" (saved
+      // with the quote, in the same request), so nothing the client asked for
+      // is silently dropped.
+      const unmatched = rows
+        .filter((_, i) => !lines[i])
+        .map((row) => ({
+          name: row.request.name.slice(0, 300),
+          qty: Math.max(0, Number(row.request.qty) || 0),
+          uom: (row.request.uom ?? "").slice(0, 32),
+          reason: row.result.status === "none" ? "none" : "skipped",
+        }));
       const r = await api.post<{ quote: { id: number } }>("/quotes", {
         title: title.trim(),
         client_id: clientId === "" ? null : clientId,
         snapshot: { items: quoteItems },
+        unmatched,
       });
       // Learn the pairings a person actually looked at: the ones that needed a
       // check or were changed. Code matches need no alias; untouched automatic
@@ -248,7 +273,7 @@ export function ListToQuote({
         rows ? (
           <>
             <span className="grow muted small">
-              {used} item masuk{skipped ? ` · ${skipped} tidak dipakai` : ""}
+              {used} item masuk{skipped ? ` · ${skipped} tidak dipakai (dicatat di Perlu diperbaiki)` : ""}
               {pending ? ` · ${pending} perlu dicek dulu` : ""}
               {heldCount ? ` · ${heldCount} ditahan (COGS dicek manajer)` : ""}
             </span>
@@ -270,19 +295,28 @@ export function ListToQuote({
         </div>
       ) : !rows ? (
         <div className="col" style={{ gap: 12 }}>
-          <label className="field">
-            <span>Klien</span>
-            <select
-              className="select"
-              value={clientId}
-              onChange={(e) => setClientId(e.target.value === "" ? "" : Number(e.target.value))}
-            >
-              <option value="">Tanpa klien</option>
-              {clients.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
-          </label>
+          {adding ? (
+            <ClientQuickAdd clients={list} onDone={chooseClient} onCancel={() => setAdding(false)} />
+          ) : (
+            <div className="picker">
+              <label className="field">
+                <span>Klien</span>
+                <select
+                  className="select"
+                  value={clientId}
+                  onChange={(e) => setClientId(e.target.value === "" ? "" : Number(e.target.value))}
+                >
+                  <option value="">Tanpa klien</option>
+                  {list.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </label>
+              <button className="btn ghost" onClick={() => setAdding(true)}>
+                <Icon name="plus" size={15} /> Klien baru
+              </button>
+            </div>
+          )}
           <p className="muted small" style={{ margin: "-6px 0 0" }}>
             {clientId === ""
               ? "Tanpa klien, pilihan Anda tidak diingat. Pilih klien supaya istilah yang Anda cek otomatis cocok di list berikutnya."

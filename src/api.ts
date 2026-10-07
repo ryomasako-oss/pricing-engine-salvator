@@ -3,9 +3,12 @@
 
 export class ApiError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  /** The whole error body, for responses that carry more than a message (e.g. 409 with the existing client). */
+  data: unknown;
+  constructor(message: string, status: number, data?: unknown) {
     super(message);
     this.status = status;
+    this.data = data;
   }
 }
 
@@ -26,6 +29,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new ApiError(
       (data as { error?: string })?.error || `Permintaan gagal (${response.status}).`,
       response.status,
+      data,
     );
   }
   return data as T;

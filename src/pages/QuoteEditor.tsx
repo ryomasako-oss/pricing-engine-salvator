@@ -29,7 +29,7 @@ import { QuotationDoc, type CompanyInfo } from "../components/QuotationDoc";
 import { CatalogPicker } from "../components/CatalogPicker";
 import { Breakdown } from "../components/Breakdown";
 import { TermsBox } from "../components/TermsBox";
-import { SalesReviewBanner, SalesReviewImport, type SalesReviewRecord } from "../components/SalesReview";
+import { SalesReviewBanner, SalesReviewImport, salesImportMessage, type SalesReviewRecord } from "../components/SalesReview";
 import { ImportDialog } from "../components/ImportDialog";
 import { DuplicateAddModal, DuplicateBanner } from "../components/Duplicates";
 import { AssistantPanel, applyActions, type AssistantAction } from "../components/AssistantPanel";
@@ -133,6 +133,8 @@ export function QuoteEditorPage() {
       ]);
       setDetail(d);
       setSalesReview(sr.review);
+      // Submits and sales checks add "Perlu diperbaiki" tasks: refresh the nav count.
+      window.dispatchEvent(new Event("fix-tasks-changed"));
       const snap: QuoteSnapshot = {
         assumptions: d.quote.assumptions,
         items: d.quote.items,
@@ -275,20 +277,20 @@ export function QuoteEditorPage() {
     if (modal?.kind !== "submit" || !snapshot) return;
     setCogsBlocked(null);
     const codes = [...new Set(snapshot.items.map((it) => it.code).filter(Boolean))];
+    // Lines the server already holds (server/cogsCheck.ts applyHolds) count too:
+    // some are held without a catalog problem, e.g. a cost that can't be checked.
+    const blocked = (problems: Record<string, string>) =>
+      snapshot.items
+        .filter((it) => it.held || (it.code && problems[it.code]))
+        .map((it) => ({ lineNo: it.lineNo, name: it.name, problem: problems[it.code] ?? "Biaya baris ini perlu dicek manajer." }));
     if (!codes.length) {
-      setCogsBlocked([]);
+      setCogsBlocked(blocked({}));
       return;
     }
     api
       .post<{ problems: Record<string, string> }>("/catalog/cogs-check", { codes })
-      .then((r) =>
-        setCogsBlocked(
-          snapshot.items
-            .filter((it) => it.code && r.problems[it.code])
-            .map((it) => ({ lineNo: it.lineNo, name: it.name, problem: r.problems[it.code] })),
-        ),
-      )
-      .catch(() => setCogsBlocked([])); // the server still enforces it on submit
+      .then((r) => setCogsBlocked(blocked(r.problems)))
+      .catch(() => setCogsBlocked(blocked({}))); // the server still enforces it on submit
   }, [modal, snapshot]);
 
   if (loading || !detail || !snapshot || !engine) {
@@ -913,12 +915,10 @@ export function QuoteEditorPage() {
         <SalesReviewImport
           quote={quote}
           onClose={() => setModal(null)}
-          onDone={(rejected) => {
+          onDone={(rejected, status) => {
             setModal(null);
-            toast(
-              rejected ? `${rejected} baris ditolak sales. Quotation kembali ke draft untuk manajer.` : "Semua baris ACC. Hasil cek tersimpan.",
-              rejected ? "error" : "success",
-            );
+            toast(salesImportMessage(rejected, status), status === "approved" ? "success" : "error");
+            window.dispatchEvent(new Event("fix-tasks-changed"));
             void load();
           }}
         />

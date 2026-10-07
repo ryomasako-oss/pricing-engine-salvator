@@ -4,13 +4,15 @@ import { all, get, run, tx } from "../db.js";
 import { audit, auditFor } from "../audit.js";
 import { type AuthedRequest, requireAuth, requirePermission } from "../auth.js";
 import { hasPermission } from "../../shared/permissions.js";
-import { salesReviewSchema, snapshotSchema, zodMessage } from "../validate.js";
-import { checkSalesReview, rejectionNote } from "../../shared/salesReview.js";
+import { salesReviewSchema, snapshotSchema, unmatchedSchema, zodMessage } from "../validate.js";
+import { checkSalesReview, rejectionNote, salesOutcome } from "../../shared/salesReview.js";
+import { tasksFromItems, tasksFromSalesRejection, tasksFromUnmatched, type NewFixTask } from "../../shared/fixTasks.js";
+import { INSERT_TASKS_SQL, insertTasksParams } from "../fixTasks.js";
 import {
   EDITABLE_STATUSES,
   STATUS_FLOW,
   breachesFor,
-  catalogByKeys,
+  catalogListsByKeys,
   cogsProblemsFor,
   findQuote,
   listQuoteRows,
@@ -20,7 +22,7 @@ import {
 } from "../quoteService.js";
 import { isWithinPolicy } from "../../shared/policy.js";
 import { defaultPayment, missingTerms, missingTermsMessage } from "../../shared/terms.js";
-import { ALL_HELD, applyHolds } from "../cogsCheck.js";
+import { ALL_HELD, applyHolds, recostCodes } from "../cogsCheck.js";
 import {
   approvalsForViewer,
   auditForViewer,
@@ -48,6 +50,11 @@ quotesRouter.use(requireAuth);
 
 /** Every quote this router sends goes through here: staff get prices, not costs (PE-1). */
 const view = (req: AuthedRequest, quote: Quote | null) => quote && quoteForViewer(req.user!.role, quote);
+
+/** "Perlu diperbaiki": one open task per problem (server/fixTasks.ts). Call inside tx(). */
+const recordTasks = (tasks: NewFixTask[], userId: number) => {
+  for (const params of insertTasksParams(tasks, userId)) run(INSERT_TASKS_SQL, ...params);
+};
 
 /** Reps may only change their own quotes or one reassigned to them; managers/admins may change any. */
 function canEdit(req: AuthedRequest, createdBy: number, assignedTo: number | null): boolean {
@@ -134,7 +141,7 @@ quotesRouter.post("/preview", (req: AuthedRequest, res) => {
   }
   const stored = base?.items ?? [];
   const lines = parsed.data.snapshot.items;
-  const merged = mergeStaffItems(stored, lines, catalogByKeys([...stored.map((i) => i.code), ...lines.map((l) => l.code)]), base?.scenario);
+  const merged = mergeStaffItems(stored, lines, catalogListsByKeys([...stored.map((i) => i.code), ...lines.map((l) => l.code)]), base?.scenario);
   if ("error" in merged) {
     res.status(400).json(merged);
     return;
@@ -148,7 +155,8 @@ quotesRouter.post("/preview", (req: AuthedRequest, res) => {
     items: merged.items,
     status: "draft",
   } as Quote;
-  const held = applyHolds(draft, cogsProblemsFor(merged.items.map((i) => i.code)));
+  const problems = cogsProblemsFor(merged.items.map((i) => i.code));
+  const held = applyHolds(draft, problems, catalogListsByKeys(recostCodes([draft], problems)));
   res.json({ quote: view(req, held) });
 });
 
@@ -193,6 +201,8 @@ quotesRouter.post("/", (req: AuthedRequest, res) => {
       title: z.string().min(1).max(200),
       client_id: z.number().int().nullable().optional(),
       snapshot: z.unknown().optional(),
+      // Rows of a client's list with no catalog item ("Dari list klien"): kept as tasks.
+      unmatched: unmatchedSchema.optional(),
     })
     .safeParse(req.body);
   if (!parsed.success) {
@@ -217,7 +227,7 @@ quotesRouter.post("/", (req: AuthedRequest, res) => {
         return;
       }
       const lines = staff.data.items ?? [];
-      const merged = mergeStaffItems([], lines, catalogByKeys(lines.map((l) => l.code)));
+      const merged = mergeStaffItems([], lines, catalogListsByKeys(lines.map((l) => l.code)));
       if ("error" in merged) {
         res.status(400).json(merged);
         return;
@@ -270,6 +280,7 @@ quotesRouter.post("/", (req: AuthedRequest, res) => {
         );
         const newId = Number(info.lastInsertRowid);
         saveRevision(newId, 1, snapshot!, req.user!.id, "Dibuat");
+        recordTasks(tasksFromUnmatched(newId, parsed.data.unmatched ?? []), req.user!.id);
         return newId;
       });
       break;
@@ -330,7 +341,7 @@ quotesRouter.put("/:id", (req: AuthedRequest, res) => {
       return;
     }
     const codes = [...existing.items.map((it) => it.code), ...staff.data.items.map((l) => l.code)];
-    const merged = mergeStaffItems(existing.items, staff.data.items, catalogByKeys(codes), existing.scenario);
+    const merged = mergeStaffItems(existing.items, staff.data.items, catalogListsByKeys(codes), existing.scenario);
     if ("error" in merged) {
       res.status(400).json(merged);
       return;
@@ -571,6 +582,8 @@ quotesRouter.post("/:id/submit", (req: AuthedRequest, res) => {
     );
     // Freeze the holds as submitted: from here on the document doesn't change by itself.
     run("UPDATE quotes SET items = ? WHERE id = ?", JSON.stringify(quote.items), id);
+    // What isn't offered (held COGS, a unit without a ratio) goes on "Perlu diperbaiki".
+    recordTasks(tasksFromItems(id, quote.items, cogsProblemsFor(quote.items.filter((it) => it.held).map((it) => it.code))), req.user!.id);
     run(
       `UPDATE quotes SET status = ?, approved_by = ?, approved_at = ?, updated_at = datetime('now')
         WHERE id = ?`,
@@ -774,9 +787,10 @@ quotesRouter.get("/:id/sales-review", (req: AuthedRequest, res) => {
 });
 
 /**
- * All ACC: recorded, the quote stays approved. Any Tolak: the quote goes
- * back to draft as the next revision (reasons kept in sales_reviews), and the
- * managers are told, so the price is revised and approved again.
+ * All ACC: recorded, the quote stays approved. Some Tolak: those lines are
+ * held as "sales" and become "Perlu diperbaiki" tasks; the rest stays
+ * approved (or goes to the manager if it now breaks the policy). Every line
+ * Tolak: back to draft as the next revision for the manager.
  */
 quotesRouter.post("/:id/sales-review", (req: AuthedRequest, res) => {
   const id = Number(req.params.id);
@@ -800,38 +814,68 @@ quotesRouter.post("/:id/sales-review", (req: AuthedRequest, res) => {
     return;
   }
   const rejected = check.rejected.length;
-  const note = rejected ? rejectionNote(req.user!.name, check.rejected) : "";
+  const outcome = salesOutcome(quote.items, check.rejected);
+  // A partial rejection changes what the client is offered; if what is left
+  // breaks the policy, the manager decides again (pending) instead of the
+  // quote staying approved on numbers nobody approved.
+  const after = { ...quote, items: outcome.items };
+  const recheck = outcome.mode === "partial" ? breachesFor(after) : null;
+  const backToManager = !!recheck && !isWithinPolicy(recheck.breaches);
   tx(() => {
     run(
       "INSERT INTO sales_reviews(quote_id, rev_no, reviewed_by, lines, rejected) VALUES(?, ?, ?, ?, ?)",
       id, quote.rev_no, req.user!.id, JSON.stringify(check.lines), rejected,
     );
-    if (rejected) {
-      saveRevision(id, quote.rev_no, quote, req.user!.id, `Ditolak sales: ${rejected} baris`);
-      // Like a reopen, the note is cleared: the reasons live in sales_reviews
-      // (the banner reads them there), so they can't follow the quote into
-      // its next approval.
+    recordTasks(tasksFromSalesRejection(id, check.rejected, quote.items, req.user!.name), req.user!.id);
+    if (outcome.mode === "all") {
+      // Nothing left to offer: back to draft for the manager, like a reopen.
+      saveRevision(id, quote.rev_no, quote, req.user!.id, `Ditolak sales: semua ${rejected} baris`);
       run(
         `UPDATE quotes SET status = 'draft', rev_no = ?, approved_by = NULL, approved_at = NULL,
                 decision_note = NULL, updated_at = datetime('now') WHERE id = ?`,
         quote.rev_no + 1, id,
       );
+    } else if (outcome.mode === "partial") {
+      // The version moves so an older "Cek harga" file can't be imported again.
+      run(
+        "UPDATE quotes SET items = ?, version = version + 1, updated_at = datetime('now') WHERE id = ?",
+        JSON.stringify(outcome.items), id,
+      );
+      saveRevision(id, quote.rev_no, after, req.user!.id, `Dicek sales: ${rejected} baris menyusul`);
+      if (backToManager) {
+        run(
+          `INSERT INTO approvals(quote_id, requested_by, decision, breaches, monthly_value, net_margin)
+           VALUES(?, ?, 'pending', ?, ?, ?)`,
+          id, req.user!.id, JSON.stringify(recheck!.breaches), recheck!.monthly_value, recheck!.net_margin,
+        );
+        run(
+          `UPDATE quotes SET status = 'submitted', approved_by = NULL, approved_at = NULL,
+                  updated_at = datetime('now') WHERE id = ?`,
+          id,
+        );
+      }
     }
   });
   audit(req.user!.id, "quote", id, rejected ? "sales_rejected" : "sales_accepted", {
     rev_no: quote.rev_no,
     rejected: check.rejected.map((l) => l.lineNo),
+    outcome: backToManager ? "pending" : outcome.mode,
   });
-  if (rejected) {
-    const managers = all<{ name: string; email: string; phone: string }>(
-      "SELECT name, email, phone FROM users WHERE role = 'manager' AND active = 1",
-    );
-    for (const recipient of managers) {
+  const managers = () =>
+    all<{ name: string; email: string; phone: string }>("SELECT name, email, phone FROM users WHERE role = 'manager' AND active = 1");
+  if (outcome.mode === "all") {
+    const note = rejectionNote(req.user!.name, check.rejected);
+    for (const recipient of managers()) {
       void notifyQuoteDecided({
         recipient, quoteNumber: quote.number, quoteTitle: quote.title, decision: "rejected",
         decidedBy: `${req.user!.name} (cek sales)`, note, quoteId: id,
       });
     }
+  } else if (backToManager) {
+    void notifyQuoteSubmitted({
+      recipients: managers(), quoteNumber: quote.number, quoteTitle: quote.title,
+      submittedBy: `${req.user!.name} (cek sales: ${rejected} baris menyusul)`, quoteId: id,
+    });
   }
   res.json({ quote: view(req, findQuote(id)), review: latestSalesReview(id) });
 });

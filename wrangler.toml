@@ -25,7 +25,9 @@ run_worker_first = true
 #   wrangler secret put ACCURATE_TOKEN_CV
 #   wrangler secret put ACCURATE_TOKEN_PT
 [triggers]
-crons = ["*/5 * * * *"]
+# 1) Accurate sync tick. 2) 08:00 WIB "Perlu diperbaiki" email
+#    (server/worker/fixDigest.ts DIGEST_CRON). Free plan: 5 cron triggers per account.
+crons = ["*/5 * * * *", "0 1 * * *"]
 
 [vars]
 NODE_ENV = "production"

@@ -1,4 +1,5 @@
 /* Zod schemas guarding everything that crosses the API boundary. */
+import { clientKey } from "../shared/clients.js";
 
 import { z } from "zod";
 
@@ -33,6 +34,8 @@ export const itemSchema = z.object({
   rrp: z.number().min(0).max(50_000_000),
   role: z.enum(["LEADER", "CORE", "PROFIT"]),
   estCogs: z.boolean().optional(),
+  catalogCogs: z.number().min(0).max(50_000_000).optional(),
+  cogsByHand: z.boolean().optional(),
   manualPrice: z.array(z.number().nullable()).length(3).optional(),
   notes: z.string().max(500).optional(),
   priceUom: z.string().max(32).optional(),
@@ -101,7 +104,11 @@ export const companySchema = z.object({
 });
 
 export const clientSchema = z.object({
-  name: z.string().min(1).max(200),
+  name: z
+    .string()
+    .min(1)
+    .max(200)
+    .refine((n) => clientKey(n) !== "", "Nama klien harus berisi nama perusahaan, bukan hanya PT/CV."),
   code: z.string().max(64).default(""),
   address: z.string().max(500).default(""),
   contact_name: z.string().max(120).default(""),
@@ -152,4 +159,20 @@ export const salesReviewSchema = z.object({
 
 export const excelPasswordSchema = z.object({
   password: z.string().min(6, "Password Excel minimal 6 karakter.").max(100),
+});
+
+/** Rows of a client's list that found no catalog item, kept as "Perlu diperbaiki" tasks. */
+export const unmatchedSchema = z
+  .array(
+    z.object({
+      name: z.string().max(300),
+      qty: z.number().min(0).max(50_000).default(0),
+      uom: z.string().max(32).default(""),
+      reason: z.enum(["none", "skipped"]),
+    }),
+  )
+  .max(2000);
+
+export const resolveTaskSchema = z.object({
+  note: z.string().trim().min(3, "Tulis singkat apa yang sudah diperbaiki.").max(500),
 });

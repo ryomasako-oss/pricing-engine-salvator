@@ -198,6 +198,99 @@ describe("POST /api/accurate/apply", () => {
   });
 });
 
+/** A Hono app with the Accurate routes as a manager, and a POST /apply helper. */
+function applier(db: D1Database) {
+  const app = new Hono<Env>();
+  app.use(async (c, next) => {
+    c.set("user", { id: 1, email: "m@x", name: "M", role: "manager" } as never);
+    await next();
+  });
+  app.route("/api/accurate", accurateRouter);
+  const env = { DB: db } as unknown as Env["Bindings"];
+  return async (body: unknown) => {
+    const r = await app.request("/api/accurate/apply", { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" } }, env);
+    return { status: r.status, json: (await r.json()) as Record<string, unknown> };
+  };
+}
+
+describe("POST /api/accurate/apply keeps cost, unit and stock consistent (Codex review of develop 41764fe)", () => {
+  it("doesn't switch the base unit of an item that has a COGS, and reports it; an item without COGS may switch", async () => {
+    const { sqlite, db } = freshDb();
+    sqlite.exec(`INSERT INTO users(id, email, name, password_hash, role) VALUES (1, 'm@x', 'M', 'x', 'manager')`);
+    sqlite.exec(`INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock) VALUES
+      ('B1', 'Spidol', 'Pcs', 100, 150, 3), ('B2', 'Tinta', 'Pcs', 0, 0, 0)`);
+    const items = [
+      { id: 1, no: "B1", name: "Spidol", unitPrice: 4800, unit1Name: "Box", unit2Name: "Dus", ratio2: 10 },
+      { id: 2, no: "B2", name: "Tinta", unitPrice: 9000, unit1Name: "Box" },
+    ];
+    await runToIdle(db, fakeAccurate({ items, stock: { 1: [{ no: "B1", quantity: 2 }, { no: "B2", quantity: 4 }] } }).impl, cfg, "PT");
+    const r = await applier(db)({ entity: "PT" });
+    expect(r.status).toBe(200);
+    expect(sqlite.prepare("SELECT code, uom, cogs, list_price, stock FROM catalog_items ORDER BY code").all()).toEqual([
+      { code: "B1", uom: "Pcs", cogs: 100, list_price: 150, stock: 3 },
+      { code: "B2", uom: "Box", cogs: 0, list_price: 9000, stock: 4 },
+    ]);
+    expect(sqlite.prepare("SELECT code FROM catalog_item_uoms WHERE code = 'B1'").all()).toEqual([]);
+    expect(r.json.unitMismatch).toEqual(["B1"]);
+  });
+
+  it("doesn't apply stock while a sync run is still in progress", async () => {
+    const { sqlite, db } = freshDb();
+    sqlite.exec(`INSERT INTO users(id, email, name, password_hash, role) VALUES (1, 'm@x', 'M', 'x', 'manager')`);
+    sqlite.exec(`INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock) VALUES ('C1', 'Kertas', 'Pcs', 1000, 1500, 0)`);
+    const items = [{ id: 1, no: "C1", name: "Kertas", unitPrice: 1500, unit1Name: "Pcs" }];
+    await runToIdle(db, fakeAccurate({ items, stock: { 1: [{ no: "C1", quantity: 5 }] } }).impl, cfg, "PT");
+    const apply = applier(db);
+    const first = await apply({ entity: "PT" });
+    // The next run has started and so far re-read only warehouse 2: staging now
+    // mixes this run's row with the last run's warehouse-1 row.
+    sqlite.exec(`UPDATE accurate_sync_state SET phase = 'stock', run_id = 'run-2' WHERE entity = 'PT'`);
+    sqlite.exec(`INSERT INTO accurate_stock(entity, warehouse_id, item_code, quantity, run_id) VALUES ('PT', 2, 'C1', 2, 'run-2')`);
+    const during = await apply({ entity: "PT" });
+    expect(first.json.stockApplied).toBe(true);
+    expect(during.json.stockApplied).toBe(false);
+    expect(sqlite.prepare("SELECT stock FROM catalog_items WHERE code = 'C1'").get()).toEqual({ stock: 5 });
+  });
+
+  // Codex re-review: the check ran before the write, so a run starting in
+  // between still had its half-read stock (2 + 5 = 7) applied.
+  it("doesn't apply stock when a sync run starts between apply's checks and its write", async () => {
+    const { sqlite, db } = freshDb();
+    sqlite.exec(`INSERT INTO users(id, email, name, password_hash, role) VALUES (1, 'm@x', 'M', 'x', 'manager')`);
+    sqlite.exec(`INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock) VALUES ('C1', 'Kertas', 'Pcs', 1000, 1500, 0)`);
+    const items = [{ id: 1, no: "C1", name: "Kertas", unitPrice: 1500, unit1Name: "Pcs" }];
+    await runToIdle(db, fakeAccurate({ items, stock: { 1: [{ no: "C1", quantity: 5 }] } }).impl, cfg, "PT");
+    // The run starts right before apply's write reaches the database.
+    const racing = new Proxy(db, {
+      get(target, prop, receiver) {
+        if (prop !== "batch") return Reflect.get(target, prop, receiver);
+        return (statements: D1PreparedStatement[]) => {
+          sqlite.exec(`UPDATE accurate_sync_state SET phase = 'stock', run_id = 'run-2' WHERE entity = 'PT'`);
+          sqlite.exec(`INSERT INTO accurate_stock(entity, warehouse_id, item_code, quantity, run_id) VALUES ('PT', 2, 'C1', 2, 'run-2')`);
+          return target.batch(statements);
+        };
+      },
+    });
+    const r = await applier(racing)({ entity: "PT" });
+    expect(r.json.stockApplied).toBe(false);
+    expect(sqlite.prepare("SELECT stock FROM catalog_items WHERE code = 'C1'").get()).toEqual({ stock: 0 });
+  });
+
+  // Codex re-review: the guard covered updates only; a new item inserted
+  // during a run still took the mixed stock (2 + 5 = 7).
+  it("doesn't give a newly inserted item stock while a sync run is in progress", async () => {
+    const { sqlite, db } = freshDb();
+    sqlite.exec(`INSERT INTO users(id, email, name, password_hash, role) VALUES (1, 'm@x', 'M', 'x', 'manager')`);
+    const items = [{ id: 1, no: "N1", name: "Baru", unitPrice: 1500, unit1Name: "Pcs" }];
+    await runToIdle(db, fakeAccurate({ items, stock: { 1: [{ no: "N1", quantity: 5 }] } }).impl, cfg, "PT");
+    sqlite.exec(`UPDATE accurate_sync_state SET phase = 'stock', run_id = 'run-2' WHERE entity = 'PT'`);
+    sqlite.exec(`INSERT INTO accurate_stock(entity, warehouse_id, item_code, quantity, run_id) VALUES ('PT', 2, 'N1', 2, 'run-2')`);
+    const r = await applier(db)({ entity: "PT", insertNew: true });
+    expect(r.json.stockApplied).toBe(false);
+    expect(sqlite.prepare("SELECT stock FROM catalog_items WHERE code = 'N1'").get()).toEqual({ stock: 0 });
+  });
+});
+
 describe("AccurateClient", () => {
   it("never sends credentials to a host other than the account server before resolving", async () => {
     const seen: string[] = [];
