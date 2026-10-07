@@ -1686,6 +1686,34 @@ scenario("OCR endpoint: login required, and off (503) until a Gemini key is set"
   return { anon: anon.status, off: off.status, error: off.json.error };
 });
 
+// Regression (Codex review of develop 41764fe): a rep who switched a line from
+// Pcs to Box and typed a ceiling and a price before saving lost both: the
+// stored ceiling was converted instead and the typed price was dropped.
+scenario("a rep's ceiling and price typed after a unit change are kept, in the new unit", async (d) => {
+  await importRows(d, [{ code: "U-BOX", name: "Spidol", uom: "Pcs", cogs: 200, list_price: 300, units: [{ uom: "Box", factor: 12 }] }]);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  // Quoted by its real catalog code (createDraft gives each line its own code, without the Box ratio).
+  const created = await d.api("POST", "/api/quotes", {
+    body: { title: "Unit edit", snapshot: { items: [{ id: "u1", code: "U-BOX", name: "Spidol", uom: "Pcs", qty: 10 }], meta: snapshotFor([]).meta } },
+    session: rep,
+  });
+  assert.equal(created.status, 201, JSON.stringify(created.json));
+  const quote = created.json.quote as { id: number; version: number };
+  const saved = await d.api("PUT", `/api/quotes/${quote.id}`, {
+    body: {
+      snapshot: { items: [{ id: "u1", code: "U-BOX", name: "Spidol", uom: "Box", valuesUom: "Box", qty: 1, rrp: 5000, price: 4000 }] },
+      expected_version: quote.version,
+    },
+    session: rep,
+  });
+  const line = (await d.api("GET", `/api/quotes/${quote.id}`, { session: manager })).json.quote.items[0];
+  const got = { uom: line.uom, cogs: line.cogs, rrp: line.rrp, typed: (line.manualPrice ?? []).filter((p: number | null) => p !== null) };
+  assert.equal(saved.status, 200, JSON.stringify(saved.json));
+  assert.deepEqual(got, { uom: "Box", cogs: 2400, rrp: 5000, typed: [4000] });
+  return got;
+});
+
 scenario("Chat endpoint: login required, off (503) without a key, bad input is 400 for staff too", async (d) => {
   const rep = await loginCached(d, "rep@test.local", "password123");
   const anon = await d.api("POST", "/api/chat", { body: { messages: [{ role: "user", content: "halo" }] } });
