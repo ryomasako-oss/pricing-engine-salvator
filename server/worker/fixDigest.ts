@@ -35,6 +35,9 @@ export async function runFixDigest(
     `SELECT email FROM users WHERE role IN ('manager', 'admin') AND active = 1 AND email <> ''
       ORDER BY role DESC, id LIMIT ${MAX_RECIPIENTS}`,
   );
-  await Promise.all(recipients.map((r) => opts.send(r.email, mail.subject, mail.html)));
+  // One email to all of them: each send signs a Google token, and doing that
+  // per recipient could pass the Free plan's 10 ms CPU limit; a CPU kill here
+  // would lose the day's digest, since the day is already marked as sent.
+  if (recipients.length) await opts.send(recipients.map((r) => r.email).join(", "), mail.subject, mail.html);
   return { open: tasks.length, sent: recipients.length };
 }

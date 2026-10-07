@@ -1984,7 +1984,14 @@ scenario("PE-1 on fix tasks: a held-COGS task never shows staff the COGS figure"
   const body = JSON.stringify(forRep.json);
   assert.ok(!/31[.,]?337/.test(body), `COGS leaked to staff: ${body}`);
   assert.ok(forManager.some((t: { kind: string; detail: string }) => t.kind === "cogs_held" && /31\.337/.test(t.detail)), "manager sees the figure");
-  return { repSeesTask: body.includes("LEAK-FX") };
+  // Review of #9: a manager's resolution note on a COGS task naturally names the figure,
+  // and it reached staff on the done list.
+  const task = forManager.find((t: { kind: string }) => t.kind === "cogs_held");
+  const resolved = await d.api("POST", `/api/fix-tasks/${task.id}/resolve`, { body: { note: "COGS dikoreksi dari Rp 31.337 ke Rp 9.800" }, session: manager });
+  assert.equal(resolved.status, 200, JSON.stringify(resolved.json));
+  const doneForRep = JSON.stringify((await d.api("GET", "/api/fix-tasks?status=done", { session: rep })).json);
+  assert.ok(!/31[.,]?337/.test(doneForRep), `COGS leaked to staff after resolve: ${doneForRep}`);
+  return { repSeesTask: body.includes("LEAK-FX"), repSeesDone: doneForRep.includes("LEAK-FX") };
 });
 
 // ---------------------------------------------------------------

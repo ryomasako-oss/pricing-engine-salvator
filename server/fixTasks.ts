@@ -81,8 +81,20 @@ export interface FixTaskRow {
   [k: string]: unknown;
 }
 
-/** Staff get no COGS figures: a COGS task's detail is the catalog's problem text, which names them. */
+/**
+ * Staff get no COGS figures: a COGS task's detail is the catalog's problem
+ * text, which names them, and the note a manager closes it with naturally
+ * does too ("COGS dikoreksi dari Rp ... ke Rp ...").
+ */
 export function tasksForViewer<T extends FixTaskRow>(role: Role, rows: T[]): T[] {
   if (canSeeCosts(role)) return rows;
-  return rows.map((r) => (r.kind === "cogs_held" ? { ...r, detail: "COGS item ini sedang dicek manajer." } : r));
+  return rows.map((r) => {
+    if (r.kind !== "cogs_held") return r;
+    const done = r.status === "done";
+    return {
+      ...r,
+      detail: done ? "COGS item ini sudah dicek manajer." : "COGS item ini sedang dicek manajer.",
+      ...("resolution" in r ? { resolution: done ? "Sudah ditangani manajer." : null } : {}),
+    };
+  });
 }
