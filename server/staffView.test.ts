@@ -173,10 +173,10 @@ describe("what staff read", () => {
     { code: "LINE_MARGIN", severity: "warn", message: "2 item marginnya di bawah batas per item 5,0%.", lines: [1, 2] },
   ];
 
-  it("breach wording carries no numbers for staff, keeps codes and line numbers", () => {
+  it("staff get one generic 'needs review' for any blocking breach: no rule, line or number", () => {
     const b = breachesForViewer("rep", breaches);
-    expect(b.map((x) => x.message).join(" ")).not.toMatch(/\d/);
-    expect(b.map((x) => [x.code, x.severity, x.lines])).toEqual([["NET_MARGIN", "block", []], ["LINE_MARGIN", "warn", [1, 2]]]);
+    expect(b).toEqual([{ code: "NEEDS_REVIEW", severity: "block", message: "Penawaran ini perlu persetujuan manajer." }]);
+    expect(breachesForViewer("rep", [breaches[1]])).toEqual([]);
     expect(breachesForViewer("admin", breaches)).toBe(breaches);
   });
 
@@ -203,9 +203,9 @@ describe("auditForViewer", () => {
   // Regression: the submit entry recorded net_margin and GET /quotes/:id sent
   // the audit trail to everyone; the leak probe missed it until it re-read the
   // quote after submitting and matched keys inside JSON strings.
-  it("drops margin from the submit entry for staff, keeps the rest", () => {
+  it("drops margin and the tripped rules from the submit entry for staff, keeps the rest", () => {
     const [e] = auditForViewer("rep", [entry(JSON.stringify({ breaches: ["NET_MARGIN"], monthly_value: 100, net_margin: 0.04 }))]);
-    expect(JSON.parse(e.detail)).toEqual({ breaches: ["NET_MARGIN"], monthly_value: 100 });
+    expect(JSON.parse(e.detail)).toEqual({ monthly_value: 100 });
   });
 
   it("leaves non-JSON details alone and managers untouched", () => {

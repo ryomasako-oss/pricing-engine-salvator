@@ -174,21 +174,18 @@ export const previewInput = z.object({
 
 /* ---------------- what staff receive ---------------- */
 
-const STAFF_BREACH: Record<PolicyBreach["code"], string> = {
-  NET_MARGIN: "Margin total di bawah batas kebijakan.",
-  LINE_MARGIN: "Ada item yang marginnya di bawah batas kebijakan.",
-  BASKET_DISCOUNT: "Diskon total melewati batas kebijakan.",
-  BELOW_COST: "Ada item yang dijual di bawah modal.",
-  VALUE_THRESHOLD: "Nilai penawaran perlu persetujuan manajer.",
-  MISSING_COGS: "Ada item yang biayanya belum pasti.",
-  ABOVE_CEILING: "Ada item yang dihargai di atas plafon klien.",
-};
-
-/** The same breaches with every number taken out of the wording; line numbers stay. */
-export const breachesForViewer = (role: Role, breaches: PolicyBreach[]): PolicyBreach[] =>
-  canSeeCosts(role)
-    ? breaches
-    : breaches.map((b) => ({ ...b, message: STAFF_BREACH[b.code] ?? "Perlu dicek manajer." }));
+/**
+ * What staff are told about the policy, which is only "a manager has to look".
+ * Which rule tripped, on which line, and how many lines is exactly what a rep
+ * could binary-search a price against to work out COGS or the margin floor, so
+ * all of it is dropped: any blocking breach becomes one line-less entry and
+ * warnings (which only describe cost quality) are not shown at all.
+ */
+export function breachesForViewer(role: Role, breaches: PolicyBreach[]): PolicyBreach[] {
+  if (canSeeCosts(role)) return breaches;
+  if (!breaches.some((b) => b.severity === "block")) return [];
+  return [{ code: "NEEDS_REVIEW", severity: "block", message: "Penawaran ini perlu persetujuan manajer." }];
+}
 
 export interface StaffLine {
   id: string;
@@ -304,12 +301,17 @@ export function settingsForViewer<T extends { policy: unknown; company: unknown 
   return canSeeCosts(role) ? s : { company: s.company };
 }
 
-/** Detail keys in the audit trail that carry cost or margin (submit writes net_margin). */
-const COST_DETAIL_KEYS = new Set(["net_margin", "margin", "cogs", "landed", "assumptions"]);
+/**
+ * Detail keys in the audit trail staff don't get: cost or margin (submit
+ * writes net_margin), and the policy rules a submit tripped (`breaches`),
+ * which would let a rep probe prices just as the breach list would (see
+ * breachesForViewer); the quote's status already tells them a manager decides.
+ */
+const COST_DETAIL_KEYS = new Set(["net_margin", "margin", "cogs", "landed", "assumptions", "breaches"]);
 
 /**
  * A quote's audit trail as this user may read it. The submit entry records
- * the net margin it was submitted at; staff see the entry without it.
+ * the net margin and the rules it tripped; staff see the entry without them.
  */
 export function auditForViewer(role: Role, entries: AuditEntry[]): AuditEntry[] {
   if (canSeeCosts(role)) return entries;
