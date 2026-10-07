@@ -5,7 +5,7 @@ import { audit, auditFor } from "../audit.js";
 import { type AuthedRequest, requireAuth, requirePermission } from "../auth.js";
 import { hasPermission } from "../../shared/permissions.js";
 import { salesReviewSchema, snapshotSchema, unmatchedSchema, zodMessage } from "../validate.js";
-import { checkSalesReview, rejectionNote, salesOutcome } from "../../shared/salesReview.js";
+import { checkSalesReview, followsSalesRejection, rejectionNote, salesOutcome } from "../../shared/salesReview.js";
 import { tasksFromItems, tasksFromSalesRejection, tasksFromUnmatched, type NewFixTask } from "../../shared/fixTasks.js";
 import { INSERT_TASKS_SQL, insertTasksParams } from "../fixTasks.js";
 import {
@@ -562,8 +562,16 @@ quotesRouter.post("/:id/submit", (req: AuthedRequest, res) => {
   }
   const { breaches, monthly_value, net_margin } = breachesFor(quote);
   const clean = isWithinPolicy(breaches);
-  // A manager submitting a quote that breaks no rule is approved on the spot.
-  const autoApprove = clean && hasPermission(req.user!.role, "decide_quotes");
+  // A manager submitting a quote that breaks no rule is approved on the spot,
+  // except a revision that follows a sales Tolak: that one is decided explicitly.
+  const afterSalesRejection = followsSalesRejection(
+    get<{ rev_no: number; rejected: number }>(
+      "SELECT rev_no, rejected FROM sales_reviews WHERE quote_id = ? AND rejected > 0 ORDER BY id DESC LIMIT 1",
+      id,
+    ),
+    quote.rev_no,
+  );
+  const autoApprove = clean && !afterSalesRejection && hasPermission(req.user!.role, "decide_quotes");
 
   tx(() => {
     run(
@@ -596,6 +604,7 @@ quotesRouter.post("/:id/submit", (req: AuthedRequest, res) => {
   });
 
   audit(req.user!.id, "quote", id, autoApprove ? "auto_approved" : "submitted", {
+    ...(afterSalesRejection && { after_sales_rejection: true }),
     breaches: breaches.map((b) => b.code),
     monthly_value,
     net_margin,

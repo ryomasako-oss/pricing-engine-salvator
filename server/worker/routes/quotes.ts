@@ -5,7 +5,7 @@ import { audit, auditFor } from "../audit";
 import { requireAuth, requirePermission } from "../auth";
 import { hasPermission } from "../../../shared/permissions";
 import { salesReviewSchema, snapshotSchema, unmatchedSchema, zodMessage } from "../../validate";
-import { checkSalesReview, rejectionNote, salesOutcome } from "../../../shared/salesReview";
+import { checkSalesReview, followsSalesRejection, rejectionNote, salesOutcome } from "../../../shared/salesReview";
 import { tasksFromItems, tasksFromSalesRejection, tasksFromUnmatched, type NewFixTask } from "../../../shared/fixTasks";
 import { INSERT_TASKS_SQL, insertTasksParams } from "../../fixTasks";
 import {
@@ -586,8 +586,17 @@ quotesRouter.post("/:id/submit", async (c) => {
 
   const { breaches, monthly_value, net_margin } = await breachesFor(c.env.DB, quote);
   const clean = isWithinPolicy(breaches);
-  // A manager submitting a quote that breaks no rule is approved on the spot.
-  const autoApprove = clean && hasPermission(user.role, "decide_quotes");
+  // A manager submitting a quote that breaks no rule is approved on the spot,
+  // except a revision that follows a sales Tolak: that one is decided explicitly.
+  const afterSalesRejection = followsSalesRejection(
+    await get<{ rev_no: number; rejected: number }>(
+      c.env.DB,
+      "SELECT rev_no, rejected FROM sales_reviews WHERE quote_id = ? AND rejected > 0 ORDER BY id DESC LIMIT 1",
+      id,
+    ),
+    quote.rev_no,
+  );
+  const autoApprove = clean && !afterSalesRejection && hasPermission(user.role, "decide_quotes");
   const now = new Date().toISOString();
   // What isn't offered (held COGS, a unit without a ratio) goes on "Perlu diperbaiki".
   const heldProblems = await cogsProblemsFor(c.env.DB, quote.items.filter((it) => it.held).map((it) => it.code));
@@ -632,6 +641,7 @@ quotesRouter.post("/:id/submit", async (c) => {
   ]);
 
   await audit(c.env.DB, user.id, "quote", id, autoApprove ? "auto_approved" : "submitted", {
+    ...(afterSalesRejection && { after_sales_rejection: true }),
     breaches: breaches.map((b) => b.code),
     monthly_value,
     net_margin,
