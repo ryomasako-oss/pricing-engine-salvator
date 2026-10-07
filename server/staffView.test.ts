@@ -30,9 +30,28 @@ describe("mergeStaffItems", () => {
     expect(r).toEqual({ items: [{ ...stored, qty: 4, rrp: 2800, notes: "n" }] });
   });
 
-  it("converts a unit change with the item's ratio and ignores a ceiling sent in the same edit", () => {
-    const r = mergeStaffItems([stored], [{ id: "a", code: "PEN", name: "x", qty: 2, uom: "box", rrp: 1 }], catalog);
-    expect("items" in r && r.items[0]).toMatchObject({ uom: "Box", qty: 2, cogs: 24000, rrp: 36000, role: "LEADER" });
+  it("converts a unit change with the item's ratio; without valuesUom (an older screen) a ceiling and price sent with it are ignored", () => {
+    const r = mergeStaffItems([stored], [{ id: "a", code: "PEN", name: "x", qty: 2, uom: "box", rrp: 1, price: 999 }], catalog, 0);
+    expect("items" in r && r.items[0]).toMatchObject({ uom: "Box", qty: 2, cogs: 24000, rrp: 36000, role: "LEADER", manualPrice: [30000, null, null] });
+  });
+
+  // Codex review of develop 41764fe: Pcs -> Box, then ceiling 5,000 and price
+  // 4,000 typed before saving came back as ceiling 36,000 (converted) and no price.
+  it("takes a ceiling and a price typed after a unit change: the screen sends them in the new unit", () => {
+    const r = mergeStaffItems([stored], [{ id: "a", code: "PEN", name: "", qty: 1, uom: "Box", valuesUom: "Box", rrp: 5000, price: 4000 }], catalog, 1);
+    expect("items" in r && r.items[0]).toMatchObject({ uom: "Box", cogs: 24000, rrp: 5000, manualPrice: [30000, 4000, null] });
+  });
+
+  // Codex re-review: guessing from "same number as before" turned a ceiling of
+  // 3,000 typed on purpose for the new unit into the converted 36,000.
+  it("takes a typed ceiling that happens to equal the old one, because valuesUom says it is in the new unit", () => {
+    const r = mergeStaffItems([stored], [{ id: "a", code: "PEN", name: "", qty: 1, uom: "Box", valuesUom: "box", rrp: 3000 }], catalog);
+    expect("items" in r && r.items[0]).toMatchObject({ uom: "Box", rrp: 3000 });
+  });
+
+  it("drops a value in a unit the line can't be converted to", () => {
+    const r = mergeStaffItems([stored], [{ id: "a", code: "PEN", name: "", qty: 1, uom: "Box", valuesUom: "Lusin", rrp: 9 }], catalog);
+    expect("items" in r && r.items[0]).toMatchObject({ uom: "Box", rrp: 36000 });
   });
 
   it("builds a new line from the catalog by code, whatever its case or spacing", () => {
@@ -67,8 +86,27 @@ describe("mergeStaffItems", () => {
     expect("items" in kept && kept.items[0].manualPrice).toEqual([2500, null, null]);
   });
 
-  it("does not apply a price sent with a unit change (it is still in the old unit)", () => {
-    const r = mergeStaffItems([stored], [{ id: "a", code: "PEN", name: "", qty: 1, uom: "box", price: 999 }], catalog, 0);
+  // Independent review of #12: after switching to a unit with no ratio the
+  // line's prices stay per the old unit (priceUom), and the screen says so with
+  // valuesUom = that unit; a ceiling and price typed then were dropped.
+  it("takes values typed after switching to a unit with no ratio, when they're in the unit the prices stay in", () => {
+    const r = mergeStaffItems([stored], [{ id: "a", code: "PEN", name: "", qty: 1, uom: "Lusin", valuesUom: "Pcs", rrp: 3500, price: 3200 }], catalog, 1);
+    expect("items" in r && r.items[0]).toMatchObject({ uom: "Lusin", priceUom: "Pcs", rrp: 3500, manualPrice: [2500, 3200, null] });
+  });
+
+  // ...and a new line ignored valuesUom: a Pcs ceiling sent with uom Box became a Box ceiling, 12x too low.
+  it("converts a new line's ceiling and price from valuesUom to the line's unit", () => {
+    const r = mergeStaffItems([], [{ id: "n", code: "PEN", name: "", qty: 1, uom: "Box", valuesUom: "Pcs", rrp: 3000, price: 2500 }], catalog, 0);
+    expect("items" in r && r.items[0]).toMatchObject({ uom: "Box", cogs: 24000, rrp: 36000, manualPrice: [30000, null, null] });
+  });
+
+  it("takes a new line's ceiling as sent when valuesUom is its own unit", () => {
+    const r = mergeStaffItems([], [{ id: "n", code: "PEN", name: "", qty: 1, uom: "Box", valuesUom: "Box", rrp: 30000 }], catalog);
+    expect("items" in r && r.items[0]).toMatchObject({ uom: "Box", rrp: 30000 });
+  });
+
+  it("converts the stored price with a unit change when no new price is sent", () => {
+    const r = mergeStaffItems([stored], [{ id: "a", code: "PEN", name: "", qty: 1, uom: "box" }], catalog, 0);
     expect("items" in r && r.items[0].manualPrice).toEqual([30000, null, null]);
   });
 

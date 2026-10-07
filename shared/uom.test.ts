@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { changeLineUom, cleanUnits, toBaseUnit, uomChoices, uomWarning, unitFactor, type ItemUnits } from "./uom.js";
+import { amountInUnit, changeLineUom, cleanUnits, toBaseUnit, uomChoices, uomWarning, unitFactor, type ItemUnits } from "./uom.js";
 import type { QuoteItem } from "./types.js";
 
 const line = (over: Partial<QuoteItem> = {}): QuoteItem => ({
@@ -90,6 +90,19 @@ describe("changeLineUom", () => {
 
   it("leaves a line without manual prices without a manualPrice field", () => {
     expect(changeLineUom(line(), "Box", PEN).manualPrice).toBeUndefined();
+  });
+});
+
+describe("amountInUnit", () => {
+  const pen = { baseUom: "Pcs", units: [{ uom: "Box", factor: 12 }] };
+  it("re-expresses a per-unit amount in another unit with the item's ratio", () => {
+    expect(amountInUnit(pen, "Pcs", "Box", 200)).toBe(2400);
+    expect(amountInUnit(pen, "box", "pcs", 5000)).toBe(416.67);
+    expect(amountInUnit(pen, "Box", "Box", 5000)).toBe(5000);
+  });
+  it("is null when a unit has no known ratio", () => {
+    expect(amountInUnit(pen, "Pcs", "Lusin", 200)).toBeNull();
+    expect(amountInUnit(undefined, "Pcs", "Box", 200)).toBeNull();
   });
 });
 

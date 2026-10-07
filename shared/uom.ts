@@ -85,6 +85,13 @@ export function uomWarning(line: QuoteItem): string | null {
   return `Rasio ${line.uom} belum ada: COGS/RRP masih per ${line.priceUom}, cek manual`;
 }
 
+/** A per-unit amount (a ceiling, a price) re-expressed per `to`; null when either unit has no known ratio. */
+export function amountInUnit(units: ItemUnits | undefined, from: string, to: string, amount: number): number | null {
+  const fFrom = unitFactor(units, from);
+  const fTo = unitFactor(units, to);
+  return fFrom === undefined || fTo === undefined ? null : round2((amount * fTo) / fFrom);
+}
+
 /** The line's COGS/RRP expressed per base unit, or null when it can't be converted. */
 export function toBaseUnit(line: QuoteItem, units: ItemUnits): { cogs: number; rrp: number } | null {
   const f = unitFactor(units, priceUnitOf(line));
