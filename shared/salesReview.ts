@@ -106,13 +106,31 @@ export function salesOutcome(items: QuoteItem[], rejected: { id: string }[]): {
 }
 
 /**
- * Ryoma 2026-10-07: a revision opened after sales said Tolak is never approved
- * on submit, even by a manager and even when every number is inside policy;
- * the manager decides it explicitly. `latest` is the newest sales check that
- * rejected something. A Tolak is recorded on the revision that was approved
- * (rev N) and the reopened revision is N+1, so only that one is covered: a
- * later reopen after the manager approved it submits normally again.
+ * Ryoma 2026-10-07: once sales said Tolak, the quote is never approved on
+ * submit, even by a manager and even inside policy, until a manager has
+ * explicitly approved it after that Tolak, however often it is reopened in
+ * between (counting revisions let a second reopen slip through).
+ *
+ * Ordered by audit_log ids, which only grow: a Tolak is logged as
+ * "sales_rejected" in the import's own transaction, a manager's decision as
+ * "approved" (an auto-approval is "auto_approved" and doesn't count).
+ * Timestamps can't order them: the tables keep different precisions. One
+ * row, `open` 1 or 0; bind the quote id twice.
  */
-export function followsSalesRejection(latest: { rev_no: number; rejected: number } | null | undefined, currentRev: number): boolean {
-  return !!latest && latest.rejected > 0 && latest.rev_no >= currentRev - 1;
-}
+export const SALES_REJECTION_OPEN_SQL = `SELECT
+  COALESCE((SELECT MAX(id) FROM audit_log WHERE entity = 'quote' AND entity_id = ? AND action = 'sales_rejected'), 0)
+  > COALESCE((SELECT MAX(id) FROM audit_log WHERE entity = 'quote' AND entity_id = ? AND action = 'approved'), 0) AS open`;
+
+/**
+ * A sales-check import is written only if the quote is still at the version
+ * and status it was checked at: otherwise two imports of one file could both
+ * apply (the second putting the first's rejected line back on offer), or an
+ * import could change a quote that was sent in between. Run first in the
+ * import's batch, it fails the whole batch (json() of a non-JSON string
+ * raises) so the write is atomic with the check; bind id, version, status.
+ */
+export const SALES_REVIEW_GUARD_SQL = `SELECT CASE WHEN EXISTS (
+  SELECT 1 FROM quotes WHERE id = ? AND version = ? AND status = ?) THEN 1 ELSE json('quote changed') END AS ok`;
+
+export const SALES_REVIEW_STALE =
+  "Quotation ini berubah sejak file cek harga dibaca (sudah diimpor, diubah, atau dikirim). Muat ulang halaman, lalu impor lagi bila perlu.";

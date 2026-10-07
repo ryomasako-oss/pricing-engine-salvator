@@ -5,7 +5,14 @@ import { audit, auditFor } from "../audit";
 import { requireAuth, requirePermission } from "../auth";
 import { hasPermission } from "../../../shared/permissions";
 import { salesReviewSchema, snapshotSchema, unmatchedSchema, zodMessage } from "../../validate";
-import { checkSalesReview, followsSalesRejection, rejectionNote, salesOutcome } from "../../../shared/salesReview";
+import {
+  SALES_REJECTION_OPEN_SQL,
+  SALES_REVIEW_GUARD_SQL,
+  SALES_REVIEW_STALE,
+  checkSalesReview,
+  rejectionNote,
+  salesOutcome,
+} from "../../../shared/salesReview";
 import { tasksFromItems, tasksFromSalesRejection, tasksFromUnmatched, type NewFixTask } from "../../../shared/fixTasks";
 import { INSERT_TASKS_SQL, insertTasksParams } from "../../fixTasks";
 import {
@@ -588,14 +595,7 @@ quotesRouter.post("/:id/submit", async (c) => {
   const clean = isWithinPolicy(breaches);
   // A manager submitting a quote that breaks no rule is approved on the spot,
   // except a revision that follows a sales Tolak: that one is decided explicitly.
-  const afterSalesRejection = followsSalesRejection(
-    await get<{ rev_no: number; rejected: number }>(
-      c.env.DB,
-      "SELECT rev_no, rejected FROM sales_reviews WHERE quote_id = ? AND rejected > 0 ORDER BY id DESC LIMIT 1",
-      id,
-    ),
-    quote.rev_no,
-  );
+  const afterSalesRejection = Boolean((await get<{ open: number }>(c.env.DB, SALES_REJECTION_OPEN_SQL, id, id))?.open);
   const autoApprove = clean && !afterSalesRejection && hasPermission(user.role, "decide_quotes");
   const now = new Date().toISOString();
   // What isn't offered (held COGS, a unit without a ratio) goes on "Perlu diperbaiki".
@@ -862,6 +862,8 @@ quotesRouter.post("/:id/sales-review", async (c) => {
   const backToManager = !!recheck && !isWithinPolicy(recheck.breaches);
   const db = c.env.DB;
   const statements = [
+    // Fails the whole batch if the quote moved on since it was checked.
+    stmt(db, SALES_REVIEW_GUARD_SQL, id, quote.version, quote.status),
     stmt(
       db,
       "INSERT INTO sales_reviews(quote_id, rev_no, reviewed_by, lines, rejected) VALUES(?, ?, ?, ?, ?)",
@@ -906,12 +908,22 @@ quotesRouter.post("/:id/sales-review", async (c) => {
       );
     }
   }
-  await batch(db, statements);
-  await audit(db, user.id, "quote", id, rejected ? "sales_rejected" : "sales_accepted", {
-    rev_no: quote.rev_no,
-    rejected: check.rejected.map((l) => l.lineNo),
-    outcome: backToManager ? "pending" : outcome.mode,
-  });
+  // In the same batch: SALES_REJECTION_OPEN_SQL orders by this entry.
+  statements.push(
+    stmt(
+      db,
+      "INSERT INTO audit_log(actor_id, entity, entity_id, action, detail) VALUES(?, ?, ?, ?, ?)",
+      user.id, "quote", id, rejected ? "sales_rejected" : "sales_accepted",
+      JSON.stringify({ rev_no: quote.rev_no, rejected: check.rejected.map((l) => l.lineNo), outcome: backToManager ? "pending" : outcome.mode }),
+    ),
+  );
+  try {
+    await batch(db, statements);
+  } catch (err) {
+    const now = await get<{ version: number; status: string }>(db, "SELECT version, status FROM quotes WHERE id = ?", id);
+    if (!now || now.version !== quote.version || now.status !== quote.status) return c.json({ error: SALES_REVIEW_STALE }, 409);
+    throw err;
+  }
   if (outcome.mode === "all" || backToManager) {
     const managers = await all<{ name: string; email: string; phone: string }>(
       db,
