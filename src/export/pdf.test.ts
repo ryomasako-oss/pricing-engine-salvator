@@ -105,3 +105,21 @@ describe("quotation PDF", () => {
     expect(moved.length).toBeGreaterThan(0);
   });
 });
+
+describe("quotation PDF after a partial sales Tolak", () => {
+  it("leaves the rejected line out of the table and totals and names it as item menyusul", () => {
+    const items: QuoteItem[] = [
+      { id: "a", lineNo: 1, code: "A", name: "Pulpen diterima", uom: "Pcs", qty: 10, cogs: 1000, rrp: 2000, role: "CORE" },
+      { id: "b", lineNo: 2, code: "B", name: "Kertas ditolak", uom: "Rim", qty: 5, cogs: 40000, rrp: 60000, role: "CORE", held: true, holdReason: "sales" },
+    ];
+    const engine = computeEngine(DEFAULT_ASSUMPTIONS, items, DEFAULT_REGIONS);
+    const doc = quotationPdf({
+      engine, meta, assumptions: DEFAULT_ASSUMPTIONS, scenario: 0, company, clientName: "PT Klien", number: "Q-1", draft: false,
+    });
+    const ops = (doc.internal as unknown as { pages: (string[] | undefined)[] }).pages.flatMap((p) => p ?? []).join("\n");
+    expect(pagesWith(doc, "Pulpen diterima")).toEqual([1]);
+    expect(pagesWith(doc, "Kertas ditolak")).toEqual([]);
+    expect(ops).toMatch(/item menyusul[^)]*Kertas ditolak/i);
+    expect(engine.scen[0].revenue).toBe(engine.rows[0].prices[0] * 10);
+  });
+});

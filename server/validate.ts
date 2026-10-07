@@ -158,3 +158,19 @@ export const salesReviewSchema = z.object({
 export const excelPasswordSchema = z.object({
   password: z.string().min(6, "Password Excel minimal 6 karakter.").max(100),
 });
+
+/** Rows of a client's list that found no catalog item, kept as "Perlu diperbaiki" tasks. */
+export const unmatchedSchema = z
+  .array(
+    z.object({
+      name: z.string().max(300),
+      qty: z.number().min(0).max(50_000).default(0),
+      uom: z.string().max(32).default(""),
+      reason: z.enum(["none", "skipped"]),
+    }),
+  )
+  .max(2000);
+
+export const resolveTaskSchema = z.object({
+  note: z.string().trim().min(3, "Tulis singkat apa yang sudah diperbaiki.").max(500),
+});

@@ -20,7 +20,7 @@ import { StatusChip } from "../components/pricing";
 import { TermsBox } from "../components/TermsBox";
 import { UomCell } from "../components/UomCell";
 import { downloadQuotationPdf } from "../export/pdf";
-import { SalesReviewBanner, SalesReviewImport, type SalesReviewRecord } from "../components/SalesReview";
+import { SalesReviewBanner, SalesReviewImport, salesImportMessage, type SalesReviewRecord } from "../components/SalesReview";
 import { WorkflowButtons } from "./QuoteEditor";
 import { DEFAULT_ASSUMPTIONS } from "@shared/engine";
 import { grp, pct, rp } from "@shared/format";
@@ -55,6 +55,7 @@ export interface StaffLine {
   setPrice?: number;
   /** COGS awaits a manager: shown, but not offered or totalled until released. */
   held?: boolean;
+  holdReason?: "cogs" | "sales";
 }
 
 export interface StaffPricing {
@@ -137,6 +138,8 @@ export function StaffQuotePage() {
     ]);
     setDetail(d);
     setSalesReview(sr.review);
+    // Submits and sales checks add "Perlu diperbaiki" tasks: refresh the nav count.
+    window.dispatchEvent(new Event("fix-tasks-changed"));
     setLines(d.quote.items);
     setMeta(d.quote.meta);
     setPricing(d.quote.pricing);
@@ -327,12 +330,10 @@ export function StaffQuotePage() {
         <SalesReviewImport
           quote={quote as unknown as Quote}
           onClose={() => setModal(null)}
-          onDone={(rejected) => {
+          onDone={(rejected, status) => {
             setModal(null);
-            toast(
-              rejected ? `${rejected} baris ditolak. Quotation kembali ke manajer untuk perbaikan harga.` : "Semua baris ACC. Hasil cek tersimpan.",
-              rejected ? "error" : "success",
-            );
+            toast(salesImportMessage(rejected, status), status === "approved" ? "success" : "error");
+            window.dispatchEvent(new Event("fix-tasks-changed"));
             void load();
           }}
         />
@@ -380,8 +381,15 @@ export function StaffQuotePage() {
                     <div style={{ fontWeight: 550 }}>{l.name}</div>
                     <div className="muted small">{l.code}</div>
                     {l.held && (
-                      <span className="badge amber" title="Harga item ini sedang dicek manajer. Tidak ikut total dan dokumen; di dokumen ditulis sebagai item menyusul.">
-                        Ditahan
+                      <span
+                        className={`badge ${l.holdReason === "sales" ? "blue" : "amber"}`}
+                        title={
+                          l.holdReason === "sales"
+                            ? "Harganya ditolak saat cek sales. Tidak ikut total dan dokumen; ditulis sebagai item menyusul dan ada di Perlu diperbaiki."
+                            : "Harga item ini sedang dicek manajer. Tidak ikut total dan dokumen; di dokumen ditulis sebagai item menyusul."
+                        }
+                      >
+                        {l.holdReason === "sales" ? "Menyusul" : "Ditahan"}
                       </span>
                     )}
                   </td>

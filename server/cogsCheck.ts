@@ -79,7 +79,9 @@ export function applyHolds<T extends { status: string; items: QuoteItem[] }>(quo
   if (!LIVE_HOLD_STATUSES.has(quote.status)) return quote;
   return {
     ...quote,
-    items: quote.items.map(({ held: _h, ...it }) => (it.code && problems.has(it.code) ? { ...it, held: true } : it)),
+    // holdReason goes with held: a line sales rejected is offered again once
+    // the quote is reopened, unless its COGS is the problem.
+    items: quote.items.map(({ held: _h, holdReason: _r, ...it }) => (it.code && problems.has(it.code) ? { ...it, held: true } : it)),
   };
 }
 

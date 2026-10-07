@@ -499,6 +499,15 @@ input[type=checkbox] { accent-color: var(--navy); width: 17px; height: 17px; fle
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .chip { border: 1px solid var(--rule); background: var(--field); border-radius: 999px; padding: 5px 11px; font-size: 12px; text-align: left; }
 .chip:hover { border-color: var(--navy); background: var(--s1-bg); }
+.chip.on { border-color: var(--navy); background: var(--s1-bg); color: var(--ink); font-weight: 600; }
+.fix-row { display: flex; gap: 12px; justify-content: space-between; align-items: flex-start; padding: 12px; border: 1px solid var(--rule); border-radius: 12px; background: var(--sheet); }
+.fix-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.fix-item { overflow-wrap: anywhere; }
+.fix-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; flex-shrink: 0; }
+@media (max-width: 640px) {
+  .fix-row { flex-direction: column; }
+  .fix-actions { justify-content: flex-start; }
+}
 .composer { display: flex; align-items: flex-end; gap: 8px; border-top: 1px solid var(--rule); padding: 10px; }
 .composer textarea { flex: 1; border: 1px solid var(--rule); background: var(--field); border-radius: 14px; padding: 8px 10px; resize: none; max-height: 110px; }
 .send { width: 38px; height: 38px; border-radius: 12px; border: 0; background: var(--navy); color: #fff; display: grid; place-items: center; flex: none; }

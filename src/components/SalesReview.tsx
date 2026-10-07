@@ -26,7 +26,8 @@ export function SalesReviewImport({
 }: {
   quote: Pick<Quote, "id" | "number" | "rev_no" | "version">;
   onClose: () => void;
-  onDone: (rejected: number) => void;
+  /** `status`: the quote's status after the import (approved, submitted or draft). */
+  onDone: (rejected: number, status: string) => void;
 }) {
   const [read, setRead] = useState<ReadReview | null>(null);
   const [fileName, setFileName] = useState("");
@@ -52,18 +53,19 @@ export function SalesReviewImport({
   const noReason = rejected.filter((l) => !l.reason);
   const stale = read && (read.revNo !== quote.rev_no || read.version !== quote.version);
   const ready = read && !blanks.length && !noReason.length && !stale;
+  const allRejected = !!read && rejected.length === read.lines.length;
 
   const send = async () => {
     if (!read) return;
     setBusy(true);
     setError("");
     try {
-      await api.post(`/quotes/${quote.id}/sales-review`, {
+      const r = await api.post<{ quote: { status: string } }>(`/quotes/${quote.id}/sales-review`, {
         rev_no: read.revNo,
         version: read.version,
         lines: read.lines.map((l) => ({ id: l.id, decision: l.decision, reason: l.reason })),
       });
-      onDone(rejected.length);
+      onDone(rejected.length, r.quote.status);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Gagal menyimpan hasil cek.");
       setBusy(false);
@@ -85,9 +87,11 @@ export function SalesReviewImport({
               ? "Menyimpan…"
               : !ready
                 ? "Kirim hasil cek"
-                : rejected.length
-                  ? `Kirim ${rejected.length} tolakan ke manajer`
-                  : "Simpan: semua ACC"}
+                : allRejected
+                  ? "Kembalikan ke manajer"
+                  : rejected.length
+                    ? `Simpan: ${rejected.length} baris menyusul`
+                    : "Simpan: semua ACC"}
           </button>
         </>
       }
@@ -140,7 +144,9 @@ export function SalesReviewImport({
                   ))}
                 </ul>
                 <p className="muted small" style={{ marginTop: 6 }}>
-                  Quotation akan kembali jadi draft (revisi baru) dan manajer diberi tahu untuk memperbaiki harganya.
+                  {allRejected
+                    ? "Semua baris ditolak: quotation kembali jadi draft (revisi baru) untuk manajer."
+                    : "Baris yang ACC tetap disetujui dan bisa langsung dikirim ke klien. Baris yang ditolak keluar dari dokumen sebagai item menyusul dan masuk Perlu diperbaiki. Kalau sisanya jadi melanggar kebijakan, manajer diminta menyetujui ulang."}
                 </p>
               </div>
             )}
@@ -171,6 +177,27 @@ export function SalesReviewBanner({ quote, review }: { quote: Quote; review: Sal
       </div>
     );
   }
+  if (review.rejected > 0 && review.rev_no === quote.rev_no && quote.status !== "draft") {
+    const rejected = review.lines.filter((l) => l.decision === "tolak");
+    return (
+      <div className="notice warn" style={{ marginBottom: 12 }}>
+        <strong>
+          Dicek sales ({by}, {fmtDateTime(review.created_at)}): {review.lines.length - rejected.length} baris ACC,{" "}
+          {rejected.length} menyusul.
+        </strong>
+        <ul style={{ margin: "4px 0 0", paddingLeft: 18 }}>
+          {rejected.map((l) => (
+            <li key={l.id}>
+              Baris {l.lineNo} {l.name} — {l.reason}
+            </li>
+          ))}
+        </ul>
+        {quote.status === "submitted"
+          ? "Tanpa baris itu penawaran melanggar kebijakan, jadi menunggu persetujuan ulang manajer."
+          : "Penawaran tetap jalan tanpa baris itu. Baris yang menyusul ada di Perlu diperbaiki."}
+      </div>
+    );
+  }
   if (review.rejected === 0 && review.rev_no === quote.rev_no) {
     return (
       <p className="notice ok" style={{ marginBottom: 12 }}>
@@ -179,4 +206,12 @@ export function SalesReviewBanner({ quote, review }: { quote: Quote; review: Sal
     );
   }
   return null;
+}
+
+/** The toast after an import, by what happened to the quote. */
+export function salesImportMessage(rejected: number, status: string): string {
+  if (!rejected) return "Semua baris ACC. Hasil cek tersimpan.";
+  if (status === "draft") return "Semua baris ditolak. Quotation kembali ke draft untuk manajer.";
+  if (status === "submitted") return `${rejected} baris menyusul. Sisa penawaran menunggu persetujuan ulang manajer.`;
+  return `${rejected} baris menyusul dan dicatat di Perlu diperbaiki. Sisa penawaran tetap disetujui.`;
 }
