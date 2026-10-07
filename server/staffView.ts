@@ -174,21 +174,18 @@ export const previewInput = z.object({
 
 /* ---------------- what staff receive ---------------- */
 
-const STAFF_BREACH: Record<PolicyBreach["code"], string> = {
-  NET_MARGIN: "Margin total di bawah batas kebijakan.",
-  LINE_MARGIN: "Ada item yang marginnya di bawah batas kebijakan.",
-  BASKET_DISCOUNT: "Diskon total melewati batas kebijakan.",
-  BELOW_COST: "Ada item yang dijual di bawah modal.",
-  VALUE_THRESHOLD: "Nilai penawaran perlu persetujuan manajer.",
-  MISSING_COGS: "Ada item yang biayanya belum pasti.",
-  ABOVE_CEILING: "Ada item yang dihargai di atas plafon klien.",
-};
-
-/** The same breaches with every number taken out of the wording; line numbers stay. */
-export const breachesForViewer = (role: Role, breaches: PolicyBreach[]): PolicyBreach[] =>
-  canSeeCosts(role)
-    ? breaches
-    : breaches.map((b) => ({ ...b, message: STAFF_BREACH[b.code] ?? "Perlu dicek manajer." }));
+/**
+ * What staff are told about the policy, which is only "a manager has to look".
+ * Which rule tripped, on which line, and how many lines is exactly what a rep
+ * could binary-search a price against to work out COGS or the margin floor, so
+ * all of it is dropped: any blocking breach becomes one line-less entry and
+ * warnings (which only describe cost quality) are not shown at all.
+ */
+export function breachesForViewer(role: Role, breaches: PolicyBreach[]): PolicyBreach[] {
+  if (canSeeCosts(role)) return breaches;
+  if (!breaches.some((b) => b.severity === "block")) return [];
+  return [{ code: "NEEDS_REVIEW", severity: "block", message: "Penawaran ini perlu persetujuan manajer." }];
+}
 
 export interface StaffLine {
   id: string;

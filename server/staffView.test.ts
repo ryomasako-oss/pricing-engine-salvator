@@ -173,10 +173,10 @@ describe("what staff read", () => {
     { code: "LINE_MARGIN", severity: "warn", message: "2 item marginnya di bawah batas per item 5,0%.", lines: [1, 2] },
   ];
 
-  it("breach wording carries no numbers for staff, keeps codes and line numbers", () => {
+  it("staff get one generic 'needs review' for any blocking breach: no rule, line or number", () => {
     const b = breachesForViewer("rep", breaches);
-    expect(b.map((x) => x.message).join(" ")).not.toMatch(/\d/);
-    expect(b.map((x) => [x.code, x.severity, x.lines])).toEqual([["NET_MARGIN", "block", []], ["LINE_MARGIN", "warn", [1, 2]]]);
+    expect(b).toEqual([{ code: "NEEDS_REVIEW", severity: "block", message: "Penawaran ini perlu persetujuan manajer." }]);
+    expect(breachesForViewer("rep", [breaches[1]])).toEqual([]);
     expect(breachesForViewer("admin", breaches)).toBe(breaches);
   });
 
