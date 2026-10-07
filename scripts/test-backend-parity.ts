@@ -1936,6 +1936,26 @@ scenario("a catalog-copied line whose unit lost its ratio stays held instead of 
 });
 
 
+// Independent review of #10: catalog codes are unique only with exact case,
+// and the lookups kept whichever case-variant came first, so a line copied from
+// "K-CASE" (1,000) followed "k-case" (300) and could auto-approve too cheaply,
+// and a COGS problem of one variant was reported for the other.
+scenario("a line follows the catalog row with its exact code, not a code that differs only in case", async (d) => {
+  await importRows(d, [{ code: "k-case", name: "Lower", uom: "Pcs", cogs: 300, list_price: 250 }]);
+  await importRows(d, [{ code: "K-CASE", name: "Upper", uom: "Pcs", cogs: 1000, list_price: 2000 }]);
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const q = await createDraft(d, manager, [
+    cleanItem({ id: "k1", lineNo: 1, code: "K-CASE", name: "Upper", uom: "Pcs", qty: 1, cogs: 1000, catalogCogs: 1000, rrp: 2000 }),
+  ]);
+  const it = (await d.api("GET", `/api/quotes/${q.id}`, { session: manager })).json.quote.items[0];
+  // "k-case" has COGS above its list price; that is its problem, not "K-CASE"'s.
+  const check = await d.api("POST", "/api/catalog/cogs-check", { body: { codes: ["K-CASE", "k-case"] }, session: manager });
+  assert.deepEqual({ cogs: it.cogs, held: Boolean(it.held) }, { cogs: 1000, held: false });
+  assert.deepEqual(Object.keys(check.json.problems), ["k-case"]);
+  return { cogs: it.cogs, held: Boolean(it.held), problems: Object.keys(check.json.problems) };
+});
+
+
 // ---------------------------------------------------------------
 // Run: ONE pair of backends for the whole run (Node caches the
 // dynamically-imported server/db.js module by URL, so "fresh drivers

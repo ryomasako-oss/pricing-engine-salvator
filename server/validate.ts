@@ -35,6 +35,7 @@ export const itemSchema = z.object({
   role: z.enum(["LEADER", "CORE", "PROFIT"]),
   estCogs: z.boolean().optional(),
   catalogCogs: z.number().min(0).max(50_000_000).optional(),
+  cogsByHand: z.boolean().optional(),
   manualPrice: z.array(z.number().nullable()).length(3).optional(),
   notes: z.string().max(500).optional(),
   priceUom: z.string().max(32).optional(),

@@ -46,15 +46,17 @@ export const VERIFY_COGS_SQL = `
  * finds its answer under its own spelling.
  */
 export function problemsByCode(requested: string[], rows: CogsRow[]): Map<string, string> {
-  const byKey = new Map<string, string>();
-  for (const r of rows) {
-    const problem = cogsProblem(r, r.reference);
-    const key = normalizeCode(r.code);
-    if (problem && !byKey.has(key)) byKey.set(key, problem);
-  }
+  const byKey = new Map<string, CogsRow[]>();
+  for (const r of rows) byKey.set(normalizeCode(r.code), [...(byKey.get(normalizeCode(r.code)) ?? []), r]);
   const out = new Map<string, string>();
   for (const code of requested) {
-    const problem = byKey.get(normalizeCode(code));
+    const variants = byKey.get(normalizeCode(code)) ?? [];
+    // Codes are unique only with exact case: the exact row answers for itself.
+    // Without one, any case-variant's problem counts, since which is meant is unclear.
+    const exact = variants.find((r) => r.code === code);
+    const problem = exact
+      ? cogsProblem(exact, exact.reference)
+      : variants.map((r) => cogsProblem(r, r.reference)).find(Boolean) ?? null;
     if (problem) out.set(code, problem);
   }
   return out;
@@ -79,16 +81,21 @@ const LIVE_HOLD_STATUSES = new Set(["draft", "rejected"]);
 export function applyHolds<T extends { status: string; items: QuoteItem[] }>(
   quote: T,
   problems: Map<string, string>,
-  catalog: Map<string, CatalogItem> = new Map(),
+  catalog: Map<string, CatalogItem[]> = new Map(),
 ): T {
   if (!LIVE_HOLD_STATUSES.has(quote.status)) return quote;
   return {
     ...quote,
     items: quote.items.map(({ held: _h, ...it }) => {
       if (it.code && problems.has(it.code)) return { ...it, held: true };
-      const item = it.code ? catalog.get(normalizeCode(it.code)) : undefined;
-      if (!item) return it; // not from the catalog: left to the pricing policy, as before
-      return followCatalog(it, catalogCogsIn(item, it));
+      const rows = it.code ? catalog.get(normalizeCode(it.code)) ?? [] : [];
+      if (!rows.length) return it; // not from the catalog: left to the pricing policy, as before
+      // Codes are unique only with exact case: use the exact one. When only
+      // case-variants of the line's code exist, which item is meant can't be
+      // told, so the line waits for a manager instead of taking either's cost.
+      const item = rows.find((r) => r.code === it.code) ?? (rows.length === 1 ? rows[0] : undefined);
+      if (!item) return { ...it, held: true };
+      return followCatalog(it, catalogCostIn(item, it));
     }),
   };
 }
@@ -100,31 +107,36 @@ export function applyHolds<T extends { status: string; items: QuoteItem[] }>(
  * a price of 150, a stale COGS of 100 against a real 1,000 auto-approved.
  *
  * - No real cost yet (0, or estimated from a client's file): take the catalog's.
+ * - A cost someone typed or imported (cogsByHand, or cogs differing from the
+ *   catalogCogs it was copied from): keep it.
  * - Still the catalog copy it was made with (cogs === catalogCogs): follow the catalog.
- * - A cost someone typed (cogs differs from catalogCogs): keep it.
  * - No record (a line from before catalogCogs): adopt the record when the cost
- *   matches; otherwise it may be a stale copy of a wrong COGS, so it stays held
- *   until the line is re-added from the catalog.
+ *   matches (allowing for the whole-rupiah rounding lines used to get, scaled
+ *   by the unit); otherwise it may be a stale copy of a wrong COGS, so it stays
+ *   held until someone types its cost or re-adds it from the catalog.
  * - No ratio to compare with: held, unless the cost was typed.
  */
-function followCatalog(it: QuoteItem, current: number | null): QuoteItem {
+function followCatalog(it: QuoteItem, current: { cost: number; factor: number } | null): QuoteItem {
   const placeholder = !(Number(it.cogs) > 0) || Boolean(it.estCogs);
-  const typed = !placeholder && it.catalogCogs != null && it.cogs !== it.catalogCogs;
+  const typed = !placeholder && (Boolean(it.cogsByHand) || (it.catalogCogs != null && it.cogs !== it.catalogCogs));
   // No ratio from the line's unit to the catalog's: the cost can't be checked,
   // so only a cost someone typed (which never came from the catalog) is kept.
   if (current === null) return typed ? it : { ...it, held: true };
-  if (placeholder) return { ...it, cogs: current, catalogCogs: current, estCogs: false };
+  if (placeholder) return { ...it, cogs: current.cost, catalogCogs: current.cost, estCogs: false };
+  if (typed) return it;
   if (it.catalogCogs != null) {
-    return it.cogs === it.catalogCogs && current !== it.catalogCogs ? { ...it, cogs: current, catalogCogs: current } : it;
+    return current.cost !== it.catalogCogs ? { ...it, cogs: current.cost, catalogCogs: current.cost } : it;
   }
-  return Math.abs(it.cogs - current) < 0.01 ? { ...it, catalogCogs: current } : { ...it, held: true };
+  return Math.abs(it.cogs - current.cost) <= 0.5 * current.factor + 0.01
+    ? { ...it, catalogCogs: it.cogs }
+    : { ...it, held: true };
 }
 
-/** The catalog item's COGS in the unit this line is priced in; null when no ratio is known. */
-function catalogCogsIn(item: CatalogItem, line: QuoteItem): number | null {
+/** The catalog item's COGS in the unit this line is priced in, with that unit's ratio; null when none is known. */
+function catalogCostIn(item: CatalogItem, line: QuoteItem): { cost: number; factor: number } | null {
   if (!(item.cogs > 0)) return null;
   const factor = unitFactor({ baseUom: item.uom || "Pcs", units: item.units ?? [] }, priceUnitOf(line));
-  return factor === undefined ? null : Math.round(item.cogs * factor * 100) / 100;
+  return factor === undefined ? null : { cost: Math.round(item.cogs * factor * 100) / 100, factor };
 }
 
 /** Codes whose catalog row applyHolds compares draft lines against: coded lines not already held. */

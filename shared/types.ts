@@ -90,6 +90,8 @@ export interface QuoteItem {
    * someone and is kept (server/cogsCheck.ts applyHolds).
    */
   catalogCogs?: number;
+  /** The cost was typed or imported by someone rather than copied from the catalog: a draft keeps it. */
+  cogsByHand?: boolean;
 }
 
 export interface Region {

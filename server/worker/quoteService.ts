@@ -112,7 +112,7 @@ export async function findQuote(d1: D1Database, id: number): Promise<Quote | nul
   if (!row) return null;
   const quote = hydrate(row);
   const problems = await cogsProblemsFor(d1, liveHoldCodes([quote]));
-  return applyHolds(quote, problems, await catalogByKeys(d1, recostCodes([quote], problems)));
+  return applyHolds(quote, problems, await catalogListsByKeys(d1, recostCodes([quote], problems)));
 }
 
 export async function listQuoteRows(
@@ -123,7 +123,7 @@ export async function listQuoteRows(
   const rows = await all<QuoteRow>(d1, `${SELECT_QUOTE} ${where} ORDER BY q.updated_at DESC`, ...params);
   const quotes = rows.map(hydrate);
   const problems = await cogsProblemsFor(d1, liveHoldCodes(quotes));
-  const catalog = await catalogByKeys(d1, recostCodes(quotes, problems));
+  const catalog = await catalogListsByKeys(d1, recostCodes(quotes, problems));
   return quotes.map((q) => applyHolds(q, problems, catalog));
 }
 
@@ -195,8 +195,17 @@ export async function cogsProblemsFor(d1: D1Database, codes: string[]): Promise<
 
 /** Catalog rows with their units for these codes, keyed by normalizeCode (PE-1 staff edits). */
 export async function catalogByKeys(d1: D1Database, codes: string[]): Promise<CatalogByKey> {
+  return new Map([...(await catalogListsByKeys(d1, codes))].map(([key, rows]) => [key, rows[0]]));
+}
+
+/**
+ * Every catalog row matching these codes by normalizeCode, with units. Codes
+ * are unique only with exact case, so "atk-01" and "ATK-01" can both exist;
+ * applyHolds needs all of them to pick the exact one.
+ */
+export async function catalogListsByKeys(d1: D1Database, codes: string[]): Promise<Map<string, CatalogItem[]>> {
   const keys = staffLookupKeys(codes);
-  const out: CatalogByKey = new Map();
+  const out = new Map<string, CatalogItem[]>();
   const rows: CatalogItem[] = [];
   // D1 caps bound parameters per statement, so look codes up in chunks.
   for (let i = 0; i < keys.length; i += 90) {
@@ -216,7 +225,8 @@ export async function catalogByKeys(d1: D1Database, codes: string[]): Promise<Ca
   }
   for (const r of rows) {
     const own: UnitFactor[] = units.filter((u) => u.code === r.code).map((u) => ({ uom: u.uom, factor: u.factor }));
-    if (!out.has(normalizeCode(r.code))) out.set(normalizeCode(r.code), { ...r, units: own });
+    const key = normalizeCode(r.code);
+    out.set(key, [...(out.get(key) ?? []), { ...r, units: own }]);
   }
   return out;
 }

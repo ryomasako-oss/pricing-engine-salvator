@@ -110,13 +110,13 @@ export function findQuote(id: number): Quote | null {
   if (!row) return null;
   const quote = hydrate(row);
   const problems = cogsProblemsFor(liveHoldCodes([quote]));
-  return applyHolds(quote, problems, catalogByKeys(recostCodes([quote], problems)));
+  return applyHolds(quote, problems, catalogListsByKeys(recostCodes([quote], problems)));
 }
 
 export function listQuoteRows(where = "", ...params: (string | number)[]): Quote[] {
   const quotes = all<QuoteRow>(`${SELECT_QUOTE} ${where} ORDER BY q.updated_at DESC`, ...params).map(hydrate);
   const problems = cogsProblemsFor(liveHoldCodes(quotes));
-  const catalog = catalogByKeys(recostCodes(quotes, problems));
+  const catalog = catalogListsByKeys(recostCodes(quotes, problems));
   return quotes.map((q) => applyHolds(q, problems, catalog));
 }
 
@@ -185,8 +185,17 @@ export function cogsProblemsFor(codes: string[]): Map<string, string> {
 
 /** Catalog rows with their units for these codes, keyed by normalizeCode (PE-1 staff edits). */
 export function catalogByKeys(codes: string[]): CatalogByKey {
+  return new Map([...catalogListsByKeys(codes)].map(([key, rows]) => [key, rows[0]]));
+}
+
+/**
+ * Every catalog row matching these codes by normalizeCode, with units. Codes
+ * are unique only with exact case, so "atk-01" and "ATK-01" can both exist;
+ * applyHolds needs all of them to pick the exact one.
+ */
+export function catalogListsByKeys(codes: string[]): Map<string, CatalogItem[]> {
   const keys = staffLookupKeys(codes);
-  const out: CatalogByKey = new Map();
+  const out = new Map<string, CatalogItem[]>();
   if (!keys.length) return out;
   const rows = all<CatalogItem>(catalogByKeysSql(keys.length), ...keys);
   const units = rows.length
@@ -197,7 +206,8 @@ export function catalogByKeys(codes: string[]): CatalogByKey {
     : [];
   for (const r of rows) {
     const own: UnitFactor[] = units.filter((u) => u.code === r.code).map((u) => ({ uom: u.uom, factor: u.factor }));
-    if (!out.has(normalizeCode(r.code))) out.set(normalizeCode(r.code), { ...r, units: own });
+    const key = normalizeCode(r.code);
+    out.set(key, [...(out.get(key) ?? []), { ...r, units: own }]);
   }
   return out;
 }

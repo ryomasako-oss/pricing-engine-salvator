@@ -11,6 +11,7 @@ import {
   STATUS_FLOW,
   breachesFor,
   catalogByKeys,
+  catalogListsByKeys,
   cogsProblemsFor,
   findQuote,
   listQuoteRows,
@@ -149,7 +150,7 @@ quotesRouter.post("/preview", (req: AuthedRequest, res) => {
     status: "draft",
   } as Quote;
   const problems = cogsProblemsFor(merged.items.map((i) => i.code));
-  const held = applyHolds(draft, problems, catalogByKeys(recostCodes([draft], problems)));
+  const held = applyHolds(draft, problems, catalogListsByKeys(recostCodes([draft], problems)));
   res.json({ quote: view(req, held) });
 });
 
