@@ -1665,16 +1665,53 @@ scenario("A rep can type a price: past the ceiling, or where there is no ceiling
   assert.deepEqual(saved.json.quote.items.map((i: { price: number }) => i.price), [120000, 5000]);
   assert.equal(saved.json.quote.items[0].manual, true);
   assert.deepEqual(asManager.quote.items.map((i: { manualPrice: (number | null)[] }) => i.manualPrice[k]), [120000, 5000]);
-  assert.ok(asRep.policy.breaches.some((b: { code: string; message: string }) => b.code === "ABOVE_CEILING" && !/\d/.test(b.message)));
+  assert.deepEqual(asRep.policy.breaches.map((b: { code: string }) => b.code), ["NEEDS_REVIEW"]);
+  assert.ok(asManager.policy.breaches.some((b: { code: string }) => b.code === "ABOVE_CEILING"));
   assert.ok(!JSON.stringify(asRep).includes(String(LEAK_COGS)), "typed price must not bring cost data back to staff");
   assert.equal(cleared.status, 200, JSON.stringify(cleared.json));
   assert.equal(cleared.json.quote.items[0].manual, undefined);
   assert.equal(cleared.json.quote.items[1].price, 5000);
   return {
     prices: saved.json.quote.items.map((i: { price: number }) => i.price),
-    above: asRep.policy.breaches.filter((b: { code: string }) => b.code === "ABOVE_CEILING").map((b: { lines?: number[] }) => b.lines),
+    repBreaches: asRep.policy.breaches,
     afterClear: cleared.json.quote.items.map((i: { price: number; manual?: boolean }) => [i.price > 0, i.manual ?? false]),
   };
+});
+
+scenario("A rep cannot probe for cost: every blocking price looks the same, safe prices show nothing", async (d) => {
+  await seedLeakCatalog(d);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const created = await d.api("POST", "/api/quotes", {
+    body: { title: "Probe", snapshot: { ...snapshotFor([]), items: [{ id: "p1", code: "LEAK-1", qty: 1, rrp: 99000 }] } },
+    session: rep,
+  });
+  const id = created.json.quote.id;
+  let version = created.json.quote.version;
+  const out: Record<string, unknown> = {};
+  const seen: Record<string, string> = {};
+  // below cost, a hair above cost, past the ceiling, and a comfortable price
+  for (const [label, price] of [["belowCost", 20000], ["thin", LEAK_COGS + 100], ["aboveCeiling", 120000], ["comfortable", 70000]] as const) {
+    const body = { snapshot: { items: [{ id: "p1", code: "LEAK-1", qty: 1, rrp: 99000, price }] }, expected_version: version };
+    const saved = await d.api("PUT", `/api/quotes/${id}`, { body, session: rep });
+    assert.equal(saved.status, 200, JSON.stringify(saved.json));
+    version = saved.json.quote.version;
+    const asRep = (await d.api("GET", `/api/quotes/${id}`, { session: rep })).json;
+    const asManager = (await d.api("GET", `/api/quotes/${id}`, { session: manager })).json;
+    const preview = await d.api("POST", "/api/quotes/preview", { body: { quote_id: id, snapshot: body.snapshot }, session: rep });
+    seen[label] = JSON.stringify(asRep.policy.breaches);
+    out[label] = { repBreaches: asRep.policy.breaches, managerCodes: asManager.policy.breaches.map((b: { code: string }) => b.code).sort() };
+    assert.ok(!JSON.stringify(preview.json).includes("breach"), "preview must not carry policy signals");
+    assert.ok(!JSON.stringify(asRep).includes(String(LEAK_COGS)));
+  }
+  // The manager really does see different reasons (so the test can fail) ...
+  assert.notDeepEqual((out.belowCost as { managerCodes: string[] }).managerCodes, (out.aboveCeiling as { managerCodes: string[] }).managerCodes);
+  // ... and the rep sees one identical answer for all of them.
+  assert.equal(seen.belowCost, seen.thin);
+  assert.equal(seen.belowCost, seen.aboveCeiling);
+  assert.equal(seen.comfortable, "[]");
+  assert.deepEqual(JSON.parse(seen.belowCost), [{ code: "NEEDS_REVIEW", severity: "block", message: "Penawaran ini perlu persetujuan manajer." }]);
+  return out;
 });
 
 scenario("OCR endpoint: login required, and off (503) until a Gemini key is set", async (d) => {

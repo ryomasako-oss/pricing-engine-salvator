@@ -185,7 +185,9 @@ export interface PolicyBreach {
     | "BELOW_COST"
     | "VALUE_THRESHOLD"
     | "MISSING_COGS"
-    | "ABOVE_CEILING";
+    | "ABOVE_CEILING"
+    /** What staff see in place of any blocking breach (server/staffView.ts); never produced by the policy engine. */
+    | "NEEDS_REVIEW";
   severity: BreachSeverity;
   message: string;
   /** Line numbers involved, when the breach is line-specific. */

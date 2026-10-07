@@ -220,14 +220,14 @@ test("manager submitting the same clean quote is auto-approved on the spot", asy
   assert.notEqual(submitted.json.quote.approved_by, null);
 });
 
-test("rep submitting a policy-breaching quote goes to pending with real breach codes attached", async () => {
+test("rep submitting a policy-breaching quote goes to pending, told only that a manager must review", async () => {
   const rep = repSession;
   const quote = await createDraft(rep, [cleanItem()], { targetMargin: 0.05, leaderMargin: 0.0 });
   const submitted = await api("POST", `/api/quotes/${quote.id}/submit`, { session: rep });
   assert.equal(submitted.status, 200);
   assert.equal(submitted.json.autoApproved, false);
   assert.equal(submitted.json.quote.status, "submitted");
-  assert.ok(submitted.json.breaches.some((b: { code: string }) => b.code === "NET_MARGIN"));
+  assert.deepEqual(submitted.json.breaches.map((b: { code: string }) => b.code), ["NEEDS_REVIEW"]);
 });
 
 test("manager submitting a breaching quote does NOT get auto-approved despite the permission", async () => {
