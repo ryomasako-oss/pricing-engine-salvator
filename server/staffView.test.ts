@@ -203,9 +203,9 @@ describe("auditForViewer", () => {
   // Regression: the submit entry recorded net_margin and GET /quotes/:id sent
   // the audit trail to everyone; the leak probe missed it until it re-read the
   // quote after submitting and matched keys inside JSON strings.
-  it("drops margin from the submit entry for staff, keeps the rest", () => {
+  it("drops margin and the tripped rules from the submit entry for staff, keeps the rest", () => {
     const [e] = auditForViewer("rep", [entry(JSON.stringify({ breaches: ["NET_MARGIN"], monthly_value: 100, net_margin: 0.04 }))]);
-    expect(JSON.parse(e.detail)).toEqual({ breaches: ["NET_MARGIN"], monthly_value: 100 });
+    expect(JSON.parse(e.detail)).toEqual({ monthly_value: 100 });
   });
 
   it("leaves non-JSON details alone and managers untouched", () => {

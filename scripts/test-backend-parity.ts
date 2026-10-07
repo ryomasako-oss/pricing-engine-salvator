@@ -1718,6 +1718,29 @@ scenario("A rep cannot probe for cost: every blocking price looks the same, safe
   return out;
 });
 
+// Review of #13: the submit audit entry records the breach codes, and the
+// staff audit filter dropped only cost fields, so a rep could still submit,
+// read which rule tripped in the quote's history, reopen and try another price.
+scenario("A rep cannot read which policy rule tripped from the quote's history either", async (d) => {
+  await seedLeakCatalog(d);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const created = await d.api("POST", "/api/quotes", {
+    body: { title: "Probe history", snapshot: { ...snapshotFor([]), items: [{ id: "h1", code: "LEAK-1", qty: 1, rrp: 99000, price: 20000 }] } },
+    session: rep,
+  });
+  assert.equal(created.status, 201, JSON.stringify(created.json));
+  const id = created.json.quote.id;
+  const sub = await d.api("POST", `/api/quotes/${id}/submit`, { session: rep });
+  assert.equal(sub.status, 200, JSON.stringify(sub.json));
+  const RULES = /NET_MARGIN|LINE_MARGIN|BELOW_COST|ABOVE_CEILING|BASKET_DISCOUNT|VALUE_THRESHOLD|MISSING_COGS/;
+  const asRep = JSON.stringify((await d.api("GET", `/api/quotes/${id}`, { session: rep })).json);
+  const managerAudit = JSON.stringify((await d.api("GET", `/api/quotes/${id}`, { session: manager })).json.audit);
+  assert.ok(RULES.test(managerAudit), "the manager's history names the rules (so this test can fail)");
+  assert.ok(!RULES.test(asRep), `a rule code reached the rep: ${asRep.match(RULES)?.[0]}`);
+  return { submitted: sub.json.quote.status };
+});
+
 scenario("OCR endpoint: login required, and off (503) until a Gemini key is set", async (d) => {
   const rep = await loginCached(d, "rep@test.local", "password123");
   const anon = await d.api("POST", "/api/ocr/extract", { body: {} });

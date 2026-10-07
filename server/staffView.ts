@@ -301,12 +301,17 @@ export function settingsForViewer<T extends { policy: unknown; company: unknown 
   return canSeeCosts(role) ? s : { company: s.company };
 }
 
-/** Detail keys in the audit trail that carry cost or margin (submit writes net_margin). */
-const COST_DETAIL_KEYS = new Set(["net_margin", "margin", "cogs", "landed", "assumptions"]);
+/**
+ * Detail keys in the audit trail staff don't get: cost or margin (submit
+ * writes net_margin), and the policy rules a submit tripped (`breaches`),
+ * which would let a rep probe prices just as the breach list would (see
+ * breachesForViewer); the quote's status already tells them a manager decides.
+ */
+const COST_DETAIL_KEYS = new Set(["net_margin", "margin", "cogs", "landed", "assumptions", "breaches"]);
 
 /**
  * A quote's audit trail as this user may read it. The submit entry records
- * the net margin it was submitted at; staff see the entry without it.
+ * the net margin and the rules it tripped; staff see the entry without them.
  */
 export function auditForViewer(role: Role, entries: AuditEntry[]): AuditEntry[] {
   if (canSeeCosts(role)) return entries;
