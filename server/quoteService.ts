@@ -183,19 +183,14 @@ export function cogsProblemsFor(codes: string[]): Map<string, string> {
   return problemsByCode(codes, all<CogsRow>(cogsRowsSql(keys.length), ...keys));
 }
 
-/** Catalog rows with their units for these codes, keyed by normalizeCode (PE-1 staff edits). */
-export function catalogByKeys(codes: string[]): CatalogByKey {
-  return new Map([...catalogListsByKeys(codes)].map(([key, rows]) => [key, rows[0]]));
-}
-
 /**
  * Every catalog row matching these codes by normalizeCode, with units. Codes
  * are unique only with exact case, so "atk-01" and "ATK-01" can both exist;
  * applyHolds needs all of them to pick the exact one.
  */
-export function catalogListsByKeys(codes: string[]): Map<string, CatalogItem[]> {
+export function catalogListsByKeys(codes: string[]): CatalogByKey {
   const keys = staffLookupKeys(codes);
-  const out = new Map<string, CatalogItem[]>();
+  const out: CatalogByKey = new Map();
   if (!keys.length) return out;
   const rows = all<CatalogItem>(catalogByKeysSql(keys.length), ...keys);
   const units = rows.length

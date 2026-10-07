@@ -90,10 +90,9 @@ export function applyHolds<T extends { status: string; items: QuoteItem[] }>(
       if (it.code && problems.has(it.code)) return { ...it, held: true };
       const rows = it.code ? catalog.get(normalizeCode(it.code)) ?? [] : [];
       if (!rows.length) return it; // not from the catalog: left to the pricing policy, as before
-      // Codes are unique only with exact case: use the exact one. When only
-      // case-variants of the line's code exist, which item is meant can't be
-      // told, so the line waits for a manager instead of taking either's cost.
-      const item = rows.find((r) => r.code === it.code) ?? (rows.length === 1 ? rows[0] : undefined);
+      // When only case-variants of the line's code exist, which item is meant
+      // can't be told, so the line waits for a manager instead of taking either's cost.
+      const item = catalogRowFor(rows, it.code);
       if (!item) return { ...it, held: true };
       return followCatalog(it, catalogCostIn(item, it));
     }),
@@ -144,6 +143,15 @@ export const recostCodes = (quotes: { status: string; items: QuoteItem[] }[], pr
   quotes
     .filter((q) => LIVE_HOLD_STATUSES.has(q.status))
     .flatMap((q) => q.items.filter((it) => it.code && !problems.has(it.code)).map((it) => it.code));
+
+/**
+ * The catalog row a code means among the rows sharing its normalizeCode key.
+ * Codes are unique only with exact case ("atk-01" and "ATK-01" can both
+ * exist): the exact one, else the only one; undefined when it is unclear.
+ */
+export function catalogRowFor<T extends { code: string }>(rows: T[], code: string): T | undefined {
+  return rows.find((r) => r.code === code) ?? (rows.length === 1 ? rows[0] : undefined);
+}
 
 /** Codes on quotes whose holds follow the catalog, for one problem lookup over a list. */
 export const liveHoldCodes = (quotes: { status: string; items: QuoteItem[] }[]) =>

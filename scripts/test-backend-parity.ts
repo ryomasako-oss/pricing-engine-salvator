@@ -1984,6 +1984,25 @@ scenario("a line follows the catalog row with its exact code, not a code that di
 });
 
 
+// Independent re-review of #10: the staff paths took whichever case-variant
+// came first, so a rep adding "S-CASE" got "s-case", a different product.
+scenario("a rep's new line is built from the catalog row with its exact code; a code matching only case-variants is refused", async (d) => {
+  await importRows(d, [{ code: "s-case", name: "Lower row", uom: "Pcs", cogs: 300, list_price: 450 }]);
+  await importRows(d, [{ code: "S-CASE", name: "Upper row", uom: "Pcs", cogs: 1000, list_price: 1500 }]);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const make = (code: string) =>
+    d.api("POST", "/api/quotes", { body: { title: "Case", snapshot: { items: [{ id: "c1", code, qty: 1 }], meta: snapshotFor([]).meta } }, session: rep });
+  const exact = await make("S-CASE");
+  const unclear = await make("S-Case");
+  assert.equal(exact.status, 201, JSON.stringify(exact.json));
+  const line = (await d.api("GET", `/api/quotes/${exact.json.quote.id}`, { session: manager })).json.quote.items[0];
+  assert.deepEqual({ code: line.code, name: line.name, cogs: line.cogs }, { code: "S-CASE", name: "Upper row", cogs: 1000 });
+  assert.equal(unclear.status, 400);
+  return { exact: { code: line.code, cogs: line.cogs }, unclear: unclear.status };
+});
+
+
 // ---------------------------------------------------------------
 // Run: ONE pair of backends for the whole run (Node caches the
 // dynamically-imported server/db.js module by URL, so "fresh drivers

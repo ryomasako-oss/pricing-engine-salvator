@@ -193,19 +193,14 @@ export async function cogsProblemsFor(d1: D1Database, codes: string[]): Promise<
   return problemsByCode(codes, rows);
 }
 
-/** Catalog rows with their units for these codes, keyed by normalizeCode (PE-1 staff edits). */
-export async function catalogByKeys(d1: D1Database, codes: string[]): Promise<CatalogByKey> {
-  return new Map([...(await catalogListsByKeys(d1, codes))].map(([key, rows]) => [key, rows[0]]));
-}
-
 /**
  * Every catalog row matching these codes by normalizeCode, with units. Codes
  * are unique only with exact case, so "atk-01" and "ATK-01" can both exist;
  * applyHolds needs all of them to pick the exact one.
  */
-export async function catalogListsByKeys(d1: D1Database, codes: string[]): Promise<Map<string, CatalogItem[]>> {
+export async function catalogListsByKeys(d1: D1Database, codes: string[]): Promise<CatalogByKey> {
   const keys = staffLookupKeys(codes);
-  const out = new Map<string, CatalogItem[]>();
+  const out: CatalogByKey = new Map();
   const rows: CatalogItem[] = [];
   // D1 caps bound parameters per statement, so look codes up in chunks.
   for (let i = 0; i < keys.length; i += 90) {
