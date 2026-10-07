@@ -114,7 +114,9 @@ export async function salesReviewWorkbook(input: SalesReviewInput): Promise<Exce
       margin: held ? null : row.margins[k],
       total: held ? null : Math.round(row.prices[k] * row.qty),
       how: held
-        ? "Ditahan: COGS di katalog perlu dicek manajer. Baris ini tidak ikut penawaran dan tidak perlu dicek."
+        ? row.holdReason === "sales"
+          ? "Menyusul: ditolak di cek sebelumnya, ada di Perlu diperbaiki. Baris ini tidak ikut penawaran dan tidak perlu dicek."
+          : "Ditahan: COGS di katalog perlu dicek manajer. Baris ini tidak ikut penawaran dan tidak perlu dicek."
         : ex.steps.map((s, i) => `${i + 1}. ${s}`).join("\n"),
       notes: ex.flags.join("; "),
       decision: held ? HELD : null,

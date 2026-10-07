@@ -215,6 +215,29 @@ CREATE TABLE IF NOT EXISTS sales_reviews (
   created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_sales_reviews_quote ON sales_reviews(quote_id, id);
+
+-- Mirrors migrations/0013_fix_tasks.sql.
+CREATE TABLE IF NOT EXISTS fix_tasks (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind        TEXT NOT NULL,
+  quote_id    INTEGER REFERENCES quotes(id) ON DELETE CASCADE,
+  line_id     TEXT,
+  code        TEXT NOT NULL DEFAULT '',
+  item_name   TEXT NOT NULL,
+  qty         REAL NOT NULL DEFAULT 0,
+  uom         TEXT NOT NULL DEFAULT '',
+  detail      TEXT NOT NULL DEFAULT '',
+  dedupe      TEXT NOT NULL,
+  status      TEXT NOT NULL DEFAULT 'open',
+  created_by  INTEGER REFERENCES users(id),
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  resolved_by INTEGER REFERENCES users(id),
+  resolved_at TEXT,
+  resolution  TEXT NOT NULL DEFAULT ''
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_fix_tasks_open ON fix_tasks(dedupe) WHERE status = 'open';
+CREATE INDEX IF NOT EXISTS idx_fix_tasks_status ON fix_tasks(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_fix_tasks_quote ON fix_tasks(quote_id);
 `);
 
 // Mirrors migrations/0010_cogs_reference_by_manager.sql: the reference COGS

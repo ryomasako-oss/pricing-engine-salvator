@@ -92,6 +92,12 @@ export interface QuoteItem {
   catalogCogs?: number;
   /** The cost was typed or imported by someone rather than copied from the catalog: a draft keeps it. */
   cogsByHand?: boolean;
+  /**
+   * Why the line is held: "cogs" (default, above) or "sales" — sales marked it
+   * Tolak in the "Cek harga" Excel, so the approved quote goes ahead without it
+   * and it is offered later (shared/fixTasks.ts). Set by the server only.
+   */
+  holdReason?: "cogs" | "sales";
 }
 
 export interface Region {

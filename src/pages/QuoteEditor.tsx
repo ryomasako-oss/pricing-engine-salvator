@@ -29,7 +29,7 @@ import { QuotationDoc, type CompanyInfo } from "../components/QuotationDoc";
 import { CatalogPicker } from "../components/CatalogPicker";
 import { Breakdown } from "../components/Breakdown";
 import { TermsBox } from "../components/TermsBox";
-import { SalesReviewBanner, SalesReviewImport, type SalesReviewRecord } from "../components/SalesReview";
+import { SalesReviewBanner, SalesReviewImport, salesImportMessage, type SalesReviewRecord } from "../components/SalesReview";
 import { ImportDialog } from "../components/ImportDialog";
 import { DuplicateAddModal, DuplicateBanner } from "../components/Duplicates";
 import { AssistantPanel, applyActions, type AssistantAction } from "../components/AssistantPanel";
@@ -133,6 +133,8 @@ export function QuoteEditorPage() {
       ]);
       setDetail(d);
       setSalesReview(sr.review);
+      // Submits and sales checks add "Perlu diperbaiki" tasks: refresh the nav count.
+      window.dispatchEvent(new Event("fix-tasks-changed"));
       const snap: QuoteSnapshot = {
         assumptions: d.quote.assumptions,
         items: d.quote.items,
@@ -913,12 +915,10 @@ export function QuoteEditorPage() {
         <SalesReviewImport
           quote={quote}
           onClose={() => setModal(null)}
-          onDone={(rejected) => {
+          onDone={(rejected, status) => {
             setModal(null);
-            toast(
-              rejected ? `${rejected} baris ditolak sales. Quotation kembali ke draft untuk manajer.` : "Semua baris ACC. Hasil cek tersimpan.",
-              rejected ? "error" : "success",
-            );
+            toast(salesImportMessage(rejected, status), status === "approved" ? "success" : "error");
+            window.dispatchEvent(new Event("fix-tasks-changed"));
             void load();
           }}
         />
