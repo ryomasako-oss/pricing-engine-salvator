@@ -1939,6 +1939,39 @@ scenario("PE-2/fix: Tolak on every line reopens the quote as a draft for the man
   return { status: r.json.quote.status, tasks: tasks.length };
 });
 
+// Codex review of develop 1fee9ed: the rule counted revisions, so reopening the
+// pending revision again (rev 3) submitted with auto-approval and nobody decided.
+scenario("PE-2/fix: after a sales Tolak, auto-approval stays off through further reopens until a manager approves", async (d) => {
+  const { rep, manager, id, rev_no, version } = await approvedForSales(d);
+  await d.api("POST", `/api/quotes/${id}/sales-review`, { body: { rev_no, version, lines: decide("acc", "tolak") }, session: rep });
+  await d.api("POST", `/api/quotes/${id}/reopen`, { session: manager });
+  const first = await d.api("POST", `/api/quotes/${id}/submit`, { session: manager });
+  const reopenedAgain = await d.api("POST", `/api/quotes/${id}/reopen`, { session: manager });
+  const second = await d.api("POST", `/api/quotes/${id}/submit`, { session: manager });
+  assert.equal(reopenedAgain.status, 200, JSON.stringify(reopenedAgain.json));
+  assert.deepEqual([first.json.autoApproved, second.json.autoApproved], [false, false], "auto-approved without a manager's decision");
+  const decided = await d.api("POST", `/api/quotes/${id}/decide`, { body: { decision: "approved", note: "" }, session: manager });
+  await d.api("POST", `/api/quotes/${id}/reopen`, { session: manager });
+  const afterDecision = await d.api("POST", `/api/quotes/${id}/submit`, { session: manager });
+  assert.equal(decided.status, 200, JSON.stringify(decided.json));
+  assert.equal(afterDecision.json.autoApproved, true, "a manager approved after the Tolak, so a later reopen submits normally");
+  return { first: first.json.autoApproved, second: second.json.autoApproved, afterDecision: afterDecision.json.autoApproved };
+});
+
+// Codex review of develop 1fee9ed: two imports of the same file version both
+// wrote; the second overwrote the first and put its rejected line back on offer.
+scenario("PE-2/fix: two sales-check imports of the same file version at once: one wins, the other is refused (409)", async (d) => {
+  const { rep, manager, id, rev_no, version } = await approvedForSales(d);
+  const post = (lines: unknown) => d.api("POST", `/api/quotes/${id}/sales-review`, { body: { rev_no, version, lines }, session: rep });
+  const results = await Promise.all([post(decide("tolak", "acc")), post(decide("acc", "tolak"))]);
+  const statuses = results.map((r) => r.status).sort();
+  const quote = (await d.api("GET", `/api/quotes/${id}`, { session: manager })).json.quote;
+  const held = quote.items.filter((it: { held?: boolean }) => it.held).map((it: { id: string }) => it.id);
+  assert.deepEqual(statuses, [200, 409], JSON.stringify(results.map((r) => r.json)));
+  assert.equal(held.length, 1, `exactly the winning import's rejected line is held, got ${JSON.stringify(held)}`);
+  return { statuses, held: held.length };
+});
+
 scenario("PE-2/fix: the revision opened after a sales Tolak is not auto-approved, even for a manager inside policy", async (d) => {
   const { rep, manager, id, rev_no, version } = await approvedForSales(d);
   await d.api("POST", `/api/quotes/${id}/sales-review`, { body: { rev_no, version, lines: decide("acc", "tolak") }, session: rep });

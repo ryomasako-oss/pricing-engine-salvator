@@ -5,7 +5,13 @@ import { audit, auditFor } from "../audit.js";
 import { type AuthedRequest, requireAuth, requirePermission } from "../auth.js";
 import { hasPermission } from "../../shared/permissions.js";
 import { salesReviewSchema, snapshotSchema, unmatchedSchema, zodMessage } from "../validate.js";
-import { checkSalesReview, followsSalesRejection, rejectionNote, salesOutcome } from "../../shared/salesReview.js";
+import {
+  SALES_REJECTION_OPEN_SQL,
+  SALES_REVIEW_STALE,
+  checkSalesReview,
+  rejectionNote,
+  salesOutcome,
+} from "../../shared/salesReview.js";
 import { tasksFromItems, tasksFromSalesRejection, tasksFromUnmatched, type NewFixTask } from "../../shared/fixTasks.js";
 import { INSERT_TASKS_SQL, insertTasksParams } from "../fixTasks.js";
 import {
@@ -564,13 +570,7 @@ quotesRouter.post("/:id/submit", (req: AuthedRequest, res) => {
   const clean = isWithinPolicy(breaches);
   // A manager submitting a quote that breaks no rule is approved on the spot,
   // except a revision that follows a sales Tolak: that one is decided explicitly.
-  const afterSalesRejection = followsSalesRejection(
-    get<{ rev_no: number; rejected: number }>(
-      "SELECT rev_no, rejected FROM sales_reviews WHERE quote_id = ? AND rejected > 0 ORDER BY id DESC LIMIT 1",
-      id,
-    ),
-    quote.rev_no,
-  );
+  const afterSalesRejection = Boolean(get<{ open: number }>(SALES_REJECTION_OPEN_SQL, id, id)?.open);
   const autoApprove = clean && !afterSalesRejection && hasPermission(req.user!.role, "decide_quotes");
 
   tx(() => {
@@ -691,9 +691,10 @@ quotesRouter.post("/:id/decide", requirePermission("decide_quotes"), (req: Authe
       req.user!.id,
       parsed.data.decision === "approved" ? "Disetujui" : "Ditolak",
     );
+    // The sales-Tolak rule orders decisions by audit id, so the decision
+    // and its audit must become visible together.
+    audit(req.user!.id, "quote", id, parsed.data.decision, { note: parsed.data.note });
   });
-
-  audit(req.user!.id, "quote", id, parsed.data.decision, { note: parsed.data.note });
 
   const submitter = get<{ name: string; email: string; phone: string }>(
     "SELECT name, email, phone FROM users WHERE id = ?",
@@ -830,6 +831,12 @@ quotesRouter.post("/:id/sales-review", (req: AuthedRequest, res) => {
   const after = { ...quote, items: outcome.items };
   const recheck = outcome.mode === "partial" ? breachesFor(after) : null;
   const backToManager = !!recheck && !isWithinPolicy(recheck.breaches);
+  // Written only if the quote is still as it was checked (see SALES_REVIEW_GUARD_SQL).
+  const still = get<{ version: number; status: string }>("SELECT version, status FROM quotes WHERE id = ?", id);
+  if (!still || still.version !== quote.version || still.status !== quote.status) {
+    res.status(409).json({ error: SALES_REVIEW_STALE });
+    return;
+  }
   tx(() => {
     run(
       "INSERT INTO sales_reviews(quote_id, rev_no, reviewed_by, lines, rejected) VALUES(?, ?, ?, ?, ?)",
@@ -864,11 +871,12 @@ quotesRouter.post("/:id/sales-review", (req: AuthedRequest, res) => {
         );
       }
     }
-  });
-  audit(req.user!.id, "quote", id, rejected ? "sales_rejected" : "sales_accepted", {
-    rev_no: quote.rev_no,
-    rejected: check.rejected.map((l) => l.lineNo),
-    outcome: backToManager ? "pending" : outcome.mode,
+    // In the same transaction: SALES_REJECTION_OPEN_SQL orders by this entry.
+    audit(req.user!.id, "quote", id, rejected ? "sales_rejected" : "sales_accepted", {
+      rev_no: quote.rev_no,
+      rejected: check.rejected.map((l) => l.lineNo),
+      outcome: backToManager ? "pending" : outcome.mode,
+    });
   });
   const managers = () =>
     all<{ name: string; email: string; phone: string }>("SELECT name, email, phone FROM users WHERE role = 'manager' AND active = 1");
