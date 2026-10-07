@@ -104,3 +104,15 @@ export function salesOutcome(items: QuoteItem[], rejected: { id: string }[]): {
     items: items.map((it) => (ids.has(it.id) ? { ...it, held: true, holdReason: "sales" as const } : it)),
   };
 }
+
+/**
+ * Ryoma 2026-10-07: a revision opened after sales said Tolak is never approved
+ * on submit, even by a manager and even when every number is inside policy;
+ * the manager decides it explicitly. `latest` is the newest sales check that
+ * rejected something. A Tolak is recorded on the revision that was approved
+ * (rev N) and the reopened revision is N+1, so only that one is covered: a
+ * later reopen after the manager approved it submits normally again.
+ */
+export function followsSalesRejection(latest: { rev_no: number; rejected: number } | null | undefined, currentRev: number): boolean {
+  return !!latest && latest.rejected > 0 && latest.rev_no >= currentRev - 1;
+}

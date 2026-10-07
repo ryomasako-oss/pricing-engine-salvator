@@ -1759,6 +1759,29 @@ scenario("PE-2/fix: Tolak on every line reopens the quote as a draft for the man
   return { status: r.json.quote.status, tasks: tasks.length };
 });
 
+scenario("PE-2/fix: the revision opened after a sales Tolak is not auto-approved, even for a manager inside policy", async (d) => {
+  const { rep, manager, id, rev_no, version } = await approvedForSales(d);
+  await d.api("POST", `/api/quotes/${id}/sales-review`, { body: { rev_no, version, lines: decide("acc", "tolak") }, session: rep });
+  const reopened = await d.api("POST", `/api/quotes/${id}/reopen`, { session: manager });
+  assert.equal(reopened.status, 200, JSON.stringify(reopened.json));
+  const sub = await d.api("POST", `/api/quotes/${id}/submit`, { session: manager });
+  assert.equal(sub.status, 200, JSON.stringify(sub.json));
+  const queue = await d.api("GET", "/api/approvals", { session: manager });
+  assert.equal(sub.json.autoApproved, false, "approved on submit although a sales Tolak came before");
+  assert.equal(sub.json.quote.status, "submitted");
+  assert.ok(JSON.stringify(queue.json).includes(sub.json.quote.number), "not in the manager's queue");
+  // The manager decides it explicitly; that closes the exception.
+  const decided = await d.api("POST", `/api/quotes/${id}/decide`, { body: { decision: "approved", note: "" }, session: manager });
+  const again = await d.api("POST", `/api/quotes/${id}/reopen`, { session: manager });
+  const sub2 = await d.api("POST", `/api/quotes/${id}/submit`, { session: manager });
+  assert.equal(decided.status, 200, JSON.stringify(decided.json));
+  assert.equal(sub2.json.autoApproved, true, "a later, unrelated reopen should submit normally");
+  return {
+    reopenedRev: reopened.json.quote.rev_no - rev_no, submitted: sub.json.quote.status, auto: sub.json.autoApproved,
+    decided: decided.status, laterRev: again.json.quote.rev_no - rev_no, laterAuto: sub2.json.autoApproved,
+  };
+});
+
 scenario("PE-2: refused imports: stale file, missing line, Tolak without reason, not approved, someone else's quote", async (d) => {
   const { rep, id, rev_no, version } = await approvedForSales(d);
   const rep2 = await loginCached(d, "rep2@test.local", "password123");

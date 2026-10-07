@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkSalesReview, rejectionNote, salesOutcome } from "./salesReview";
+import { checkSalesReview, followsSalesRejection, rejectionNote, salesOutcome } from "./salesReview";
 import type { QuoteItem } from "./types";
 
 const quote = {
@@ -73,5 +73,18 @@ describe("salesOutcome", () => {
   });
   it("is 'none' with no rejection and leaves items alone", () => {
     expect(salesOutcome(items, [])).toEqual({ mode: "none", items });
+  });
+});
+
+describe("followsSalesRejection", () => {
+  it("covers the revision opened after a rejection, and nothing else", () => {
+    expect(followsSalesRejection(null, 2)).toBe(false);
+    expect(followsSalesRejection({ rev_no: 1, rejected: 0 }, 2)).toBe(false);
+    // Tolak on approved rev 1 -> the reopened rev 2 must be decided by a manager.
+    expect(followsSalesRejection({ rev_no: 1, rejected: 1 }, 2)).toBe(true);
+    // Still rev 1 (partial Tolak, never reopened): same revision.
+    expect(followsSalesRejection({ rev_no: 1, rejected: 2 }, 1)).toBe(true);
+    // The manager approved rev 2; a later reopen (rev 3) submits normally again.
+    expect(followsSalesRejection({ rev_no: 1, rejected: 1 }, 3)).toBe(false);
   });
 });
