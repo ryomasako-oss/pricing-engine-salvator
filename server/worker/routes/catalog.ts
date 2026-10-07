@@ -17,6 +17,7 @@ import {
 } from "../../catalogMatch";
 import { VERIFY_COGS_SQL, cogsCheckInput, withProblems } from "../../cogsCheck";
 import { cogsProblemsFor } from "../quoteService";
+import { canSeeCosts, catalogItemsForViewer, problemsForViewer } from "../../staffView";
 import { cleanUnits, type ItemUnits } from "../../../shared/uom";
 import type { CatalogItem, UnitFactor } from "../../../shared/types";
 import type { Env } from "../env";
@@ -81,7 +82,9 @@ catalogRouter.get("/", async (c) => {
     cogs: "cogs",
     list_price: "list_price",
   };
-  const sortField = sortColumns[c.req.query("sortBy") ?? ""] ?? "name";
+  // Sorting by COGS would tell staff which items cost more (PE-1).
+  const sortKey = c.req.query("sortBy") ?? "";
+  const sortField = (sortKey === "cogs" && !canSeeCosts(c.get("user")!.role) ? undefined : sortColumns[sortKey]) ?? "name";
   const sortDir = (c.req.query("sortDir") ?? "").toLowerCase() === "desc" ? "DESC" : "ASC";
   const orderBy = sortField === "name" ? "name" : `${sortField} ${sortDir}, name`;
 
@@ -96,7 +99,11 @@ catalogRouter.get("/", async (c) => {
   const codes = items.map((i) => i.code);
   const units = await unitsByCode(c.env.DB, codes);
   const withUnits = items.map((i) => ({ ...i, units: units.get(i.code) ?? [] }));
-  return c.json({ items: withProblems(withUnits, await cogsProblemsFor(c.env.DB, codes)), total: total?.n ?? 0 });
+  const role = c.get("user")!.role;
+  return c.json({
+    items: catalogItemsForViewer(role, withProblems(withUnits, await cogsProblemsFor(c.env.DB, codes))),
+    total: total?.n ?? 0,
+  });
 });
 
 /**
@@ -139,14 +146,16 @@ catalogRouter.post("/match", async (c) => {
   const { results, referenced } = runMatch(parsed.data, catalog, aliases);
   const codes = referenced.map((i) => i.code);
   const body = matchResponse(results, referenced, await unitsByCode(c.env.DB, codes));
-  return c.json({ ...body, items: withProblems(body.items, await cogsProblemsFor(c.env.DB, codes)) });
+  const role = c.get("user")!.role;
+  return c.json({ ...body, items: catalogItemsForViewer(role, withProblems(body.items, await cogsProblemsFor(c.env.DB, codes))) });
 });
 
 /** Which of these codes have a COGS that must not be sold on (shared/cogsCheck.ts). */
 catalogRouter.post("/cogs-check", async (c) => {
   const parsed = cogsCheckInput.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
-  return c.json({ problems: Object.fromEntries(await cogsProblemsFor(c.env.DB, parsed.data.codes)) });
+  const role = c.get("user")!.role;
+  return c.json({ problems: Object.fromEntries(problemsForViewer(role, await cogsProblemsFor(c.env.DB, parsed.data.codes))) });
 });
 
 /** A manager confirms an item's current COGS is right despite a big jump from its history. */

@@ -4,11 +4,22 @@ import { all, get, run, stmt, batch } from "../../db.d1";
 import { audit, auditFor } from "../audit";
 import { requireAuth, requirePermission } from "../auth";
 import { hasPermission } from "../../../shared/permissions";
-import { snapshotSchema, zodMessage } from "../../validate";
+import { salesReviewSchema, snapshotSchema, unmatchedSchema, zodMessage } from "../../validate";
+import {
+  SALES_REJECTION_OPEN_SQL,
+  SALES_REVIEW_GUARD_SQL,
+  SALES_REVIEW_STALE,
+  checkSalesReview,
+  rejectionNote,
+  salesOutcome,
+} from "../../../shared/salesReview";
+import { tasksFromItems, tasksFromSalesRejection, tasksFromUnmatched, type NewFixTask } from "../../../shared/fixTasks";
+import { INSERT_TASKS_SQL, insertTasksParams } from "../../fixTasks";
 import {
   EDITABLE_STATUSES,
   STATUS_FLOW,
   breachesFor,
+  catalogListsByKeys,
   cogsProblemsFor,
   findQuote,
   listQuoteRows,
@@ -18,7 +29,20 @@ import {
 } from "../quoteService";
 import { isWithinPolicy } from "../../../shared/policy";
 import { defaultPayment, missingTerms, missingTermsMessage } from "../../../shared/terms";
-import { blockedLines, blockedMessage } from "../../cogsCheck";
+import { ALL_HELD, applyHolds, recostCodes } from "../../cogsCheck";
+import {
+  approvalsForViewer,
+  auditForViewer,
+  breachesForViewer,
+  canSeeCosts,
+  mergeStaffItems,
+  policyForViewer,
+  previewInput,
+  problemsForViewer,
+  quoteForViewer,
+  quoteRowForViewer,
+  staffSnapshotSchema,
+} from "../../staffView";
 import { DEFAULT_ASSUMPTIONS, DEFAULT_REGIONS } from "../../../shared/engine";
 import {
   notifyQuoteDecided,
@@ -26,11 +50,18 @@ import {
   notifyQuoteReassignedAway,
   notifyQuoteSubmitted,
 } from "../notify";
-import type { Client, QuoteSnapshot, QuoteStatus, User } from "../../../shared/types";
+import type { Client, Quote, QuoteSnapshot, QuoteStatus, Role, User } from "../../../shared/types";
 import type { Env } from "../env";
 
 export const quotesRouter = new Hono<Env>();
 quotesRouter.use(requireAuth);
+
+/** Every quote this router sends goes through here: staff get prices, not costs (PE-1). */
+const view = (role: Role, quote: Quote | null) => quote && quoteForViewer(role, quote);
+
+/** "Perlu diperbaiki": one open task per problem (server/fixTasks.ts), as batch statements. */
+const taskStmts = (db: D1Database, tasks: NewFixTask[], userId: number) =>
+  insertTasksParams(tasks, userId).map((params) => stmt(db, INSERT_TASKS_SQL, ...params));
 
 /** Reps may only change their own quotes or one reassigned to them; managers/admins may change any. */
 function canEdit(user: User, createdBy: number, assignedTo: number | null): boolean {
@@ -83,7 +114,7 @@ quotesRouter.get("/", async (c) => {
         monthly_value,
         net_margin,
       };
-    }),
+    }).map((row) => quoteRowForViewer(c.get("user")!.role, row)),
   });
 });
 
@@ -94,6 +125,36 @@ quotesRouter.get("/users/assignable", requirePermission("decide_quotes"), async 
     "SELECT id, name, role FROM users WHERE active = 1 ORDER BY name",
   );
   return c.json({ users });
+});
+
+/**
+ * Prices for lines a rep is editing, without saving: no version bump, no
+ * audit entry. Lines merge onto the stored quote (or a new quote's defaults)
+ * exactly as a save would, and the answer goes through quoteForViewer.
+ */
+quotesRouter.post("/preview", async (c) => {
+  const user = c.get("user")!;
+  const parsed = previewInput.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
+  const base = parsed.data.quote_id ? await findQuote(c.env.DB, parsed.data.quote_id) : null;
+  if (parsed.data.quote_id && !base) return c.json({ error: "Quotation tidak ditemukan." }, 404);
+  const stored = base?.items ?? [];
+  const lines = parsed.data.snapshot.items;
+  const catalog = await catalogListsByKeys(c.env.DB, [...stored.map((i) => i.code), ...lines.map((l) => l.code)]);
+  const merged = mergeStaffItems(stored, lines, catalog, base?.scenario);
+  if ("error" in merged) return c.json(merged, 400);
+  const draft = {
+    ...(base ?? { id: 0, number: "", title: "", status: "draft", rev_no: 1, version: 0 }),
+    assumptions: base?.assumptions ?? DEFAULT_ASSUMPTIONS,
+    regions: base?.regions ?? DEFAULT_REGIONS,
+    scenario: base?.scenario ?? 1,
+    meta: parsed.data.snapshot.meta ?? base?.meta,
+    items: merged.items,
+    status: "draft",
+  } as Quote;
+  const problems = await cogsProblemsFor(c.env.DB, merged.items.map((i) => i.code));
+  const held = applyHolds(draft, problems, await catalogListsByKeys(c.env.DB, recostCodes([draft], problems)));
+  return c.json({ quote: view(user.role, held) });
 });
 
 quotesRouter.get("/:id", async (c) => {
@@ -123,11 +184,11 @@ quotesRouter.get("/:id", async (c) => {
   const approvals = approvalRows.map((a) => ({ ...a, breaches: JSON.parse(a.breaches || "[]") }));
 
   return c.json({
-    quote,
+    quote: quoteForViewer(user.role, quote),
     revisions,
-    approvals,
-    audit: await auditFor(c.env.DB, "quote", id, 60),
-    policy: await breachesFor(c.env.DB, quote),
+    approvals: approvalsForViewer(user.role, approvals),
+    audit: auditForViewer(user.role, await auditFor(c.env.DB, "quote", id, 60)),
+    policy: policyForViewer(user.role, await breachesFor(c.env.DB, quote)),
     canEdit: canEdit(user, quote.created_by, quote.assigned_to) && EDITABLE_STATUSES.includes(quote.status),
   });
 });
@@ -138,10 +199,29 @@ quotesRouter.post("/", async (c) => {
     .object({
       title: z.string().min(1).max(200),
       client_id: z.number().int().nullable().optional(),
-      snapshot: snapshotSchema.partial().optional(),
+      snapshot: z.unknown().optional(),
+      // Rows of a client's list with no catalog item ("Dari list klien"): kept as tasks.
+      unmatched: unmatchedSchema.optional(),
     })
     .safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
+  // Staff send lines by catalog code; cost inputs come from the catalog and
+  // defaults, never from the browser (PE-1).
+  let requested: Partial<QuoteSnapshot> = {};
+  if (parsed.data.snapshot !== undefined) {
+    if (canSeeCosts(user.role)) {
+      const full = snapshotSchema.partial().safeParse(parsed.data.snapshot);
+      if (!full.success) return c.json({ error: zodMessage(full.error) }, 400);
+      requested = full.data as Partial<QuoteSnapshot>;
+    } else {
+      const staff = staffSnapshotSchema.partial().safeParse(parsed.data.snapshot);
+      if (!staff.success) return c.json({ error: zodMessage(staff.error) }, 400);
+      const lines = staff.data.items ?? [];
+      const merged = mergeStaffItems([], lines, await catalogListsByKeys(c.env.DB, lines.map((l) => l.code)));
+      if ("error" in merged) return c.json(merged, 400);
+      requested = { items: merged.items, ...(staff.data.meta ? { meta: staff.data.meta } : {}) };
+    }
+  }
 
   const client = parsed.data.client_id
     ? await get<Client>(c.env.DB, "SELECT * FROM clients WHERE id = ?", parsed.data.client_id)
@@ -155,11 +235,11 @@ quotesRouter.post("/", async (c) => {
   let snapshot: QuoteSnapshot | undefined;
   for (let attempt = 0; attempt < 5; attempt++) {
     snapshot = {
-      assumptions: parsed.data.snapshot?.assumptions ?? DEFAULT_ASSUMPTIONS,
-      items: parsed.data.snapshot?.items ?? [],
-      regions: parsed.data.snapshot?.regions ?? DEFAULT_REGIONS,
-      scenario: parsed.data.snapshot?.scenario ?? 1,
-      meta: parsed.data.snapshot?.meta ?? {
+      assumptions: requested.assumptions ?? DEFAULT_ASSUMPTIONS,
+      items: requested.items ?? [],
+      regions: requested.regions ?? DEFAULT_REGIONS,
+      scenario: requested.scenario ?? 1,
+      meta: requested.meta ?? {
         quoteNo: number,
         date: new Date().toISOString().slice(0, 10),
         validity: 30,
@@ -194,10 +274,20 @@ quotesRouter.post("/", async (c) => {
       number = await nextQuoteNumber(c.env.DB);
     }
   }
-  await saveRevision(c.env.DB, id!, 1, snapshot!, user.id, "Dibuat");
+  // The first revision and the list's missing rows go in one batch (one
+  // transaction). The quote row itself is inserted just before (its number
+  // may need a retry), so a failure here leaves a quote without them.
+  await batch(c.env.DB, [
+    stmt(
+      c.env.DB,
+      "INSERT INTO quote_revisions(quote_id, rev_no, snapshot, note, created_by) VALUES(?, ?, ?, ?, ?)",
+      id!, 1, JSON.stringify(snapshot!), "Dibuat", user.id,
+    ),
+    ...taskStmts(c.env.DB, tasksFromUnmatched(id!, parsed.data.unmatched ?? []), user.id),
+  ]);
 
   await audit(c.env.DB, user.id, "quote", id!, "created", { number, title: parsed.data.title });
-  return c.json({ quote: await findQuote(c.env.DB, id!) }, 201);
+  return c.json({ quote: view(user.role, await findQuote(c.env.DB, id!)) }, 201);
 });
 
 quotesRouter.put("/:id", async (c) => {
@@ -216,13 +306,33 @@ quotesRouter.put("/:id", async (c) => {
     .object({
       title: z.string().min(1).max(200).optional(),
       client_id: z.number().int().nullable().optional(),
-      snapshot: snapshotSchema,
+      snapshot: z.unknown(),
       expected_version: z.number().int(),
     })
     .safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
 
-  const s = parsed.data.snapshot;
+  // Staff change qty, unit, ceiling, lines and terms; cost, role, manual
+  // price, assumptions, regions and scenario stay as stored (PE-1).
+  let s: QuoteSnapshot;
+  if (canSeeCosts(user.role)) {
+    const full = snapshotSchema.safeParse(parsed.data.snapshot);
+    if (!full.success) return c.json({ error: zodMessage(full.error) }, 400);
+    s = full.data as QuoteSnapshot;
+  } else {
+    const staff = staffSnapshotSchema.safeParse(parsed.data.snapshot);
+    if (!staff.success) return c.json({ error: zodMessage(staff.error) }, 400);
+    const codes = [...existing.items.map((it) => it.code), ...staff.data.items.map((l) => l.code)];
+    const merged = mergeStaffItems(existing.items, staff.data.items, await catalogListsByKeys(c.env.DB, codes), existing.scenario);
+    if ("error" in merged) return c.json(merged, 400);
+    s = {
+      assumptions: existing.assumptions,
+      regions: existing.regions,
+      scenario: existing.scenario,
+      items: merged.items,
+      meta: staff.data.meta ?? existing.meta,
+    };
+  }
   const result = await run(
     c.env.DB,
     `UPDATE quotes SET title = COALESCE(?, title), client_id = ?, scenario = ?,
@@ -243,7 +353,7 @@ quotesRouter.put("/:id", async (c) => {
     return c.json(
       {
         error: "Quotation ini sudah diubah pengguna lain. Muat ulang untuk melihat versi terbaru.",
-        quote: await findQuote(c.env.DB, id),
+        quote: view(user.role, await findQuote(c.env.DB, id)),
       },
       409,
     );
@@ -254,7 +364,7 @@ quotesRouter.put("/:id", async (c) => {
     version: parsed.data.expected_version + 1,
     from_status: existing.status,
   });
-  return c.json({ quote: await findQuote(c.env.DB, id) });
+  return c.json({ quote: view(c.get("user")!.role, await findQuote(c.env.DB, id)) });
 });
 
 /** Explicit named snapshot, so a rep can bookmark a version before experimenting. */
@@ -378,7 +488,7 @@ quotesRouter.post("/:id/restore/:revisionId", async (c) => {
     ),
   ]);
   await audit(c.env.DB, user.id, "quote", id, "restored", { from_rev: rev.rev_no, tag });
-  return c.json({ quote: await findQuote(c.env.DB, id) });
+  return c.json({ quote: view(c.get("user")!.role, await findQuote(c.env.DB, id)) });
 });
 
 /** Hand a quote to another active user — manager/admin only, e.g. when the
@@ -398,7 +508,7 @@ quotesRouter.post("/:id/reassign", requirePermission("decide_quotes"), async (c)
   if (parsed.data.assigned_to === quote.assigned_to) {
     // No actual change (e.g. re-picking the current assignee) — skip the
     // history entry and notifications so they aren't sent for nothing.
-    return c.json({ quote });
+    return c.json({ quote: view(c.get("user")!.role, quote) });
   }
   let target: User | undefined;
   if (parsed.data.assigned_to !== null) {
@@ -462,7 +572,7 @@ quotesRouter.post("/:id/reassign", requirePermission("decide_quotes"), async (c)
       }),
     );
   }
-  return c.json({ quote: await findQuote(c.env.DB, id) });
+  return c.json({ quote: view(c.get("user")!.role, await findQuote(c.env.DB, id)) });
 });
 
 /* ---------------- approval workflow ---------------- */
@@ -477,20 +587,22 @@ quotesRouter.post("/:id/submit", async (c) => {
   // Term of payment and warranty must be on the customer's document.
   const missing = missingTerms(quote.meta);
   if (missing.length) return c.json({ error: missingTermsMessage(missing), missing }, 400);
-  // An item whose catalog COGS looks wrong must not be sold (shared/cogsCheck.ts).
-  const cogsBlocked = blockedLines(
-    quote.items,
-    await cogsProblemsFor(c.env.DB, quote.items.map((it) => it.code)),
-  );
-  if (cogsBlocked.length) return c.json({ error: blockedMessage(cogsBlocked), cogsBlocked }, 400);
+  // Lines whose catalog COGS needs a manager are held, not offered (findQuote
+  // applied the holds); the rest goes ahead. Nothing to offer -> refuse.
+  if (quote.items.length && quote.items.every((it) => it.held)) return c.json({ error: ALL_HELD }, 400);
 
   const { breaches, monthly_value, net_margin } = await breachesFor(c.env.DB, quote);
   const clean = isWithinPolicy(breaches);
-  // A manager submitting a quote that breaks no rule is approved on the spot.
-  const autoApprove = clean && hasPermission(user.role, "decide_quotes");
+  // A manager submitting a quote that breaks no rule is approved on the spot,
+  // except a revision that follows a sales Tolak: that one is decided explicitly.
+  const afterSalesRejection = Boolean((await get<{ open: number }>(c.env.DB, SALES_REJECTION_OPEN_SQL, id, id))?.open);
+  const autoApprove = clean && !afterSalesRejection && hasPermission(user.role, "decide_quotes");
   const now = new Date().toISOString();
+  // What isn't offered (held COGS, a unit without a ratio) goes on "Perlu diperbaiki".
+  const heldProblems = await cogsProblemsFor(c.env.DB, quote.items.filter((it) => it.held).map((it) => it.code));
 
   await batch(c.env.DB, [
+    ...taskStmts(c.env.DB, tasksFromItems(id, quote.items, heldProblems), user.id),
     stmt(
       c.env.DB,
       `INSERT INTO approvals(quote_id, requested_by, decision, breaches, monthly_value, net_margin,
@@ -506,6 +618,8 @@ quotesRouter.post("/:id/submit", async (c) => {
       autoApprove ? now : null,
       autoApprove ? "Otomatis disetujui: seluruh angka di dalam kebijakan." : null,
     ),
+    // Freeze the holds as submitted: from here on the document doesn't change by itself.
+    stmt(c.env.DB, "UPDATE quotes SET items = ? WHERE id = ?", JSON.stringify(quote.items), id),
     stmt(
       c.env.DB,
       `UPDATE quotes SET status = ?, approved_by = ?, approved_at = ?, updated_at = datetime('now')
@@ -527,6 +641,7 @@ quotesRouter.post("/:id/submit", async (c) => {
   ]);
 
   await audit(c.env.DB, user.id, "quote", id, autoApprove ? "auto_approved" : "submitted", {
+    ...(afterSalesRejection && { after_sales_rejection: true }),
     breaches: breaches.map((b) => b.code),
     monthly_value,
     net_margin,
@@ -554,7 +669,7 @@ quotesRouter.post("/:id/submit", async (c) => {
     );
   }
 
-  return c.json({ quote: await findQuote(c.env.DB, id), breaches, autoApproved: autoApprove });
+  return c.json({ quote: view(user.role, await findQuote(c.env.DB, id)), breaches: breachesForViewer(user.role, breaches), autoApproved: autoApprove });
 });
 
 quotesRouter.post("/:id/decide", requirePermission("decide_quotes"), async (c) => {
@@ -615,10 +730,19 @@ quotesRouter.post("/:id/decide", requirePermission("decide_quotes"), async (c) =
       parsed.data.decision === "approved" ? "Disetujui" : "Ditolak",
       user.id,
     ),
+    // The sales-Tolak rule orders decisions by audit id. A rejection that
+    // observes this approval must also observe its audit entry.
+    stmt(
+      c.env.DB,
+      "INSERT INTO audit_log(actor_id, entity, entity_id, action, detail) VALUES(?, ?, ?, ?, ?)",
+      user.id,
+      "quote",
+      id,
+      parsed.data.decision,
+      JSON.stringify({ note: parsed.data.note }),
+    ),
   );
   await batch(c.env.DB, statements);
-
-  await audit(c.env.DB, user.id, "quote", id, parsed.data.decision, { note: parsed.data.note });
 
   const submitter = await get<{ name: string; email: string; phone: string }>(
     c.env.DB,
@@ -639,7 +763,7 @@ quotesRouter.post("/:id/decide", requirePermission("decide_quotes"), async (c) =
     );
   }
 
-  return c.json({ quote: await findQuote(c.env.DB, id) });
+  return c.json({ quote: view(c.get("user")!.role, await findQuote(c.env.DB, id)) });
 });
 
 quotesRouter.post("/:id/status", async (c) => {
@@ -657,7 +781,7 @@ quotesRouter.post("/:id/status", async (c) => {
   }
   await run(c.env.DB, "UPDATE quotes SET status = ?, updated_at = datetime('now') WHERE id = ?", next, id);
   await audit(c.env.DB, user.id, "quote", id, `status_${next}`);
-  return c.json({ quote: await findQuote(c.env.DB, id) });
+  return c.json({ quote: view(c.get("user")!.role, await findQuote(c.env.DB, id)) });
 });
 
 /** Unlocks a decided quote as a new revision, preserving the approved history. */
@@ -696,7 +820,142 @@ quotesRouter.post("/:id/reopen", async (c) => {
   }
   await batch(c.env.DB, statements);
   await audit(c.env.DB, user.id, "quote", id, "reopened", { rev_no: nextRev });
-  return c.json({ quote: await findQuote(c.env.DB, id) });
+  return c.json({ quote: view(c.get("user")!.role, await findQuote(c.env.DB, id)) });
+});
+
+/* ---------------- PE-2: sales check the locked "Cek harga" Excel ---------------- */
+
+async function latestSalesReview(db: D1Database, id: number) {
+  const r = await get<{ lines: string } & Record<string, unknown>>(
+    db,
+    `SELECT s.id, s.rev_no, s.lines, s.rejected, s.created_at, u.name AS reviewed_by_name
+       FROM sales_reviews s LEFT JOIN users u ON u.id = s.reviewed_by
+      WHERE s.quote_id = ? ORDER BY s.id DESC LIMIT 1`,
+    id,
+  );
+  return r ? { ...r, lines: JSON.parse(r.lines) } : null;
+}
+
+quotesRouter.get("/:id/sales-review", async (c) => {
+  const id = Number(c.req.param("id"));
+  if (!(await get(c.env.DB, "SELECT id FROM quotes WHERE id = ?", id))) {
+    return c.json({ error: "Quotation tidak ditemukan." }, 404);
+  }
+  return c.json({ review: await latestSalesReview(c.env.DB, id) });
+});
+
+/**
+ * All ACC: recorded, the quote stays approved. Some Tolak: those lines are
+ * held as "sales" and become "Perlu diperbaiki" tasks; the rest stays
+ * approved (or goes to the manager if it now breaks the policy). Every line
+ * Tolak: back to draft as the next revision for the manager.
+ */
+quotesRouter.post("/:id/sales-review", async (c) => {
+  const user = c.get("user")!;
+  const id = Number(c.req.param("id"));
+  const quote = await findQuote(c.env.DB, id);
+  if (!quote) return c.json({ error: "Quotation tidak ditemukan." }, 404);
+  if (!canEdit(user, quote.created_by, quote.assigned_to)) return c.json({ error: "Quotation ini milik pengguna lain." }, 403);
+  const parsed = salesReviewSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
+  const check = checkSalesReview(quote, parsed.data);
+  if (!check.ok) return c.json({ error: check.error }, check.status);
+
+  const rejected = check.rejected.length;
+  const outcome = salesOutcome(quote.items, check.rejected);
+  // A partial rejection changes what the client is offered; if what is left
+  // breaks the policy, the manager decides again (pending) instead of the
+  // quote staying approved on numbers nobody approved.
+  const after = { ...quote, items: outcome.items };
+  const recheck = outcome.mode === "partial" ? await breachesFor(c.env.DB, after) : null;
+  const backToManager = !!recheck && !isWithinPolicy(recheck.breaches);
+  const db = c.env.DB;
+  const statements = [
+    // Fails the whole batch if the quote moved on since it was checked.
+    stmt(db, SALES_REVIEW_GUARD_SQL, id, quote.version, quote.status),
+    stmt(
+      db,
+      "INSERT INTO sales_reviews(quote_id, rev_no, reviewed_by, lines, rejected) VALUES(?, ?, ?, ?, ?)",
+      id, quote.rev_no, user.id, JSON.stringify(check.lines), rejected,
+    ),
+    ...taskStmts(db, tasksFromSalesRejection(id, check.rejected, quote.items, user.name), user.id),
+  ];
+  if (outcome.mode === "all") {
+    // Nothing left to offer: back to draft for the manager, like a reopen.
+    statements.push(
+      stmt(
+        db,
+        "INSERT INTO quote_revisions(quote_id, rev_no, snapshot, note, created_by) VALUES(?, ?, ?, ?, ?)",
+        id, quote.rev_no, JSON.stringify(quote), `Ditolak sales: semua ${rejected} baris`, user.id,
+      ),
+      stmt(
+        db,
+        `UPDATE quotes SET status = 'draft', rev_no = ?, approved_by = NULL, approved_at = NULL,
+                decision_note = NULL, updated_at = datetime('now') WHERE id = ?`,
+        quote.rev_no + 1, id,
+      ),
+    );
+  } else if (outcome.mode === "partial") {
+    // The version moves so an older "Cek harga" file can't be imported again.
+    statements.push(
+      stmt(db, "UPDATE quotes SET items = ?, version = version + 1, updated_at = datetime('now') WHERE id = ?", JSON.stringify(outcome.items), id),
+      stmt(
+        db,
+        "INSERT INTO quote_revisions(quote_id, rev_no, snapshot, note, created_by) VALUES(?, ?, ?, ?, ?)",
+        id, quote.rev_no, JSON.stringify(after), `Dicek sales: ${rejected} baris menyusul`, user.id,
+      ),
+    );
+    if (backToManager) {
+      statements.push(
+        stmt(
+          db,
+          `INSERT INTO approvals(quote_id, requested_by, decision, breaches, monthly_value, net_margin)
+           VALUES(?, ?, 'pending', ?, ?, ?)`,
+          id, user.id, JSON.stringify(recheck!.breaches), recheck!.monthly_value, recheck!.net_margin,
+        ),
+        stmt(db, "UPDATE quotes SET status = 'submitted', approved_by = NULL, approved_at = NULL, updated_at = datetime('now') WHERE id = ?", id),
+      );
+    }
+  }
+  // In the same batch: SALES_REJECTION_OPEN_SQL orders by this entry.
+  statements.push(
+    stmt(
+      db,
+      "INSERT INTO audit_log(actor_id, entity, entity_id, action, detail) VALUES(?, ?, ?, ?, ?)",
+      user.id, "quote", id, rejected ? "sales_rejected" : "sales_accepted",
+      JSON.stringify({ rev_no: quote.rev_no, rejected: check.rejected.map((l) => l.lineNo), outcome: backToManager ? "pending" : outcome.mode }),
+    ),
+  );
+  try {
+    await batch(db, statements);
+  } catch (err) {
+    const now = await get<{ version: number; status: string }>(db, "SELECT version, status FROM quotes WHERE id = ?", id);
+    if (!now || now.version !== quote.version || now.status !== quote.status) return c.json({ error: SALES_REVIEW_STALE }, 409);
+    throw err;
+  }
+  if (outcome.mode === "all" || backToManager) {
+    const managers = await all<{ name: string; email: string; phone: string }>(
+      db,
+      "SELECT name, email, phone FROM users WHERE role = 'manager' AND active = 1",
+    );
+    const note = rejectionNote(user.name, check.rejected);
+    c.executionCtx.waitUntil(
+      outcome.mode === "all"
+        ? Promise.all(
+            managers.map((recipient) =>
+              notifyQuoteDecided(c.env, {
+                recipient, quoteNumber: quote.number, quoteTitle: quote.title, decision: "rejected",
+                decidedBy: `${user.name} (cek sales)`, note, quoteId: id,
+              }),
+            ),
+          )
+        : notifyQuoteSubmitted(c.env, {
+            recipients: managers, quoteNumber: quote.number, quoteTitle: quote.title,
+            submittedBy: `${user.name} (cek sales: ${rejected} baris menyusul)`, quoteId: id,
+          }),
+    );
+  }
+  return c.json({ quote: view(user.role, await findQuote(c.env.DB, id)), review: await latestSalesReview(c.env.DB, id) });
 });
 
 quotesRouter.delete("/:id", async (c) => {

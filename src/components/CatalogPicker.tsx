@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api";
+import { useAuth } from "../context/AuthContext";
 import { grp } from "@shared/format";
 import { normalizeCode } from "@shared/duplicates";
 import type { CatalogItem, QuoteItem } from "@shared/types";
@@ -23,6 +24,8 @@ export function CatalogPicker({
   /** Codes already on the quote, normalized with `normalizeCode`. */
   existingCodes: Set<string>;
 }) {
+  // Staff don't receive COGS (PE-1): the column is left out.
+  const seeCosts = useAuth().can("view_costs");
   const [query, setQuery] = useState("");
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -71,8 +74,12 @@ export function CatalogPicker({
   );
 
   /** The quote line for an item, built in its base unit, then converted to the chosen unit. */
-  const lineFor = (item: CatalogItem, qty: number): QuoteItem =>
-    lineFromCatalog(item, qty, { uom: uomOverride[item.id] });
+  // A COGS problem doesn't stop the pick: the line goes on the quote held
+  // (server/cogsCheck.ts applyHolds), so it isn't forgotten or offered.
+  const lineFor = (item: CatalogItem, qty: number): QuoteItem => {
+    const line = lineFromCatalog(item, qty, { uom: uomOverride[item.id] });
+    return item.cogs_problem ? { ...line, held: true } : line;
+  };
 
   const add = () => {
     const picked = selected
@@ -87,7 +94,7 @@ export function CatalogPicker({
   return (
     <Modal
       title="Tambah item dari katalog"
-      sub={`${total} item cocok. COGS berasal dari inventory, plafon awal dari harga jual master.`}
+      sub={seeCosts ? `${total} item cocok. COGS berasal dari inventory, plafon awal dari harga jual master.` : `${total} item cocok. Plafon awal dari harga jual master.`}
       size="wide"
       onClose={onClose}
       footer={
@@ -132,7 +139,7 @@ export function CatalogPicker({
             <thead>
               <tr>
                 <th className="l">Item</th>
-                <th>COGS</th>
+                {seeCosts && <th>COGS</th>}
                 <th>Harga jual</th>
                 <th>Stok</th>
                 <th className="l">Satuan</th>
@@ -155,10 +162,10 @@ export function CatalogPicker({
                       )}
                     </div>
                     {item.cogs_problem && (
-                      <div className="small" style={{ color: "var(--danger)" }}>⚠ {item.cogs_problem}. Tidak bisa dipakai.</div>
+                      <div className="small" style={{ color: "var(--warn)" }}>⚠ {item.cogs_problem}. Masuk sebagai baris ditahan sampai dicek manajer.</div>
                     )}
                   </td>
-                  <td className="num">{item.cogs > 0 ? grp(line.cogs) : <span className="muted">—</span>}</td>
+                  {seeCosts && <td className="num">{item.cogs > 0 ? grp(line.cogs) : <span className="muted">—</span>}</td>}
                   <td className="num">{item.list_price > 0 ? grp(line.rrp) : <span className="muted">—</span>}</td>
                   <td className="num muted">{grp(item.stock)}</td>
                   <td className="l">
@@ -176,7 +183,6 @@ export function CatalogPicker({
                       type="number"
                       min="0"
                       placeholder="0"
-                      disabled={!!item.cogs_problem}
                       value={chosen[item.id] ?? ""}
                       onChange={(e) => {
                         setChosen((c) => ({ ...c, [item.id]: Math.max(0, Number(e.target.value)) }));

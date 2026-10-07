@@ -4,11 +4,21 @@ import { all, get, run, tx } from "../db.js";
 import { audit, auditFor } from "../audit.js";
 import { type AuthedRequest, requireAuth, requirePermission } from "../auth.js";
 import { hasPermission } from "../../shared/permissions.js";
-import { snapshotSchema, zodMessage } from "../validate.js";
+import { salesReviewSchema, snapshotSchema, unmatchedSchema, zodMessage } from "../validate.js";
+import {
+  SALES_REJECTION_OPEN_SQL,
+  SALES_REVIEW_STALE,
+  checkSalesReview,
+  rejectionNote,
+  salesOutcome,
+} from "../../shared/salesReview.js";
+import { tasksFromItems, tasksFromSalesRejection, tasksFromUnmatched, type NewFixTask } from "../../shared/fixTasks.js";
+import { INSERT_TASKS_SQL, insertTasksParams } from "../fixTasks.js";
 import {
   EDITABLE_STATUSES,
   STATUS_FLOW,
   breachesFor,
+  catalogListsByKeys,
   cogsProblemsFor,
   findQuote,
   listQuoteRows,
@@ -18,7 +28,20 @@ import {
 } from "../quoteService.js";
 import { isWithinPolicy } from "../../shared/policy.js";
 import { defaultPayment, missingTerms, missingTermsMessage } from "../../shared/terms.js";
-import { blockedLines, blockedMessage } from "../cogsCheck.js";
+import { ALL_HELD, applyHolds, recostCodes } from "../cogsCheck.js";
+import {
+  approvalsForViewer,
+  auditForViewer,
+  breachesForViewer,
+  canSeeCosts,
+  mergeStaffItems,
+  policyForViewer,
+  previewInput,
+  problemsForViewer,
+  quoteForViewer,
+  quoteRowForViewer,
+  staffSnapshotSchema,
+} from "../staffView.js";
 import { DEFAULT_ASSUMPTIONS, DEFAULT_REGIONS } from "../../shared/engine.js";
 import {
   notifyQuoteDecided,
@@ -26,10 +49,18 @@ import {
   notifyQuoteReassignedAway,
   notifyQuoteSubmitted,
 } from "../notify.js";
-import type { Client, QuoteSnapshot, QuoteStatus, User } from "../../shared/types.js";
+import type { Client, Quote, QuoteSnapshot, QuoteStatus, User } from "../../shared/types.js";
 
 export const quotesRouter = Router();
 quotesRouter.use(requireAuth);
+
+/** Every quote this router sends goes through here: staff get prices, not costs (PE-1). */
+const view = (req: AuthedRequest, quote: Quote | null) => quote && quoteForViewer(req.user!.role, quote);
+
+/** "Perlu diperbaiki": one open task per problem (server/fixTasks.ts). Call inside tx(). */
+const recordTasks = (tasks: NewFixTask[], userId: number) => {
+  for (const params of insertTasksParams(tasks, userId)) run(INSERT_TASKS_SQL, ...params);
+};
 
 /** Reps may only change their own quotes or one reassigned to them; managers/admins may change any. */
 function canEdit(req: AuthedRequest, createdBy: number, assignedTo: number | null): boolean {
@@ -85,7 +116,7 @@ quotesRouter.get("/", (req: AuthedRequest, res) => {
         monthly_value,
         net_margin,
       };
-    }),
+    }).map((row) => quoteRowForViewer(req.user!.role, row)),
   });
 });
 
@@ -96,6 +127,43 @@ quotesRouter.get("/users/assignable", requirePermission("decide_quotes"), (_req:
       "SELECT id, name, role FROM users WHERE active = 1 ORDER BY name",
     ),
   });
+});
+
+/**
+ * Prices for lines a rep is editing, without saving: no version bump, no
+ * audit entry. Lines merge onto the stored quote (or a new quote's defaults)
+ * exactly as a save would, and the answer goes through quoteForViewer.
+ */
+quotesRouter.post("/preview", (req: AuthedRequest, res) => {
+  const parsed = previewInput.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: zodMessage(parsed.error) });
+    return;
+  }
+  const base = parsed.data.quote_id ? findQuote(parsed.data.quote_id) : null;
+  if (parsed.data.quote_id && !base) {
+    res.status(404).json({ error: "Quotation tidak ditemukan." });
+    return;
+  }
+  const stored = base?.items ?? [];
+  const lines = parsed.data.snapshot.items;
+  const merged = mergeStaffItems(stored, lines, catalogListsByKeys([...stored.map((i) => i.code), ...lines.map((l) => l.code)]), base?.scenario);
+  if ("error" in merged) {
+    res.status(400).json(merged);
+    return;
+  }
+  const draft = {
+    ...(base ?? { id: 0, number: "", title: "", status: "draft", rev_no: 1, version: 0 }),
+    assumptions: base?.assumptions ?? DEFAULT_ASSUMPTIONS,
+    regions: base?.regions ?? DEFAULT_REGIONS,
+    scenario: base?.scenario ?? 1,
+    meta: parsed.data.snapshot.meta ?? base?.meta,
+    items: merged.items,
+    status: "draft",
+  } as Quote;
+  const problems = cogsProblemsFor(merged.items.map((i) => i.code));
+  const held = applyHolds(draft, problems, catalogListsByKeys(recostCodes([draft], problems)));
+  res.json({ quote: view(req, held) });
 });
 
 quotesRouter.get("/:id", (req: AuthedRequest, res) => {
@@ -122,12 +190,13 @@ quotesRouter.get("/:id", (req: AuthedRequest, res) => {
     id,
   ).map((a: any) => ({ ...a, breaches: JSON.parse(a.breaches || "[]") }));
 
+  const role = req.user!.role;
   res.json({
-    quote,
+    quote: quoteForViewer(role, quote),
     revisions,
-    approvals,
-    audit: auditFor("quote", id, 60),
-    policy: breachesFor(quote),
+    approvals: approvalsForViewer(role, approvals),
+    audit: auditForViewer(role, auditFor("quote", id, 60)),
+    policy: policyForViewer(role, breachesFor(quote)),
     canEdit: canEdit(req, quote.created_by, quote.assigned_to) && EDITABLE_STATUSES.includes(quote.status),
   });
 });
@@ -137,12 +206,40 @@ quotesRouter.post("/", (req: AuthedRequest, res) => {
     .object({
       title: z.string().min(1).max(200),
       client_id: z.number().int().nullable().optional(),
-      snapshot: snapshotSchema.partial().optional(),
+      snapshot: z.unknown().optional(),
+      // Rows of a client's list with no catalog item ("Dari list klien"): kept as tasks.
+      unmatched: unmatchedSchema.optional(),
     })
     .safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: zodMessage(parsed.error) });
     return;
+  }
+  // Staff send lines by catalog code; cost inputs come from the catalog and
+  // defaults, never from the browser (PE-1).
+  let requested: Partial<QuoteSnapshot> = {};
+  if (parsed.data.snapshot !== undefined) {
+    if (canSeeCosts(req.user!.role)) {
+      const full = snapshotSchema.partial().safeParse(parsed.data.snapshot);
+      if (!full.success) {
+        res.status(400).json({ error: zodMessage(full.error) });
+        return;
+      }
+      requested = full.data as Partial<QuoteSnapshot>;
+    } else {
+      const staff = staffSnapshotSchema.partial().safeParse(parsed.data.snapshot);
+      if (!staff.success) {
+        res.status(400).json({ error: zodMessage(staff.error) });
+        return;
+      }
+      const lines = staff.data.items ?? [];
+      const merged = mergeStaffItems([], lines, catalogListsByKeys(lines.map((l) => l.code)));
+      if ("error" in merged) {
+        res.status(400).json(merged);
+        return;
+      }
+      requested = { items: merged.items, ...(staff.data.meta ? { meta: staff.data.meta } : {}) };
+    }
   }
   const client = parsed.data.client_id
     ? get<Client>("SELECT * FROM clients WHERE id = ?", parsed.data.client_id)
@@ -156,11 +253,11 @@ quotesRouter.post("/", (req: AuthedRequest, res) => {
   let snapshot: QuoteSnapshot | undefined;
   for (let attempt = 0; attempt < 5; attempt++) {
     snapshot = {
-      assumptions: parsed.data.snapshot?.assumptions ?? DEFAULT_ASSUMPTIONS,
-      items: parsed.data.snapshot?.items ?? [],
-      regions: parsed.data.snapshot?.regions ?? DEFAULT_REGIONS,
-      scenario: parsed.data.snapshot?.scenario ?? 1,
-      meta: parsed.data.snapshot?.meta ?? {
+      assumptions: requested.assumptions ?? DEFAULT_ASSUMPTIONS,
+      items: requested.items ?? [],
+      regions: requested.regions ?? DEFAULT_REGIONS,
+      scenario: requested.scenario ?? 1,
+      meta: requested.meta ?? {
         quoteNo: number,
         date: new Date().toISOString().slice(0, 10),
         validity: 30,
@@ -189,6 +286,7 @@ quotesRouter.post("/", (req: AuthedRequest, res) => {
         );
         const newId = Number(info.lastInsertRowid);
         saveRevision(newId, 1, snapshot!, req.user!.id, "Dibuat");
+        recordTasks(tasksFromUnmatched(newId, parsed.data.unmatched ?? []), req.user!.id);
         return newId;
       });
       break;
@@ -200,7 +298,7 @@ quotesRouter.post("/", (req: AuthedRequest, res) => {
   }
 
   audit(req.user!.id, "quote", id!, "created", { number, title: parsed.data.title });
-  res.status(201).json({ quote: findQuote(id!) });
+  res.status(201).json({ quote: view(req, findQuote(id!)) });
 });
 
 quotesRouter.put("/:id", (req: AuthedRequest, res) => {
@@ -224,7 +322,7 @@ quotesRouter.put("/:id", (req: AuthedRequest, res) => {
     .object({
       title: z.string().min(1).max(200).optional(),
       client_id: z.number().int().nullable().optional(),
-      snapshot: snapshotSchema,
+      snapshot: z.unknown(),
       expected_version: z.number().int(),
     })
     .safeParse(req.body);
@@ -232,7 +330,36 @@ quotesRouter.put("/:id", (req: AuthedRequest, res) => {
     res.status(400).json({ error: zodMessage(parsed.error) });
     return;
   }
-  const s = parsed.data.snapshot;
+  // Staff change qty, unit, ceiling, lines and terms; cost, role, manual
+  // price, assumptions, regions and scenario stay as stored (PE-1).
+  let s: QuoteSnapshot;
+  if (canSeeCosts(req.user!.role)) {
+    const full = snapshotSchema.safeParse(parsed.data.snapshot);
+    if (!full.success) {
+      res.status(400).json({ error: zodMessage(full.error) });
+      return;
+    }
+    s = full.data as QuoteSnapshot;
+  } else {
+    const staff = staffSnapshotSchema.safeParse(parsed.data.snapshot);
+    if (!staff.success) {
+      res.status(400).json({ error: zodMessage(staff.error) });
+      return;
+    }
+    const codes = [...existing.items.map((it) => it.code), ...staff.data.items.map((l) => l.code)];
+    const merged = mergeStaffItems(existing.items, staff.data.items, catalogListsByKeys(codes), existing.scenario);
+    if ("error" in merged) {
+      res.status(400).json(merged);
+      return;
+    }
+    s = {
+      assumptions: existing.assumptions,
+      regions: existing.regions,
+      scenario: existing.scenario,
+      items: merged.items,
+      meta: staff.data.meta ?? existing.meta,
+    };
+  }
   const info = run(
     `UPDATE quotes SET title = COALESCE(?, title), client_id = ?, scenario = ?,
             assumptions = ?, items = ?, regions = ?, meta = ?,
@@ -251,7 +378,7 @@ quotesRouter.put("/:id", (req: AuthedRequest, res) => {
   if (info.changes === 0) {
     res.status(409).json({
       error: "Quotation ini sudah diubah pengguna lain. Muat ulang untuk melihat versi terbaru.",
-      quote: findQuote(id),
+      quote: view(req, findQuote(id)),
     });
     return;
   }
@@ -261,7 +388,7 @@ quotesRouter.put("/:id", (req: AuthedRequest, res) => {
     version: parsed.data.expected_version + 1,
     from_status: existing.status,
   });
-  res.json({ quote: findQuote(id) });
+  res.json({ quote: view(req, findQuote(id)) });
 });
 
 /** Explicit named snapshot, so a rep can bookmark a version before experimenting. */
@@ -333,7 +460,7 @@ quotesRouter.post("/:id/restore/:revisionId", (req: AuthedRequest, res) => {
     saveRevision(id, quote.rev_no, s, req.user!.id, tag);
   });
   audit(req.user!.id, "quote", id, "restored", { from_rev: rev.rev_no, tag });
-  res.json({ quote: findQuote(id) });
+  res.json({ quote: view(req, findQuote(id)) });
 });
 
 /** Hand a quote to another active user — manager/admin only, e.g. when the
@@ -356,7 +483,7 @@ quotesRouter.post("/:id/reassign", requirePermission("decide_quotes"), (req: Aut
   if (parsed.data.assigned_to === quote.assigned_to) {
     // No actual change (e.g. re-picking the current assignee) — skip the
     // history entry and notifications so they aren't sent for nothing.
-    res.json({ quote });
+    res.json({ quote: view(req, quote) });
     return;
   }
   let target: User | undefined;
@@ -407,7 +534,7 @@ quotesRouter.post("/:id/reassign", requirePermission("decide_quotes"), (req: Aut
       quoteId: id,
     });
   }
-  res.json({ quote: findQuote(id) });
+  res.json({ quote: view(req, findQuote(id)) });
 });
 
 /* ---------------- approval workflow ---------------- */
@@ -433,16 +560,18 @@ quotesRouter.post("/:id/submit", (req: AuthedRequest, res) => {
     res.status(400).json({ error: missingTermsMessage(missing), missing });
     return;
   }
-  // An item whose catalog COGS looks wrong must not be sold (shared/cogsCheck.ts).
-  const cogsBlocked = blockedLines(quote.items, cogsProblemsFor(quote.items.map((it) => it.code)));
-  if (cogsBlocked.length) {
-    res.status(400).json({ error: blockedMessage(cogsBlocked), cogsBlocked });
+  // Lines whose catalog COGS needs a manager are held, not offered (findQuote
+  // applied the holds); the rest goes ahead. Nothing to offer -> refuse.
+  if (quote.items.length && quote.items.every((it) => it.held)) {
+    res.status(400).json({ error: ALL_HELD });
     return;
   }
   const { breaches, monthly_value, net_margin } = breachesFor(quote);
   const clean = isWithinPolicy(breaches);
-  // A manager submitting a quote that breaks no rule is approved on the spot.
-  const autoApprove = clean && hasPermission(req.user!.role, "decide_quotes");
+  // A manager submitting a quote that breaks no rule is approved on the spot,
+  // except a revision that follows a sales Tolak: that one is decided explicitly.
+  const afterSalesRejection = Boolean(get<{ open: number }>(SALES_REJECTION_OPEN_SQL, id, id)?.open);
+  const autoApprove = clean && !afterSalesRejection && hasPermission(req.user!.role, "decide_quotes");
 
   tx(() => {
     run(
@@ -459,6 +588,10 @@ quotesRouter.post("/:id/submit", (req: AuthedRequest, res) => {
       autoApprove ? new Date().toISOString() : null,
       autoApprove ? "Otomatis disetujui: seluruh angka di dalam kebijakan." : null,
     );
+    // Freeze the holds as submitted: from here on the document doesn't change by itself.
+    run("UPDATE quotes SET items = ? WHERE id = ?", JSON.stringify(quote.items), id);
+    // What isn't offered (held COGS, a unit without a ratio) goes on "Perlu diperbaiki".
+    recordTasks(tasksFromItems(id, quote.items, cogsProblemsFor(quote.items.filter((it) => it.held).map((it) => it.code))), req.user!.id);
     run(
       `UPDATE quotes SET status = ?, approved_by = ?, approved_at = ?, updated_at = datetime('now')
         WHERE id = ?`,
@@ -471,6 +604,7 @@ quotesRouter.post("/:id/submit", (req: AuthedRequest, res) => {
   });
 
   audit(req.user!.id, "quote", id, autoApprove ? "auto_approved" : "submitted", {
+    ...(afterSalesRejection && { after_sales_rejection: true }),
     breaches: breaches.map((b) => b.code),
     monthly_value,
     net_margin,
@@ -493,7 +627,7 @@ quotesRouter.post("/:id/submit", (req: AuthedRequest, res) => {
     });
   }
 
-  res.json({ quote: findQuote(id), breaches, autoApproved: autoApprove });
+  res.json({ quote: view(req, findQuote(id)), breaches: breachesForViewer(req.user!.role, breaches), autoApproved: autoApprove });
 });
 
 quotesRouter.post("/:id/decide", requirePermission("decide_quotes"), (req: AuthedRequest, res) => {
@@ -557,9 +691,10 @@ quotesRouter.post("/:id/decide", requirePermission("decide_quotes"), (req: Authe
       req.user!.id,
       parsed.data.decision === "approved" ? "Disetujui" : "Ditolak",
     );
+    // The sales-Tolak rule orders decisions by audit id, so the decision
+    // and its audit must become visible together.
+    audit(req.user!.id, "quote", id, parsed.data.decision, { note: parsed.data.note });
   });
-
-  audit(req.user!.id, "quote", id, parsed.data.decision, { note: parsed.data.note });
 
   const submitter = get<{ name: string; email: string; phone: string }>(
     "SELECT name, email, phone FROM users WHERE id = ?",
@@ -577,7 +712,7 @@ quotesRouter.post("/:id/decide", requirePermission("decide_quotes"), (req: Authe
     });
   }
 
-  res.json({ quote: findQuote(id) });
+  res.json({ quote: view(req, findQuote(id)) });
 });
 
 quotesRouter.post("/:id/status", (req: AuthedRequest, res) => {
@@ -601,7 +736,7 @@ quotesRouter.post("/:id/status", (req: AuthedRequest, res) => {
   }
   run("UPDATE quotes SET status = ?, updated_at = datetime('now') WHERE id = ?", next, id);
   audit(req.user!.id, "quote", id, `status_${next}`);
-  res.json({ quote: findQuote(id) });
+  res.json({ quote: view(req, findQuote(id)) });
 });
 
 /** Unlocks a decided quote as a new revision, preserving the approved history. */
@@ -637,7 +772,129 @@ quotesRouter.post("/:id/reopen", (req: AuthedRequest, res) => {
     }
   });
   audit(req.user!.id, "quote", id, "reopened", { rev_no: nextRev });
-  res.json({ quote: findQuote(id) });
+  res.json({ quote: view(req, findQuote(id)) });
+});
+
+/* ---------------- PE-2: sales check the locked "Cek harga" Excel ---------------- */
+
+const latestSalesReview = (id: number) => {
+  const r = get<{ lines: string } & Record<string, unknown>>(
+    `SELECT s.id, s.rev_no, s.lines, s.rejected, s.created_at, u.name AS reviewed_by_name
+       FROM sales_reviews s LEFT JOIN users u ON u.id = s.reviewed_by
+      WHERE s.quote_id = ? ORDER BY s.id DESC LIMIT 1`,
+    id,
+  );
+  return r ? { ...r, lines: JSON.parse(r.lines) } : null;
+};
+
+quotesRouter.get("/:id/sales-review", (req: AuthedRequest, res) => {
+  const id = Number(req.params.id);
+  if (!get("SELECT id FROM quotes WHERE id = ?", id)) {
+    res.status(404).json({ error: "Quotation tidak ditemukan." });
+    return;
+  }
+  res.json({ review: latestSalesReview(id) });
+});
+
+/**
+ * All ACC: recorded, the quote stays approved. Some Tolak: those lines are
+ * held as "sales" and become "Perlu diperbaiki" tasks; the rest stays
+ * approved (or goes to the manager if it now breaks the policy). Every line
+ * Tolak: back to draft as the next revision for the manager.
+ */
+quotesRouter.post("/:id/sales-review", (req: AuthedRequest, res) => {
+  const id = Number(req.params.id);
+  const quote = findQuote(id);
+  if (!quote) {
+    res.status(404).json({ error: "Quotation tidak ditemukan." });
+    return;
+  }
+  if (!canEdit(req, quote.created_by, quote.assigned_to)) {
+    res.status(403).json({ error: "Quotation ini milik pengguna lain." });
+    return;
+  }
+  const parsed = salesReviewSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: zodMessage(parsed.error) });
+    return;
+  }
+  const check = checkSalesReview(quote, parsed.data);
+  if (!check.ok) {
+    res.status(check.status).json({ error: check.error });
+    return;
+  }
+  const rejected = check.rejected.length;
+  const outcome = salesOutcome(quote.items, check.rejected);
+  // A partial rejection changes what the client is offered; if what is left
+  // breaks the policy, the manager decides again (pending) instead of the
+  // quote staying approved on numbers nobody approved.
+  const after = { ...quote, items: outcome.items };
+  const recheck = outcome.mode === "partial" ? breachesFor(after) : null;
+  const backToManager = !!recheck && !isWithinPolicy(recheck.breaches);
+  // Written only if the quote is still as it was checked (see SALES_REVIEW_GUARD_SQL).
+  const still = get<{ version: number; status: string }>("SELECT version, status FROM quotes WHERE id = ?", id);
+  if (!still || still.version !== quote.version || still.status !== quote.status) {
+    res.status(409).json({ error: SALES_REVIEW_STALE });
+    return;
+  }
+  tx(() => {
+    run(
+      "INSERT INTO sales_reviews(quote_id, rev_no, reviewed_by, lines, rejected) VALUES(?, ?, ?, ?, ?)",
+      id, quote.rev_no, req.user!.id, JSON.stringify(check.lines), rejected,
+    );
+    recordTasks(tasksFromSalesRejection(id, check.rejected, quote.items, req.user!.name), req.user!.id);
+    if (outcome.mode === "all") {
+      // Nothing left to offer: back to draft for the manager, like a reopen.
+      saveRevision(id, quote.rev_no, quote, req.user!.id, `Ditolak sales: semua ${rejected} baris`);
+      run(
+        `UPDATE quotes SET status = 'draft', rev_no = ?, approved_by = NULL, approved_at = NULL,
+                decision_note = NULL, updated_at = datetime('now') WHERE id = ?`,
+        quote.rev_no + 1, id,
+      );
+    } else if (outcome.mode === "partial") {
+      // The version moves so an older "Cek harga" file can't be imported again.
+      run(
+        "UPDATE quotes SET items = ?, version = version + 1, updated_at = datetime('now') WHERE id = ?",
+        JSON.stringify(outcome.items), id,
+      );
+      saveRevision(id, quote.rev_no, after, req.user!.id, `Dicek sales: ${rejected} baris menyusul`);
+      if (backToManager) {
+        run(
+          `INSERT INTO approvals(quote_id, requested_by, decision, breaches, monthly_value, net_margin)
+           VALUES(?, ?, 'pending', ?, ?, ?)`,
+          id, req.user!.id, JSON.stringify(recheck!.breaches), recheck!.monthly_value, recheck!.net_margin,
+        );
+        run(
+          `UPDATE quotes SET status = 'submitted', approved_by = NULL, approved_at = NULL,
+                  updated_at = datetime('now') WHERE id = ?`,
+          id,
+        );
+      }
+    }
+    // In the same transaction: SALES_REJECTION_OPEN_SQL orders by this entry.
+    audit(req.user!.id, "quote", id, rejected ? "sales_rejected" : "sales_accepted", {
+      rev_no: quote.rev_no,
+      rejected: check.rejected.map((l) => l.lineNo),
+      outcome: backToManager ? "pending" : outcome.mode,
+    });
+  });
+  const managers = () =>
+    all<{ name: string; email: string; phone: string }>("SELECT name, email, phone FROM users WHERE role = 'manager' AND active = 1");
+  if (outcome.mode === "all") {
+    const note = rejectionNote(req.user!.name, check.rejected);
+    for (const recipient of managers()) {
+      void notifyQuoteDecided({
+        recipient, quoteNumber: quote.number, quoteTitle: quote.title, decision: "rejected",
+        decidedBy: `${req.user!.name} (cek sales)`, note, quoteId: id,
+      });
+    }
+  } else if (backToManager) {
+    void notifyQuoteSubmitted({
+      recipients: managers(), quoteNumber: quote.number, quoteTitle: quote.title,
+      submittedBy: `${req.user!.name} (cek sales: ${rejected} baris menyusul)`, quoteId: id,
+    });
+  }
+  res.json({ quote: view(req, findQuote(id)), review: latestSalesReview(id) });
 });
 
 quotesRouter.delete("/:id", (req: AuthedRequest, res) => {

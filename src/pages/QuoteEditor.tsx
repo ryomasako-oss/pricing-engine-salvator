@@ -29,6 +29,7 @@ import { QuotationDoc, type CompanyInfo } from "../components/QuotationDoc";
 import { CatalogPicker } from "../components/CatalogPicker";
 import { Breakdown } from "../components/Breakdown";
 import { TermsBox } from "../components/TermsBox";
+import { SalesReviewBanner, SalesReviewImport, salesImportMessage, type SalesReviewRecord } from "../components/SalesReview";
 import { ImportDialog } from "../components/ImportDialog";
 import { DuplicateAddModal, DuplicateBanner } from "../components/Duplicates";
 import { AssistantPanel, applyActions, type AssistantAction } from "../components/AssistantPanel";
@@ -105,6 +106,9 @@ export function QuoteEditorPage() {
   const [snapshot, setSnapshot] = useState<QuoteSnapshot | null>(null);
   const [policy, setPolicy] = useState<PricingPolicy | null>(null);
   const [company, setCompany] = useState<CompanyInfo | null>(null);
+  // PE-2: office password for the "Cek harga" Excel (managers/admins only receive it).
+  const [excelPassword, setExcelPassword] = useState("");
+  const [salesReview, setSalesReview] = useState<SalesReviewRecord | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -123,8 +127,14 @@ export function QuoteEditorPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const d = await api.get<QuoteDetail>(`/quotes/${quoteId}`);
+      const [d, sr] = await Promise.all([
+        api.get<QuoteDetail>(`/quotes/${quoteId}`),
+        api.get<{ review: SalesReviewRecord | null }>(`/quotes/${quoteId}/sales-review`).catch(() => ({ review: null })),
+      ]);
       setDetail(d);
+      setSalesReview(sr.review);
+      // Submits and sales checks add "Perlu diperbaiki" tasks: refresh the nav count.
+      window.dispatchEvent(new Event("fix-tasks-changed"));
       const snap: QuoteSnapshot = {
         assumptions: d.quote.assumptions,
         items: d.quote.items,
@@ -149,10 +159,11 @@ export function QuoteEditorPage() {
 
   useEffect(() => {
     api
-      .get<{ policy: PricingPolicy; company: CompanyInfo }>("/settings")
+      .get<{ policy: PricingPolicy; company: CompanyInfo; excelPassword?: string }>("/settings")
       .then((r) => {
         setPolicy(r.policy);
         setCompany(r.company);
+        setExcelPassword(r.excelPassword ?? "");
       })
       .catch(() => undefined);
     api.get<{ clients: Client[] }>("/clients").then((r) => setClients(r.clients)).catch(() => undefined);
@@ -258,27 +269,28 @@ export function QuoteEditorPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [dirty, readOnly, save]);
 
-  // Catalog items whose COGS looks wrong (shared/cogsCheck.ts) block submit on
-  // the server; check when the submit dialog opens so the rep sees why first.
+  // Lines whose catalog COGS needs a manager (shared/cogsCheck.ts) are held at
+  // submit: left off the offer while the rest goes ahead. Check when the submit
+  // dialog opens (it also covers lines added since the last load).
   const [cogsBlocked, setCogsBlocked] = useState<{ lineNo: number; name: string; problem: string }[] | null>(null);
   useEffect(() => {
     if (modal?.kind !== "submit" || !snapshot) return;
     setCogsBlocked(null);
     const codes = [...new Set(snapshot.items.map((it) => it.code).filter(Boolean))];
+    // Lines the server already holds (server/cogsCheck.ts applyHolds) count too:
+    // some are held without a catalog problem, e.g. a cost that can't be checked.
+    const blocked = (problems: Record<string, string>) =>
+      snapshot.items
+        .filter((it) => it.held || (it.code && problems[it.code]))
+        .map((it) => ({ lineNo: it.lineNo, name: it.name, problem: problems[it.code] ?? "Biaya baris ini perlu dicek manajer." }));
     if (!codes.length) {
-      setCogsBlocked([]);
+      setCogsBlocked(blocked({}));
       return;
     }
     api
       .post<{ problems: Record<string, string> }>("/catalog/cogs-check", { codes })
-      .then((r) =>
-        setCogsBlocked(
-          snapshot.items
-            .filter((it) => it.code && r.problems[it.code])
-            .map((it) => ({ lineNo: it.lineNo, name: it.name, problem: r.problems[it.code] })),
-        ),
-      )
-      .catch(() => setCogsBlocked([])); // the server still enforces it on submit
+      .then((r) => setCogsBlocked(blocked(r.problems)))
+      .catch(() => setCogsBlocked(blocked({}))); // the server still enforces it on submit
   }, [modal, snapshot]);
 
   if (loading || !detail || !snapshot || !engine) {
@@ -475,6 +487,11 @@ export function QuoteEditorPage() {
           <button className="btn" onClick={() => setModal({ kind: "export" })}>
             <Icon name="download" size={15} /> Ekspor
           </button>
+          {quote.status === "approved" && (quote.created_by === user?.id || quote.assigned_to === user?.id || can("edit_all_quotes")) && (
+            <button className="btn" onClick={() => setModal({ kind: "sales-import" })}>
+              <Icon name="upload" size={15} /> Import cek sales
+            </button>
+          )}
           {can("decide_quotes") && (
             <button
               className="btn"
@@ -504,6 +521,7 @@ export function QuoteEditorPage() {
         </div>
       </div>
 
+      <SalesReviewBanner quote={quote} review={salesReview} />
       {quote.status === "rejected" && quote.decision_note && (
         <p className="notice error" style={{ marginBottom: 12 }}>
           <strong>Ditolak{quote.approved_by_name ? ` oleh ${quote.approved_by_name}` : ""}:</strong>{" "}
@@ -893,6 +911,19 @@ export function QuoteEditorPage() {
         />
       )}
 
+      {modal?.kind === "sales-import" && (
+        <SalesReviewImport
+          quote={quote}
+          onClose={() => setModal(null)}
+          onDone={(rejected, status) => {
+            setModal(null);
+            toast(salesImportMessage(rejected, status), status === "approved" ? "success" : "error");
+            window.dispatchEvent(new Event("fix-tasks-changed"));
+            void load();
+          }}
+        />
+      )}
+
       {modal?.kind === "export" && (
         <Modal title="Ekspor quotation" onClose={() => setModal(null)}>
           <div className="list">
@@ -928,6 +959,35 @@ export function QuoteEditorPage() {
                 <small className="muted"> Penawaran, analisis margin internal, perbandingan, dan asumsi.</small>
               </span>
             </button>
+            {can("view_costs") && (
+              <button
+                className="list-row"
+                disabled={quote.status !== "approved" || dirty || !excelPassword}
+                onClick={async () => {
+                  const { downloadSalesReview } = await import("../export/salesReview");
+                  await downloadSalesReview({
+                    ...exportInput, policy: policy ?? undefined, quoteId: quote.id, revNo: quote.rev_no,
+                    version: quote.version, password: excelPassword,
+                  });
+                  setModal(null);
+                }}
+              >
+                <Icon name="table" />
+                <span>
+                  <strong>Excel cek harga untuk sales</strong>
+                  <small className="muted">
+                    {" "}
+                    {quote.status !== "approved"
+                      ? "Tersedia setelah quotation disetujui."
+                      : dirty
+                        ? "Simpan perubahan dulu."
+                        : !excelPassword
+                          ? "Admin belum mengatur password Excel di Pengaturan."
+                          : "Rincian cara harga keluar per baris (termasuk COGS), terkunci password kantor. Sales hanya mengisi ACC/Tolak."}
+                  </small>
+                </span>
+              </button>
+            )}
             <button
               className="list-row"
               onClick={() => {
@@ -957,7 +1017,11 @@ export function QuoteEditorPage() {
               <button
                 className="btn primary"
                 onClick={() => void submit()}
-                disabled={missingTerms(snapshot.meta).length > 0 || cogsBlocked == null || cogsBlocked.length > 0}
+                disabled={
+                  missingTerms(snapshot.meta).length > 0 ||
+                  cogsBlocked == null ||
+                  (snapshot.items.length > 0 && cogsBlocked.length === snapshot.items.length)
+                }
               >
                 {blocked.length ? "Ajukan ke manajer" : "Ajukan"}
               </button>
@@ -979,8 +1043,12 @@ export function QuoteEditorPage() {
             </div>
           )}
           {cogsBlocked && cogsBlocked.length > 0 && (
-            <div className="notice error" style={{ marginBottom: 12 }}>
-              <strong>Item dengan COGS tidak wajar tidak boleh dijual:</strong>
+            <div className={`notice ${cogsBlocked.length === snapshot.items.length ? "error" : "warn"}`} style={{ marginBottom: 12 }}>
+              <strong>
+                {cogsBlocked.length === snapshot.items.length
+                  ? "Semua item ditahan, jadi belum ada yang bisa diajukan:"
+                  : `${cogsBlocked.length} item ditahan dan tidak ikut penawaran sampai COGS-nya dicek:`}
+              </strong>
               <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
                 {cogsBlocked.map((l) => (
                   <li key={l.lineNo}>
@@ -988,7 +1056,7 @@ export function QuoteEditorPage() {
                   </li>
                 ))}
               </ul>
-              Hapus barisnya, atau minta pengelola katalog memperbaiki COGS-nya.
+              Di dokumen ke customer, item ini ditulis sebagai "item menyusul".
             </div>
           )}
           <BreachList breaches={breaches} />
@@ -1056,7 +1124,7 @@ export function QuoteEditorPage() {
 
 /* ---------------- workflow buttons ---------------- */
 
-function WorkflowButtons({
+export function WorkflowButtons({
   quote, canManage, isResponsible, blocked, onSubmit, onDecide, onReopen, onStatus,
 }: {
   quote: Quote;

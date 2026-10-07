@@ -2,9 +2,10 @@ import { Hono } from "hono";
 import { getSetting, setSetting } from "../../db.d1";
 import { audit } from "../audit";
 import { requireAuth, requirePermission } from "../auth";
-import { companySchema, policySchema, zodMessage } from "../../validate";
+import { companySchema, excelPasswordSchema, policySchema, zodMessage } from "../../validate";
 import { DEFAULT_POLICY } from "../../../shared/policy";
 import type { Env } from "../env";
+import { settingsForViewer } from "../../staffView";
 
 export const settingsRouter = new Hono<Env>();
 settingsRouter.use(requireAuth);
@@ -24,7 +25,10 @@ export const DEFAULT_COMPANY = {
 settingsRouter.get("/", async (c) => {
   const policy = await getSetting(c.env.DB, "policy", DEFAULT_POLICY);
   const company = await getSetting(c.env.DB, "company", DEFAULT_COMPANY);
-  return c.json({ policy, company });
+  // PE-2: locks the "Cek harga" Excel a manager builds in the browser.
+  const excelPassword = await getSetting(c.env.DB, "excel_password", "");
+  // Staff need the company details for documents, not the pricing policy (PE-1).
+  return c.json(settingsForViewer(c.get("user")!.role, { policy, company, excelPassword }));
 });
 
 settingsRouter.put("/policy", requirePermission("manage_policy"), async (c) => {
@@ -43,4 +47,14 @@ settingsRouter.put("/company", requirePermission("manage_company"), async (c) =>
   await setSetting(c.env.DB, "company", parsed.data);
   await audit(c.env.DB, user.id, "settings", 0, "company_updated", parsed.data);
   return c.json({ company: parsed.data });
+});
+
+settingsRouter.put("/excel-password", requirePermission("manage_company"), async (c) => {
+  const user = c.get("user")!;
+  const parsed = excelPasswordSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
+  await setSetting(c.env.DB, "excel_password", parsed.data.password);
+  // The password itself stays out of the audit trail.
+  await audit(c.env.DB, user.id, "settings", 0, "excel_password_updated");
+  return c.json({ ok: true });
 });

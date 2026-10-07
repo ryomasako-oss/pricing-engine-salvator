@@ -4,6 +4,8 @@
 import * as XLSX from "xlsx";
 import { SCENARIOS } from "@shared/engine";
 import { paymentLabel, warrantyLabel } from "@shared/terms";
+import { heldNote, offeredRows } from "@shared/holds";
+import { docColumns } from "@shared/docColumns";
 import type { Assumptions, EngineResult, QuoteMeta, ScenarioIndex } from "@shared/types";
 
 interface Input {
@@ -34,32 +36,38 @@ export function quoteWorkbook(input: Input): XLSX.WorkBook {
   const wb = XLSX.utils.book_new();
 
   /* Client-facing sheet */
-  const quoteRows = engine.rows.map((r) => ({
+  const cols = docColumns(meta);
+  const quoteRows: Record<string, unknown>[] = offeredRows(engine.rows).map((r) => ({
     No: r.lineNo,
     Kode: r.code,
     Item: r.name,
     Satuan: r.uom,
-    "Qty": r.qty,
+    ...(cols.qty ? { Qty: r.qty } : {}),
     "Harga satuan": Math.round(r.prices[scenario]),
-    "Total per bulan": Math.round(r.prices[scenario] * r.qty),
+    ...(cols.lineTotal ? { "Total per bulan": Math.round(r.prices[scenario] * r.qty) } : {}),
   }));
   const s = engine.scen[scenario];
   quoteRows.push(
+    ...(cols.totals
+      ? [
+          {} as never,
+          { Item: "Subtotal per bulan", "Total per bulan": Math.round(s.revenue) } as never,
+          {
+            Item: `PPN ${(assumptions.ppn * 100).toFixed(0)}%`,
+            "Total per bulan": Math.round(s.revenue * assumptions.ppn),
+          } as never,
+          {
+            Item: "Total per bulan termasuk PPN",
+            "Total per bulan": Math.round(s.revenue * (1 + assumptions.ppn)),
+          } as never,
+          {
+            Item: `Nilai kontrak ${assumptions.months} bulan (belum PPN)`,
+            "Total per bulan": Math.round(s.annual),
+          } as never,
+        ]
+      : []),
     {} as never,
-    { Item: "Subtotal per bulan", "Total per bulan": Math.round(s.revenue) } as never,
-    {
-      Item: `PPN ${(assumptions.ppn * 100).toFixed(0)}%`,
-      "Total per bulan": Math.round(s.revenue * assumptions.ppn),
-    } as never,
-    {
-      Item: "Total per bulan termasuk PPN",
-      "Total per bulan": Math.round(s.revenue * (1 + assumptions.ppn)),
-    } as never,
-    {
-      Item: `Nilai kontrak ${assumptions.months} bulan (belum PPN)`,
-      "Total per bulan": Math.round(s.annual),
-    } as never,
-    {} as never,
+    ...(heldNote(engine.rows) ? [{ Item: "Item menyusul", Satuan: heldNote(engine.rows) } as never] : []),
     { Item: "Term of payment", Satuan: paymentLabel(meta) || "—" } as never,
     { Item: "Garansi", Satuan: warrantyLabel(meta) || "—" } as never,
     { Item: "Masa berlaku penawaran", Satuan: `${meta.validity} hari` } as never,
@@ -73,13 +81,20 @@ export function quoteWorkbook(input: Input): XLSX.WorkBook {
     { "Harga satuan": "Tanggal: ______________" } as never,
   );
   const quoteSheet = XLSX.utils.json_to_sheet(quoteRows);
-  quoteSheet["!cols"] = [{ wch: 5 }, { wch: 14 }, { wch: 46 }, { wch: 8 }, { wch: 10 }, { wch: 14 }, { wch: 16 }];
-  applyFormat(quoteSheet, { E: money, F: money, G: money });
+  // Hidden columns are absent, not blank, so the letters after "Satuan" shift left.
+  quoteSheet["!cols"] = [
+    { wch: 5 }, { wch: 14 }, { wch: 46 }, { wch: 8 },
+    ...(cols.qty ? [{ wch: 10 }] : []),
+    { wch: 14 },
+    ...(cols.lineTotal || cols.totals ? [{ wch: 16 }] : []),
+  ];
+  applyFormat(quoteSheet, cols.qty ? { E: money, F: money, G: money } : { E: money, F: money });
   XLSX.utils.book_append_sheet(wb, quoteSheet, "Penawaran");
 
   /* Internal analysis */
   const analysis = engine.rows.map((r) => ({
     No: r.lineNo,
+    Ditahan: r.held ? (r.holdReason === "sales" ? "Ya (ditolak sales, menyusul)" : "Ya (COGS perlu dicek)") : "",
     Item: r.name,
     Satuan: r.uom,
     Qty: r.qty,

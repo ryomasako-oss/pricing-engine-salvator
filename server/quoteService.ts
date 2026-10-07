@@ -5,7 +5,10 @@
 
 import { all, get, getSetting, run } from "./db.js";
 import { computeEngine } from "../shared/engine.js";
-import { type CogsRow, cogsLookupKeys, cogsRowsSql, problemsByCode } from "./cogsCheck.js";
+import { type CogsRow, applyHolds, cogsLookupKeys, cogsRowsSql, liveHoldCodes, problemsByCode, recostCodes } from "./cogsCheck.js";
+import { type CatalogByKey, catalogByKeysSql, staffLookupKeys } from "./staffView.js";
+import { normalizeCode } from "../shared/duplicates.js";
+import type { CatalogItem, UnitFactor } from "../shared/types.js";
 import { DEFAULT_POLICY, evaluatePolicy } from "../shared/policy.js";
 import type {
   PolicyBreach,
@@ -101,15 +104,20 @@ export function hydrate(row: QuoteRow): Quote {
   };
 }
 
+/** A quote with its line holds applied (server/cogsCheck.ts applyHolds). */
 export function findQuote(id: number): Quote | null {
   const row = get<QuoteRow>(`${SELECT_QUOTE} WHERE q.id = ?`, id);
-  return row ? hydrate(row) : null;
+  if (!row) return null;
+  const quote = hydrate(row);
+  const problems = cogsProblemsFor(liveHoldCodes([quote]));
+  return applyHolds(quote, problems, catalogListsByKeys(recostCodes([quote], problems)));
 }
 
 export function listQuoteRows(where = "", ...params: (string | number)[]): Quote[] {
-  return all<QuoteRow>(`${SELECT_QUOTE} ${where} ORDER BY q.updated_at DESC`, ...params).map(
-    hydrate,
-  );
+  const quotes = all<QuoteRow>(`${SELECT_QUOTE} ${where} ORDER BY q.updated_at DESC`, ...params).map(hydrate);
+  const problems = cogsProblemsFor(liveHoldCodes(quotes));
+  const catalog = catalogListsByKeys(recostCodes(quotes, problems));
+  return quotes.map((q) => applyHolds(q, problems, catalog));
 }
 
 /** Monthly revenue and net margin of a quote at its selected scenario. */
@@ -173,4 +181,28 @@ export function cogsProblemsFor(codes: string[]): Map<string, string> {
   const keys = cogsLookupKeys(codes);
   if (!keys.length) return new Map();
   return problemsByCode(codes, all<CogsRow>(cogsRowsSql(keys.length), ...keys));
+}
+
+/**
+ * Every catalog row matching these codes by normalizeCode, with units. Codes
+ * are unique only with exact case, so "atk-01" and "ATK-01" can both exist;
+ * applyHolds needs all of them to pick the exact one.
+ */
+export function catalogListsByKeys(codes: string[]): CatalogByKey {
+  const keys = staffLookupKeys(codes);
+  const out: CatalogByKey = new Map();
+  if (!keys.length) return out;
+  const rows = all<CatalogItem>(catalogByKeysSql(keys.length), ...keys);
+  const units = rows.length
+    ? all<{ code: string; uom: string; factor: number }>(
+        `SELECT code, uom, factor FROM catalog_item_uoms WHERE code IN (${rows.map(() => "?").join(",")}) ORDER BY factor`,
+        ...rows.map((r) => r.code),
+      )
+    : [];
+  for (const r of rows) {
+    const own: UnitFactor[] = units.filter((u) => u.code === r.code).map((u) => ({ uom: u.uom, factor: u.factor }));
+    const key = normalizeCode(r.code);
+    out.set(key, [...(out.get(key) ?? []), { ...r, units: own }]);
+  }
+  return out;
 }

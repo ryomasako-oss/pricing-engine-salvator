@@ -77,6 +77,27 @@ export interface QuoteItem {
    * means they are per `uom`. See shared/uom.ts.
    */
   priceUom?: string;
+  /**
+   * The catalog COGS of this line needs a manager's check (shared/cogsCheck.ts):
+   * the line stays on the quote but is not offered, totalled or checked against
+   * policy. Recomputed on every read while the quote is editable, frozen at submit.
+   */
+  held?: boolean;
+  /**
+   * Why the line is held: "cogs" (default, above) or "sales" — sales marked it
+   * Tolak in the "Cek harga" Excel, so the approved quote goes ahead without it
+   * and it is offered later (shared/fixTasks.ts). Set by the server only.
+   */
+  holdReason?: "cogs" | "sales";
+  /**
+   * The catalog COGS (in this line's unit) that `cogs` was copied from, set by
+   * lineFromCatalog. While `cogs` still equals it the cost is the catalog's,
+   * and a draft follows a corrected catalog; a different `cogs` was typed by
+   * someone and is kept (server/cogsCheck.ts applyHolds).
+   */
+  catalogCogs?: number;
+  /** The cost was typed or imported by someone rather than copied from the catalog: a draft keeps it. */
+  cogsByHand?: boolean;
 }
 
 export interface Region {
@@ -178,7 +199,10 @@ export interface PolicyBreach {
     | "BASKET_DISCOUNT"
     | "BELOW_COST"
     | "VALUE_THRESHOLD"
-    | "MISSING_COGS";
+    | "MISSING_COGS"
+    | "ABOVE_CEILING"
+    /** What staff see in place of any blocking breach (server/staffView.ts); never produced by the policy engine. */
+    | "NEEDS_REVIEW";
   severity: BreachSeverity;
   message: string;
   /** Line numbers involved, when the breach is line-specific. */
@@ -210,6 +234,10 @@ export interface QuoteMeta {
   warrantyYears?: number | null;
   /** Optional detail shown after the warranty, e.g. "servis gratis". */
   warrantyNote?: string;
+  /** Customer document without quantities (a plain price list). Also drops line totals and the totals block. */
+  hideQty?: boolean;
+  /** Customer document without the per-line total column. */
+  hideLineTotal?: boolean;
 }
 
 export interface Client {

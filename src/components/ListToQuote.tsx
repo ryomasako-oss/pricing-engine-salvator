@@ -10,17 +10,37 @@
    chosen client, so that client's next list matches by itself. With no
    client chosen nothing is saved (see create()). */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
+import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { grp } from "@shared/format";
 import { lineFromCatalog, type MatchResult, type RequestLine } from "@shared/match";
 import type { CatalogItem, Client, QuoteItem } from "@shared/types";
 import { uomWarning } from "@shared/uom";
 import { Icon } from "./Icon";
+import { ClientQuickAdd } from "./ClientQuickAdd";
 import { Modal } from "./Modal";
+import { WaitingLine } from "./WaitingLine";
 
 const MAX_LINES = 500;
+
+// What is really happening in each step. The AI step is the slow one (a scan can take a minute).
+const WAITING: Record<"file" | "ai" | "match", string[]> = {
+  file: ["Membaca file Excel…", "Mencari kolom nama barang dan qty…"],
+  ai: [
+    "Mengirim dokumen ke AI pembaca…",
+    "AI membaca tabel baris demi baris…",
+    "Menyalin nama barang, qty, dan satuan…",
+    "AI hanya membaca isi dokumen. Harga tidak dikarang, hanya plafon yang tertulis di dokumen.",
+    "File scan atau besar bisa sampai 1 menit. Mohon tunggu…",
+  ],
+  match: [
+    "Mencocokkan tiap baris ke katalog…",
+    "Harga dan COGS diambil dari database, bukan dari AI.",
+    "Menyiapkan tampilan tinjau…",
+  ],
+};
 
 interface MatchResponse {
   results: MatchResult[];
@@ -50,51 +70,92 @@ export function ListToQuote({
   clients,
   onClose,
   onCreated,
+  onClientAdded,
+  initial,
 }: {
   clients: Client[];
   onClose: () => void;
   onCreated: (id: number) => void;
+  onClientAdded?: (client: Client) => void;
+  /** A list that is already read (from chat): skips the file step and goes straight to review. */
+  initial?: { lines: RequestLine[]; clientId: number | ""; title: string };
 }) {
   const toast = useToast();
-  const [clientId, setClientId] = useState<number | "">("");
-  const [title, setTitle] = useState("");
+  // Staff see the price the server will charge instead of COGS (PE-1).
+  const seeCosts = useAuth().can("view_costs");
+  const [clientId, setClientId] = useState<number | "">(initial?.clientId ?? "");
+  const [list, setList] = useState(clients);
+  const [adding, setAdding] = useState(false);
+  const chooseClient = (client: Client, isNew: boolean) => {
+    if (isNew) {
+      setList((l) => [...l, client].sort((a, b) => a.name.localeCompare(b.name)));
+      onClientAdded?.(client);
+    }
+    setClientId(client.id);
+    setAdding(false);
+  };
+  const [title, setTitle] = useState(initial?.title ?? "");
   const [fileName, setFileName] = useState("");
   const [notes, setNotes] = useState<string[]>([]);
   const [rows, setRows] = useState<Row[] | null>(null);
   const [items, setItems] = useState<Map<number, CatalogItem>>(new Map());
   const [busy, setBusy] = useState(false);
+  /** What the wait is for, so the waiting line only says things that are true right now. */
+  const [stage, setStage] = useState<"file" | "ai" | "match">("match");
   const [error, setError] = useState("");
   const [drag, setDrag] = useState(false);
   const [searchRow, setSearchRow] = useState<number | null>(null);
+
+  /** Match request rows against the catalog and open the review. */
+  const match = async (lines: RequestLine[], extraNotes: string[], label: string) => {
+    if (lines.length > MAX_LINES) {
+      throw new Error(`Daftar berisi ${lines.length} baris; maksimal ${MAX_LINES} per quotation. Pecah dulu.`);
+    }
+    const res = await api.post<MatchResponse>("/catalog/match", {
+      client_id: clientId === "" ? null : clientId,
+      lines,
+    });
+    setItems(new Map(res.items.map((i) => [i.id, i])));
+    setRows(
+      res.results.map((result) => ({
+        request: lines[result.index],
+        result,
+        chosen: result.status === "none" ? null : result.candidates[0]?.id ?? null,
+        confirmed: result.status === "exact" || result.status === "match",
+        extra: [],
+      })),
+    );
+    setNotes(extraNotes);
+    setFileName(label);
+  };
+
+  // A list handed over from chat is matched as soon as the dialog opens.
+  useEffect(() => {
+    if (!initial) return;
+    setBusy(true);
+    match(initial.lines, [], "Chat")
+      .catch((e) => setError(e instanceof Error ? e.message : "Daftar tidak bisa dicocokkan."))
+      .finally(() => setBusy(false));
+    // Once, on open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const read = async (file?: File | null) => {
     if (!file) return;
     setError("");
     setBusy(true);
     try {
-      const { parseRequestList } = await import("../import/parsers");
-      const { lines, report } = await parseRequestList(file);
-      if (lines.length > MAX_LINES) {
-        throw new Error(`File berisi ${lines.length} baris; maksimal ${MAX_LINES} per quotation. Pecah filenya dulu.`);
-      }
-      const res = await api.post<MatchResponse>("/catalog/match", {
-        client_id: clientId === "" ? null : clientId,
-        lines,
-      });
-      setItems(new Map(res.items.map((i) => [i.id, i])));
-      setRows(
-        res.results.map((result) => ({
-          request: lines[result.index],
-          result,
-          chosen: result.status === "none" ? null : result.candidates[0]?.id ?? null,
-          confirmed: result.status === "exact" || result.status === "match",
-          extra: [],
-        })),
-      );
-      setNotes(report.notes);
-      setFileName(file.name);
+      // PDF and photos go through the server's OCR; spreadsheets are parsed here.
+      const { ocrMimeFor } = await import("../import/ocr");
+      const mime = ocrMimeFor(file);
+      setStage(mime ? "ai" : "file");
+      const { lines, report } = mime
+        ? await (await import("../import/ocr")).ocrRequestList(file, mime).then((r) => ({ lines: r.lines, report: { notes: r.notes } }))
+        : await (await import("../import/parsers")).parseRequestList(file);
+      setStage("match");
+      await match(lines, report.notes, file.name);
       if (!title) {
-        const client = clients.find((c) => c.id === clientId);
+        const client = list.find((c) => c.id === clientId);
         setTitle(client ? `Penawaran ${client.name}` : file.name.replace(/\.[^.]+$/, ""));
       }
     } catch (e) {
@@ -111,19 +172,45 @@ export function ListToQuote({
     if (!rows) return [];
     return rows.map((r) => {
       const item = r.chosen != null ? items.get(r.chosen) : undefined;
-      // A catalog item with a bad COGS must not be sold (shared/cogsCheck.ts).
-      return item && !item.cogs_problem
-        ? lineFromCatalog(item, r.request.qty ?? 1, { uom: r.request.uom, rrp: r.request.rrp })
-        : null;
+      if (!item) return null;
+      const line = lineFromCatalog(item, r.request.qty ?? 1, { uom: r.request.uom, rrp: r.request.rrp });
+      // A catalog item with a bad COGS goes on the quote held (server/cogsCheck.ts):
+      // not offered or totalled until a manager checks it, but not forgotten.
+      return item.cogs_problem ? { ...line, held: true } : line;
     });
   }, [rows, items]);
 
+  // Prices for staff: the same lines the quote will be built from, priced by
+  // the server without saving anything. Index i -> unit price.
+  const [prices, setPrices] = useState<Record<number, number>>({});
+  const previewKey = JSON.stringify(lines.map((l) => l && [l.code, l.qty, l.uom, l.rrp]));
+  useEffect(() => {
+    if (seeCosts || !rows) return;
+    const send = lines
+      .map((l, i) => l && { id: `r${i}`, code: l.code, name: l.name, qty: l.qty, uom: l.uom, rrp: l.rrp })
+      .filter(Boolean);
+    if (!send.length) return setPrices({});
+    let live = true;
+    const t = setTimeout(() => {
+      api
+        .post<{ quote: { items: { id: string; price: number }[] } }>("/quotes/preview", { snapshot: { items: send } })
+        .then((r) => live && setPrices(Object.fromEntries(r.quote.items.map((it) => [Number(it.id.slice(1)), it.price]))))
+        .catch(() => live && setPrices({}));
+    }, 300);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
+    // previewKey stands for `lines`, which is a new array on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewKey, seeCosts]);
+
   const blockedOf = (r: Row) => (r.chosen != null ? items.get(r.chosen)?.cogs_problem ?? null : null);
-  const pending = rows?.filter((r) => r.chosen != null && !r.confirmed && !blockedOf(r)).length ?? 0;
-  const blockedCount = rows?.filter((r) => blockedOf(r)).length ?? 0;
+  const pending = rows?.filter((r) => r.chosen != null && !r.confirmed).length ?? 0;
+  const heldCount = rows?.filter((r) => blockedOf(r)).length ?? 0;
   const used = lines.filter(Boolean).length;
-  // Rows left out by choice (or with nothing found), not counting blocked ones.
-  const skipped = (rows?.length ?? 0) - used - blockedCount;
+  // Rows left out by choice (or with nothing found).
+  const skipped = (rows?.length ?? 0) - used;
 
 
   const create = async () => {
@@ -131,10 +218,22 @@ export function ListToQuote({
     setBusy(true);
     try {
       const quoteItems = (lines.filter(Boolean) as QuoteItem[]).map((l, i) => ({ ...l, lineNo: i + 1 }));
+      // Rows that don't go on the quote are kept on "Perlu diperbaiki" (saved
+      // with the quote, in the same request), so nothing the client asked for
+      // is silently dropped.
+      const unmatched = rows
+        .filter((_, i) => !lines[i])
+        .map((row) => ({
+          name: row.request.name.slice(0, 300),
+          qty: Math.max(0, Number(row.request.qty) || 0),
+          uom: (row.request.uom ?? "").slice(0, 32),
+          reason: row.result.status === "none" ? "none" : "skipped",
+        }));
       const r = await api.post<{ quote: { id: number } }>("/quotes", {
         title: title.trim(),
         client_id: clientId === "" ? null : clientId,
         snapshot: { items: quoteItems },
+        unmatched,
       });
       // Learn the pairings a person actually looked at: the ones that needed a
       // check or were changed. Code matches need no alias; untouched automatic
@@ -143,7 +242,7 @@ export function ListToQuote({
       // every rep and every client, so one hurried "Benar" would become a
       // company-wide rule.
       const pairs = clientId === "" ? [] : rows
-        .filter((row) => row.chosen != null && !blockedOf(row) && row.result.via !== "code")
+        .filter((row) => row.chosen != null && row.result.via !== "code")
         .filter((row) => row.result.status === "review" || row.result.status === "none" || row.chosen !== row.result.candidates[0]?.id)
         .map((row) => ({ text: row.request.name, code: items.get(row.chosen!)!.code }));
       if (pairs.length) {
@@ -167,18 +266,18 @@ export function ListToQuote({
   return (
     <Modal
       title="Quotation dari list klien"
-      sub="Upload daftar kebutuhan klien. Setiap baris dicocokkan ke katalog; harga dan COGS diambil dari database."
+      sub={initial ? "Daftar dari chat. Setiap baris dicocokkan ke katalog; harga diambil dari database." : "Upload daftar kebutuhan klien. Setiap baris dicocokkan ke katalog; harga dan COGS diambil dari database."}
       size={rows ? "full" : "normal"}
       onClose={onClose}
       footer={
         rows ? (
           <>
             <span className="grow muted small">
-              {used} item masuk{skipped ? ` · ${skipped} tidak dipakai` : ""}
+              {used} item masuk{skipped ? ` · ${skipped} tidak dipakai (dicatat di Perlu diperbaiki)` : ""}
               {pending ? ` · ${pending} perlu dicek dulu` : ""}
-              {blockedCount ? ` · ${blockedCount} diblokir (COGS tidak wajar)` : ""}
+              {heldCount ? ` · ${heldCount} ditahan (COGS dicek manajer)` : ""}
             </span>
-            <button className="btn ghost" onClick={() => setRows(null)} disabled={busy}>Ganti file</button>
+            <button className="btn ghost" onClick={() => (initial ? onClose() : setRows(null))} disabled={busy}>{initial ? "Kembali ke chat" : "Ganti file"}</button>
             <button className="btn primary" onClick={create} disabled={busy || !used || pending > 0 || !title.trim()}>
               {busy ? "Membuat…" : `Buat quotation (${used} item)`}
             </button>
@@ -188,21 +287,36 @@ export function ListToQuote({
         )
       }
     >
-      {!rows ? (
+      {!rows && initial ? (
+        // A list from chat has no file step: just the wait for matching, or why it failed.
         <div className="col" style={{ gap: 12 }}>
-          <label className="field">
-            <span>Klien</span>
-            <select
-              className="select"
-              value={clientId}
-              onChange={(e) => setClientId(e.target.value === "" ? "" : Number(e.target.value))}
-            >
-              <option value="">Tanpa klien</option>
-              {clients.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
-          </label>
+          {busy && <WaitingLine lines={WAITING.match} />}
+          {error && <p className="notice error">{error}</p>}
+        </div>
+      ) : !rows ? (
+        <div className="col" style={{ gap: 12 }}>
+          {adding ? (
+            <ClientQuickAdd clients={list} onDone={chooseClient} onCancel={() => setAdding(false)} />
+          ) : (
+            <div className="picker">
+              <label className="field">
+                <span>Klien</span>
+                <select
+                  className="select"
+                  value={clientId}
+                  onChange={(e) => setClientId(e.target.value === "" ? "" : Number(e.target.value))}
+                >
+                  <option value="">Tanpa klien</option>
+                  {list.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </label>
+              <button className="btn ghost" onClick={() => setAdding(true)}>
+                <Icon name="plus" size={15} /> Klien baru
+              </button>
+            </div>
+          )}
           <p className="muted small" style={{ margin: "-6px 0 0" }}>
             {clientId === ""
               ? "Tanpa klien, pilihan Anda tidak diingat. Pilih klien supaya istilah yang Anda cek otomatis cocok di list berikutnya."
@@ -223,22 +337,23 @@ export function ListToQuote({
           >
             <Icon name="upload" size={24} />
             <div>
-              <strong>Tarik file Excel klien ke sini</strong>
+              <strong>Tarik file daftar klien ke sini</strong>
               <div className="muted small">
-                Cukup kolom nama barang dan qty. Kolom kode, satuan, dan harga maksimal dipakai kalau ada.
+                Excel, PDF, atau foto. Cukup nama barang dan qty; kode, satuan, dan harga maksimal dipakai kalau ada.
               </div>
             </div>
             <label className="btn" aria-disabled={busy}>
-              {busy ? "Mencocokkan…" : "Pilih file"}
+              {busy ? "Memproses…" : "Pilih file"}
               <input
                 type="file"
-                accept=".xlsx,.xls,.csv"
+                accept=".xlsx,.xls,.csv,.pdf,.png,.jpg,.jpeg,.webp,.heic,.heif,application/pdf,image/*"
                 hidden
                 disabled={busy}
                 onChange={(e) => void read(e.target.files?.[0])}
               />
             </label>
           </div>
+          {busy && <WaitingLine lines={WAITING[stage]} />}
           {error && <p className="notice error">{error}</p>}
         </div>
       ) : (
@@ -253,7 +368,7 @@ export function ListToQuote({
               <span className="badge green">{summary!.sure} cocok</span>
               {summary!.review > 0 && <span className="badge amber">{summary!.review} perlu dicek</span>}
               {summary!.none > 0 && <span className="badge red">{summary!.none} tidak ketemu</span>}
-              {blockedCount > 0 && <span className="badge red">{blockedCount} diblokir</span>}
+              {heldCount > 0 && <span className="badge amber">{heldCount} ditahan</span>}
             </div>
           </div>
           {notes.map((n) => (
@@ -269,7 +384,7 @@ export function ListToQuote({
                   <th>Qty</th>
                   <th className="l">Item katalog</th>
                   <th className="l">Status</th>
-                  <th>COGS</th>
+                  <th>{seeCosts ? "COGS" : "Harga satuan"}</th>
                   <th>Plafon (RRP)</th>
                 </tr>
               </thead>
@@ -339,15 +454,13 @@ export function ListToQuote({
                         )}
                         {warn && <div className="small" style={{ color: "var(--warn)" }}>⚠ {warn}</div>}
                         {blockedOf(row) && (
-                          <div className="small" style={{ color: "var(--danger)" }}>
-                            ⛔ {blockedOf(row)}. Item ini tidak boleh dijual; pilih item lain atau perbaiki COGS di katalog.
+                          <div className="small" style={{ color: "var(--warn)" }}>
+                            ⚠ {blockedOf(row)}. Masuk sebagai baris ditahan: tidak ikut total dan dokumen sampai dicek manajer.
                           </div>
                         )}
                       </td>
                       <td className="l">
-                        {blockedOf(row) ? (
-                          <span className="badge red">Diblokir</span>
-                        ) : row.chosen != null && !row.confirmed ? (
+                        {row.chosen != null && !row.confirmed ? (
                           <button
                             className="btn small"
                             onClick={() => update(i, { confirmed: true })}
@@ -355,13 +468,27 @@ export function ListToQuote({
                           >
                             <Icon name="check" size={13} /> Benar
                           </button>
+                        ) : blockedOf(row) ? (
+                          <span className="badge amber">Ditahan</span>
                         ) : (
                           <span className={`badge ${row.chosen == null ? "grey" : row.result.status === "review" ? "green" : label.cls}`}>
                             {row.chosen == null ? "Tidak dipakai" : row.result.status === "review" ? "Sudah dicek" : label.text}
                           </span>
                         )}
                       </td>
-                      <td className="num">{line ? grp(line.cogs) : <span className="muted">—</span>}</td>
+                      <td className="num">
+                        {!line ? (
+                          <span className="muted">—</span>
+                        ) : line.held && !seeCosts ? (
+                          <span className="muted">ditahan</span>
+                        ) : seeCosts ? (
+                          grp(line.cogs)
+                        ) : prices[i] != null ? (
+                          <strong>{grp(prices[i])}</strong>
+                        ) : (
+                          <span className="muted">…</span>
+                        )}
+                      </td>
                       <td className="num">{line ? grp(line.rrp) : <span className="muted">—</span>}</td>
                     </tr>
                   );

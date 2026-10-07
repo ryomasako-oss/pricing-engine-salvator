@@ -282,11 +282,16 @@ export function lineFromCatalog(
     name: item.name,
     uom: baseUom,
     qty,
-    cogs: Math.round(item.cogs),
+    // Staff receive catalog rows without COGS (PE-1), and an item may have no
+    // list price: a missing number is 0, never NaN (which reaches the server
+    // as null and fails validation).
+    cogs: Math.round(Number(item.cogs) || 0),
     // The master's list price is the natural starting ceiling.
-    rrp: Math.round(item.list_price || item.cogs * 1.4),
+    rrp: Math.round(Number(item.list_price) || (Number(item.cogs) || 0) * 1.4),
     role: "CORE",
     estCogs: !(item.cogs > 0),
+    // Where the cost came from, so a draft can follow a corrected catalog (server/cogsCheck.ts).
+    ...(item.cogs > 0 ? { catalogCogs: Math.round(Number(item.cogs)) } : {}),
   };
   // Use the catalog's spelling of a known unit ("box" -> "Box"), so the line's
   // unit dropdown recognises it.

@@ -13,8 +13,15 @@ import { catalogRouter } from "./routes/catalog";
 import { quotesRouter } from "./routes/quotes";
 import { approvalsRouter } from "./routes/approvals";
 import { assistantRouter, assistantEnabled } from "./routes/assistant";
+import { ocrRouter } from "./routes/ocr";
+import { chatRouter } from "./routes/chat";
 import { settingsRouter } from "./routes/settings";
-import { clientIp, type Env } from "./env";
+import { accurateRouter } from "./routes/accurate";
+import { fixTasksRouter } from "./routes/fixTasks";
+import { DIGEST_CRON, runFixDigest } from "./fixDigest";
+import { appLink, notifyEmail } from "./notify";
+import { syncTick } from "./accurate/sync";
+import { clientIp, type Bindings, type Env } from "./env";
 
 const app = new Hono<Env>();
 
@@ -53,7 +60,11 @@ app.route("/api/catalog", catalogRouter);
 app.route("/api/quotes", quotesRouter);
 app.route("/api/approvals", approvalsRouter);
 app.route("/api/assistant", assistantRouter);
+app.route("/api/ocr", ocrRouter);
+app.route("/api/chat", chatRouter);
+app.route("/api/fix-tasks", fixTasksRouter);
 app.route("/api/settings", settingsRouter);
+app.route("/api/accurate", accurateRouter);
 
 // Non-API paths reach here because run_worker_first now covers every
 // request (not just /api/*) — see wrangler.toml. Hand those to the static
@@ -74,4 +85,30 @@ app.onError((err, c) => {
   return c.json({ error: "Terjadi kesalahan di server." }, 500);
 });
 
-export default app;
+/* Cron (wrangler.toml [triggers]): advances the Accurate sync cursor a
+   bounded number of API calls per tick. No-op when no token is set. */
+async function scheduled(controller: ScheduledController, env: Bindings, ctx: ExecutionContext): Promise<void> {
+  // Each cron entry is its own invocation with its own subrequest budget.
+  if (controller.cron === DIGEST_CRON) {
+    ctx.waitUntil(
+      runFixDigest(env.DB, {
+        now: new Date(),
+        link: appLink(env, "/perbaikan"),
+        send: (to, subject, html) => notifyEmail(env, to, subject, html),
+      }).then(
+        (r) => console.log("[fix-digest]", JSON.stringify(r)),
+        (err) => console.error("[fix-digest] failed:", err),
+      ),
+    );
+    return;
+  }
+  ctx.waitUntil(
+    syncTick(env, { deadlineMs: 25_000 }).then(
+      (r) => r.length && console.log("[accurate] tick", JSON.stringify(r)),
+      (err) => console.error("[accurate] tick failed:", err),
+    ),
+  );
+}
+
+export default { fetch: app.fetch, scheduled } satisfies ExportedHandler<Bindings>;
+export { app };

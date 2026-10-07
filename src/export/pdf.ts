@@ -5,9 +5,11 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { SCENARIOS } from "@shared/engine";
 import { fmtDate, grp, pct } from "@shared/format";
-import type { Assumptions, EngineResult, QuoteMeta, ScenarioIndex } from "@shared/types";
+import type { Assumptions, ComputedRow, EngineResult, QuoteMeta, ScenarioIndex } from "@shared/types";
 import type { CompanyInfo } from "../components/QuotationDoc";
 import { paymentLabel, warrantyLabel } from "@shared/terms";
+import { heldNote, offeredRows } from "@shared/holds";
+import { docColumns } from "@shared/docColumns";
 
 interface Input {
   engine: EngineResult;
@@ -94,31 +96,31 @@ export function quotationPdf(input: Input): jsPDF {
     ],
   });
 
+  // Columns are described once, with their own styles, then filtered: a
+  // style table keyed by column index would put the right-align and bold on
+  // the wrong column as soon as one is dropped.
+  const cols = docColumns(meta);
+  type Col = { head: string; cell: (r: ComputedRow & { lineNo: number }) => string; style: Record<string, unknown> };
+  const columns: Col[] = [
+    { head: "No", cell: (r) => String(r.lineNo), style: { halign: "center", cellWidth: 26 } },
+    { head: "Item", cell: (r) => (r.code ? `${r.name}\n${r.code}` : r.name), style: {} },
+    { head: "Satuan", cell: (r) => r.uom, style: { halign: "center", cellWidth: 48 } },
+    ...(cols.qty ? [{ head: "Qty", cell: (r: ComputedRow) => grp(r.qty), style: { halign: "right", cellWidth: 58 } }] : []),
+    { head: "Harga satuan", cell: (r) => grp(r.prices[scenario]), style: { halign: "right", cellWidth: 76, fontStyle: "bold" } },
+    ...(cols.lineTotal ? [{ head: "Total per bulan", cell: (r: ComputedRow) => grp(r.prices[scenario] * r.qty), style: { halign: "right", cellWidth: 84 } }] : []),
+  ];
   autoTable(doc, {
     startY: (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 14,
-    head: [["No", "Item", "Satuan", "Qty", "Harga satuan", "Total per bulan"]],
-    body: engine.rows.map((r) => [
-      String(r.lineNo),
-      r.code ? `${r.name}\n${r.code}` : r.name,
-      r.uom,
-      grp(r.qty),
-      grp(r.prices[scenario]),
-      grp(r.prices[scenario] * r.qty),
-    ]),
+    head: [columns.map((c) => c.head)],
+    body: offeredRows(engine.rows).map((r) => columns.map((c) => c.cell(r))),
     styles: { fontSize: 8.5, cellPadding: 4, lineColor: [238, 241, 244], lineWidth: 0.5 },
     headStyles: { fillColor: [246, 248, 250], textColor: [27, 37, 48], fontStyle: "bold" },
-    columnStyles: {
-      0: { halign: "center", cellWidth: 26 },
-      2: { halign: "center", cellWidth: 48 },
-      3: { halign: "right", cellWidth: 58 },
-      4: { halign: "right", cellWidth: 76, fontStyle: "bold" },
-      5: { halign: "right", cellWidth: 84 },
-    },
+    columnStyles: Object.fromEntries(columns.map((c, i) => [i, c.style])),
     margin: { left: M, right: M },
   });
 
   const ppn = s.revenue * assumptions.ppn;
-  autoTable(doc, {
+  if (cols.totals) autoTable(doc, {
     startY: (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10,
     // Keep the totals together: a subtotal stranded alone at the foot of a
     // page reads as a mistake on a document going to a client.
@@ -151,6 +153,13 @@ export function quotationPdf(input: Input): jsPDF {
   ) as string[];
   doc.text(terms, M, y);
   y += terms.length * 10;
+
+  const following = heldNote(engine.rows);
+  if (following) {
+    const lines = doc.splitTextToSize(`Item menyusul: ${following}`, W - M * 2) as string[];
+    doc.text(lines, M, y + 6);
+    y += lines.length * 10 + 6;
+  }
 
   if (meta.notes) {
     const notes = doc.splitTextToSize(meta.notes, W - M * 2) as string[];

@@ -17,10 +17,11 @@ export function TermsBox({
   onTargetMargin,
 }: {
   meta: QuoteMeta;
-  targetMargin: number;
+  /** Omitted for staff, who never see margins (PE-1): the margin field is not shown. */
+  targetMargin?: number;
   readOnly: boolean;
   onMeta: (patch: Partial<QuoteMeta>) => void;
-  onTargetMargin: (value: number) => void;
+  onTargetMargin?: (value: number) => void;
 }) {
   const missing = missingTerms(meta);
   const required = (field: "paymentDays" | "warrantyYears") =>
@@ -30,6 +31,7 @@ export function TermsBox({
     <fieldset className="terms-box no-print" disabled={readOnly}>
       <legend>Syarat penawaran</legend>
       <div className="field-grid">
+        {targetMargin != null && onTargetMargin && (
         <label className="field">
           <span>Margin target (%) · internal</span>
           <input
@@ -43,6 +45,7 @@ export function TermsBox({
           />
           <small className="muted">Tidak tampil di penawaran customer.</small>
         </label>
+        )}
         <label className="field">
           <span>Term of payment (hari) *</span>
           <input
@@ -103,6 +106,30 @@ export function TermsBox({
           />
         </label>
       </div>
+      <div className="row" style={{ gap: 18, flexWrap: "wrap", marginTop: 10 }}>
+        <label className="row" style={{ gap: 6 }}>
+          <input
+            type="checkbox"
+            checked={!meta.hideQty}
+            onChange={(e) => onMeta({ hideQty: e.target.checked ? undefined : true })}
+          />
+          <span>Tampilkan Qty di penawaran</span>
+        </label>
+        <label className="row" style={{ gap: 6, opacity: meta.hideQty ? 0.5 : 1 }}>
+          <input
+            type="checkbox"
+            checked={!meta.hideQty && !meta.hideLineTotal}
+            disabled={!!meta.hideQty}
+            onChange={(e) => onMeta({ hideLineTotal: e.target.checked ? undefined : true })}
+          />
+          <span>Tampilkan total per baris</span>
+        </label>
+      </div>
+      {meta.hideQty && (
+        <p className="muted small" style={{ margin: "6px 0 0" }}>
+          Tanpa Qty, penawaran menjadi daftar harga: total per baris, subtotal, PPN, dan nilai kontrak ikut disembunyikan.
+        </p>
+      )}
       {missing.length > 0 && !readOnly && (
         <p className="small" style={{ color: "var(--danger)", margin: "8px 0 0" }}>
           Wajib diisi sebelum diajukan: {missing.join(" dan ")}.

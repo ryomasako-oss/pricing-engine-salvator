@@ -22,7 +22,7 @@
    ============================================================ */
 
 import { DatabaseSync } from "node:sqlite";
-import { readFileSync, mkdtempSync, rmSync } from "node:fs";
+import { readFileSync, readdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import assert from "node:assert/strict";
@@ -57,6 +57,11 @@ async function makeExpressDriver(): Promise<Driver> {
   const { approvalsRouter } = await import("../server/routes/approvals.js");
   const { catalogRouter } = await import("../server/routes/catalog.js");
   const { clientsRouter } = await import("../server/routes/clients.js");
+  const { settingsRouter } = await import("../server/routes/settings.js");
+  const { assistantRouter } = await import("../server/routes/assistant.js");
+  const { ocrRouter } = await import("../server/routes/ocr.js");
+  const { chatRouter } = await import("../server/routes/chat.js");
+  const { fixTasksRouter } = await import("../server/routes/fixTasks.js");
   const { run } = await import("../server/db.js");
 
   const app = express();
@@ -68,6 +73,11 @@ async function makeExpressDriver(): Promise<Driver> {
   app.use("/api/approvals", approvalsRouter);
   app.use("/api/catalog", catalogRouter);
   app.use("/api/clients", clientsRouter);
+  app.use("/api/settings", settingsRouter);
+  app.use("/api/assistant", assistantRouter);
+  app.use("/api/ocr", ocrRouter);
+  app.use("/api/chat", chatRouter);
+  app.use("/api/fix-tasks", fixTasksRouter);
 
   let server: Server;
   await new Promise<void>((resolve) => {
@@ -120,17 +130,8 @@ async function makeExpressDriver(): Promise<Driver> {
 async function makeWorkerDriver(): Promise<Driver> {
   const sqlite = new DatabaseSync(":memory:");
   const migrationsDir = path.resolve(import.meta.dirname, "../migrations");
-  for (const file of [
-    "0001_init.sql",
-    "0002_consistency.sql",
-    "0003_password_reset_requests.sql",
-    "0004_user_phone.sql",
-    "0005_reassignment_and_restore.sql",
-    "0006_uom_options.sql",
-    "0007_catalog_item_uoms.sql",
-    "0008_catalog_aliases.sql",
-    "0009_cogs_sanity.sql",
-  ]) {
+  // Every migration, in order, so a new one can't be left out of the Worker run.
+  for (const file of readdirSync(migrationsDir).filter((f) => f.endsWith(".sql")).sort()) {
     sqlite.exec(readFileSync(path.join(migrationsDir, file), "utf8"));
   }
   const db = new D1DatabaseShim(sqlite) as unknown as D1Database;
@@ -142,6 +143,11 @@ async function makeWorkerDriver(): Promise<Driver> {
   const { approvalsRouter } = await import("../server/worker/routes/approvals.js");
   const { catalogRouter } = await import("../server/worker/routes/catalog.js");
   const { clientsRouter } = await import("../server/worker/routes/clients.js");
+  const { settingsRouter } = await import("../server/worker/routes/settings.js");
+  const { assistantRouter } = await import("../server/worker/routes/assistant.js");
+  const { ocrRouter } = await import("../server/worker/routes/ocr.js");
+  const { chatRouter } = await import("../server/worker/routes/chat.js");
+  const { fixTasksRouter } = await import("../server/worker/routes/fixTasks.js");
   const { run } = await import("../server/db.d1.js");
 
   const app = new Hono();
@@ -151,6 +157,11 @@ async function makeWorkerDriver(): Promise<Driver> {
   app.route("/api/approvals", approvalsRouter);
   app.route("/api/catalog", catalogRouter);
   app.route("/api/clients", clientsRouter);
+  app.route("/api/settings", settingsRouter);
+  app.route("/api/assistant", assistantRouter);
+  app.route("/api/ocr", ocrRouter);
+  app.route("/api/chat", chatRouter);
+  app.route("/api/fix-tasks", fixTasksRouter);
 
   const env = {
     DB: db,
@@ -254,16 +265,39 @@ function snapshotFor(items: ReturnType<typeof cleanItem>[], overAssumptions: Rec
   };
 }
 
+/** Sessions that belong to staff (role rep), so createDraft knows how a rep builds a quote. */
+const repSessions = new WeakSet<Session>();
+
+/**
+ * A draft owned by `session`. A manager sends the full snapshot. A rep can't
+ * send cost inputs (PE-1), so the lines are first put in the catalog by a
+ * manager (one code per distinct COGS, so no scenario moves another's COGS
+ * reference) and the rep quotes them by code. A rep can't set assumptions
+ * either: asking for a policy breach gives the line a ceiling just above
+ * cost, so the price is capped there and the margin breaks the policy.
+ */
 async function createDraft(
   driver: Driver,
   session: Session,
   items: ReturnType<typeof cleanItem>[],
   overAssumptions: Record<string, unknown> = {},
 ) {
-  const created = await driver.api("POST", "/api/quotes", {
-    body: { title: "Test quote", snapshot: snapshotFor(items, overAssumptions) },
-    session,
-  });
+  let snapshot: unknown = snapshotFor(items, overAssumptions);
+  if (repSessions.has(session)) {
+    const breach = Object.keys(overAssumptions).length > 0;
+    const lines = items.map((it) => ({ ...it, code: `${it.code}@${it.cogs}`, rrp: breach ? Math.round(it.cogs * 1.1) : it.rrp }));
+    const manager = await loginCached(driver, "manager@test.local", "password123");
+    const imp = await driver.api("POST", "/api/catalog/import", {
+      body: {
+        rows: lines.map((it) => ({ code: it.code, name: it.name, uom: it.priceUom ?? it.uom, cogs: it.cogs, list_price: it.rrp })),
+        mode: "merge",
+      },
+      session: manager,
+    });
+    assert.equal(imp.status, 200, `[${driver.name}] catalog seed failed: ${JSON.stringify(imp.json)}`);
+    snapshot = { ...snapshotFor(lines, overAssumptions), items: lines };
+  }
+  const created = await driver.api("POST", "/api/quotes", { body: { title: "Test quote", snapshot }, session });
   assert.equal(created.status, 201, `[${driver.name}] create draft failed: ${JSON.stringify(created.json)}`);
   return created.json.quote as { id: number; version: number; number: string };
 }
@@ -276,6 +310,7 @@ async function loginCached(d: Driver, email: string, password: string): Promise<
   const cached = sessionCache.get(key);
   if (cached) return cached;
   const session = await d.login(email, password);
+  if (/^rep\d*@/.test(email)) repSessions.add(session);
   sessionCache.set(key, session);
   return session;
 }
@@ -1049,7 +1084,8 @@ function codesOf(json: any) {
 
 scenario("match: code, name similarity, brand mismatch and nothing-found, with catalog prices and units", async (d) => {
   await seedMatchCatalog(d);
-  const rep = await loginCached(d, "rep@test.local", "password123");
+  // A manager: this checks the catalog COGS, which staff no longer receive (PE-1).
+  const rep = await loginCached(d, "manager@test.local", "password123");
   const res = await d.api("POST", "/api/catalog/match", {
     body: {
       lines: [
@@ -1187,7 +1223,8 @@ scenario("match rejects an empty list, an over-long list, and requires login", a
 // ---------------------------------------------------------------
 
 scenario("submitting without term of payment / warranty -> 400 naming both, quote stays draft", async (d) => {
-  const rep = await loginCached(d, "rep@test.local", "password123");
+  // A manager: the snapshot carries an off-catalog line, which only managers may save (PE-1).
+  const rep = await loginCached(d, "manager@test.local", "password123");
   const snap = snapshotFor([cleanItem()]);
   const created = await d.api("POST", "/api/quotes", {
     body: { title: "No terms", snapshot: { ...snap, meta: { ...snap.meta, paymentDays: null, warrantyYears: null } } },
@@ -1202,7 +1239,8 @@ scenario("submitting without term of payment / warranty -> 400 naming both, quot
 });
 
 scenario("warranty 0 (none) and payment 0 (cash) count as filled in", async (d) => {
-  const rep = await loginCached(d, "rep@test.local", "password123");
+  // A manager: the snapshot carries an off-catalog line, which only managers may save (PE-1).
+  const rep = await loginCached(d, "manager@test.local", "password123");
   const snap = snapshotFor([cleanItem()]);
   const created = await d.api("POST", "/api/quotes", {
     body: { title: "Cash, no warranty", snapshot: { ...snap, meta: { ...snap.meta, paymentDays: 0, warrantyYears: 0 } } },
@@ -1231,7 +1269,8 @@ scenario("a new quote takes payment days from the client's terms; warranty start
 });
 
 scenario("warranty must be a whole or half year, payment days 0-365 -> else 400", async (d) => {
-  const rep = await loginCached(d, "rep@test.local", "password123");
+  // A manager: the snapshot carries an off-catalog line, which only managers may save (PE-1).
+  const rep = await loginCached(d, "manager@test.local", "password123");
   const snap = snapshotFor([cleanItem()]);
   const bad = async (meta: Record<string, unknown>) =>
     (await d.api("POST", "/api/quotes", { body: { title: "Bad", snapshot: { ...snap, meta: { ...snap.meta, ...meta } } }, session: rep }))
@@ -1256,13 +1295,14 @@ async function importRows(d: Driver, rows: Record<string, unknown>[], mode: "mer
   const r = await d.api("POST", "/api/catalog/import", { body: { rows, mode }, session: manager });
   assert.equal(r.status, 200, JSON.stringify(r.json));
 }
+/** The COGS problem as a manager reads it (staff get a wording without amounts, PE-1). */
 async function problemOf(d: Driver, code: string): Promise<string | null> {
-  const rep = await loginCached(d, "rep@test.local", "password123");
-  const r = await d.api("GET", `/api/catalog?q=${encodeURIComponent(code)}`, { session: rep });
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const r = await d.api("GET", `/api/catalog?q=${encodeURIComponent(code)}`, { session: manager });
   return (r.json.items as { code: string; cogs_problem: string | null }[]).find((i) => i.code === code)!.cogs_problem;
 }
 
-scenario("COGS reference: small moves follow it, a >50% jump is flagged, a manager's confirmation moves it", async (d) => {
+scenario("COGS reference: imports never move it; a manager's confirmation does", async (d) => {
   await importRows(d, [{ code: "C-JMP", name: "Jump item", cogs: 1000, list_price: 9000 }]);
   await importRows(d, [{ code: "C-JMP", name: "Jump item", cogs: 1100 }]);
   const small = await problemOf(d, "C-JMP");
@@ -1271,7 +1311,7 @@ scenario("COGS reference: small moves follow it, a >50% jump is flagged, a manag
 
   const rep = await loginCached(d, "rep@test.local", "password123");
   const manager = await loginCached(d, "manager@test.local", "password123");
-  const list = await d.api("GET", "/api/catalog?q=C-JMP", { session: rep });
+  const list = await d.api("GET", "/api/catalog?q=C-JMP", { session: manager });
   const id = list.json.items[0].id;
   const repVerify = await d.api("POST", `/api/catalog/${id}/verify-cogs`, { session: rep });
   const mgrVerify = await d.api("POST", `/api/catalog/${id}/verify-cogs`, { session: manager });
@@ -1282,13 +1322,28 @@ scenario("COGS reference: small moves follow it, a >50% jump is flagged, a manag
   const jumpedAgain = await problemOf(d, "C-JMP");
 
   assert.equal(small, null);
-  assert.equal(jumped, "COGS Rp 2.500 berubah 127% dari COGS acuan Rp 1.100; perlu dicek manajer");
+  // The 1.100 import did not move the reference (0010): still measured from 1.000.
+  assert.equal(jumped, "COGS Rp 2.500 berubah 150% dari COGS acuan Rp 1.000; perlu dicek manajer");
   assert.equal(repVerify.status, 403);
   assert.equal(mgrVerify.status, 200);
   assert.equal(afterVerify, null);
   assert.equal(smallAfterVerify, null);
-  assert.match(jumpedAgain!, /dari COGS acuan Rp 2.600/);
+  assert.match(jumpedAgain!, /dari COGS acuan Rp 2.500/);
   return { small, jumped, repVerify: repVerify.status, mgrVerify: mgrVerify.json, afterVerify, smallAfterVerify, jumpedAgain };
+});
+
+// Regression (DEVA, review of #2): under 0009 each change within 50% moved the
+// reference, so 50.000 -> 72.000 (+44%) -> 103.000 (+43%) was never flagged
+// although COGS had moved +106%. Since 0010 imports never move the reference.
+scenario("small steps can't walk COGS away from its reference without a flag", async (d) => {
+  await importRows(d, [{ code: "C-STEP", name: "Steps", cogs: 50000, list_price: 900000 }]);
+  await importRows(d, [{ code: "C-STEP", name: "Steps", cogs: 72000 }]);
+  const first = await problemOf(d, "C-STEP");
+  await importRows(d, [{ code: "C-STEP", name: "Steps", cogs: 103000 }]);
+  const second = await problemOf(d, "C-STEP");
+  assert.equal(first, null);
+  assert.equal(second, "COGS Rp 103.000 berubah 106% dari COGS acuan Rp 50.000; perlu dicek manajer");
+  return { first, second };
 });
 
 // Regression: with "average of history", the jumped value itself entered the
@@ -1314,40 +1369,82 @@ scenario("a flagged jump stays flagged after a further small change", async (d) 
   return { problem };
 });
 
-scenario("submitting a quote with a bad-COGS catalog item -> 400 naming the line; fixed catalog -> submits", async (d) => {
-  await importRows(d, [{ code: "C-BAD", name: "COGS above list", cogs: 5000, list_price: 4000 }]);
+scenario("a bad-COGS line is held, not offered; the rest submits; holds freeze at submit and lift on reopen", async (d) => {
+  await importRows(d, [
+    { code: "H-BAD", name: "COGS above list", cogs: 5000, list_price: 4000 },
+    { code: "H-OK", name: "Fine item", cogs: 1000, list_price: 2000 },
+  ]);
   const rep = await loginCached(d, "rep@test.local", "password123");
-  const q = await createDraft(d, rep, [cleanItem({ code: "C-BAD", name: "COGS above list", cogs: 5000, rrp: 8000 })]);
-  const blocked = await d.api("POST", `/api/quotes/${q.id}/submit`, { session: rep });
-  const still = await d.api("GET", `/api/quotes/${q.id}`, { session: rep });
-  await importRows(d, [{ code: "C-BAD", name: "COGS above list", list_price: 9000 }]);
-  const ok = await d.api("POST", `/api/quotes/${q.id}/submit`, { session: rep });
+  const made = await d.api("POST", "/api/quotes", {
+    body: {
+      title: "Hold",
+      snapshot: {
+        ...snapshotFor([]),
+        items: [{ id: "h1", code: "H-OK", qty: 10, rrp: 2000 }, { id: "h2", code: "H-BAD", qty: 3, rrp: 8000 }],
+      },
+    },
+    session: rep,
+  });
+  assert.equal(made.status, 201, JSON.stringify(made.json));
+  const id = made.json.quote.id as number;
+  const draft = (await d.api("GET", `/api/quotes/${id}`, { session: rep })).json.quote;
+  const okOnly = (await d.api("POST", "/api/quotes/preview", {
+    body: { snapshot: { items: [{ id: "h1", code: "H-OK", qty: 10, rrp: 2000 }] } },
+    session: rep,
+  })).json.quote;
+  const submit = await d.api("POST", `/api/quotes/${id}/submit`, { session: rep });
+  // Fixing the catalog after submit doesn't change the submitted document...
+  await importRows(d, [{ code: "H-BAD", name: "COGS above list", list_price: 9000 }]);
+  const frozen = (await d.api("GET", `/api/quotes/${id}`, { session: rep })).json.quote;
+  // ...reopening makes it a draft again, and the fixed line is released.
+  const reopen = await d.api("POST", `/api/quotes/${id}/reopen`, { session: rep });
+  const released = (await d.api("GET", `/api/quotes/${id}`, { session: rep })).json.quote;
 
-  assert.equal(blocked.status, 400);
-  assert.deepEqual(blocked.json.cogsBlocked.map((l: { code: string; lineNo: number }) => [l.code, l.lineNo]), [["C-BAD", 1]]);
-  assert.equal(still.json.quote.status, "draft");
-  assert.equal(ok.status, 200, JSON.stringify(ok.json));
-  return { blocked: blocked.status, lines: blocked.json.cogsBlocked, status: still.json.quote.status, ok: ok.status };
+  const heldOf = (q: { items: { id: string; held?: boolean }[] }) => q.items.map((i) => [i.id, Boolean(i.held)]);
+  assert.deepEqual(heldOf(draft), [["h1", false], ["h2", true]]);
+  assert.equal(draft.pricing.subtotal, okOnly.pricing.subtotal);
+  assert.equal(submit.status, 200, JSON.stringify(submit.json));
+  assert.deepEqual(heldOf(frozen), [["h1", false], ["h2", true]]);
+  assert.equal(reopen.status, 200, JSON.stringify(reopen.json));
+  assert.deepEqual(heldOf(released), [["h1", false], ["h2", false]]);
+  assert.ok(released.pricing.subtotal > draft.pricing.subtotal);
+  return {
+    draft: heldOf(draft), submit: submit.status, frozen: heldOf(frozen), released: heldOf(released),
+    subtotals: [draft.pricing.subtotal, released.pricing.subtotal],
+  };
+});
+
+scenario("a quote whose every line is held can't be submitted (400)", async (d) => {
+  await importRows(d, [{ code: "H-ALL", name: "Only bad", cogs: 5000, list_price: 4000 }]);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const made = await d.api("POST", "/api/quotes", {
+    body: { title: "All held", snapshot: { ...snapshotFor([]), items: [{ id: "a1", code: "H-ALL", qty: 1, rrp: 8000 }] } },
+    session: rep,
+  });
+  const submit = await d.api("POST", `/api/quotes/${made.json.quote.id}/submit`, { session: rep });
+  const after = await d.api("GET", `/api/quotes/${made.json.quote.id}`, { session: rep });
+  assert.equal(submit.status, 400);
+  assert.equal(after.json.quote.status, "draft");
+  return { status: submit.status, error: submit.json.error, quoteStatus: after.json.quote.status };
 });
 
 // Regression: the check looked codes up exactly, so a line coded "c-case" or
-// "C-CASE " (a client's file keeps the code as typed) skipped the block.
-scenario("a bad-COGS item is blocked whatever the case or spacing of the line's code", async (d) => {
+// "C-CASE " (a client's file keeps the code as typed) escaped it.
+scenario("a bad-COGS line is held whatever the case or spacing of its code", async (d) => {
   await importRows(d, [{ code: "C-CASE", name: "COGS above list", cogs: 5000, list_price: 4000 }]);
-  const rep = await loginCached(d, "rep@test.local", "password123");
-  const submitWith = async (code: string) => {
-    const q = await createDraft(d, rep, [cleanItem({ code, name: "COGS above list", cogs: 5000, rrp: 8000 })]);
-    const r = await d.api("POST", `/api/quotes/${q.id}/submit`, { session: rep });
-    return { status: r.status, lines: r.json.cogsBlocked?.map((l: { code: string }) => l.code) };
-  };
-  const lower = await submitWith("c-case");
-  const spaced = await submitWith(" C-CASE ");
-  const check = await d.api("POST", "/api/catalog/cogs-check", { body: { codes: ["c-case"] }, session: rep });
-
-  assert.deepEqual(lower, { status: 400, lines: ["c-case"] });
-  assert.deepEqual(spaced, { status: 400, lines: [" C-CASE "] });
+  // A manager: staff lines are built from the catalog and always carry its spelling (PE-1).
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const q = await createDraft(d, manager, [
+    cleanItem({ id: "c1", code: "c-case", name: "COGS above list", cogs: 5000, rrp: 8000 }),
+    cleanItem({ id: "c2", lineNo: 2, code: " C-CASE ", name: "COGS above list", cogs: 5000, rrp: 8000 }),
+    cleanItem({ id: "c3", lineNo: 3 }),
+  ]);
+  const got = (await d.api("GET", `/api/quotes/${q.id}`, { session: manager })).json.quote;
+  const check = await d.api("POST", "/api/catalog/cogs-check", { body: { codes: ["c-case"] }, session: manager });
+  const held = got.items.map((i: { id: string; held?: boolean }) => [i.id, Boolean(i.held)]);
+  assert.deepEqual(held, [["c1", true], ["c2", true], ["c3", false]]);
   assert.deepEqual(Object.keys(check.json.problems), ["c-case"]);
-  return { lower, spaced, check: check.json };
+  return { held, check: Object.keys(check.json.problems) };
 });
 
 scenario("cogs-check reports only problem codes; empty COGS is a problem", async (d) => {
@@ -1359,6 +1456,809 @@ scenario("cogs-check reports only problem codes; empty COGS is a problem", async
   const r = await d.api("POST", "/api/catalog/cogs-check", { body: { codes: ["C-OK", "C-ZERO", "C-BAD", "NOT-THERE"] }, session: rep });
   assert.deepEqual(Object.keys(r.json.problems).sort(), ["C-ZERO"]);
   return r.json;
+});
+
+
+
+// ---------------------------------------------------------------
+// PE-1 (meeting 2026-10-05 #4): staff never receive cost data.
+// A COGS of Rp 31.337 is unmistakable: if it (or a key that carries cost or
+// margin) shows up in any response a rep gets, the rep can read it in DevTools.
+// ---------------------------------------------------------------
+
+const LEAK_COGS = 31337;
+/** The leak marker in any spelling a response might use (raw, id-ID or en-US grouping). */
+const LEAK_TEXT = /31337|31\.337|31,337/;
+/**
+ * Keys that carry cost or margin, at any depth, also inside a JSON string
+ * (an audit entry's `detail` arrives as `\"net_margin\":`).
+ */
+const LEAK_KEY = /\\?"(cogs|landed|margin|margins|net_margin|netMargin|assumptions|manualPrice|lowestMargin|targetMargin|minNetMargin|minLineMargin)\\?"\s*:/;
+
+function leaksIn(json: unknown): string[] {
+  const text = JSON.stringify(json ?? null);
+  const out: string[] = [];
+  if (LEAK_TEXT.test(text)) out.push("cogs-value");
+  const key = LEAK_KEY.exec(text);
+  if (key) out.push(`key:${key[1]}`);
+  return out;
+}
+
+/** Calls every endpoint on the PE-1 leak map as this user; returns endpoint -> what leaked. */
+async function costExposure(d: Driver, session: Session) {
+  const create = await d.api("POST", "/api/quotes", {
+    body: {
+      title: "Leak probe",
+      snapshot: snapshotFor([cleanItem({ id: "lk1", code: "LEAK-1", name: "Barang bocor", cogs: LEAK_COGS, rrp: 99000, qty: 2 })]),
+    },
+    session,
+  });
+  const id = create.json.quote?.id;
+  const bad = await d.api("POST", "/api/quotes", {
+    body: {
+      title: "Leak probe bad",
+      snapshot: snapshotFor([cleanItem({ id: "lk3", code: "LEAK-3", name: "COGS di atas harga jual", cogs: LEAK_COGS, rrp: 99000 })]),
+    },
+    session,
+  });
+  const got = await d.api("GET", `/api/quotes/${id}`, { session });
+  const put = await d.api("PUT", `/api/quotes/${id}`, {
+    body: { snapshot: got.json.quote ? snapshotFor(got.json.quote.items ?? []) : {}, expected_version: got.json.quote?.version },
+    session,
+  });
+  const stale = await d.api("PUT", `/api/quotes/${id}`, {
+    body: { snapshot: got.json.quote ? snapshotFor(got.json.quote.items ?? []) : {}, expected_version: -1 },
+    session,
+  });
+  const calls: Record<string, unknown> = {
+    "POST /quotes": create.json,
+    "GET /quotes/:id": got.json,
+    "PUT /quotes/:id": put.json,
+    "PUT /quotes/:id (stale version)": stale.json,
+    "GET /quotes": (await d.api("GET", "/api/quotes", { session })).json,
+    "POST submit (blocked)": (await d.api("POST", `/api/quotes/${bad.json.quote?.id}/submit`, { session })).json,
+    "POST submit": (await d.api("POST", `/api/quotes/${id}/submit`, { session })).json,
+    // The submit writes an audit entry; read the quote again to see it.
+    "GET /quotes/:id (after submit)": (await d.api("GET", `/api/quotes/${id}`, { session })).json,
+    "POST reopen": (await d.api("POST", `/api/quotes/${id}/reopen`, { session })).json,
+    "POST revisions": (await d.api("POST", `/api/quotes/${id}/revisions`, { body: { note: "probe" }, session })).json,
+  };
+  const detail = (await d.api("GET", `/api/quotes/${id}`, { session })).json;
+  calls["GET /quotes/:id (after reopen)"] = detail;
+  const revisionId = detail.revisions?.[0]?.id;
+  calls["POST restore"] = (await d.api("POST", `/api/quotes/${id}/restore/${revisionId}`, { session })).json;
+  Object.assign(calls, {
+    "GET /catalog": (await d.api("GET", "/api/catalog?q=LEAK", { session })).json,
+    "POST /catalog/match": (await d.api("POST", "/api/catalog/match", { body: { lines: [{ name: "Barang bocor" }] }, session })).json,
+    "POST /catalog/cogs-check": (await d.api("POST", "/api/catalog/cogs-check", { body: { codes: ["LEAK-1", "LEAK-3"] }, session })).json,
+    "GET /settings": (await d.api("GET", "/api/settings", { session })).json,
+    "POST /quotes/preview (new)": (await d.api("POST", "/api/quotes/preview", {
+      body: { snapshot: { items: [{ id: "p1", code: "LEAK-1", qty: 1 }] } },
+      session,
+    })).json,
+    "POST /quotes/preview (existing)": (await d.api("POST", "/api/quotes/preview", {
+      body: { quote_id: id, snapshot: { items: [{ id: "p1", code: "LEAK-1", qty: 3 }] } },
+      session,
+    })).json,
+  });
+  const exposure: Record<string, string[]> = {};
+  for (const [name, json] of Object.entries(calls)) {
+    const l = leaksIn(json);
+    if (l.length) exposure[name] = l;
+  }
+  return exposure;
+}
+
+async function seedLeakCatalog(d: Driver) {
+  await importRows(d, [
+    { code: "LEAK-1", name: "Barang bocor", cogs: LEAK_COGS, list_price: 99000 },
+    { code: "LEAK-3", name: "COGS di atas harga jual", cogs: LEAK_COGS, list_price: 20000 },
+  ]);
+}
+
+scenario("PE-1: a rep receives no COGS, landed cost or margin from any endpoint", async (d) => {
+  await seedLeakCatalog(d);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const exposure = await costExposure(d, rep);
+  const assistant = await d.api("POST", "/api/assistant/ask", {
+    body: { context: { snapshot: snapshotFor([cleanItem()]) }, messages: [{ role: "user", content: "x" }] },
+    session: rep,
+  });
+  assert.deepEqual(exposure, {}, `cost data reaches a rep: ${JSON.stringify(exposure)}`);
+  assert.equal(assistant.status, 403);
+  return { exposure, assistant: assistant.status };
+});
+
+scenario("PE-1: a manager still sees cost data (the leak probe is not vacuous)", async (d) => {
+  await seedLeakCatalog(d);
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const exposure = await costExposure(d, manager);
+  for (const name of ["GET /quotes/:id", "GET /catalog", "POST /catalog/match"]) {
+    assert.ok(exposure[name]?.includes("cogs-value"), `${name} should show the manager the COGS`);
+  }
+  return { sees: ["GET /quotes/:id", "GET /catalog", "POST /catalog/match"].map((n) => exposure[n]?.includes("cogs-value")) };
+});
+
+scenario("PE-1: COGS, role and manual price a rep sends are ignored; the catalog's COGS is kept", async (d) => {
+  await seedLeakCatalog(d);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const created = await d.api("POST", "/api/quotes", {
+    body: {
+      title: "Tamper",
+      snapshot: snapshotFor([cleanItem({ id: "t1", code: "LEAK-1", name: "Barang bocor", cogs: 1, rrp: 99000, role: "LEADER", manualPrice: [5, 5, 5] })]),
+    },
+    session: rep,
+  });
+  const id = created.json.quote.id;
+  // A save of the same line with tampered cost fields, then a revision saved
+  // and restored: neither may get a cost from the browser into the quote.
+  const v = (await d.api("GET", `/api/quotes/${id}`, { session: rep })).json.quote.version;
+  const put = await d.api("PUT", `/api/quotes/${id}`, {
+    body: {
+      snapshot: { items: [{ id: "t1", code: "LEAK-1", qty: 4, cogs: 1, role: "PROFIT", manualPrice: [5, 5, 5] }] },
+      expected_version: v,
+    },
+    session: rep,
+  });
+  await d.api("POST", `/api/quotes/${id}/revisions`, { body: { note: "tamper", snapshot: { items: [{ cogs: 1 }] } }, session: rep });
+  const revs = (await d.api("GET", `/api/quotes/${id}`, { session: rep })).json.revisions;
+  const restored = await d.api("POST", `/api/quotes/${id}/restore/${revs[0].id}`, { session: rep });
+  const asManager = await d.api("GET", `/api/quotes/${id}`, { session: manager });
+  const line = asManager.json.quote.items[0];
+  assert.equal(put.status, 200, JSON.stringify(put.json));
+  assert.equal(restored.status, 200, JSON.stringify(restored.json));
+  assert.equal(line.cogs, LEAK_COGS);
+  assert.equal(line.role, "CORE");
+  assert.equal(line.manualPrice ?? null, null);
+  assert.equal(line.qty, 4);
+  return { cogs: line.cogs, role: line.role, manual: line.manualPrice ?? null, qty: line.qty };
+});
+
+scenario("PE-1: preview prices exactly what a save would, without saving", async (d) => {
+  await seedLeakCatalog(d);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const created = await d.api("POST", "/api/quotes", {
+    body: { title: "Preview", snapshot: { ...snapshotFor([]), items: [{ id: "p1", code: "LEAK-1", qty: 2, rrp: 99000 }] } },
+    session: rep,
+  });
+  const id = created.json.quote.id;
+  const before = (await d.api("GET", `/api/quotes/${id}`, { session: rep })).json;
+  const edit = { items: [{ id: "p1", code: "LEAK-1", qty: 7 }, { id: "p2", code: "LEAK-1", qty: 1, uom: "Pcs" }] };
+  const preview = await d.api("POST", "/api/quotes/preview", { body: { quote_id: id, snapshot: edit }, session: rep });
+  const after = (await d.api("GET", `/api/quotes/${id}`, { session: rep })).json;
+  const saved = await d.api("PUT", `/api/quotes/${id}`, { body: { snapshot: edit, expected_version: before.quote.version }, session: rep });
+  const outside = await d.api("POST", "/api/quotes/preview", {
+    body: { snapshot: { items: [{ id: "x", code: "", name: "Barang lain", qty: 1 }] } },
+    session: rep,
+  });
+
+  assert.equal(preview.status, 200, JSON.stringify(preview.json));
+  assert.equal(after.quote.version, before.quote.version);
+  assert.equal(after.audit.length, before.audit.length);
+  assert.deepEqual(preview.json.quote.items, saved.json.quote.items);
+  assert.deepEqual(preview.json.quote.pricing, saved.json.quote.pricing);
+  assert.equal(outside.status, 400);
+  return { prices: preview.json.quote.items.map((i: { price: number }) => i.price), total: preview.json.quote.pricing.total, outside: outside.status };
+});
+
+
+scenario("A rep can type a price: past the ceiling, or where there is no ceiling; policy asks a manager, nothing cost-derived goes back", async (d) => {
+  await seedLeakCatalog(d);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const created = await d.api("POST", "/api/quotes", {
+    body: { title: "Typed price", snapshot: { ...snapshotFor([]), items: [{ id: "t1", code: "LEAK-1", qty: 2, rrp: 99000 }, { id: "t2", code: "LEAK-1", qty: 1, rrp: 0 }] } },
+    session: rep,
+  });
+  const id = created.json.quote.id;
+  const v = created.json.quote.version;
+  const typed = { items: [{ id: "t1", code: "LEAK-1", qty: 2, rrp: 99000, price: 120000 }, { id: "t2", code: "LEAK-1", qty: 1, rrp: 0, price: 5000 }] };
+  const preview = await d.api("POST", "/api/quotes/preview", { body: { quote_id: id, snapshot: typed }, session: rep });
+  const saved = await d.api("PUT", `/api/quotes/${id}`, { body: { snapshot: typed, expected_version: v }, session: rep });
+  const asRep = (await d.api("GET", `/api/quotes/${id}`, { session: rep })).json;
+  const asManager = (await d.api("GET", `/api/quotes/${id}`, { session: manager })).json;
+  const k = asManager.quote.scenario;
+  // Back to the computed price with 0.
+  const clearedBody = { items: [{ id: "t1", code: "LEAK-1", qty: 2, rrp: 99000, price: 0 }, { id: "t2", code: "LEAK-1", qty: 1, rrp: 0 }] };
+  const cleared = await d.api("PUT", `/api/quotes/${id}`, { body: { snapshot: clearedBody, expected_version: saved.json.quote.version }, session: rep });
+
+  assert.equal(preview.status, 200, JSON.stringify(preview.json));
+  assert.equal(saved.status, 200, JSON.stringify(saved.json));
+  assert.deepEqual(preview.json.quote.items, saved.json.quote.items);
+  assert.deepEqual(saved.json.quote.items.map((i: { price: number }) => i.price), [120000, 5000]);
+  assert.equal(saved.json.quote.items[0].manual, true);
+  assert.deepEqual(asManager.quote.items.map((i: { manualPrice: (number | null)[] }) => i.manualPrice[k]), [120000, 5000]);
+  assert.deepEqual(asRep.policy.breaches.map((b: { code: string }) => b.code), ["NEEDS_REVIEW"]);
+  assert.ok(asManager.policy.breaches.some((b: { code: string }) => b.code === "ABOVE_CEILING"));
+  assert.ok(!JSON.stringify(asRep).includes(String(LEAK_COGS)), "typed price must not bring cost data back to staff");
+  assert.equal(cleared.status, 200, JSON.stringify(cleared.json));
+  assert.equal(cleared.json.quote.items[0].manual, undefined);
+  assert.equal(cleared.json.quote.items[1].price, 5000);
+  return {
+    prices: saved.json.quote.items.map((i: { price: number }) => i.price),
+    repBreaches: asRep.policy.breaches,
+    afterClear: cleared.json.quote.items.map((i: { price: number; manual?: boolean }) => [i.price > 0, i.manual ?? false]),
+  };
+});
+
+scenario("A rep cannot probe for cost: every blocking price looks the same, safe prices show nothing", async (d) => {
+  await seedLeakCatalog(d);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const created = await d.api("POST", "/api/quotes", {
+    body: { title: "Probe", snapshot: { ...snapshotFor([]), items: [{ id: "p1", code: "LEAK-1", qty: 1, rrp: 99000 }] } },
+    session: rep,
+  });
+  const id = created.json.quote.id;
+  let version = created.json.quote.version;
+  const out: Record<string, unknown> = {};
+  const seen: Record<string, string> = {};
+  // below cost, a hair above cost, past the ceiling, and a comfortable price
+  for (const [label, price] of [["belowCost", 20000], ["thin", LEAK_COGS + 100], ["aboveCeiling", 120000], ["comfortable", 70000]] as const) {
+    const body = { snapshot: { items: [{ id: "p1", code: "LEAK-1", qty: 1, rrp: 99000, price }] }, expected_version: version };
+    const saved = await d.api("PUT", `/api/quotes/${id}`, { body, session: rep });
+    assert.equal(saved.status, 200, JSON.stringify(saved.json));
+    version = saved.json.quote.version;
+    const asRep = (await d.api("GET", `/api/quotes/${id}`, { session: rep })).json;
+    const asManager = (await d.api("GET", `/api/quotes/${id}`, { session: manager })).json;
+    const preview = await d.api("POST", "/api/quotes/preview", { body: { quote_id: id, snapshot: body.snapshot }, session: rep });
+    seen[label] = JSON.stringify(asRep.policy.breaches);
+    out[label] = { repBreaches: asRep.policy.breaches, managerCodes: asManager.policy.breaches.map((b: { code: string }) => b.code).sort() };
+    assert.ok(!JSON.stringify(preview.json).includes("breach"), "preview must not carry policy signals");
+    assert.ok(!JSON.stringify(asRep).includes(String(LEAK_COGS)));
+  }
+  // The manager really does see different reasons (so the test can fail) ...
+  assert.notDeepEqual((out.belowCost as { managerCodes: string[] }).managerCodes, (out.aboveCeiling as { managerCodes: string[] }).managerCodes);
+  // ... and the rep sees one identical answer for all of them.
+  assert.equal(seen.belowCost, seen.thin);
+  assert.equal(seen.belowCost, seen.aboveCeiling);
+  assert.equal(seen.comfortable, "[]");
+  assert.deepEqual(JSON.parse(seen.belowCost), [{ code: "NEEDS_REVIEW", severity: "block", message: "Penawaran ini perlu persetujuan manajer." }]);
+  return out;
+});
+
+// Review of #13: the submit audit entry records the breach codes, and the
+// staff audit filter dropped only cost fields, so a rep could still submit,
+// read which rule tripped in the quote's history, reopen and try another price.
+scenario("A rep cannot read which policy rule tripped from the quote's history either", async (d) => {
+  await seedLeakCatalog(d);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const created = await d.api("POST", "/api/quotes", {
+    body: { title: "Probe history", snapshot: { ...snapshotFor([]), items: [{ id: "h1", code: "LEAK-1", qty: 1, rrp: 99000, price: 20000 }] } },
+    session: rep,
+  });
+  assert.equal(created.status, 201, JSON.stringify(created.json));
+  const id = created.json.quote.id;
+  const sub = await d.api("POST", `/api/quotes/${id}/submit`, { session: rep });
+  assert.equal(sub.status, 200, JSON.stringify(sub.json));
+  const RULES = /NET_MARGIN|LINE_MARGIN|BELOW_COST|ABOVE_CEILING|BASKET_DISCOUNT|VALUE_THRESHOLD|MISSING_COGS/;
+  const asRep = JSON.stringify((await d.api("GET", `/api/quotes/${id}`, { session: rep })).json);
+  const managerAudit = JSON.stringify((await d.api("GET", `/api/quotes/${id}`, { session: manager })).json.audit);
+  assert.ok(RULES.test(managerAudit), "the manager's history names the rules (so this test can fail)");
+  assert.ok(!RULES.test(asRep), `a rule code reached the rep: ${asRep.match(RULES)?.[0]}`);
+  return { submitted: sub.json.quote.status };
+});
+
+scenario("OCR endpoint: login required, and off (503) until a Gemini key is set", async (d) => {
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const anon = await d.api("POST", "/api/ocr/extract", { body: {} });
+  const off = await d.api("POST", "/api/ocr/extract", { body: {}, session: rep });
+  assert.equal(anon.status, 401);
+  assert.equal(off.status, 503, JSON.stringify(off.json));
+  return { anon: anon.status, off: off.status, error: off.json.error };
+});
+
+// Regression (Codex review of develop 41764fe): a rep who switched a line from
+// Pcs to Box and typed a ceiling and a price before saving lost both: the
+// stored ceiling was converted instead and the typed price was dropped.
+scenario("a rep's ceiling and price typed after a unit change are kept, in the new unit", async (d) => {
+  await importRows(d, [{ code: "U-BOX", name: "Spidol", uom: "Pcs", cogs: 200, list_price: 300, units: [{ uom: "Box", factor: 12 }] }]);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  // Quoted by its real catalog code (createDraft gives each line its own code, without the Box ratio).
+  const created = await d.api("POST", "/api/quotes", {
+    body: { title: "Unit edit", snapshot: { items: [{ id: "u1", code: "U-BOX", name: "Spidol", uom: "Pcs", qty: 10 }], meta: snapshotFor([]).meta } },
+    session: rep,
+  });
+  assert.equal(created.status, 201, JSON.stringify(created.json));
+  const quote = created.json.quote as { id: number; version: number };
+  const saved = await d.api("PUT", `/api/quotes/${quote.id}`, {
+    body: {
+      snapshot: { items: [{ id: "u1", code: "U-BOX", name: "Spidol", uom: "Box", valuesUom: "Box", qty: 1, rrp: 5000, price: 4000 }] },
+      expected_version: quote.version,
+    },
+    session: rep,
+  });
+  const line = (await d.api("GET", `/api/quotes/${quote.id}`, { session: manager })).json.quote.items[0];
+  const got = { uom: line.uom, cogs: line.cogs, rrp: line.rrp, typed: (line.manualPrice ?? []).filter((p: number | null) => p !== null) };
+  assert.equal(saved.status, 200, JSON.stringify(saved.json));
+  assert.deepEqual(got, { uom: "Box", cogs: 2400, rrp: 5000, typed: [4000] });
+  return got;
+});
+
+scenario("Chat endpoint: login required, off (503) without a key, bad input is 400 for staff too", async (d) => {
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const anon = await d.api("POST", "/api/chat", { body: { messages: [{ role: "user", content: "halo" }] } });
+  const off = await d.api("POST", "/api/chat", { body: { messages: [{ role: "user", content: "halo" }] }, session: rep });
+  assert.equal(anon.status, 401);
+  assert.equal(off.status, 503, JSON.stringify(off.json));
+  return { anon: anon.status, off: off.status, error: off.json.error };
+});
+
+scenario("PE-1: sorting the catalog by COGS is ignored for staff (the order would rank costs)", async (d) => {
+  await importRows(d, [
+    { code: "SRT-A", name: "SRT Alpha", cogs: 3000, list_price: 9000 },
+    { code: "SRT-B", name: "SRT Bravo", cogs: 1000, list_price: 9000 },
+    { code: "SRT-C", name: "SRT Charlie", cogs: 2000, list_price: 9000 },
+  ]);
+  const order = async (email: string) => {
+    const session = await loginCached(d, email, "password123");
+    const r = await d.api("GET", "/api/catalog?q=SRT-&sortBy=cogs&sortDir=asc", { session });
+    return (r.json.items as { code: string }[]).map((i) => i.code);
+  };
+  const rep = await order("rep@test.local");
+  const manager = await order("manager@test.local");
+  assert.deepEqual(rep, ["SRT-A", "SRT-B", "SRT-C"]);
+  assert.deepEqual(manager, ["SRT-B", "SRT-C", "SRT-A"]);
+  return { rep, manager };
+});
+
+
+// ---------------------------------------------------------------
+// "+ Klien baru" inside the quote flows (2026-10-07): no second copy of a client.
+// ---------------------------------------------------------------
+
+scenario("creating a client that already exists under another spelling -> 409 with the existing one", async (d) => {
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const first = await d.api("POST", "/api/clients", { body: { name: "PT Dupli Kat Jaya" }, session: rep });
+  const again = await d.api("POST", "/api/clients", { body: { name: "DUPLI KAT JAYA, PT." }, session: rep });
+  const other = await d.api("POST", "/api/clients", { body: { name: "PT Dupli Kat Jaya Logistik" }, session: rep });
+  const legalOnly = await d.api("POST", "/api/clients", { body: { name: "PT" }, session: rep });
+  assert.equal(first.status, 201);
+  assert.equal(again.status, 409);
+  assert.equal(again.json.existing.id, first.json.client.id);
+  assert.equal(other.status, 201);
+  assert.equal(legalOnly.status, 400);
+  // Renaming another client onto the same company is refused; saving a client under its own name is not.
+  const rename = await d.api("PUT", `/api/clients/${other.json.client.id}`, { body: { name: "Dupli Kat Jaya PT" }, session: rep });
+  const keep = await d.api("PUT", `/api/clients/${first.json.client.id}`, { body: { name: "PT. Dupli Kat Jaya" }, session: rep });
+  assert.equal(rename.status, 409);
+  assert.equal(keep.status, 200);
+  return {
+    rename: rename.status, keep: keep.status,
+    first: first.status, again: again.status, sameId: again.json.existing.id === first.json.client.id,
+    existingName: again.json.existing.name, other: other.status, legalOnly: legalOnly.status,
+  };
+});
+
+
+// ---------------------------------------------------------------
+// PE-2 (meeting 2026-10-05 #2): the locked "Cek harga" Excel for sales.
+// ---------------------------------------------------------------
+
+/** A rep's quote with two lines, approved by the manager. */
+async function approvedForSales(d: Driver) {
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const quote = await createDraft(d, rep, [
+    cleanItem({ id: "s1", lineNo: 1, code: "SR-1", name: "Pulpen" }),
+    cleanItem({ id: "s2", lineNo: 2, code: "SR-2", name: "Kertas", cogs: 41000, rrp: 60000 }),
+  ]);
+  await d.api("POST", `/api/quotes/${quote.id}/submit`, { session: rep });
+  const got = await d.api("GET", `/api/quotes/${quote.id}`, { session: manager });
+  if (got.json.quote.status !== "approved") {
+    await d.api("POST", `/api/quotes/${quote.id}/decide`, { body: { decision: "approved", note: "" }, session: manager });
+  }
+  const q = (await d.api("GET", `/api/quotes/${quote.id}`, { session: rep })).json.quote;
+  return { rep, manager, id: q.id as number, rev_no: q.rev_no as number, version: q.version as number };
+}
+
+scenario("PE-2: office Excel password: admin sets it, managers read it, reps never see it", async (d) => {
+  const admin = await loginCached(d, "admin@test.local", "password123");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const byManager = await d.api("PUT", "/api/settings/excel-password", { body: { password: "x1234567" }, session: manager });
+  const tooShort = await d.api("PUT", "/api/settings/excel-password", { body: { password: "abc" }, session: admin });
+  const set = await d.api("PUT", "/api/settings/excel-password", { body: { password: "Kantor-2026" }, session: admin });
+  const forManager = await d.api("GET", "/api/settings", { session: manager });
+  const forRep = await d.api("GET", "/api/settings", { session: rep });
+  assert.equal(forManager.json.excelPassword, "Kantor-2026");
+  assert.ok(!JSON.stringify(forRep.json).includes("Kantor-2026"), "rep received the Excel password");
+  return {
+    byManager: byManager.status, tooShort: tooShort.status, set: set.status,
+    managerSees: forManager.json.excelPassword, repKeys: Object.keys(forRep.json).sort(),
+  };
+});
+
+scenario("PE-2: sales ACC every line -> quote stays approved, review recorded", async (d) => {
+  const { rep, id, rev_no, version } = await approvedForSales(d);
+  const r = await d.api("POST", `/api/quotes/${id}/sales-review`, {
+    body: { rev_no, version, lines: [{ id: "s1", decision: "acc", reason: "" }, { id: "s2", decision: "acc", reason: "" }] },
+    session: rep,
+  });
+  const latest = await d.api("GET", `/api/quotes/${id}/sales-review`, { session: rep });
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  assert.equal(r.json.quote.status, "approved");
+  assert.equal(r.json.quote.rev_no, rev_no);
+  assert.equal(latest.json.review.rejected, 0);
+  return {
+    status: r.status, quoteStatus: r.json.quote.status, rev: r.json.quote.rev_no - rev_no, rejected: r.json.review.rejected,
+    latest: latest.json.review && { rev: latest.json.review.rev_no - rev_no, by: latest.json.review.reviewed_by_name, lines: latest.json.review.lines },
+  };
+});
+
+const decide = (s1: string, s2: string, reason = "klien minta 48rb") => [
+  { id: "s1", decision: s1, reason: s1 === "tolak" ? reason : "" },
+  { id: "s2", decision: s2, reason: s2 === "tolak" ? reason : "" },
+];
+
+scenario("PE-2/fix: a partial Tolak keeps the quote approved; the line follows later and becomes a task", async (d) => {
+  const { rep, manager, id, rev_no, version } = await approvedForSales(d);
+  const r = await d.api("POST", `/api/quotes/${id}/sales-review`, { body: { rev_no, version, lines: decide("acc", "tolak") }, session: rep });
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  const q = (await d.api("GET", `/api/quotes/${id}`, { session: manager })).json.quote;
+  const tasks = (await d.api("GET", "/api/fix-tasks?status=open", { session: rep })).json.tasks.filter((t: { quote_id: number }) => t.quote_id === id);
+  // The old file is stale now: the offer changed.
+  const again = await d.api("POST", `/api/quotes/${id}/sales-review`, { body: { rev_no, version, lines: decide("acc", "acc") }, session: rep });
+  assert.equal(q.status, "approved");
+  assert.equal(q.rev_no, rev_no);
+  assert.equal(q.version, version + 1);
+  assert.deepEqual(q.items.map((it: { id: string; held?: boolean; holdReason?: string }) => [it.id, !!it.held, it.holdReason ?? null]), [["s1", false, null], ["s2", true, "sales"]]);
+  assert.deepEqual(tasks.map((t: { kind: string; line_id: string; detail: string }) => [t.kind, t.line_id, t.detail]), [["sales_rejected", "s2", "Ditolak Rep One: klien minta 48rb"]]);
+  assert.equal(again.status, 409);
+  return { quoteStatus: q.status, versionUp: q.version - version, tasks: tasks.length, again: again.status };
+});
+
+scenario("PE-2/fix: a partial Tolak that leaves the offer outside policy goes back to the manager as pending", async (d) => {
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const quote = await createDraft(d, manager, [
+    cleanItem({ id: "s1", lineNo: 1, code: "SRB-1", name: "Untung", cogs: 10000, rrp: 18000 }),
+    cleanItem({ id: "s2", lineNo: 2, code: "SRB-2", name: "Tipis", cogs: 10000, rrp: 11500 }),
+  ]);
+  const sub = await d.api("POST", `/api/quotes/${quote.id}/submit`, { session: manager });
+  assert.equal(sub.json.quote.status, "approved", "the whole offer is within policy");
+  const q0 = sub.json.quote;
+  const r = await d.api("POST", `/api/quotes/${quote.id}/sales-review`, {
+    body: { rev_no: q0.rev_no, version: q0.version, lines: decide("tolak", "acc", "terlalu mahal") }, session: manager,
+  });
+  const pending = (await d.api("GET", "/api/approvals", { session: manager })).json;
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  assert.equal(r.json.quote.status, "submitted");
+  return { status: r.json.quote.status, pendingListed: JSON.stringify(pending).includes(q0.number) };
+});
+
+scenario("PE-2/fix: Tolak on every line reopens the quote as a draft for the manager", async (d) => {
+  const { rep, id, rev_no, version } = await approvedForSales(d);
+  const r = await d.api("POST", `/api/quotes/${id}/sales-review`, { body: { rev_no, version, lines: decide("tolak", "tolak") }, session: rep });
+  const tasks = (await d.api("GET", "/api/fix-tasks?status=open", { session: rep })).json.tasks.filter((t: { quote_id: number }) => t.quote_id === id);
+  assert.equal(r.json.quote.status, "draft");
+  assert.equal(r.json.quote.rev_no, rev_no + 1);
+  assert.equal(tasks.length, 2);
+  return { status: r.json.quote.status, tasks: tasks.length };
+});
+
+// Codex review of develop 1fee9ed: the rule counted revisions, so reopening the
+// pending revision again (rev 3) submitted with auto-approval and nobody decided.
+scenario("PE-2/fix: after a sales Tolak, auto-approval stays off through further reopens until a manager approves", async (d) => {
+  const { rep, manager, id, rev_no, version } = await approvedForSales(d);
+  await d.api("POST", `/api/quotes/${id}/sales-review`, { body: { rev_no, version, lines: decide("acc", "tolak") }, session: rep });
+  await d.api("POST", `/api/quotes/${id}/reopen`, { session: manager });
+  const first = await d.api("POST", `/api/quotes/${id}/submit`, { session: manager });
+  const reopenedAgain = await d.api("POST", `/api/quotes/${id}/reopen`, { session: manager });
+  const second = await d.api("POST", `/api/quotes/${id}/submit`, { session: manager });
+  assert.equal(reopenedAgain.status, 200, JSON.stringify(reopenedAgain.json));
+  assert.deepEqual([first.json.autoApproved, second.json.autoApproved], [false, false], "auto-approved without a manager's decision");
+  const decided = await d.api("POST", `/api/quotes/${id}/decide`, { body: { decision: "approved", note: "" }, session: manager });
+  await d.api("POST", `/api/quotes/${id}/reopen`, { session: manager });
+  const afterDecision = await d.api("POST", `/api/quotes/${id}/submit`, { session: manager });
+  assert.equal(decided.status, 200, JSON.stringify(decided.json));
+  assert.equal(afterDecision.json.autoApproved, true, "a manager approved after the Tolak, so a later reopen submits normally");
+  return { first: first.json.autoApproved, second: second.json.autoApproved, afterDecision: afterDecision.json.autoApproved };
+});
+
+// Codex review of develop 1fee9ed: two imports of the same file version both
+// wrote; the second overwrote the first and put its rejected line back on offer.
+scenario("PE-2/fix: two sales-check imports of the same file version at once: one wins, the other is refused (409)", async (d) => {
+  const { rep, manager, id, rev_no, version } = await approvedForSales(d);
+  const post = (lines: unknown) => d.api("POST", `/api/quotes/${id}/sales-review`, { body: { rev_no, version, lines }, session: rep });
+  const results = await Promise.all([post(decide("tolak", "acc")), post(decide("acc", "tolak"))]);
+  const statuses = results.map((r) => r.status).sort();
+  const quote = (await d.api("GET", `/api/quotes/${id}`, { session: manager })).json.quote;
+  const held = quote.items.filter((it: { held?: boolean }) => it.held).map((it: { id: string }) => it.id);
+  assert.deepEqual(statuses, [200, 409], JSON.stringify(results.map((r) => r.json)));
+  assert.equal(held.length, 1, `exactly the winning import's rejected line is held, got ${JSON.stringify(held)}`);
+  return { statuses, held: held.length };
+});
+
+scenario("PE-2/fix: the revision opened after a sales Tolak is not auto-approved, even for a manager inside policy", async (d) => {
+  const { rep, manager, id, rev_no, version } = await approvedForSales(d);
+  await d.api("POST", `/api/quotes/${id}/sales-review`, { body: { rev_no, version, lines: decide("acc", "tolak") }, session: rep });
+  const reopened = await d.api("POST", `/api/quotes/${id}/reopen`, { session: manager });
+  assert.equal(reopened.status, 200, JSON.stringify(reopened.json));
+  const sub = await d.api("POST", `/api/quotes/${id}/submit`, { session: manager });
+  assert.equal(sub.status, 200, JSON.stringify(sub.json));
+  const queue = await d.api("GET", "/api/approvals", { session: manager });
+  assert.equal(sub.json.autoApproved, false, "approved on submit although a sales Tolak came before");
+  assert.equal(sub.json.quote.status, "submitted");
+  assert.ok(JSON.stringify(queue.json).includes(sub.json.quote.number), "not in the manager's queue");
+  // The manager decides it explicitly; that closes the exception.
+  const decided = await d.api("POST", `/api/quotes/${id}/decide`, { body: { decision: "approved", note: "" }, session: manager });
+  const again = await d.api("POST", `/api/quotes/${id}/reopen`, { session: manager });
+  const sub2 = await d.api("POST", `/api/quotes/${id}/submit`, { session: manager });
+  assert.equal(decided.status, 200, JSON.stringify(decided.json));
+  assert.equal(sub2.json.autoApproved, true, "a later, unrelated reopen should submit normally");
+  return {
+    reopenedRev: reopened.json.quote.rev_no - rev_no, submitted: sub.json.quote.status, auto: sub.json.autoApproved,
+    decided: decided.status, laterRev: again.json.quote.rev_no - rev_no, laterAuto: sub2.json.autoApproved,
+  };
+});
+
+scenario("PE-2: refused imports: stale file, missing line, Tolak without reason, not approved, someone else's quote", async (d) => {
+  const { rep, id, rev_no, version } = await approvedForSales(d);
+  const rep2 = await loginCached(d, "rep2@test.local", "password123");
+  const both = (a: string, b: string, reason = "") => [{ id: "s1", decision: a, reason: "" }, { id: "s2", decision: b, reason }];
+  const post = (body: unknown, session = rep) => d.api("POST", `/api/quotes/${id}/sales-review`, { body, session });
+  const stale = await post({ rev_no, version: version - 1, lines: both("acc", "acc") });
+  const missing = await post({ rev_no, version, lines: [{ id: "s1", decision: "acc", reason: "" }] });
+  const blank = await post({ rev_no, version, lines: both("acc", "") });
+  const noReason = await post({ rev_no, version, lines: both("acc", "tolak", " ") });
+  const other = await post({ rev_no, version, lines: both("acc", "acc") }, rep2);
+  const draft = await createDraft(d, rep, [cleanItem({ id: "s1" })]);
+  const notApproved = await d.api("POST", `/api/quotes/${draft.id}/sales-review`, {
+    body: { rev_no: 1, version: draft.version, lines: [{ id: "s1", decision: "acc", reason: "" }] }, session: rep,
+  });
+  const after = await d.api("GET", `/api/quotes/${id}`, { session: rep });
+  assert.deepEqual(
+    [stale.status, missing.status, blank.status, noReason.status, other.status, notApproved.status, after.json.quote.status],
+    [409, 400, 400, 400, 403, 409, "approved"],
+  );
+  return {
+    stale: [stale.status, stale.json.error], missing: [missing.status, missing.json.error], blank: blank.status,
+    noReason: [noReason.status, noReason.json.error], other: other.status, notApproved: notApproved.status,
+    stillApproved: after.json.quote.status,
+  };
+});
+
+
+// ---------------------------------------------------------------
+// "Perlu diperbaiki" (2026-10-06): what didn't make it into an offer.
+// ---------------------------------------------------------------
+
+/** A catalog row whose COGS is above its list price, so lines on it are held. */
+async function badCogsCode(d: Driver, code: string, cogs = 60000) {
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const imp = await d.api("POST", "/api/catalog/import", {
+    body: { rows: [{ code, name: `Barang ${code}`, uom: "Pcs", cogs, list_price: 20000 }], mode: "merge" }, session: manager,
+  });
+  assert.equal(imp.status, 200, JSON.stringify(imp.json));
+}
+
+const tasksOf = async (d: Driver, session: Session, quoteId: number, status = "open") =>
+  ((await d.api("GET", `/api/fix-tasks?status=${status}`, { session })).json.tasks ?? []).filter((t: { quote_id: number }) => t.quote_id === quoteId);
+
+scenario("fix tasks: submit records held-COGS and unit lines once, even after reopen and resubmit", async (d) => {
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  await badCogsCode(d, "FX-COGS");
+  const quote = await createDraft(d, manager, [
+    cleanItem({ id: "f1", lineNo: 1, code: "FX-COGS", name: "Barang FX-COGS", cogs: 60000, rrp: 20000 }),
+    cleanItem({ id: "f2", lineNo: 2, code: "FX-OK", name: "Map lusinan", uom: "Lusin", priceUom: "Pcs" }),
+    cleanItem({ id: "f3", lineNo: 3, code: "FX-OK2", name: "Biasa" }),
+  ]);
+  const before = await tasksOf(d, manager, quote.id);
+  const sub = await d.api("POST", `/api/quotes/${quote.id}/submit`, { session: manager });
+  const first = await tasksOf(d, manager, quote.id);
+  await d.api("POST", `/api/quotes/${quote.id}/reopen`, { session: manager });
+  await d.api("POST", `/api/quotes/${quote.id}/submit`, { session: manager });
+  const second = await tasksOf(d, manager, quote.id);
+  const kinds = (ts: { kind: string; line_id: string }[]) => ts.map((t) => `${t.kind}:${t.line_id}`).sort();
+  assert.equal(before.length, 0, "a draft makes no tasks");
+  assert.deepEqual(kinds(first), ["cogs_held:f1", "unit_unknown:f2"]);
+  assert.deepEqual(kinds(second), kinds(first));
+  return { submit: sub.status, first: kinds(first), second: kinds(second) };
+});
+
+scenario("fix tasks: rows of a client's list with no catalog item become tasks; staff see only their own", async (d) => {
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const rep2 = await loginCached(d, "rep2@test.local", "password123");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const created = await d.api("POST", "/api/quotes", {
+    body: {
+      title: "Dari list", snapshot: { items: [] },
+      unmatched: [{ name: "Galon air 19L", qty: 3, uom: "Pcs", reason: "none" }, { name: "Map plastik", qty: 10, uom: "Pcs", reason: "skipped" }],
+    },
+    session: rep,
+  });
+  assert.equal(created.status, 201, JSON.stringify(created.json));
+  const id = created.json.quote.id;
+  const mine = await tasksOf(d, rep, id);
+  const others = await tasksOf(d, rep2, id);
+  const all = await tasksOf(d, manager, id);
+  const tooMany = await d.api("POST", "/api/quotes", {
+    body: { title: "x", unmatched: Array.from({ length: 2001 }, () => ({ name: "a", qty: 1, uom: "", reason: "none" })) }, session: rep,
+  });
+  const badKind = await d.api("POST", "/api/quotes", { body: { title: "x", unmatched: [{ name: "a", qty: 1, uom: "", reason: "cogs" }] }, session: rep });
+  assert.deepEqual(mine.map((t: { kind: string; item_name: string }) => [t.kind, t.item_name]), [["not_in_catalog", "Galon air 19L"], ["not_in_catalog", "Map plastik"]]);
+  assert.equal(others.length, 0);
+  assert.equal(all.length, 2);
+  return { mine: mine.length, others: others.length, all: all.length, tooMany: tooMany.status, badKind: badKind.status };
+});
+
+scenario("fix tasks: staff cannot resolve; a manager resolves with a note and the open count drops", async (d) => {
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const created = await d.api("POST", "/api/quotes", {
+    body: { title: "Resolve", unmatched: [{ name: "Kursi lipat", qty: 2, uom: "Pcs", reason: "none" }] }, session: rep,
+  });
+  const [task] = await tasksOf(d, rep, created.json.quote.id);
+  const countBefore = (await d.api("GET", "/api/fix-tasks/count", { session: manager })).json.open;
+  const byRep = await d.api("POST", `/api/fix-tasks/${task.id}/resolve`, { body: { note: "sudah" }, session: rep });
+  const noNote = await d.api("POST", `/api/fix-tasks/${task.id}/resolve`, { body: { note: " " }, session: manager });
+  const ok = await d.api("POST", `/api/fix-tasks/${task.id}/resolve`, { body: { note: "Ditambahkan ke katalog: KRS-01" }, session: manager });
+  const twice = await d.api("POST", `/api/fix-tasks/${task.id}/resolve`, { body: { note: "lagi" }, session: manager });
+  const countAfter = (await d.api("GET", "/api/fix-tasks/count", { session: manager })).json.open;
+  const done = await tasksOf(d, rep, created.json.quote.id, "done");
+  assert.deepEqual([byRep.status, noNote.status, ok.status, twice.status], [403, 400, 200, 409]);
+  assert.equal(countBefore - countAfter, 1);
+  assert.equal(done[0].resolution, "Ditambahkan ke katalog: KRS-01");
+  assert.equal(done[0].resolved_by_name, "Manager One");
+  return { statuses: [byRep.status, noNote.status, ok.status, twice.status], drop: countBefore - countAfter };
+});
+
+scenario("PE-1 on fix tasks: a held-COGS task never shows staff the COGS figure", async (d) => {
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  await badCogsCode(d, "LEAK-FX", 31337);
+  await d.api("POST", "/api/catalog/import", {
+    body: { rows: [{ code: "FX-CLEAN", name: "Barang bersih", uom: "Pcs", cogs: 1000, list_price: 2000 }], mode: "merge" }, session: manager,
+  });
+  const created = await d.api("POST", "/api/quotes", {
+    body: {
+      title: "Bocor?",
+      snapshot: { items: [{ id: "x1", code: "LEAK-FX", qty: 2 }, { id: "x2", code: "FX-CLEAN", qty: 1 }], meta: snapshotFor([]).meta },
+    },
+    session: rep,
+  });
+  assert.equal(created.status, 201, JSON.stringify(created.json));
+  const sub = await d.api("POST", `/api/quotes/${created.json.quote.id}/submit`, { session: rep });
+  assert.equal(sub.status, 200, JSON.stringify(sub.json));
+  const forRep = await d.api("GET", "/api/fix-tasks?status=open", { session: rep });
+  const forManager = await tasksOf(d, manager, created.json.quote.id);
+  const body = JSON.stringify(forRep.json);
+  assert.ok(!/31[.,]?337/.test(body), `COGS leaked to staff: ${body}`);
+  assert.ok(forManager.some((t: { kind: string; detail: string }) => t.kind === "cogs_held" && /31\.337/.test(t.detail)), "manager sees the figure");
+  // Review of #9: a manager's resolution note on a COGS task naturally names the figure,
+  // and it reached staff on the done list.
+  const task = forManager.find((t: { kind: string }) => t.kind === "cogs_held");
+  const resolved = await d.api("POST", `/api/fix-tasks/${task.id}/resolve`, { body: { note: "COGS dikoreksi dari Rp 31.337 ke Rp 9.800" }, session: manager });
+  assert.equal(resolved.status, 200, JSON.stringify(resolved.json));
+  const doneForRep = JSON.stringify((await d.api("GET", "/api/fix-tasks?status=done", { session: rep })).json);
+  assert.ok(!/31[.,]?337/.test(doneForRep), `COGS leaked to staff after resolve: ${doneForRep}`);
+  return { repSeesTask: body.includes("LEAK-FX"), repSeesDone: doneForRep.includes("LEAK-FX") };
+});
+
+// Regression (Codex review of develop 41764fe): a line made while its item
+// had no COGS stores COGS 0. Fixing the catalog released the hold but kept the
+// 0, so the line showed a 100% margin and a manager's submit auto-approved it.
+scenario("a line released from a hold takes the catalog's COGS (in its unit), not the 0 it was made with", async (d) => {
+  await importRows(d, [
+    { code: "C-REL", name: "Released item", uom: "Pcs", cogs: 0, list_price: 2000, units: [{ uom: "Box", factor: 12 }] },
+  ]);
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const q = await createDraft(d, manager, [
+    cleanItem({ id: "r1", lineNo: 1, code: "C-REL", name: "Released item", uom: "Pcs", qty: 10, cogs: 0, estCogs: true, rrp: 2000, manualPrice: [150, 150, 150] }),
+    cleanItem({ id: "r2", lineNo: 2, code: "C-REL", name: "Released item", uom: "Box", qty: 1, cogs: 0, estCogs: true, rrp: 24000 }),
+  ]);
+  const line = (quote: { items: { id: string; held?: boolean; cogs: number; estCogs?: boolean }[] }, id: string) => {
+    const it = quote.items.find((i) => i.id === id)!;
+    return { held: Boolean(it.held), cogs: it.cogs, estCogs: Boolean(it.estCogs) };
+  };
+  const before = (await d.api("GET", `/api/quotes/${q.id}`, { session: manager })).json.quote;
+  await importRows(d, [{ code: "C-REL", name: "Released item", cogs: 1000 }]);
+  const after = (await d.api("GET", `/api/quotes/${q.id}`, { session: manager })).json.quote;
+  const submit = await d.api("POST", `/api/quotes/${q.id}/submit`, { session: manager });
+
+  assert.deepEqual(line(before, "r1"), { held: true, cogs: 0, estCogs: true });
+  assert.deepEqual(line(after, "r1"), { held: false, cogs: 1000, estCogs: false });
+  assert.deepEqual(line(after, "r2"), { held: false, cogs: 12000, estCogs: false });
+  assert.equal(submit.status, 200, JSON.stringify(submit.json));
+  assert.notEqual(submit.json.quote.status, "approved", "a price of 150 on a 1,000 cost must not auto-approve");
+  return { before: line(before, "r1"), afterPcs: line(after, "r1"), afterBox: line(after, "r2"), status: submit.json.quote.status };
+});
+
+
+// Codex re-review: a line held because its COGS looked wrong (here: above the
+// list price) kept that COGS after the catalog was corrected, so a price of
+// 150 on a real cost of 1,000 showed a 28% margin and auto-approved.
+scenario("a draft line copied from the catalog follows a corrected catalog COGS; one without that record stays held", async (d) => {
+  await importRows(d, [{ code: "C-FIX", name: "Corrected item", uom: "Pcs", cogs: 100, list_price: 50 }]);
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const q = await createDraft(d, manager, [
+    cleanItem({ id: "f1", lineNo: 1, code: "C-FIX", name: "Corrected item", uom: "Pcs", qty: 10, cogs: 100, catalogCogs: 100, rrp: 2000, manualPrice: [150, 150, 150] }),
+    cleanItem({ id: "f2", lineNo: 2, code: "C-FIX", name: "Corrected item", uom: "Pcs", qty: 1, cogs: 100, rrp: 2000 }),
+  ]);
+  const line = (quote: { items: { id: string; held?: boolean; cogs: number }[] }, id: string) => {
+    const it = quote.items.find((i) => i.id === id)!;
+    return { held: Boolean(it.held), cogs: it.cogs };
+  };
+  const before = (await d.api("GET", `/api/quotes/${q.id}`, { session: manager })).json.quote;
+  await importRows(d, [{ code: "C-FIX", name: "Corrected item", cogs: 1000, list_price: 2000 }]);
+  // 100 -> 1,000 is itself a jump from the reference, so a manager confirms the corrected COGS.
+  const fixId = (await d.api("GET", "/api/catalog?q=C-FIX", { session: manager })).json.items[0].id;
+  const verified = await d.api("POST", `/api/catalog/${fixId}/verify-cogs`, { session: manager });
+  assert.equal(verified.status, 200, JSON.stringify(verified.json));
+  const after = (await d.api("GET", `/api/quotes/${q.id}`, { session: manager })).json.quote;
+  const submit = await d.api("POST", `/api/quotes/${q.id}/submit`, { session: manager });
+
+  assert.deepEqual(line(before, "f1"), { held: true, cogs: 100 });
+  assert.deepEqual(line(after, "f1"), { held: false, cogs: 1000 });
+  assert.deepEqual(line(after, "f2"), { held: true, cogs: 100 });
+  assert.equal(submit.status, 200, JSON.stringify(submit.json));
+  assert.notEqual(submit.json.quote.status, "approved", "a price of 150 on a 1,000 cost must not auto-approve");
+  return { before: line(before, "f1"), copied: line(after, "f1"), unrecorded: line(after, "f2"), status: submit.json.quote.status };
+});
+
+
+// Codex re-review: with the Box ratio gone, a held Box line copied at 1,000
+// could not be compared to the catalog, lost its hold anyway, and auto-approved
+// at 1,500 with no breaches.
+scenario("a catalog-copied line whose unit lost its ratio stays held instead of being released unchecked", async (d) => {
+  await importRows(d, [{ code: "C-NR", name: "No ratio", uom: "Pcs", cogs: 100, list_price: 50, units: [{ uom: "Box", factor: 10 }] }]);
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const q = await createDraft(d, manager, [
+    cleanItem({ id: "n1", lineNo: 1, code: "C-NR", name: "No ratio", uom: "Box", qty: 1, cogs: 1000, catalogCogs: 1000, rrp: 20000, manualPrice: [1500, 1500, 1500] }),
+  ]);
+  const held = (quote: { items: { id: string; held?: boolean }[] }) => Boolean(quote.items.find((i) => i.id === "n1")!.held);
+  const before = (await d.api("GET", `/api/quotes/${q.id}`, { session: manager })).json.quote;
+  // Corrected (+50% from the reference, not a jump) and the Box ratio removed.
+  await importRows(d, [{ code: "C-NR", name: "No ratio", cogs: 150, list_price: 300, units: [] }]);
+  const after = (await d.api("GET", `/api/quotes/${q.id}`, { session: manager })).json.quote;
+  const submit = await d.api("POST", `/api/quotes/${q.id}/submit`, { session: manager });
+
+  assert.equal(held(before), true);
+  assert.equal(held(after), true);
+  assert.notEqual(submit.json.quote?.status, "approved", "an unchecked cost must not auto-approve");
+  return { before: held(before), after: held(after), submit: submit.status };
+});
+
+
+// Independent review of #10: catalog codes are unique only with exact case,
+// and the lookups kept whichever case-variant came first, so a line copied from
+// "K-CASE" (1,000) followed "k-case" (300) and could auto-approve too cheaply,
+// and a COGS problem of one variant was reported for the other.
+scenario("a line follows the catalog row with its exact code, not a code that differs only in case", async (d) => {
+  await importRows(d, [{ code: "k-case", name: "Lower", uom: "Pcs", cogs: 300, list_price: 250 }]);
+  await importRows(d, [{ code: "K-CASE", name: "Upper", uom: "Pcs", cogs: 1000, list_price: 2000 }]);
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const q = await createDraft(d, manager, [
+    cleanItem({ id: "k1", lineNo: 1, code: "K-CASE", name: "Upper", uom: "Pcs", qty: 1, cogs: 1000, catalogCogs: 1000, rrp: 2000 }),
+  ]);
+  const it = (await d.api("GET", `/api/quotes/${q.id}`, { session: manager })).json.quote.items[0];
+  // "k-case" has COGS above its list price; that is its problem, not "K-CASE"'s.
+  const check = await d.api("POST", "/api/catalog/cogs-check", { body: { codes: ["K-CASE", "k-case"] }, session: manager });
+  assert.deepEqual({ cogs: it.cogs, held: Boolean(it.held) }, { cogs: 1000, held: false });
+  assert.deepEqual(Object.keys(check.json.problems), ["k-case"]);
+  return { cogs: it.cogs, held: Boolean(it.held), problems: Object.keys(check.json.problems) };
+});
+
+
+// Independent re-review of #10: the staff paths took whichever case-variant
+// came first, so a rep adding "S-CASE" got "s-case", a different product.
+scenario("a rep's new line is built from the catalog row with its exact code; a code matching only case-variants is refused", async (d) => {
+  await importRows(d, [{ code: "s-case", name: "Lower row", uom: "Pcs", cogs: 300, list_price: 450 }]);
+  await importRows(d, [{ code: "S-CASE", name: "Upper row", uom: "Pcs", cogs: 1000, list_price: 1500 }]);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const make = (code: string) =>
+    d.api("POST", "/api/quotes", { body: { title: "Case", snapshot: { items: [{ id: "c1", code, qty: 1 }], meta: snapshotFor([]).meta } }, session: rep });
+  const exact = await make("S-CASE");
+  const unclear = await make("S-Case");
+  assert.equal(exact.status, 201, JSON.stringify(exact.json));
+  const line = (await d.api("GET", `/api/quotes/${exact.json.quote.id}`, { session: manager })).json.quote.items[0];
+  assert.deepEqual({ code: line.code, name: line.name, cogs: line.cogs }, { code: "S-CASE", name: "Upper row", cogs: 1000 });
+  assert.equal(unclear.status, 400);
+  return { exact: { code: line.code, cogs: line.cogs }, unclear: unclear.status };
 });
 
 
@@ -1379,6 +2279,7 @@ async function main() {
     await d.seedUser("rep@test.local", "Rep One", "rep", "password123");
     await d.seedUser("manager@test.local", "Manager One", "manager", "password123");
     await d.seedUser("rep2@test.local", "Rep Two", "rep", "password123");
+    await d.seedUser("admin@test.local", "Admin One", "admin", "password123");
   }
 
   let passed = 0;

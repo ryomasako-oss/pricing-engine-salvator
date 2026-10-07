@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeEngine, DEFAULT_ASSUMPTIONS } from "./engine.js";
+import { computeEngine, DEFAULT_ASSUMPTIONS, DEFAULT_REGIONS } from "./engine.js";
 import { DEFAULT_POLICY, evaluatePolicy, isWithinPolicy } from "./policy.js";
 import type { Assumptions, PricingPolicy, QuoteItem } from "./types.js";
 
@@ -48,6 +48,25 @@ describe("NET_MARGIN", () => {
     const e = computeEngine(A({ targetMargin: 0.25 }), [item()], []);
     const breaches = evaluatePolicy(e, 0, DEFAULT_POLICY);
     expect(breaches.some((b) => b.code === "NET_MARGIN")).toBe(false);
+  });
+});
+
+describe("ABOVE_CEILING", () => {
+  it("sends a manual price above the client ceiling to a manager", () => {
+    const e = computeEngine(A(), [item({ cogs: 1000, rrp: 2000, manualPrice: [2600, null, null] })], []);
+    const b = evaluatePolicy(e, 0, DEFAULT_POLICY).find((x) => x.code === "ABOVE_CEILING");
+    expect(b?.severity).toBe("block");
+    expect(b?.lines).toEqual([1]);
+  });
+
+  it("does not fire for a price at or under the ceiling", () => {
+    const e = computeEngine(A(), [item({ cogs: 1000, rrp: 2000, manualPrice: [2000, null, null] })], []);
+    expect(evaluatePolicy(e, 0, DEFAULT_POLICY).some((x) => x.code === "ABOVE_CEILING")).toBe(false);
+  });
+
+  it("does not fire for an item with no ceiling on file (priced by hand)", () => {
+    const e = computeEngine(A(), [item({ cogs: 1000, rrp: 0, manualPrice: [1500, null, null] })], []);
+    expect(evaluatePolicy(e, 0, DEFAULT_POLICY).some((x) => x.code === "ABOVE_CEILING")).toBe(false);
   });
 });
 
@@ -177,5 +196,26 @@ describe("multiple breaches compound", () => {
     const breaches = evaluatePolicy(e, 0, DEFAULT_POLICY);
     expect(breaches.some((b) => b.code === "NET_MARGIN")).toBe(true);
     expect(breaches.some((b) => b.code === "BELOW_COST")).toBe(true);
+  });
+});
+
+describe("held lines are left out of every policy check", () => {
+  const line = (over: Record<string, unknown>) => ({
+    id: "x", lineNo: 1, code: "X", name: "X", uom: "Pcs", qty: 10, cogs: 1000, rrp: 2000, role: "CORE" as const, ...over,
+  });
+
+  it("a held line sold below cost raises no BELOW_COST or margin breach", () => {
+    const items = [line({}), line({ id: "y", lineNo: 2, cogs: 9000, rrp: 5000, held: true, estCogs: true })];
+    const engine = computeEngine(DEFAULT_ASSUMPTIONS, items, DEFAULT_REGIONS);
+    const codes = evaluatePolicy(engine, 0, DEFAULT_POLICY).map((b) => b.code);
+    expect(codes).not.toContain("BELOW_COST");
+    expect(codes).not.toContain("LINE_MARGIN");
+    expect(codes).not.toContain("MISSING_COGS");
+  });
+
+  it("a quote whose every line is held is treated as having no items", () => {
+    const engine = computeEngine(DEFAULT_ASSUMPTIONS, [line({ held: true })], DEFAULT_REGIONS);
+    const empty = computeEngine(DEFAULT_ASSUMPTIONS, [], DEFAULT_REGIONS);
+    expect(evaluatePolicy(engine, 0, DEFAULT_POLICY)).toEqual(evaluatePolicy(empty, 0, DEFAULT_POLICY));
   });
 });

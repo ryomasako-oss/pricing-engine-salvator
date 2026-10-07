@@ -8,10 +8,14 @@ import { Icon } from "./components/Icon";
 import { LoginPage } from "./pages/Login";
 import { DashboardPage } from "./pages/Dashboard";
 import { QuoteEditorPage } from "./pages/QuoteEditor";
+import { StaffQuotePage } from "./pages/StaffQuote";
 import { ApprovalsPage } from "./pages/Approvals";
 import { CatalogPage } from "./pages/Catalog";
 import { ClientsPage } from "./pages/Clients";
 import { SettingsPage } from "./pages/Settings";
+import { ChatProvider } from "./context/ChatContext";
+import { ChatDock } from "./components/ChatDock";
+import { FixTasksPage } from "./pages/FixTasks";
 import type { Approval } from "@shared/types";
 import type { Permission } from "@shared/permissions";
 
@@ -20,6 +24,7 @@ function TopBar() {
   const { theme, toggleTheme } = useTheme();
   const location = useLocation();
   const [pending, setPending] = useState(0);
+  const [toFix, setToFix] = useState(0);
   const confirmLeave = useConfirmLeave();
 
   const guardedClick = (e: React.MouseEvent) => {
@@ -34,6 +39,15 @@ function TopBar() {
       .then((r) => setPending(r.approvals.length))
       .catch(() => undefined);
   }, [can, location.pathname]);
+
+  // "Perlu diperbaiki": open tasks this user can see (staff: their own quotes).
+  useEffect(() => {
+    const refresh = () =>
+      api.get<{ open: number }>("/fix-tasks/count").then((r) => setToFix(r.open)).catch(() => undefined);
+    refresh();
+    window.addEventListener("fix-tasks-changed", refresh);
+    return () => window.removeEventListener("fix-tasks-changed", refresh);
+  }, [location.pathname]);
 
   return (
     <header className="hk-top">
@@ -57,6 +71,11 @@ function TopBar() {
             {pending > 0 && <span className="count">{pending}</span>}
           </NavLink>
         )}
+        <NavLink to="/perbaikan" className={({ isActive }) => (isActive ? "active" : "")} onClick={guardedClick}>
+          <Icon name="alert" size={16} />
+          <span className="label">Perbaikan</span>
+          {toFix > 0 && <span className="count" aria-label={`${toFix} perlu diperbaiki`}>{toFix}</span>}
+        </NavLink>
         <NavLink to="/catalog" className={({ isActive }) => (isActive ? "active" : "")} onClick={guardedClick}>
           <Icon name="box" size={16} />
           <span className="label">Katalog</span>
@@ -118,7 +137,7 @@ function RequirePermission({ permission, children }: { permission: Permission; c
 }
 
 export function App() {
-  const { user, loading } = useAuth();
+  const { user, loading, can } = useAuth();
 
   if (loading) {
     return (
@@ -134,12 +153,14 @@ export function App() {
   if (!user) return <LoginPage />;
 
   return (
+    <ChatProvider>
     <div className="hk-app">
       <TopBar />
       <Routes>
         <Route path="/" element={<Navigate to="/quotes" replace />} />
         <Route path="/quotes" element={<DashboardPage />} />
-        <Route path="/quotes/:id" element={<QuoteEditorPage />} />
+        {/* Staff get a screen without cost data; the server sends them none (PE-1). */}
+        <Route path="/quotes/:id" element={can("view_costs") ? <QuoteEditorPage /> : <StaffQuotePage />} />
         <Route
           path="/approvals"
           element={
@@ -148,11 +169,14 @@ export function App() {
             </RequirePermission>
           }
         />
+        <Route path="/perbaikan" element={<FixTasksPage />} />
         <Route path="/catalog" element={<CatalogPage />} />
         <Route path="/clients" element={<ClientsPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/quotes" replace />} />
       </Routes>
+      <ChatDock />
     </div>
+    </ChatProvider>
   );
 }

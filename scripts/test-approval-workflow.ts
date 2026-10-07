@@ -94,13 +94,22 @@ function snapshotFor(items: ReturnType<typeof cleanItem>[], overAssumptions: Rec
   };
 }
 
+/**
+ * A draft owned by `session`. Staff can't send cost inputs or assumptions
+ * (PE-1): their lines are priced from the catalog row seeded in setup(), and
+ * a requested policy breach becomes a client ceiling just above cost, so the
+ * price is capped there and the margin breaks the policy.
+ */
 async function createDraft(
   session: Session,
   items: ReturnType<typeof cleanItem>[],
   overAssumptions: Record<string, unknown> = {},
 ) {
+  const isRep = session === repSession;
+  const breach = isRep && Object.keys(overAssumptions).length > 0;
+  const lines = breach ? items.map((it) => ({ ...it, rrp: Math.round(Number(it.cogs) * 1.1) })) : items;
   const created = await api("POST", "/api/quotes", {
-    body: { title: "Test quote", snapshot: snapshotFor(items, overAssumptions) },
+    body: { title: "Test quote", snapshot: snapshotFor(lines, overAssumptions) },
     session,
   });
   assert.equal(created.status, 201, `create draft failed: ${JSON.stringify(created.json)}`);
@@ -140,6 +149,15 @@ async function setup() {
   app.use("/api/quotes", quotesRouter);
   app.use("/api/approvals", approvalsRouter);
 
+  // The catalog row staff quote ATK-001 from: same cost and ceiling as cleanItem().
+  run(
+    "INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock, category, source) VALUES(?, ?, ?, ?, ?, 0, '', 'test')",
+    "ATK-001",
+    "Kertas A4 80gsm",
+    "rim",
+    38000,
+    55000,
+  );
   run(
     "INSERT INTO users(email, name, password_hash, role) VALUES(?, ?, ?, 'rep')",
     "rep@test.local",
@@ -202,14 +220,14 @@ test("manager submitting the same clean quote is auto-approved on the spot", asy
   assert.notEqual(submitted.json.quote.approved_by, null);
 });
 
-test("rep submitting a policy-breaching quote goes to pending with real breach codes attached", async () => {
+test("rep submitting a policy-breaching quote goes to pending, told only that a manager must review", async () => {
   const rep = repSession;
   const quote = await createDraft(rep, [cleanItem()], { targetMargin: 0.05, leaderMargin: 0.0 });
   const submitted = await api("POST", `/api/quotes/${quote.id}/submit`, { session: rep });
   assert.equal(submitted.status, 200);
   assert.equal(submitted.json.autoApproved, false);
   assert.equal(submitted.json.quote.status, "submitted");
-  assert.ok(submitted.json.breaches.some((b: { code: string }) => b.code === "NET_MARGIN"));
+  assert.deepEqual(submitted.json.breaches.map((b: { code: string }) => b.code), ["NEEDS_REVIEW"]);
 });
 
 test("manager submitting a breaching quote does NOT get auto-approved despite the permission", async () => {

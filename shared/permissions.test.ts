@@ -16,8 +16,15 @@ describe("permissions", () => {
         "decide_quotes",
         "edit_all_quotes",
         "view_audit",
+        "view_costs",
       ]),
     );
+  });
+
+  it("only managers and admins see cost data (PE-1)", () => {
+    expect(hasPermission("rep", "view_costs")).toBe(false);
+    expect(hasPermission("manager", "view_costs")).toBe(true);
+    expect(hasPermission("admin", "view_costs")).toBe(true);
   });
 
   it("admin inherits every manager permission, plus admin-only ones", () => {

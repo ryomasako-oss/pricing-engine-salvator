@@ -115,9 +115,12 @@ export function explainLine(
     const floor = up(row.landed / (1 - marginFloor));
     steps.push(`RRP ${rp(row.rrp)} − diskon ${pct(rrpDiscount)} = ${rp(discounted)} (dibulatkan ke bawah).`);
     steps.push(
-      discounted < floor
-        ? `Itu menembus margin minimum ${pct(marginFloor)} (batas ${rp(floor)}), jadi harga ditahan di ${rp(cap(floor))}.`
-        : `Masih di atas batas margin minimum ${pct(marginFloor)} (${rp(floor)}), jadi harga ${rp(cap(discounted))}.`,
+      discounted >= floor
+        ? `Masih di atas batas margin minimum ${pct(marginFloor)} (${rp(floor)}), jadi harga ${rp(cap(discounted))}.`
+        : floor > row.rrp
+          ? `Itu menembus margin minimum ${pct(marginFloor)} (batas ${rp(floor)}), tapi batas itu di atas plafon RRP ${rp(row.rrp)}, ` +
+            `jadi harga berhenti di RRP dan marginnya di bawah minimum.`
+          : `Itu menembus margin minimum ${pct(marginFloor)} (batas ${rp(floor)}), jadi harga ditahan di ${rp(floor)}.`,
     );
     computed = Math.min(row.rrp, Math.max(discounted, floor));
   }
@@ -127,7 +130,9 @@ export function explainLine(
     const manual = Number(row.manualPrice?.[k]);
     steps.push(
       `Harga diisi manual ${rp(manual)}` +
-        (manual > row.rrp ? `, dipotong ke plafon RRP ${rp(row.rrp)}.` : ` (hitungan otomatis ${rp(computed)}).`),
+        (row.rrp > 0 && manual > row.rrp
+          ? `, di atas plafon RRP ${rp(row.rrp)} (perlu persetujuan manajer).`
+          : ` (hitungan otomatis ${rp(computed)}).`),
     );
   }
 
@@ -138,6 +143,13 @@ export function explainLine(
       (saving > 0 ? `; klien hemat ${rp(saving)} dibanding RRP.` : "; sama dengan RRP."),
   );
 
+  if (row.held) {
+    flags.push(
+      row.holdReason === "sales"
+        ? "Menyusul: harganya ditolak sales, tidak ikut total"
+        : "Ditahan: COGS perlu dicek manajer, tidak ikut total",
+    );
+  }
   if (margin < 0) flags.push("Di bawah modal");
   else if (policy && margin < policy.minLineMargin) flags.push(`Margin di bawah minimum ${pct(policy.minLineMargin)}`);
   if (row.estCogs || !(row.cogs > 0)) flags.push("COGS belum pasti");

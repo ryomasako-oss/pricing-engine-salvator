@@ -3,8 +3,10 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
+import { ClientQuickAdd } from "../components/ClientQuickAdd";
 import { Icon } from "../components/Icon";
 import { ListToQuote } from "../components/ListToQuote";
+import { ChatHome } from "../components/ChatHome";
 import { Modal } from "../components/Modal";
 import { StatusChip } from "../components/pricing";
 import { fmtDateTime, pct, rp } from "@shared/format";
@@ -39,7 +41,9 @@ const FILTERS: { key: string; label: string }[] = [
 export function DashboardPage() {
   const navigate = useNavigate();
   const toast = useToast();
-  const { user } = useAuth();
+  const { user, can } = useAuth();
+  // Staff never receive margins (PE-1).
+  const seeCosts = can("view_costs");
   const [quotes, setQuotes] = useState<QuoteRow[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [filter, setFilter] = useState("all");
@@ -128,6 +132,8 @@ export function DashboardPage() {
         </div>
       </div>
 
+      <ChatHome />
+
       <div className="kpi-grid" style={{ marginBottom: 16 }}>
         <div className="kpi">
           <div className="label">Pipeline aktif per bulan</div>
@@ -144,11 +150,13 @@ export function DashboardPage() {
           <div className="value num">{pct(kpi.winRate, 0)}</div>
           <div className="foot">Dari yang sudah diputus</div>
         </div>
-        <div className="kpi">
-          <div className="label">Rata-rata net margin</div>
-          <div className="value num">{pct(kpi.avgMargin)}</div>
-          <div className="foot">Semua quotation terlihat</div>
-        </div>
+        {seeCosts && (
+          <div className="kpi">
+            <div className="label">Rata-rata net margin</div>
+            <div className="value num">{pct(kpi.avgMargin)}</div>
+            <div className="foot">Semua quotation terlihat</div>
+          </div>
+        )}
         <div className="kpi">
           <div className="label">Menunggu persetujuan</div>
           <div className="value num">{kpi.waiting}</div>
@@ -221,7 +229,7 @@ export function DashboardPage() {
                   <th className="l">Status</th>
                   <th>Item</th>
                   <th>Nilai/bulan</th>
-                  <th>Net margin</th>
+                  {seeCosts && <th>Net margin</th>}
                   <th className="l">Dibuat oleh</th>
                   <th className="l">Diubah</th>
                 </tr>
@@ -238,11 +246,13 @@ export function DashboardPage() {
                     <td className="l"><StatusChip status={q.status} /></td>
                     <td className="num">{q.item_count}</td>
                     <td className="num">{rp(q.monthly_value)}</td>
-                    <td className="num">
-                      <span style={{ color: q.net_margin < 0.15 ? "var(--danger)" : undefined }}>
-                        {pct(q.net_margin)}
-                      </span>
-                    </td>
+                    {seeCosts && (
+                      <td className="num">
+                        <span style={{ color: q.net_margin < 0.15 ? "var(--danger)" : undefined }}>
+                          {pct(q.net_margin)}
+                        </span>
+                      </td>
+                    )}
                     <td className="l muted">{q.created_by_name}</td>
                     <td className="l muted nowrap">{fmtDateTime(q.updated_at)}</td>
                   </tr>
@@ -257,6 +267,7 @@ export function DashboardPage() {
         <ListToQuote
           clients={clients}
           onClose={() => setFromList(false)}
+          onClientAdded={(c) => setClients((l) => [...l, c].sort((a, b) => a.name.localeCompare(b.name)))}
           onCreated={(id) => navigate(`/quotes/${id}`)}
         />
       )}
@@ -265,6 +276,7 @@ export function DashboardPage() {
         <NewQuoteModal
           clients={clients}
           onClose={() => setCreating(false)}
+          onClientAdded={(c) => setClients((l) => [...l, c].sort((a, b) => a.name.localeCompare(b.name)))}
           onCreated={(id) => navigate(`/quotes/${id}`)}
         />
       )}
@@ -276,14 +288,26 @@ function NewQuoteModal({
   clients,
   onClose,
   onCreated,
+  onClientAdded,
 }: {
   clients: Client[];
   onClose: () => void;
   onCreated: (id: number) => void;
+  onClientAdded: (client: Client) => void;
 }) {
   const toast = useToast();
   const [title, setTitle] = useState("");
   const [clientId, setClientId] = useState<number | "">(clients[0]?.id ?? "");
+  const [list, setList] = useState(clients);
+  const [adding, setAdding] = useState(false);
+  const chooseClient = (client: Client, isNew: boolean) => {
+    if (isNew) {
+      setList((l) => [...l, client].sort((a, b) => a.name.localeCompare(b.name)));
+      onClientAdded(client);
+    }
+    setClientId(client.id);
+    setAdding(false);
+  };
   const [busy, setBusy] = useState(false);
 
   const create = async () => {
@@ -308,7 +332,7 @@ function NewQuoteModal({
       footer={
         <>
           <button className="btn ghost" onClick={onClose}>Batal</button>
-          <button className="btn primary" onClick={create} disabled={busy || !title.trim()}>
+          <button className="btn primary" onClick={create} disabled={busy || adding || !title.trim()}>
             {busy ? "Membuat…" : "Buat dan buka"}
           </button>
         </>
@@ -325,23 +349,27 @@ function NewQuoteModal({
             onChange={(e) => setTitle(e.target.value)}
           />
         </label>
-        <label className="field">
-          <span>Klien</span>
-          <select
-            className="select"
-            value={clientId}
-            onChange={(e) => setClientId(e.target.value === "" ? "" : Number(e.target.value))}
-          >
-            <option value="">Tanpa klien</option>
-            {clients.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
-        </label>
-        {clients.length === 0 && (
-          <p className="notice info">
-            Belum ada klien terdaftar. Anda bisa membuatnya nanti di menu Klien.
-          </p>
+        {adding ? (
+          <ClientQuickAdd clients={list} onDone={chooseClient} onCancel={() => setAdding(false)} />
+        ) : (
+          <div className="picker">
+            <label className="field">
+              <span>Klien</span>
+              <select
+                className="select"
+                value={clientId}
+                onChange={(e) => setClientId(e.target.value === "" ? "" : Number(e.target.value))}
+              >
+                <option value="">Tanpa klien</option>
+                {list.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </label>
+            <button className="btn ghost" onClick={() => setAdding(true)}>
+              <Icon name="plus" size={15} /> Klien baru
+            </button>
+          </div>
         )}
       </div>
     </Modal>
