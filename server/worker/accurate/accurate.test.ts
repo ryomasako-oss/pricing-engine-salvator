@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -300,6 +300,30 @@ describe("AccurateClient", () => {
     }) as typeof fetch, 0);
     expect((await client.tokenInfo()).host).toBe("https://zeus.accurate.id");
     expect(seen).toEqual(["account.accurate.id"]);
+  });
+});
+
+// Found by running the real Worker locally: the client kept the global fetch in
+// a field and called it as this.fetchImpl(...), so fetch ran with the client as
+// its receiver. Node allows that; Cloudflare Workers throws "Illegal invocation:
+// function called with incorrect `this` reference", which would have failed the
+// first real sync. No test saw it because they all inject a fake fetch.
+describe("AccurateClient under Workers' rules for fetch", () => {
+  it("uses the default global fetch without a receiver (Workers refuses fetch called as a method)", async () => {
+    const strictFetch = function (this: unknown, input: RequestInfo | URL) {
+      if (this !== undefined && this !== globalThis) {
+        throw new TypeError("Illegal invocation: function called with incorrect `this` reference.");
+      }
+      expect(new URL(String(input)).host).toBe("account.accurate.id");
+      return Promise.resolve(new Response(JSON.stringify({ s: true, d: { "data usaha": { host: "https://zeus.accurate.id/" } } })));
+    };
+    vi.stubGlobal("fetch", strictFetch);
+    try {
+      const client = new AccurateClient(creds, null, undefined, 0);
+      expect((await client.tokenInfo()).host).toBe("https://zeus.accurate.id");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 
