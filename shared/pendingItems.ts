@@ -14,12 +14,32 @@ export const LIVE_PENDING: PendingStatus[] = ["draft", "submitted"];
 
 /** The "problem" a line with a pending code gets; applyHolds turns it into holdReason "new_item". */
 export const PENDING_ITEM_PROBLEM = "Barang baru, menunggu dibuat di Accurate";
-export const isPendingItemProblem = (problem: string | undefined | null): boolean => problem === PENDING_ITEM_PROBLEM;
+
+/**
+ * A line whose request was cancelled (and whose code the catalog doesn't
+ * have) stays held as "new_item_cancelled". Released, it would be an ordinary
+ * line outside the catalog with COGS 0, which the pricing policy can approve
+ * on its own at ~100% margin, for an item nobody is going to create.
+ */
+export const CANCELLED_ITEM_PROBLEM = "Permintaan barang baru ini dibatalkan, jadi tidak bisa ditawarkan";
+
+/** The hold a "barang baru" problem means, or null for any other (COGS) problem. */
+export function pendingHoldReason(problem: string | undefined | null): "new_item" | "new_item_cancelled" | null {
+  if (problem === PENDING_ITEM_PROBLEM) return "new_item";
+  if (problem === CANCELLED_ITEM_PROBLEM) return "new_item_cancelled";
+  return null;
+}
+
+/** A "barang baru" problem says nothing about costs, so staff may read it as it is. */
+export const isPendingItemProblem = (problem: string | undefined | null): boolean => pendingHoldReason(problem) !== null;
 
 /** What a held line says in documents and badges. */
 export const PENDING_BADGE = "Menunggu Accurate";
 
 export const AUTO_CODE_PREFIX = "BARU-";
+
+/** "BARU-0007" and the like are only ever given out by the numbering, never typed. */
+export const isAutoCode = (code: string): boolean => /^BARU-\d+$/i.test(code.trim());
 
 export interface PendingItem {
   id: number;

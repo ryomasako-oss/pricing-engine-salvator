@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { holdInfo } from "./holds";
-import { newItemTaskDetail } from "./pendingItems";
+import { heldNote, holdInfo } from "./holds";
+import { CANCELLED_ITEM_PROBLEM, PENDING_ITEM_PROBLEM, isAutoCode, isPendingItemProblem, newItemTaskDetail, pendingHoldReason } from "./pendingItems";
 
 describe("holdInfo", () => {
   it("keeps the wording of the two older reasons, and a line without a reason is a COGS hold", () => {
@@ -16,6 +16,34 @@ describe("holdInfo", () => {
     expect(i.badge).toBe("Menunggu Accurate");
     expect(i.staff).not.toMatch(/COGS/);
     expect(i.manager).toMatch(/Accurate/);
+  });
+});
+
+describe("a cancelled barang baru", () => {
+  it("is held under its own reason, with no cost talk for staff", () => {
+    expect(pendingHoldReason(PENDING_ITEM_PROBLEM)).toBe("new_item");
+    expect(pendingHoldReason(CANCELLED_ITEM_PROBLEM)).toBe("new_item_cancelled");
+    expect(pendingHoldReason("COGS kosong")).toBeNull();
+    expect(isPendingItemProblem(CANCELLED_ITEM_PROBLEM)).toBe(true);
+    expect(holdInfo("new_item_cancelled").badge).toBe("Dibatalkan");
+    expect(holdInfo("new_item_cancelled").staff).not.toMatch(/COGS/);
+  });
+
+  it("is not promised to the customer as an item that will follow", () => {
+    const rows = [
+      { held: true, holdReason: "new_item" as const, name: "Kursi" },
+      { held: true, holdReason: "new_item_cancelled" as const, name: "Meja batal" },
+    ];
+    expect(heldNote(rows)).toBe("1 item menyusul, harganya sedang dikonfirmasi: Kursi.");
+  });
+});
+
+describe("isAutoCode", () => {
+  it("knows the numbering's own codes, however typed", () => {
+    expect(isAutoCode("BARU-0007")).toBe(true);
+    expect(isAutoCode(" baru-12 ")).toBe(true);
+    expect(isAutoCode("BARU-A1")).toBe(false);
+    expect(isAutoCode("ACC-BARU-1")).toBe(false);
   });
 });
 

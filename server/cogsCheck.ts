@@ -7,7 +7,7 @@
 import { z } from "zod";
 import { cogsProblem } from "../shared/cogsCheck.js";
 import { normalizeCode } from "../shared/duplicates.js";
-import { isPendingItemProblem } from "../shared/pendingItems.js";
+import { pendingHoldReason } from "../shared/pendingItems.js";
 import type { CatalogItem, QuoteItem } from "../shared/types.js";
 import { priceUnitOf, unitFactor } from "../shared/uom.js";
 
@@ -91,8 +91,9 @@ export function applyHolds<T extends { status: string; items: QuoteItem[] }>(
     // the quote is reopened, unless its COGS is the problem.
     items: quote.items.map(({ held: _h, holdReason: _r, ...it }) => {
       if (it.code && problems.has(it.code)) {
-        // A code that is only a pending "barang baru" waits for Accurate, not for a manager's COGS check.
-        return { ...it, held: true, ...(isPendingItemProblem(problems.get(it.code)) ? { holdReason: "new_item" as const } : {}) };
+        // A code that is only a "barang baru" waits for Accurate (or was cancelled), not for a manager's COGS check.
+        const reason = pendingHoldReason(problems.get(it.code));
+        return { ...it, held: true, ...(reason ? { holdReason: reason } : {}) };
       }
       const rows = it.code ? catalog.get(normalizeCode(it.code)) ?? [] : [];
       if (!rows.length) return it; // not from the catalog: left to the pricing policy, as before

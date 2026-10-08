@@ -47,12 +47,15 @@ pendingItemsRouter.post("/", async (c) => {
   // The same name in the catalog means the item exists: use it instead of asking for a twin.
   const twin = await get<{ code: string; name: string }>(c.env.DB, "SELECT code, name FROM catalog_items WHERE lower(trim(name)) = lower(trim(?)) LIMIT 1", name);
   if (twin) return c.json({ error: `Barang ini sudah ada di katalog: ${twin.code} (${twin.name}). Pakai yang itu.`, existing: twin }, 409);
-  let id: number;
-  try {
-    id = (await run(c.env.DB, INSERT_PENDING_SQL, code ?? "", name, uom || "Pcs", proposed_price, note, user.id)).meta.last_row_id;
-  } catch (err) {
-    if (String((err as Error).message).includes("UNIQUE")) return c.json({ error: "Kode itu baru saja dipakai permintaan lain. Coba lagi." }, 409);
-    throw err;
+  let id = 0;
+  // A blank code is numbered inside the INSERT; two requests at once can pick the same number, so the loser takes the next.
+  for (let attempt = 0; !id; attempt++) {
+    try {
+      id = (await run(c.env.DB, INSERT_PENDING_SQL, code ?? "", name, uom || "Pcs", proposed_price, note, user.id)).meta.last_row_id;
+    } catch (err) {
+      if (!String((err as Error).message).includes("UNIQUE")) throw err;
+      if (code || attempt >= 2) return c.json({ error: "Kode itu baru saja dipakai permintaan lain. Coba lagi." }, 409);
+    }
   }
   const item = (await get<PendingItem>(c.env.DB, GET_PENDING_SQL, id))!;
   await audit(c.env.DB, user.id, "pending_item", id, "created", { code: item.code, name: item.name });
@@ -69,9 +72,10 @@ pendingItemsRouter.post("/:id/submit", requirePermission("edit_catalog"), async 
   if (item.status !== "draft") {
     return c.json({ error: item.status === "submitted" ? "Sudah diajukan ke Accurate." : "Permintaan ini sudah dibatalkan." }, 409);
   }
+  // The task is written only if the request is still submitted when the batch runs (a cancel may land in between).
   await batch(c.env.DB, [
     stmt(c.env.DB, "UPDATE pending_items SET status = 'submitted', submitted_by = ?, submitted_at = datetime('now') WHERE id = ? AND status = 'draft'", user.id, id),
-    stmt(c.env.DB, INSERT_NEW_ITEM_TASK_SQL, item.code, item.name, item.uom, newItemTaskDetail(item), user.id),
+    stmt(c.env.DB, INSERT_NEW_ITEM_TASK_SQL, item.code, item.name, item.uom, newItemTaskDetail(item), user.id, id),
   ]);
   await audit(c.env.DB, user.id, "pending_item", id, "submitted", { code: item.code });
   return c.json({ item: await get<PendingItem>(c.env.DB, GET_PENDING_SQL, id) });

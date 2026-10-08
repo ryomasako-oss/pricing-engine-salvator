@@ -17,6 +17,7 @@ import {
 } from "../../catalogMatch";
 import { VERIFY_COGS_SQL, cogsCheckInput, withProblems } from "../../cogsCheck";
 import { cogsProblemsFor } from "../quoteService";
+import { sweepPending } from "./pendingItems";
 import { canSeeCosts, catalogItemsForViewer, problemsForViewer } from "../../staffView";
 import { cleanUnits, type ItemUnits } from "../../../shared/uom";
 import type { CatalogItem, UnitFactor } from "../../../shared/types";
@@ -342,6 +343,8 @@ catalogRouter.post("/import", requirePermission("import_catalog"), async (c) => 
 
   const result = { inserted, updated };
   await audit(c.env.DB, user.id, "catalog", 0, "imported", { ...result, source, mode, rows: rows.length });
+  // Barang baru requests whose code this import brought into the catalog are linked, and their tasks closed.
+  await sweepPending(c.env.DB);
   return c.json({ ...result, total: rows.length });
 });
 

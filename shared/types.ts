@@ -87,10 +87,10 @@ export interface QuoteItem {
    * Why the line is held: "cogs" (default, above) or "sales" — sales marked it
    * Tolak in the "Cek harga" Excel, so the approved quote goes ahead without it
    * and it is offered later (shared/fixTasks.ts); or "new_item" — the code is a
-   * "barang baru" still waiting to be created in Accurate (shared/pendingItems.ts).
-   * Set by the server only.
+   * "barang baru" still waiting to be created in Accurate (shared/pendingItems.ts);
+   * or "new_item_cancelled" — that request was cancelled. Set by the server only.
    */
-  holdReason?: "cogs" | "sales" | "new_item";
+  holdReason?: "cogs" | "sales" | "new_item" | "new_item_cancelled";
   /**
    * The catalog COGS (in this line's unit) that `cogs` was copied from, set by
    * lineFromCatalog. While `cogs` still equals it the cost is the catalog's,

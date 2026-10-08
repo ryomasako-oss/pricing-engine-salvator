@@ -206,7 +206,7 @@ export interface StaffLine {
   /** COGS awaits a manager: shown, but not offered or totalled (server/cogsCheck.ts applyHolds). */
   held?: boolean;
   /** "sales": rejected in the sales check and offered later (shared/fixTasks.ts). */
-  holdReason?: "cogs" | "sales" | "new_item";
+  holdReason?: "cogs" | "sales" | "new_item" | "new_item_cancelled";
 }
 
 export interface StaffPricing {

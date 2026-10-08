@@ -22,14 +22,14 @@ import {
 export const pendingItemsRouter = Router();
 pendingItemsRouter.use(requireAuth);
 
-/** Items the catalog has by now are linked and their tasks done; safe to repeat. */
-const sweep = () => {
+/** Items the catalog has by now are linked and their tasks done; safe to repeat (also after a catalog import). */
+export const sweepPending = () => {
   run(LINK_PENDING_SQL);
   run(CLOSE_LINKED_TASKS_SQL);
 };
 
 pendingItemsRouter.get("/", (req: AuthedRequest, res) => {
-  sweep();
+  sweepPending();
   const scoped = !hasPermission(req.user!.role, "edit_catalog");
   res.json({ items: all<PendingItem>(listPendingSql(scoped), ...(scoped ? [req.user!.id] : [])) });
 });
@@ -51,15 +51,18 @@ pendingItemsRouter.post("/", (req: AuthedRequest, res) => {
     res.status(409).json({ error: `Barang ini sudah ada di katalog: ${twin.code} (${twin.name}). Pakai yang itu.`, existing: twin });
     return;
   }
-  let id: number;
-  try {
-    id = Number(run(INSERT_PENDING_SQL, code ?? "", name, uom || "Pcs", proposed_price, note, req.user!.id).lastInsertRowid);
-  } catch (err) {
-    if (String((err as Error).message).includes("UNIQUE")) {
-      res.status(409).json({ error: "Kode itu baru saja dipakai permintaan lain. Coba lagi." });
-      return;
+  let id = 0;
+  // A blank code is numbered inside the INSERT; two requests at once can pick the same number, so the loser takes the next.
+  for (let attempt = 0; !id; attempt++) {
+    try {
+      id = Number(run(INSERT_PENDING_SQL, code ?? "", name, uom || "Pcs", proposed_price, note, req.user!.id).lastInsertRowid);
+    } catch (err) {
+      if (!String((err as Error).message).includes("UNIQUE")) throw err;
+      if (code || attempt >= 2) {
+        res.status(409).json({ error: "Kode itu baru saja dipakai permintaan lain. Coba lagi." });
+        return;
+      }
     }
-    throw err;
   }
   const item = get<PendingItem>(GET_PENDING_SQL, id)!;
   audit(req.user!.id, "pending_item", id, "created", { code: item.code, name: item.name });
@@ -67,7 +70,7 @@ pendingItemsRouter.post("/", (req: AuthedRequest, res) => {
 });
 
 pendingItemsRouter.post("/:id/submit", requirePermission("edit_catalog"), (req: AuthedRequest, res) => {
-  sweep();
+  sweepPending();
   const id = Number(req.params.id);
   const item = get<PendingItem>(GET_PENDING_SQL, id);
   if (!item) {
@@ -84,7 +87,7 @@ pendingItemsRouter.post("/:id/submit", requirePermission("edit_catalog"), (req: 
   }
   tx(() => {
     run("UPDATE pending_items SET status = 'submitted', submitted_by = ?, submitted_at = datetime('now') WHERE id = ? AND status = 'draft'", req.user!.id, id);
-    run(INSERT_NEW_ITEM_TASK_SQL, item.code, item.name, item.uom, newItemTaskDetail(item), req.user!.id);
+    run(INSERT_NEW_ITEM_TASK_SQL, item.code, item.name, item.uom, newItemTaskDetail(item), req.user!.id, id);
   });
   audit(req.user!.id, "pending_item", id, "submitted", { code: item.code });
   res.json({ item: get<PendingItem>(GET_PENDING_SQL, id) });
