@@ -35,6 +35,7 @@ const KIND_BADGE: Record<FixKind, string> = {
   cogs_held: "amber",
   unit_unknown: "amber",
   sales_rejected: "blue",
+  accurate_check: "blue",
 };
 
 export function FixTasksPage() {

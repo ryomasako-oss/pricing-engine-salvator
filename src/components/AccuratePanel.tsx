@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 import { useToast } from "../context/ToastContext";
 import { Icon } from "./Icon";
+import { AccurateReconcile } from "./AccurateReconcile";
 import { fmtDateTime, grp } from "@shared/format";
 
 type Entity = "CV" | "PT";
@@ -172,6 +173,7 @@ export function AccuratePanel({ onApplied }: { onApplied: () => void }) {
                 <span className="badge grey">{grp(flags.counts.no_selling_price)} tanpa harga jual</span>
               </div>
             )}
+            {configured.some((e) => e.entity === catalogEntity) && <AccurateReconcile />}
           </div>
         )}
       </div>

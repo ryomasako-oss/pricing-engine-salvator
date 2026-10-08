@@ -2,7 +2,7 @@
    approved offer stays on a list until someone fixes it, so the team knows
    which data needs work without holding up what the client can get now.
 
-   Four kinds, each created by the server at the moment it is known:
+   Five kinds, each created by the server at the moment it is known:
    - not_in_catalog: a row of the client's list with no catalog item
      (sent with POST /quotes from "Dari list klien"),
    - cogs_held:      a line held because its catalog COGS needs a manager,
@@ -18,7 +18,7 @@ import type { Permission } from "./permissions.js";
 import type { QuoteItem } from "./types.js";
 import { uomWarning } from "./uom.js";
 
-export type FixKind = "not_in_catalog" | "cogs_held" | "unit_unknown" | "sales_rejected";
+export type FixKind = "not_in_catalog" | "cogs_held" | "unit_unknown" | "sales_rejected" | "accurate_check";
 
 export const FIX_KINDS: Record<FixKind, { label: string; todo: string; permission: Permission }> = {
   not_in_catalog: {
@@ -40,6 +40,14 @@ export const FIX_KINDS: Record<FixKind, { label: string; todo: string; permissio
     label: "Harga ditolak sales",
     todo: "Tinjau harga baris ini sesuai alasan sales, lalu tawarkan susulan ke klien.",
     permission: "decide_quotes",
+  },
+  // Not tied to a quote: one task per kind of mismatch with Accurate, written
+  // and closed by the cross-check (shared/accurateReconcile.ts), so "done" by
+  // hand only mutes it until the next check finds it again.
+  accurate_check: {
+    label: "Cek silang Accurate",
+    todo: "Buka Katalog → Sinkron Accurate → Cek silang, periksa selisihnya.",
+    permission: "import_catalog",
   },
 };
 

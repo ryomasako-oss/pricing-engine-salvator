@@ -12,6 +12,8 @@ import { requireAuth, requirePermission } from "../auth";
 import { zodMessage } from "../../validate";
 import { AccurateClient } from "../accurate/client";
 import { ITEM_FIELDS } from "../accurate/mapping";
+import { reconcileCounts, reconcileExamples, runReconcile } from "../accurate/reconcile";
+import { CHECKS, CHECK_KEYS, isCheckKey } from "../../../shared/accurateReconcile";
 import {
   ENTITY_KEYS,
   catalogEntity,
@@ -257,6 +259,50 @@ accurateRouter.post("/apply", requirePermission("import_catalog"), async (c) => 
   };
   const user = c.get("user")!;
   await audit(db, user.id, "catalog", 0, "accurate_applied", result);
+  return c.json(result);
+});
+
+/** Where the catalog's Accurate cross-check stands: the staged data of the catalog entity must be a completed run. */
+async function reconcileState(db: D1Database, entity: EntityKey) {
+  const st = await loadState(db, entity);
+  const staged = await get<{ n: number }>(db, "SELECT COUNT(*) AS n FROM accurate_items WHERE entity = ?", entity);
+  return { staged: staged?.n ?? 0, complete: st.phase === "idle" && !!st.last_success_at, lastRunAt: st.last_success_at, checkedAt: st.reconciled_at };
+}
+
+/**
+ * Cross-check of the catalog against Accurate (shared/accurateReconcile.ts):
+ * live counts per kind of mismatch. Accurate is the starting reference, not
+ * the truth, so this lists where the two disagree for a manager to judge.
+ */
+accurateRouter.get("/reconcile", requirePermission("import_catalog"), async (c) => {
+  const entity = catalogEntity(c.env);
+  const state = await reconcileState(c.env.DB, entity);
+  if (!state.staged) return c.json({ entity, ready: false, ...state, checks: [] });
+  const counts = await reconcileCounts(c.env.DB, entity);
+  return c.json({
+    entity,
+    ready: true,
+    ...state,
+    checks: CHECK_KEYS.map((key) => ({ key, label: CHECKS[key].label, todo: CHECKS[key].todo, notify: CHECKS[key].notify, count: counts[key] })),
+  });
+});
+
+accurateRouter.get("/reconcile/:key", requirePermission("import_catalog"), async (c) => {
+  const key = c.req.param("key") ?? "";
+  if (!isCheckKey(key)) return c.json({ error: "Jenis pengecekan tidak dikenal." }, 404);
+  const limit = Math.min(500, Math.max(1, Number(c.req.query("limit")) || 100));
+  return c.json({ key, rows: await reconcileExamples(c.env.DB, catalogEntity(c.env), key, limit) });
+});
+
+/** Runs the check now and refreshes the "Perlu diperbaiki" tasks (the cron does the same after every completed run). */
+accurateRouter.post("/reconcile", requirePermission("import_catalog"), async (c) => {
+  const entity = catalogEntity(c.env);
+  const state = await reconcileState(c.env.DB, entity);
+  if (!state.staged || !state.complete) {
+    return c.json({ error: `Belum ada sinkron Accurate ${entity} yang selesai. Jalankan sinkron dulu.` }, 409);
+  }
+  const result = await runReconcile(c.env.DB, entity);
+  await audit(c.env.DB, c.get("user")!.id, "accurate", 0, "reconciled", { entity, counts: result.counts, open: result.open, closed: result.closed });
   return c.json(result);
 });
 

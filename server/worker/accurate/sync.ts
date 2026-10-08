@@ -12,6 +12,7 @@
    Rows not seen by the finishing run (deleted in Accurate) are pruned.
    ============================================================ */
 
+import { reconcileDue, runReconcile } from "./reconcile";
 import { all, batch, get, run, stmt } from "../../db.d1";
 import { AccurateClient, AccurateError, type AccurateCreds } from "./client";
 import { ITEM_FIELDS, mapItem, mapStock, mapWarehouse } from "./mapping";
@@ -33,6 +34,7 @@ export interface SyncState {
   stock_rows: number;
   started_at: string | null;
   last_success_at: string | null;
+  reconciled_at: string | null;
   last_error: string | null;
   last_error_at: string | null;
   locked_until: string | null;
@@ -288,5 +290,12 @@ export async function syncTick(env: Bindings, opts: { deadlineMs: number }): Pro
   const deadline = Date.now() + opts.deadlineMs;
   const out: StepResult[] = [];
   for (const e of entities) out.push(await syncStep(env.DB, e, credsFor(env, e)!, per, { deadline }));
+  // A completed run is cross-checked against the catalog in a tick of its own:
+  // only when nothing was synced (the tick that finishes a run is near the
+  // 50-subrequest budget), so the check has the whole budget to itself.
+  const mine = catalogEntity(env);
+  if (out.every((r) => r.outcome === "idle") && entities.includes(mine) && (await reconcileDue(env.DB, mine))) {
+    await runReconcile(env.DB, mine);
+  }
   return out;
 }
