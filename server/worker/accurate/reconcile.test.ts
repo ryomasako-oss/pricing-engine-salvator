@@ -1,14 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Hono } from "hono";
 import { D1DatabaseShim } from "../../../scripts/d1-sqlite-shim";
 import { accurateRouter } from "../routes/accurate";
-import { reconcileDue, runReconcile } from "./reconcile";
+import { reconcileDue, reconcileExamples, runReconcile } from "./reconcile";
 import { syncTick } from "./sync";
-import { countTasksSql, listTasksSql } from "../../fixTasks";
+import { countTasksSql, listTasksSql, tasksForViewer } from "../../fixTasks";
+import { countQueries, fakeAccurate } from "./testing";
 import { CHECKS, CHECK_KEYS, desiredTasks, type ReconcileCounts } from "../../../shared/accurateReconcile";
+import { digestEmail, type OpenTaskRow } from "../../../shared/fixTasks";
 import type { Env } from "../env";
 
 function freshDb() {
@@ -201,6 +203,118 @@ describe("cross-check of the catalog against Accurate", () => {
     expect(run.status).toBe(200);
     expect(run.json.open).toBe(5);
     expect(openTasks(sqlite).length).toBe(5);
+  });
+});
+
+describe("cross-check: review fixes (2026-10-08)", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const toml = readFileSync(new URL("../../../wrangler.toml", import.meta.url), "utf8");
+  const v = (k: string) => toml.match(new RegExp(`^${k}\\s*=\\s*"([^"]*)"`, "m"))?.[1];
+  /** Both Data Usaha configured, with the deployed tick size. */
+  const bothEntities = (db: D1Database) =>
+    ({
+      DB: db,
+      ACCURATE_TOKEN_CV: "aat.cv",
+      ACCURATE_TOKEN_PT: "aat.pt",
+      ACCURATE_SIGNATURE_SECRET: "s",
+      ACCURATE_PAGE_SIZE: v("ACCURATE_PAGE_SIZE"),
+      ACCURATE_CALLS_PER_TICK: v("ACCURATE_CALLS_PER_TICK"),
+      ACCURATE_CATALOG_ENTITY: v("ACCURATE_CATALOG_ENTITY"),
+    }) as never;
+  const ptFinishedJustNow = (sqlite: DatabaseSync) =>
+    sqlite.exec(`UPDATE accurate_sync_state SET last_success_at = '${new Date().toISOString()}' WHERE entity = 'PT'`);
+
+  it("a CV token that keeps failing doesn't stop PT's finished run from being checked", async () => {
+    // Before: the check waited for a tick where every entity was idle, so a
+    // CV that errored on every tick meant PT was never checked.
+    const { sqlite, db } = freshDb();
+    seed(sqlite);
+    ptFinishedJustNow(sqlite);
+    vi.stubGlobal("fetch", async () => new Response(JSON.stringify({ s: false, d: ["Invalid access token"] }), { status: 401 }));
+    const r = await syncTick(bothEntities(db), { deadlineMs: 5_000 });
+    expect(r.find((x) => x.entity === "CV")?.outcome).toBe("error");
+    expect(openTasks(sqlite).length).toBe(5);
+    expect(await reconcileDue(db, "PT")).toBe(false);
+  });
+
+  it("checking while CV syncs keeps every tick within 50 queries + Accurate calls", async () => {
+    const { sqlite, db: raw } = freshDb();
+    seed(sqlite);
+    ptFinishedJustNow(sqlite);
+    const { db, queries, reset } = countQueries(raw);
+    const items = Array.from({ length: 450 }, (_, i) => ({ id: i + 1, no: `C${i}`, name: `Item ${i}`, unitPrice: 1000, unit1Name: "Pcs" }));
+    const fake = fakeAccurate({ items, stock: { 1: items.map((i) => ({ no: i.no, quantity: 2 })), 2: items.slice(0, 150).map((i) => ({ no: i.no, quantity: 1 })) } });
+    let calls = 0;
+    vi.stubGlobal("fetch", ((u: RequestInfo | URL, i?: RequestInit) => (calls++, fake.impl(u, i))) as typeof fetch);
+    let worst = 0;
+    let cvDone = false;
+    for (let tick = 0; tick < 60 && !cvDone; tick++) {
+      calls = 0;
+      reset();
+      const r = await syncTick(bothEntities(db), { deadlineMs: 10_000 });
+      worst = Math.max(worst, calls + queries());
+      cvDone = r.find((x) => x.entity === "CV")?.outcome === "finished";
+    }
+    expect(cvDone).toBe(true);
+    expect(openTasks(sqlite).length).toBe(5); // checked while CV was still syncing
+    expect(worst).toBeLessThanOrEqual(50);
+  }, 30_000);
+
+  it("an item suspended in Accurate is only reported as suspended, not as a price to apply", async () => {
+    const { sqlite, db } = freshDb();
+    seed(sqlite);
+    // "Terapkan" skips suspended items, so "Harga jual beda" (which says
+    // Terapkan takes Accurate's price) must not list them.
+    sqlite.exec("UPDATE accurate_items SET unit_price = 100 WHERE code = 'S1'");
+    sqlite.exec("UPDATE catalog_items SET cogs = 4000 WHERE code = 'S1'");
+    const { counts } = await runReconcile(db, "PT");
+    expect(counts).toMatchObject({ suspended_in_accurate: 1, price_diff: 2, price_below_cogs: 1 });
+    expect((await reconcileExamples(db, "PT", "price_diff", 10)).map((r) => r.code)).not.toContain("S1");
+  });
+
+  it("'below COGS' examples put the largest COGS gap first", async () => {
+    const { sqlite, db } = freshDb();
+    seed(sqlite);
+    // B1 sells 90.000 under its COGS, but Accurate and the catalog agree on the
+    // price, so ordering by the list-price gap put it after P1 (gap 1.500).
+    sqlite.exec(`INSERT INTO catalog_items(code, name, uom, cogs, list_price) VALUES ('B1', 'Lemari', 'Pcs', 100000, 10000)`);
+    sqlite.exec(`INSERT INTO accurate_items(entity, accurate_id, code, name, uom, unit_price, suspended, run_id) VALUES ('PT', 9, 'B1', 'B1', 'Pcs', 10000, 0, 'r1')`);
+    expect((await reconcileExamples(db, "PT", "price_below_cogs", 1)).map((r) => r.code)).toEqual(["B1"]);
+    expect((await reconcileExamples(db, "PT", "price_diff", 1)).map((r) => r.code)).toEqual(["P1"]);
+  });
+
+  it("a rep can't open the cross-check, and wouldn't see its figures in a task", async () => {
+    const { sqlite, db } = freshDb();
+    seed(sqlite);
+    sqlite.exec(`INSERT INTO users(id, email, name, password_hash, role) VALUES (2, 'r@x', 'R', 'x', 'rep')`);
+    const app = new Hono<Env>();
+    app.use(async (c, next) => {
+      c.set("user", { id: 2, email: "r@x", name: "R", role: "rep" } as never);
+      await next();
+    });
+    app.route("/api/accurate", accurateRouter);
+    const env = { DB: db } as unknown as Env["Bindings"];
+    for (const [method, url] of [["GET", "/api/accurate/reconcile"], ["GET", "/api/accurate/reconcile/price_below_cogs"], ["POST", "/api/accurate/reconcile"]]) {
+      expect((await app.request(url, { method }, env)).status).toBe(403);
+    }
+    // The task text names COGS ("katalog Rp 9.500"). Staff never list these
+    // tasks (no quote), but if one ever reached them it must carry no figures.
+    await runReconcile(db, "PT");
+    const rows = sqlite.prepare("SELECT * FROM fix_tasks WHERE kind = 'accurate_check'").all() as never[];
+    const seen = tasksForViewer("rep", rows) as unknown as { detail: string }[];
+    expect(seen.some((t) => /Rp/.test(t.detail))).toBe(false);
+    expect((tasksForViewer("manager", rows) as unknown as { detail: string }[]).some((t) => /Rp 9\.500/.test(t.detail))).toBe(true);
+  });
+
+  it("the daily email doesn't call a catalog check an item missing from a client offer", () => {
+    const row = (over: Partial<OpenTaskRow>): OpenTaskRow => ({
+      id: 1, kind: "accurate_check", item_name: "Harga jual beda", qty: 3, uom: "barang", detail: "3 barang.",
+      created_at: "2026-10-08 01:00:00", quote_number: null, client_name: null, ...over,
+    });
+    const now = new Date("2026-10-08T02:00:00Z");
+    expect(digestEmail([row({})], now, "https://x")!.html).not.toMatch(/ditawarkan susulan/);
+    expect(digestEmail([row({}), row({ id: 2, kind: "cogs_held", quote_number: "Q-1" })], now, "https://x")!.html).toMatch(/ditawarkan susulan/);
   });
 });
 
