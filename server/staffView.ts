@@ -20,6 +20,7 @@
    ============================================================ */
 
 import { z } from "zod";
+import { isPendingItemProblem } from "../shared/pendingItems.js";
 import { computeEngine } from "../shared/engine.js";
 import { normalizeCode } from "../shared/duplicates.js";
 import { lineFromCatalog } from "../shared/match.js";
@@ -205,7 +206,7 @@ export interface StaffLine {
   /** COGS awaits a manager: shown, but not offered or totalled (server/cogsCheck.ts applyHolds). */
   held?: boolean;
   /** "sales": rejected in the sales check and offered later (shared/fixTasks.ts). */
-  holdReason?: "cogs" | "sales";
+  holdReason?: "cogs" | "sales" | "new_item";
 }
 
 export interface StaffPricing {
@@ -293,7 +294,8 @@ export function catalogItemsForViewer<T extends { cogs?: number; cogs_problem?: 
 /** code -> problem, with the numbers taken out for staff. */
 export function problemsForViewer(role: Role, problems: Map<string, string>): Map<string, string> {
   if (canSeeCosts(role)) return problems;
-  return new Map([...problems.keys()].map((k) => [k, STAFF_COGS_PROBLEM]));
+  // A pending "barang baru" says nothing about costs, so staff get its text as it is.
+  return new Map([...problems].map(([k, v]) => [k, isPendingItemProblem(v) ? v : STAFF_COGS_PROBLEM]));
 }
 
 /** GET /settings: staff need the company details for documents, not the pricing policy. */

@@ -8,6 +8,7 @@ import { computeEngine } from "../shared/engine.js";
 import { type CogsRow, applyHolds, cogsLookupKeys, cogsRowsSql, liveHoldCodes, problemsByCode, recostCodes } from "./cogsCheck.js";
 import { type CatalogByKey, catalogByKeysSql, staffLookupKeys } from "./staffView.js";
 import { normalizeCode } from "../shared/duplicates.js";
+import { pendingCodesSql, pendingProblems, pendingRowsSql } from "./pendingItems.js";
 import type { CatalogItem, UnitFactor } from "../shared/types.js";
 import { DEFAULT_POLICY, evaluatePolicy } from "../shared/policy.js";
 import type {
@@ -180,7 +181,10 @@ export const STATUS_FLOW: Partial<Record<QuoteStatus, QuoteStatus[]>> = {
 export function cogsProblemsFor(codes: string[]): Map<string, string> {
   const keys = cogsLookupKeys(codes);
   if (!keys.length) return new Map();
-  return problemsByCode(codes, all<CogsRow>(cogsRowsSql(keys.length), ...keys));
+  const out = problemsByCode(codes, all<CogsRow>(cogsRowsSql(keys.length), ...keys));
+  // A code that is a pending "barang baru" (not in the catalog yet) is held too.
+  for (const [code, p] of pendingProblems(codes, all<{ key: string }>(pendingCodesSql(keys.length), ...keys))) out.set(code, p);
+  return out;
 }
 
 /**
@@ -204,5 +208,7 @@ export function catalogListsByKeys(codes: string[]): CatalogByKey {
     const key = normalizeCode(r.code);
     out.set(key, [...(out.get(key) ?? []), { ...r, units: own }]);
   }
+  // A pending "barang baru" stands in for a catalog row until the catalog has the code.
+  for (const r of all<CatalogItem>(pendingRowsSql(keys.length), ...keys)) out.set(normalizeCode(r.code), [{ ...r, units: [] }]);
   return out;
 }

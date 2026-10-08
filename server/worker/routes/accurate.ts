@@ -12,6 +12,7 @@ import { requireAuth, requirePermission } from "../auth";
 import { zodMessage } from "../../validate";
 import { AccurateClient } from "../accurate/client";
 import { ITEM_FIELDS } from "../accurate/mapping";
+import { sweepPending } from "./pendingItems";
 import { reconcileCounts, reconcileExamples, runReconcile } from "../accurate/reconcile";
 import { CHECKS, CHECK_KEYS, isCheckKey } from "../../../shared/accurateReconcile";
 import {
@@ -259,6 +260,8 @@ accurateRouter.post("/apply", requirePermission("import_catalog"), async (c) => 
   };
   const user = c.get("user")!;
   await audit(db, user.id, "catalog", 0, "accurate_applied", result);
+  // Barang baru requests whose code arrived in the catalog with this apply are linked now.
+  await sweepPending(db);
   return c.json(result);
 });
 

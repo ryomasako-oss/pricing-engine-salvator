@@ -9,6 +9,7 @@
    ============================================================ */
 
 import { SCENARIOS } from "./engine.js";
+import { holdInfo } from "./holds.js";
 import { grp, pct } from "./format.js";
 import type { Assumptions, ComputedRow, EngineResult, PolicyBreach, PricingPolicy, ScenarioIndex } from "./types.js";
 
@@ -144,11 +145,7 @@ export function explainLine(
   );
 
   if (row.held) {
-    flags.push(
-      row.holdReason === "sales"
-        ? "Menyusul: harganya ditolak sales, tidak ikut total"
-        : "Ditahan: COGS perlu dicek manajer, tidak ikut total",
-    );
+    flags.push(holdInfo(row.holdReason).flag);
   }
   if (margin < 0) flags.push("Di bawah modal");
   else if (policy && margin < policy.minLineMargin) flags.push(`Margin di bawah minimum ${pct(policy.minLineMargin)}`);

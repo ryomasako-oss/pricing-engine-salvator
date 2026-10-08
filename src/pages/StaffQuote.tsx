@@ -36,6 +36,7 @@ import type {
 } from "@shared/types";
 import { type ItemUnits, amountInUnit, uomChoices } from "@shared/uom";
 import { NumberCell } from "../components/NumberCell";
+import { holdInfo, type HoldReason } from "@shared/holds";
 
 /** A line as the server sends it to staff. */
 export interface StaffLine {
@@ -57,7 +58,7 @@ export interface StaffLine {
   valuesUom?: string;
   /** COGS awaits a manager: shown, but not offered or totalled until released. */
   held?: boolean;
-  holdReason?: "cogs" | "sales";
+  holdReason?: HoldReason;
 }
 
 export interface StaffPricing {
@@ -390,15 +391,8 @@ export function StaffQuotePage() {
                     <div style={{ fontWeight: 550 }}>{l.name}</div>
                     <div className="muted small">{l.code}</div>
                     {l.held && (
-                      <span
-                        className={`badge ${l.holdReason === "sales" ? "blue" : "amber"}`}
-                        title={
-                          l.holdReason === "sales"
-                            ? "Harganya ditolak saat cek sales. Tidak ikut total dan dokumen; ditulis sebagai item menyusul dan ada di Perlu diperbaiki."
-                            : "Harga item ini sedang dicek manajer. Tidak ikut total dan dokumen; di dokumen ditulis sebagai item menyusul."
-                        }
-                      >
-                        {l.holdReason === "sales" ? "Menyusul" : "Ditahan"}
+                      <span className={`badge ${holdInfo(l.holdReason).tone}`} title={holdInfo(l.holdReason).staff}>
+                        {holdInfo(l.holdReason).badge}
                       </span>
                     )}
                   </td>
@@ -637,7 +631,7 @@ export function StaffQuotePage() {
 /** Fields the preview answers for a line. */
 const pick = (l?: StaffLine) =>
   // The server's numbers are per its uom/priceUom, so any client-side valuesUom is done with.
-  l ? { price: l.price, uom: l.uom, rrp: l.rrp, priceUom: l.priceUom, held: l.held, manual: l.manual, valuesUom: undefined } : {};
+  l ? { price: l.price, uom: l.uom, rrp: l.rrp, priceUom: l.priceUom, held: l.held, holdReason: l.holdReason, manual: l.manual, valuesUom: undefined } : {};
 
 /** What the rep edited, ignoring the prices the preview fills in, so a preview doesn't trigger another. */
 const editKey = (lines: StaffLine[]) => JSON.stringify(lines.map((l) => [l.id, l.code, l.uom, l.qty, l.rrp, l.notes, l.setPrice]));

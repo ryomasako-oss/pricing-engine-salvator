@@ -12,6 +12,7 @@ import { uomChoices, uomWarning } from "@shared/uom";
 import { Modal } from "./Modal";
 import { Icon } from "./Icon";
 import { UomCell } from "./UomCell";
+import { NewItemForm } from "./NewItemForm";
 
 export function CatalogPicker({
   onClose,
@@ -42,6 +43,8 @@ export function CatalogPicker({
   // to the catalog master.
   const [uomOptions, setUomOptions] = useState<string[]>([]);
   const [uomOverride, setUomOverride] = useState<Record<number, string>>({});
+  // "Barang baru": an item that isn't in Accurate yet (components/NewItemForm.tsx).
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     api
@@ -91,6 +94,18 @@ export function CatalogPicker({
     onAdd(picked);
   };
 
+  if (creating) {
+    return (
+      <NewItemForm
+        uomOptions={uomOptions}
+        initialName={query.trim()}
+        onBack={() => setCreating(false)}
+        onClose={onClose}
+        onCreated={(line) => onAdd([line])}
+      />
+    );
+  }
+
   return (
     <Modal
       title="Tambah item dari katalog"
@@ -120,6 +135,9 @@ export function CatalogPicker({
           <input type="checkbox" checked={onlyPriced} onChange={(e) => setOnlyPriced(e.target.checked)} />
           <span className="small">Hanya yang punya COGS</span>
         </label>
+        <button className="btn small ghost" onClick={() => setCreating(true)}>
+          <Icon name="plus" size={13} /> Barang baru
+        </button>
       </div>
 
       {loading ? (
@@ -129,9 +147,12 @@ export function CatalogPicker({
           <Icon name="box" size={26} />
           <h3>Tidak ada yang cocok</h3>
           <p>
-            Kalau katalog masih kosong, impor file inventory dan daftar barang di menu Katalog
-            terlebih dahulu.
+            Barangnya belum ada? Buat sebagai <strong>Barang baru</strong>: barisnya ditahan sampai barangnya dibuat di
+            Accurate, quotation lainnya tetap jalan.
           </p>
+          <button className="btn small" onClick={() => setCreating(true)}>
+            <Icon name="plus" size={13} /> Barang baru{query.trim() ? `: ${query.trim()}` : ""}
+          </button>
         </div>
       ) : (
         <div className="table-wrap" style={{ maxHeight: "52vh" }}>

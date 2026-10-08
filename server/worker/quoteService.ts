@@ -9,6 +9,7 @@ import { computeEngine } from "../../shared/engine";
 import { type CogsRow, applyHolds, cogsLookupKeys, cogsRowsSql, liveHoldCodes, problemsByCode, recostCodes } from "../cogsCheck";
 import { type CatalogByKey, catalogByKeysSql, staffLookupKeys } from "../staffView";
 import { normalizeCode } from "../../shared/duplicates";
+import { pendingCodesSql, pendingProblems, pendingRowsSql } from "../pendingItems";
 import type { CatalogItem, UnitFactor } from "../../shared/types";
 import { DEFAULT_POLICY, evaluatePolicy } from "../../shared/policy";
 import type {
@@ -183,6 +184,19 @@ export const STATUS_FLOW: Partial<Record<QuoteStatus, QuoteStatus[]>> = {
 
 /** COGS problems (shared/cogsCheck.ts) for these codes, keyed as given; codes not in the catalog are absent. */
 export async function cogsProblemsFor(d1: D1Database, codes: string[]): Promise<Map<string, string>> {
+  const out = await cogsOnlyProblemsFor(d1, codes);
+  const keys = cogsLookupKeys(codes);
+  // A code that is a pending "barang baru" (not in the catalog yet) is held too.
+  const pending: { key: string }[] = [];
+  for (let i = 0; i < keys.length; i += 90) {
+    const chunk = keys.slice(i, i + 90);
+    pending.push(...(await all<{ key: string }>(d1, pendingCodesSql(chunk.length), ...chunk)));
+  }
+  for (const [code, p] of pendingProblems(codes, pending)) out.set(code, p);
+  return out;
+}
+
+async function cogsOnlyProblemsFor(d1: D1Database, codes: string[]): Promise<Map<string, string>> {
   const keys = cogsLookupKeys(codes);
   const rows: CogsRow[] = [];
   // D1 caps bound parameters per statement, so look codes up in chunks.
@@ -222,6 +236,11 @@ export async function catalogListsByKeys(d1: D1Database, codes: string[]): Promi
     const own: UnitFactor[] = units.filter((u) => u.code === r.code).map((u) => ({ uom: u.uom, factor: u.factor }));
     const key = normalizeCode(r.code);
     out.set(key, [...(out.get(key) ?? []), { ...r, units: own }]);
+  }
+  // A pending "barang baru" stands in for a catalog row until the catalog has the code.
+  for (let i = 0; i < keys.length; i += 90) {
+    const chunk = keys.slice(i, i + 90);
+    for (const r of await all<CatalogItem>(d1, pendingRowsSql(chunk.length), ...chunk)) out.set(normalizeCode(r.code), [{ ...r, units: [] }]);
   }
   return out;
 }

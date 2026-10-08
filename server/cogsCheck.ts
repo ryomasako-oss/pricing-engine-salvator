@@ -7,6 +7,7 @@
 import { z } from "zod";
 import { cogsProblem } from "../shared/cogsCheck.js";
 import { normalizeCode } from "../shared/duplicates.js";
+import { isPendingItemProblem } from "../shared/pendingItems.js";
 import type { CatalogItem, QuoteItem } from "../shared/types.js";
 import { priceUnitOf, unitFactor } from "../shared/uom.js";
 
@@ -89,7 +90,10 @@ export function applyHolds<T extends { status: string; items: QuoteItem[] }>(
     // holdReason goes with held: a line sales rejected is offered again once
     // the quote is reopened, unless its COGS is the problem.
     items: quote.items.map(({ held: _h, holdReason: _r, ...it }) => {
-      if (it.code && problems.has(it.code)) return { ...it, held: true };
+      if (it.code && problems.has(it.code)) {
+        // A code that is only a pending "barang baru" waits for Accurate, not for a manager's COGS check.
+        return { ...it, held: true, ...(isPendingItemProblem(problems.get(it.code)) ? { holdReason: "new_item" as const } : {}) };
+      }
       const rows = it.code ? catalog.get(normalizeCode(it.code)) ?? [] : [];
       if (!rows.length) return it; // not from the catalog: left to the pricing policy, as before
       // When only case-variants of the line's code exist, which item is meant
@@ -160,4 +164,4 @@ export const liveHoldCodes = (quotes: { status: string; items: QuoteItem[] }[]) 
   quotes.filter((q) => LIVE_HOLD_STATUSES.has(q.status)).flatMap((q) => q.items.map((it) => it.code));
 
 export const ALL_HELD =
-  "Semua item ditahan karena COGS-nya perlu dicek manajer, jadi belum ada yang bisa diajukan.";
+  "Semua item sedang ditahan (COGS perlu dicek manajer, atau barangnya masih menunggu dibuat di Accurate), jadi belum ada yang bisa diajukan.";

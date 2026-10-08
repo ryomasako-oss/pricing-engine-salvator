@@ -2,7 +2,7 @@
    approved offer stays on a list until someone fixes it, so the team knows
    which data needs work without holding up what the client can get now.
 
-   Five kinds, each created by the server at the moment it is known:
+   Six kinds, each created by the server at the moment it is known:
    - not_in_catalog: a row of the client's list with no catalog item
      (sent with POST /quotes from "Dari list klien"),
    - cogs_held:      a line held because its catalog COGS needs a manager,
@@ -18,7 +18,7 @@ import type { Permission } from "./permissions.js";
 import type { QuoteItem } from "./types.js";
 import { uomWarning } from "./uom.js";
 
-export type FixKind = "not_in_catalog" | "cogs_held" | "unit_unknown" | "sales_rejected" | "accurate_check";
+export type FixKind = "not_in_catalog" | "cogs_held" | "unit_unknown" | "sales_rejected" | "accurate_check" | "new_item";
 
 export const FIX_KINDS: Record<FixKind, { label: string; todo: string; permission: Permission }> = {
   not_in_catalog: {
@@ -48,6 +48,13 @@ export const FIX_KINDS: Record<FixKind, { label: string; todo: string; permissio
     label: "Cek silang Accurate",
     todo: "Buka Katalog → Sinkron Accurate → Cek silang, periksa selisihnya.",
     permission: "import_catalog",
+  },
+  // A "barang baru" a manager handed over (shared/pendingItems.ts). Closed by
+  // the system once the catalog has the code, or when the request is cancelled.
+  new_item: {
+    label: "Barang baru ke Accurate",
+    todo: "Buat barang ini di Accurate dengan kode yang tertera, lalu sinkron dan Terapkan ke katalog.",
+    permission: "edit_catalog",
   },
 };
 
@@ -82,7 +89,7 @@ export function tasksFromItems(quoteId: number, items: QuoteItem[], problems: Ma
   const out: NewFixTask[] = [];
   for (const it of items) {
     const base = { quote_id: quoteId, line_id: it.id, code: it.code ?? "", item_name: it.name, qty: Number(it.qty) || 0, uom: it.uom ?? "" };
-    if (it.held && it.holdReason !== "sales") {
+    if (it.held && (!it.holdReason || it.holdReason === "cogs")) {
       out.push({ ...base, kind: "cogs_held", detail: (it.code && problems.get(it.code)) || COGS_HELD_DETAIL });
     }
     const unit = uomWarning(it);
