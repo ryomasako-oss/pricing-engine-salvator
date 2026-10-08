@@ -89,14 +89,6 @@ export async function requestRestart(db: D1Database, entity: EntityKey): Promise
 }
 
 const HOST_TTL_DAYS = 30; // Accurate asks integrators to re-check the host monthly.
-const CHUNK = 40;
-
-function chunks<T>(arr: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
-}
-
 const hoursSince = (iso: string | null) =>
   iso ? (Date.now() - Date.parse(iso.replace(" ", "T") + (iso.endsWith("Z") ? "" : "Z"))) / 3_600_000 : Infinity;
 
@@ -172,24 +164,28 @@ export async function syncStep(
           "sp.sort": "id|asc",
         });
         const items = res.rows.map(mapItem).filter((x) => x !== null);
-        for (const c of chunks(items, CHUNK)) {
-          await batch(
+        // One statement per page: D1 counts every statement of a batch as a query
+        // (50 per invocation on the Free plan), so a row per statement would spend
+        // the whole tick on one page.
+        if (items.length) {
+          await run(
             db,
-            c.map((i) =>
-              stmt(
-                db,
-                `INSERT INTO accurate_items(entity, accurate_id, code, name, item_type, uom, unit_price, units,
-                                            category, suspended, run_id, synced_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-                 ON CONFLICT(entity, accurate_id) DO UPDATE SET
-                   code = excluded.code, name = excluded.name, item_type = excluded.item_type,
-                   uom = excluded.uom, unit_price = excluded.unit_price, units = excluded.units,
-                   category = excluded.category, suspended = excluded.suspended,
-                   run_id = excluded.run_id, synced_at = excluded.synced_at`,
-                entity, i.accurateId, i.code, i.name, i.itemType, i.uom, i.unitPrice,
-                JSON.stringify(i.units), i.category, i.suspended ? 1 : 0, runId,
-              ),
-            ),
+            `INSERT INTO accurate_items(entity, accurate_id, code, name, item_type, uom, unit_price, units,
+                                        category, suspended, run_id, synced_at)
+             SELECT ?1, json_extract(j.value, '$.accurateId'), json_extract(j.value, '$.code'),
+                    json_extract(j.value, '$.name'), json_extract(j.value, '$.itemType'),
+                    json_extract(j.value, '$.uom'), json_extract(j.value, '$.unitPrice'),
+                    json_extract(j.value, '$.units'), json_extract(j.value, '$.category'),
+                    json_extract(j.value, '$.suspended'), ?3, datetime('now')
+               FROM json_each(?2) j WHERE true
+             ON CONFLICT(entity, accurate_id) DO UPDATE SET
+               code = excluded.code, name = excluded.name, item_type = excluded.item_type,
+               uom = excluded.uom, unit_price = excluded.unit_price, units = excluded.units,
+               category = excluded.category, suspended = excluded.suspended,
+               run_id = excluded.run_id, synced_at = excluded.synced_at`,
+            entity,
+            JSON.stringify(items.map((i) => ({ ...i, suspended: i.suspended ? 1 : 0 }))),
+            runId,
           );
         }
         const done = res.rows.length === 0 || st.page >= res.pageCount;
@@ -206,13 +202,13 @@ export async function syncStep(
           if (res.rows.length === 0 || p >= res.pageCount) break;
         }
         await batch(db, [
-          ...whs.map((w) =>
-            stmt(
-              db,
-              `INSERT INTO accurate_warehouses(entity, accurate_id, name, run_id) VALUES (?, ?, ?, ?)
-               ON CONFLICT(entity, accurate_id) DO UPDATE SET name = excluded.name, run_id = excluded.run_id`,
-              entity, w.accurateId, w.name, runId,
-            ),
+          stmt(
+            db,
+            `INSERT INTO accurate_warehouses(entity, accurate_id, name, run_id)
+             SELECT ?1, json_extract(j.value, '$.accurateId'), json_extract(j.value, '$.name'), ?3
+               FROM json_each(?2) j WHERE true
+             ON CONFLICT(entity, accurate_id) DO UPDATE SET name = excluded.name, run_id = excluded.run_id`,
+            entity, JSON.stringify(whs), runId,
           ),
           stmt(db, "DELETE FROM accurate_warehouses WHERE entity = ? AND run_id <> ?", entity, runId),
         ]);
@@ -234,19 +230,15 @@ export async function syncStep(
           "sp.pageSize": cfg.pageSize,
         });
         const rows = res.rows.map(mapStock).filter((x) => x !== null);
-        for (const c of chunks(rows, CHUNK)) {
-          await batch(
+        if (rows.length) {
+          await run(
             db,
-            c.map((s) =>
-              stmt(
-                db,
-                `INSERT INTO accurate_stock(entity, warehouse_id, item_code, quantity, run_id, synced_at)
-                 VALUES (?, ?, ?, ?, ?, datetime('now'))
-                 ON CONFLICT(entity, warehouse_id, item_code) DO UPDATE SET
-                   quantity = excluded.quantity, run_id = excluded.run_id, synced_at = excluded.synced_at`,
-                entity, whId, s.code, s.quantity, runId,
-              ),
-            ),
+            `INSERT INTO accurate_stock(entity, warehouse_id, item_code, quantity, run_id, synced_at)
+             SELECT ?1, ?2, json_extract(j.value, '$.code'), json_extract(j.value, '$.quantity'), ?4, datetime('now')
+               FROM json_each(?3) j WHERE true
+             ON CONFLICT(entity, warehouse_id, item_code) DO UPDATE SET
+               quantity = excluded.quantity, run_id = excluded.run_id, synced_at = excluded.synced_at`,
+            entity, whId, JSON.stringify(rows), runId,
           );
         }
         const done = res.rows.length === 0 || st.page >= res.pageCount;

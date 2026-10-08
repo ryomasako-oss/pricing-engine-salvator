@@ -351,8 +351,10 @@ describe("Workers Free plan budget (Ryoma, 2026-10-06)", () => {
   it("every sync tick with the deployed settings stays within 50 subrequests (Accurate + D1)", async () => {
     const { db: raw } = freshDb();
     let d1 = 0;
-    // One batch() is one round trip; the shim runs its statements one by one,
-    // so those must not be counted again.
+    // Cloudflare: "limits for individual queries apply to each individual
+    // statement contained within a batch" (D1 limits), so a batch of N statements
+    // is N queries, not one round trip. Counting a batch as 1 let a sync that
+    // inserted a row per statement (520 queries in the worst tick) pass this test.
     let inBatch = false;
     const count = (st: D1PreparedStatement): D1PreparedStatement =>
       new Proxy(st, {
@@ -369,7 +371,7 @@ describe("Workers Free plan budget (Ryoma, 2026-10-06)", () => {
         if (k === "prepare") return (sql: string) => count(t.prepare(sql));
         if (k === "batch")
           return async (sts: D1PreparedStatement[]) => {
-            d1++;
+            d1 += sts.length;
             inBatch = true;
             try {
               return await t.batch(sts);
