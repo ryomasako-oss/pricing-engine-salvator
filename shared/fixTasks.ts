@@ -194,9 +194,13 @@ export function digestEmail(tasks: OpenTaskRow[], now: Date, link: string): { su
       return `<h3>${esc(FIX_KINDS[kind].label)} (${rows.length})</h3><p><small>${esc(FIX_KINDS[kind].todo)}</small></p><ul>${lis}</ul>`;
     })
     .join("");
+  // The "offer goes ahead without it" line is about quote lines; a catalog
+  // cross-check (no quote) is not missing from any offer.
+  const offers = tasks.some((t) => t.quote_number)
+    ? " Penawaran ke klien tetap jalan tanpa item ini; item ini perlu dibereskan supaya bisa ditawarkan susulan."
+    : "";
   const html =
-    `<p>Ada ${tasks.length} item yang belum diperbaiki. Penawaran ke klien tetap jalan tanpa item ini; ` +
-    `item ini perlu dibereskan supaya bisa ditawarkan susulan.</p>${sections}` +
+    `<p>Ada ${tasks.length} item yang belum diperbaiki.${offers}</p>${sections}` +
     `<p><a href="${esc(link)}">Buka daftar Perlu diperbaiki</a></p>`;
   return { subject, html };
 }

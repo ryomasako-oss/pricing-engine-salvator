@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -8,6 +8,7 @@ import { AccurateClient, signTimestamp } from "./client";
 import { mapItem, mapStock } from "./mapping";
 import { syncConfig, syncStep, type EntityKey, type SyncConfig } from "./sync";
 import { accurateRouter } from "../routes/accurate";
+import { countQueries, fakeAccurate } from "./testing";
 import type { Env } from "../env";
 
 describe("signTimestamp", () => {
@@ -42,38 +43,6 @@ describe("mapItem", () => {
 });
 
 // ---- Fake Accurate server -------------------------------------------------
-
-function fakeAccurate(opts: { items: Record<string, unknown>[]; stock: Record<number, Record<string, unknown>[]>; moveHost?: boolean }) {
-  const log: string[] = [];
-  let moved = false;
-  const json = (body: unknown, status = 200) =>
-    new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
-  const page = <T,>(rows: T[], url: URL) => {
-    const p = Number(url.searchParams.get("sp.page") ?? 1);
-    const size = Number(url.searchParams.get("sp.pageSize") ?? 20);
-    return json({ s: true, d: rows.slice((p - 1) * size, p * size), sp: { page: p, pageSize: size, pageCount: Math.max(1, Math.ceil(rows.length / size)), rowCount: rows.length } });
-  };
-  const impl: typeof fetch = async (input, init) => {
-    const url = new URL(String(input));
-    const h = new Headers(init?.headers);
-    if (!h.get("authorization")?.startsWith("Bearer ") || !h.get("x-api-signature") || !h.get("x-api-timestamp")) {
-      return json({ s: false, d: ["Unauthorized"] }, 401);
-    }
-    log.push(`${init?.method} ${url.host}${url.pathname}`);
-    if (url.pathname === "/api/api-token.do") {
-      return json({ s: true, d: { "data usaha": { host: "https://zeus.accurate.id", alias: "CV Test", id: 1 } } });
-    }
-    if (opts.moveHost && url.host === "zeus.accurate.id" && !moved) {
-      moved = true;
-      return new Response(null, { status: 308, headers: { location: `https://hera.accurate.id${url.pathname}${url.search}` } });
-    }
-    if (url.pathname.endsWith("/item/list.do")) return page(opts.items, url);
-    if (url.pathname.endsWith("/warehouse/list.do")) return page([{ id: 1, name: "Gudang Utama" }, { id: 2, name: "Bogor" }], url);
-    if (url.pathname.endsWith("/item/list-stock.do")) return page(opts.stock[Number(url.searchParams.get("warehouseId"))] ?? [], url);
-    return json({ s: false, d: ["not found"] }, 404);
-  };
-  return { impl, log };
-}
 
 function freshDb() {
   const sqlite = new DatabaseSync(":memory:");
@@ -303,6 +272,30 @@ describe("AccurateClient", () => {
   });
 });
 
+// Found by running the real Worker locally: the client kept the global fetch in
+// a field and called it as this.fetchImpl(...), so fetch ran with the client as
+// its receiver. Node allows that; Cloudflare Workers throws "Illegal invocation:
+// function called with incorrect `this` reference", which would have failed the
+// first real sync. No test saw it because they all inject a fake fetch.
+describe("AccurateClient under Workers' rules for fetch", () => {
+  it("uses the default global fetch without a receiver (Workers refuses fetch called as a method)", async () => {
+    const strictFetch = function (this: unknown, input: RequestInfo | URL) {
+      if (this !== undefined && this !== globalThis) {
+        throw new TypeError("Illegal invocation: function called with incorrect `this` reference.");
+      }
+      expect(new URL(String(input)).host).toBe("account.accurate.id");
+      return Promise.resolve(new Response(JSON.stringify({ s: true, d: { "data usaha": { host: "https://zeus.accurate.id/" } } })));
+    };
+    vi.stubGlobal("fetch", strictFetch);
+    try {
+      const client = new AccurateClient(creds, null, undefined, 0);
+      expect((await client.tokenInfo()).host).toBe("https://zeus.accurate.id");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 describe("AccurateClient only sends credentials to Accurate", () => {
   // Every request carries the Bearer token and a signature, so a redirect or a
   // host from api-token.do that points outside accurate.id must stop the call
@@ -350,39 +343,7 @@ describe("Workers Free plan budget (Ryoma, 2026-10-06)", () => {
 
   it("every sync tick with the deployed settings stays within 50 subrequests (Accurate + D1)", async () => {
     const { db: raw } = freshDb();
-    let d1 = 0;
-    // Cloudflare: "limits for individual queries apply to each individual
-    // statement contained within a batch" (D1 limits), so a batch of N statements
-    // is N queries, not one round trip. Counting a batch as 1 let a sync that
-    // inserted a row per statement (520 queries in the worst tick) pass this test.
-    let inBatch = false;
-    const count = (st: D1PreparedStatement): D1PreparedStatement =>
-      new Proxy(st, {
-        get(t, k) {
-          const f = (t as unknown as Record<string | symbol, unknown>)[k];
-          if (k === "bind") return (...a: unknown[]) => count((f as (...x: unknown[]) => D1PreparedStatement).apply(t, a));
-          if (k === "run" || k === "all" || k === "first")
-            return (...a: unknown[]) => (inBatch || d1++, (f as (...x: unknown[]) => unknown).apply(t, a));
-          return typeof f === "function" ? (f as (...x: unknown[]) => unknown).bind(t) : f;
-        },
-      });
-    const db = new Proxy(raw, {
-      get(t, k) {
-        if (k === "prepare") return (sql: string) => count(t.prepare(sql));
-        if (k === "batch")
-          return async (sts: D1PreparedStatement[]) => {
-            d1 += sts.length;
-            inBatch = true;
-            try {
-              return await t.batch(sts);
-            } finally {
-              inBatch = false;
-            }
-          };
-        const f = (t as unknown as Record<string | symbol, unknown>)[k];
-        return typeof f === "function" ? (f as (...x: unknown[]) => unknown).bind(t) : f;
-      },
-    }) as D1Database;
+    const { db, queries, reset } = countQueries(raw);
     const items = Array.from({ length: 1234 }, (_, i) => ({ id: i + 1, no: `C${i}`, name: `Item ${i}`, unitPrice: 1000, unit1Name: "Pcs" }));
     const stock = { 1: items.slice(0, 700).map((i) => ({ no: i.no, quantity: 3 })), 2: items.slice(0, 300).map((i) => ({ no: i.no, quantity: 1 })) };
     const fake = fakeAccurate({ items, stock });
@@ -395,10 +356,10 @@ describe("Workers Free plan budget (Ryoma, 2026-10-06)", () => {
     let worst = 0;
     for (; ticks < 200 && !finished; ticks++) {
       calls = 0;
-      d1 = 0;
+      reset();
       const r = await syncStep(db, "PT", creds, deployed, { deadline: Date.now() + 10_000, fetchImpl: counted, gapMs: 0 });
       if (r.outcome === "error") throw new Error(r.error);
-      worst = Math.max(worst, calls + d1);
+      worst = Math.max(worst, calls + queries());
       finished = r.outcome === "finished";
     }
     expect(finished).toBe(true);

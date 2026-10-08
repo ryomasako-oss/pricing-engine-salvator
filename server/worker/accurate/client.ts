@@ -83,7 +83,11 @@ export class AccurateClient {
   constructor(
     private readonly creds: AccurateCreds,
     private host: string | null = null,
-    private readonly fetchImpl: Fetch = fetch,
+    // An arrow, not `fetch` itself: kept in a field and called as this.fetchImpl(...),
+    // the global fetch runs with this client as its receiver, which Cloudflare
+    // Workers rejects ("Illegal invocation"). Node doesn't, so only the real
+    // runtime showed it.
+    private readonly fetchImpl: Fetch = (input, init) => fetch(input, init),
     private readonly gapMs = 130,
   ) {}
 

@@ -276,8 +276,10 @@ async function reconcileState(db: D1Database, entity: EntityKey) {
  * Cross-check of the catalog against Accurate (shared/accurateReconcile.ts):
  * live counts per kind of mismatch. Accurate is the starting reference, not
  * the truth, so this lists where the two disagree for a manager to judge.
+ * The rows and task texts show catalog COGS, so these routes also ask for
+ * view_costs rather than rely on every import_catalog role having it.
  */
-accurateRouter.get("/reconcile", requirePermission("import_catalog"), async (c) => {
+accurateRouter.get("/reconcile", requirePermission("import_catalog"), requirePermission("view_costs"), async (c) => {
   const entity = catalogEntity(c.env);
   const state = await reconcileState(c.env.DB, entity);
   if (!state.staged) return c.json({ entity, ready: false, ...state, checks: [] });
@@ -290,7 +292,7 @@ accurateRouter.get("/reconcile", requirePermission("import_catalog"), async (c) 
   });
 });
 
-accurateRouter.get("/reconcile/:key", requirePermission("import_catalog"), async (c) => {
+accurateRouter.get("/reconcile/:key", requirePermission("import_catalog"), requirePermission("view_costs"), async (c) => {
   const key = c.req.param("key") ?? "";
   if (!isCheckKey(key)) return c.json({ error: "Jenis pengecekan tidak dikenal." }, 404);
   const limit = Math.min(500, Math.max(1, Number(c.req.query("limit")) || 100));
@@ -298,7 +300,7 @@ accurateRouter.get("/reconcile/:key", requirePermission("import_catalog"), async
 });
 
 /** Runs the check now and refreshes the "Perlu diperbaiki" tasks (the cron does the same after every completed run). */
-accurateRouter.post("/reconcile", requirePermission("import_catalog"), async (c) => {
+accurateRouter.post("/reconcile", requirePermission("import_catalog"), requirePermission("view_costs"), async (c) => {
   const entity = catalogEntity(c.env);
   const state = await reconcileState(c.env.DB, entity);
   if (!state.staged || !state.complete) {

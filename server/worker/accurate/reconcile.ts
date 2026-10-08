@@ -31,31 +31,41 @@ interface RowCheck {
   accurate: string;
   /** How the two values are shown in the report. */
   fmt: "money" | "text" | "none";
+  /** Examples are listed largest gap first (NULL: by code only; a literal 0 would be read as a column number). */
+  gap: string;
 }
 
-/** catalog_items c LEFT JOIN accurate_items a (entity = ?1). Prices are per base unit, so they are only compared when the units agree. */
+/**
+ * catalog_items c LEFT JOIN accurate_items a (entity = ?1). Prices are per
+ * base unit, so they are only compared when the units agree, and only for
+ * items active in Accurate: "Terapkan" skips suspended ones, so a price task
+ * for them would ask for something applying won't do.
+ */
 const ROW_CHECKS: Record<Exclude<CheckKey, "negative_stock">, RowCheck> = {
   price_below_cogs: {
-    where: `a.code IS NOT NULL AND ${SAME_UOM} AND c.cogs > 0 AND a.unit_price > 0 AND a.unit_price < c.cogs`,
+    where: `a.code IS NOT NULL AND a.suspended = 0 AND ${SAME_UOM} AND c.cogs > 0 AND a.unit_price > 0 AND a.unit_price < c.cogs`,
     catalog: "c.cogs",
     accurate: "a.unit_price",
     fmt: "money",
+    gap: "c.cogs - a.unit_price",
   },
   price_diff: {
-    where: `a.code IS NOT NULL AND ${SAME_UOM} AND c.list_price > 0 AND a.unit_price > 0 AND abs(c.list_price - a.unit_price) > 0.5`,
+    where: `a.code IS NOT NULL AND a.suspended = 0 AND ${SAME_UOM} AND c.list_price > 0 AND a.unit_price > 0 AND abs(c.list_price - a.unit_price) > 0.5`,
     catalog: "c.list_price",
     accurate: "a.unit_price",
     fmt: "money",
+    gap: "abs(c.list_price - a.unit_price)",
   },
   uom_diff: {
     where: `a.code IS NOT NULL AND NOT (${SAME_UOM})`,
     catalog: "c.uom",
     accurate: "COALESCE(NULLIF(a.uom, ''), 'Pcs')",
     fmt: "text",
+    gap: "NULL",
   },
-  suspended_in_accurate: { where: "a.code IS NOT NULL AND a.suspended = 1", catalog: "''", accurate: "''", fmt: "none" },
-  missing_in_accurate: { where: "a.code IS NULL", catalog: "''", accurate: "''", fmt: "none" },
-  no_price_in_accurate: { where: "a.code IS NOT NULL AND a.suspended = 0 AND a.unit_price <= 0", catalog: "''", accurate: "''", fmt: "none" },
+  suspended_in_accurate: { where: "a.code IS NOT NULL AND a.suspended = 1", catalog: "''", accurate: "''", fmt: "none", gap: "NULL" },
+  missing_in_accurate: { where: "a.code IS NULL", catalog: "''", accurate: "''", fmt: "none", gap: "NULL" },
+  no_price_in_accurate: { where: "a.code IS NOT NULL AND a.suspended = 0 AND a.unit_price <= 0", catalog: "''", accurate: "''", fmt: "none", gap: "NULL" },
 };
 
 const FROM = `FROM catalog_items c LEFT JOIN accurate_items a ON a.entity = ?1 AND a.code = c.code`;
@@ -88,7 +98,7 @@ export async function reconcileCounts(db: D1Database, entity: EntityKey): Promis
 
 const show = (fmt: RowCheck["fmt"], v: unknown) => (fmt === "money" ? fmtMoney(v) : fmt === "text" ? String(v ?? "") : "");
 
-/** Example rows for one check, largest gap first where there is a gap. */
+/** Example rows for one check, largest gap first (by that check's own gap), then by code. */
 export async function reconcileExamples(db: D1Database, entity: EntityKey, key: CheckKey, limit: number): Promise<ExampleRow[]> {
   if (key === "negative_stock") {
     const rows = await all<{ code: string; name: string | null; qty: number }>(
@@ -109,7 +119,7 @@ export async function reconcileExamples(db: D1Database, entity: EntityKey, key: 
     db,
     `SELECT c.code, c.name, ${def.catalog} AS cat, ${def.accurate} AS acc ${FROM}
       WHERE ${def.where}
-      ORDER BY abs(COALESCE(c.list_price, 0) - COALESCE(a.unit_price, 0)) DESC, c.code LIMIT ?2`,
+      ORDER BY ${def.gap} DESC, c.code LIMIT ?2`,
     entity,
     limit,
   );
