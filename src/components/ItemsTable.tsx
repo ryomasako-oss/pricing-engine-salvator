@@ -10,6 +10,7 @@ import { Icon } from "./Icon";
 import { UomCell } from "./UomCell";
 import { NumberCell } from "./NumberCell";
 import { LineBadge } from "./pricing";
+import { holdInfo } from "@shared/holds";
 
 interface Props {
   engine: EngineResult;
@@ -200,15 +201,8 @@ export function ItemsTable({
                         </div>
                       )}
                       {r.held && (
-                        <span
-                          className={`badge ${r.holdReason === "sales" ? "blue" : "amber"}`}
-                          title={
-                            r.holdReason === "sales"
-                              ? "Harganya ditolak sales saat cek. Tidak ikut total dan dokumen; ditulis sebagai item menyusul dan ada di Perlu diperbaiki."
-                              : "COGS item ini perlu dicek manajer. Tidak ikut total dan dokumen sampai dilepas."
-                          }
-                        >
-                          {r.holdReason === "sales" ? "Menyusul" : "Ditahan"}
+                        <span className={`badge ${holdInfo(r.holdReason).tone}`} title={holdInfo(r.holdReason).manager}>
+                          {holdInfo(r.holdReason).badge}
                         </span>
                       )}
                     </td>

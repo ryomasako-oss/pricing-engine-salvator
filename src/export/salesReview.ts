@@ -17,6 +17,7 @@ import { SCENARIOS } from "@shared/engine";
 import { explainLine, explainQuote } from "@shared/breakdown";
 import { paymentLabel, warrantyLabel } from "@shared/terms";
 import type { Assumptions, EngineResult, PricingPolicy, QuoteMeta, ScenarioIndex } from "@shared/types";
+import { holdInfo } from "@shared/holds";
 
 export interface SalesReviewInput {
   engine: EngineResult;
@@ -114,9 +115,7 @@ export async function salesReviewWorkbook(input: SalesReviewInput): Promise<Exce
       margin: held ? null : row.margins[k],
       total: held ? null : Math.round(row.prices[k] * row.qty),
       how: held
-        ? row.holdReason === "sales"
-          ? "Menyusul: ditolak di cek sebelumnya, ada di Perlu diperbaiki. Baris ini tidak ikut penawaran dan tidak perlu dicek."
-          : "Ditahan: COGS di katalog perlu dicek manajer. Baris ini tidak ikut penawaran dan tidak perlu dicek."
+        ? holdInfo(row.holdReason).how
         : ex.steps.map((s, i) => `${i + 1}. ${s}`).join("\n"),
       notes: ex.flags.join("; "),
       decision: held ? HELD : null,

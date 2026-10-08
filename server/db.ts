@@ -238,6 +238,26 @@ CREATE TABLE IF NOT EXISTS fix_tasks (
 CREATE UNIQUE INDEX IF NOT EXISTS ux_fix_tasks_open ON fix_tasks(dedupe) WHERE status = 'open';
 CREATE INDEX IF NOT EXISTS idx_fix_tasks_status ON fix_tasks(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_fix_tasks_quote ON fix_tasks(quote_id);
+
+-- Mirrors migrations/0015_pending_items.sql.
+CREATE TABLE IF NOT EXISTS pending_items (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  code           TEXT NOT NULL,
+  name           TEXT NOT NULL,
+  uom            TEXT NOT NULL DEFAULT 'Pcs',
+  proposed_price REAL NOT NULL DEFAULT 0,
+  note           TEXT NOT NULL DEFAULT '',
+  status         TEXT NOT NULL DEFAULT 'draft',
+  requested_by   INTEGER REFERENCES users(id),
+  created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+  submitted_by   INTEGER REFERENCES users(id),
+  submitted_at   TEXT,
+  linked_at      TEXT
+);
+-- One live request per code, however it is spelled.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_pending_items_live_code
+  ON pending_items(lower(trim(code))) WHERE status IN ('draft', 'submitted');
+CREATE INDEX IF NOT EXISTS idx_pending_items_status ON pending_items(status, created_at);
 `);
 
 // Mirrors migrations/0010_cogs_reference_by_manager.sql: the reference COGS

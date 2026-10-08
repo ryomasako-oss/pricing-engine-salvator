@@ -36,6 +36,7 @@ const KIND_BADGE: Record<FixKind, string> = {
   unit_unknown: "amber",
   sales_rejected: "blue",
   accurate_check: "blue",
+  new_item: "amber",
 };
 
 export function FixTasksPage() {
@@ -151,10 +152,15 @@ export function FixTasksPage() {
                       </strong>
                       {r.kind !== "accurate_check" && (
                         <div className="muted small">
-                          {r.code && <>{r.code} · </>}
-                          {r.quote_number ?? "—"}
-                          {r.client_name && <> · {r.client_name}</>}
-                          {r.created_by_name && <> · dicatat {r.created_by_name}</>}
+                          {r.code}
+                          {r.quote_id && (
+                            <>
+                              {r.code && " · "}
+                              {r.quote_number ?? "—"}
+                              {r.client_name && <> · {r.client_name}</>}
+                              {r.created_by_name && <> · dicatat {r.created_by_name}</>}
+                            </>
+                          )}
                         </div>
                       )}
                       <div className="small">{r.detail}</div>

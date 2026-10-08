@@ -62,6 +62,7 @@ async function makeExpressDriver(): Promise<Driver> {
   const { ocrRouter } = await import("../server/routes/ocr.js");
   const { chatRouter } = await import("../server/routes/chat.js");
   const { fixTasksRouter } = await import("../server/routes/fixTasks.js");
+  const { pendingItemsRouter } = await import("../server/routes/pendingItems.js");
   const { run } = await import("../server/db.js");
 
   const app = express();
@@ -78,6 +79,7 @@ async function makeExpressDriver(): Promise<Driver> {
   app.use("/api/ocr", ocrRouter);
   app.use("/api/chat", chatRouter);
   app.use("/api/fix-tasks", fixTasksRouter);
+  app.use("/api/pending-items", pendingItemsRouter);
 
   let server: Server;
   await new Promise<void>((resolve) => {
@@ -148,6 +150,7 @@ async function makeWorkerDriver(): Promise<Driver> {
   const { ocrRouter } = await import("../server/worker/routes/ocr.js");
   const { chatRouter } = await import("../server/worker/routes/chat.js");
   const { fixTasksRouter } = await import("../server/worker/routes/fixTasks.js");
+  const { pendingItemsRouter } = await import("../server/worker/routes/pendingItems.js");
   const { run } = await import("../server/db.d1.js");
 
   const app = new Hono();
@@ -162,6 +165,7 @@ async function makeWorkerDriver(): Promise<Driver> {
   app.route("/api/ocr", ocrRouter);
   app.route("/api/chat", chatRouter);
   app.route("/api/fix-tasks", fixTasksRouter);
+  app.route("/api/pending-items", pendingItemsRouter);
 
   const env = {
     DB: db,
@@ -2271,6 +2275,215 @@ scenario("a rep's new line is built from the catalog row with its exact code; a 
 // real rate limiter). Every scenario appends more state (new quotes),
 // but no scenario's extracted result depends on absolute ids/counts.
 // ---------------------------------------------------------------
+
+// ---------------------------------------------------------------
+// "Barang baru" (Ryoma 2026-10-08): requested here first, handed to Accurate after.
+// ---------------------------------------------------------------
+
+const PENDING_TEXT = "Barang baru, menunggu dibuat di Accurate";
+
+async function requestItem(d: Driver, session: Session, body: Record<string, unknown>) {
+  return d.api("POST", "/api/pending-items", { body, session });
+}
+
+async function repQuoteWith(d: Driver, rep: Session, code: string, extra: { id: string; code: string; qty: number; rrp?: number }[] = []) {
+  const made = await d.api("POST", "/api/quotes", {
+    body: { title: "Barang baru", snapshot: { ...snapshotFor([]), items: [{ id: "n1", code, qty: 2, rrp: 150000 }, ...extra] } },
+    session: rep,
+  });
+  assert.equal(made.status, 201, JSON.stringify(made.json));
+  return made.json.quote.id as number;
+}
+
+scenario("barang baru: a rep requests it, its line is held as 'new_item' and staff see no cost data", async (d) => {
+  await importRows(d, [{ code: "NB-OK", name: "Barang biasa", cogs: 1000, list_price: 2000 }]);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const made = await requestItem(d, rep, { name: "Pulpen Premium Edisi Baru", uom: "Pcs", proposed_price: 150000, note: "untuk klien A" });
+  assert.equal(made.status, 201, JSON.stringify(made.json));
+  const item = made.json.item;
+  assert.match(item.code, /^BARU-\d{4}$/);
+  assert.equal(item.status, "draft");
+  const id = await repQuoteWith(d, rep, item.code, [{ id: "n2", code: "NB-OK", qty: 10, rrp: 2000 }]);
+  const q = (await d.api("GET", `/api/quotes/${id}`, { session: rep })).json.quote;
+  const only = (await d.api("POST", "/api/quotes/preview", { body: { snapshot: { items: [{ id: "n2", code: "NB-OK", qty: 10, rrp: 2000 }] } }, session: rep })).json.quote;
+  const check = await d.api("POST", "/api/catalog/cogs-check", { body: { codes: [item.code] }, session: rep });
+  const held = q.items.map((i: { id: string; held?: boolean; holdReason?: string }) => [i.id, Boolean(i.held), i.holdReason ?? null]);
+  assert.deepEqual(held, [["n1", true, "new_item"], ["n2", false, null]]);
+  assert.equal(q.pricing.subtotal, only.pricing.subtotal, "the held line must not be totalled");
+  assert.equal(check.json.problems[item.code], PENDING_TEXT, "staff get the pending text, not the generic cost warning");
+  // Submitting is allowed (the other line goes ahead) and it does not open a "COGS perlu dicek" task for the pending line.
+  const sub = await d.api("POST", `/api/quotes/${id}/submit`, { session: rep });
+  const tasks = ((await d.api("GET", "/api/fix-tasks?status=open", { session: rep })).json.tasks as { kind: string; quote_id: number }[]).filter((t) => t.quote_id === id);
+  assert.equal(sub.status, 200, JSON.stringify(sub.json));
+  assert.deepEqual(tasks.map((t) => t.kind), [], "a pending item is not a COGS problem, and has its own task only once a manager hands it over");
+  return { held, subtotalMatches: q.pricing.subtotal === only.pricing.subtotal, problem: check.json.problems[item.code], status: item.status, submit: sub.status };
+});
+
+scenario("barang baru: bad input, a taken code and a twin of a catalog item are refused", async (d) => {
+  await importRows(d, [{ code: "NB-TAKEN", name: "Sudah ada di katalog", cogs: 1000, list_price: 2000 }]);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const noName = await requestItem(d, rep, { name: "x", uom: "Pcs" });
+  const badPrice = await requestItem(d, rep, { name: "Barang aneh", proposed_price: -5 });
+  const taken = await requestItem(d, rep, { name: "Barang lain", code: "nb-taken" });
+  const twin = await requestItem(d, rep, { name: "  sudah ADA di katalog " });
+  const first = await requestItem(d, rep, { name: "Barang dengan kode sendiri", code: "ACC-NEW-1" });
+  const again = await requestItem(d, rep, { name: "Kode kembar", code: "acc-new-1" });
+  assert.equal(first.status, 201, JSON.stringify(first.json));
+  assert.equal(first.json.item.code, "ACC-NEW-1", "a code the requester knows is kept");
+  assert.deepEqual([noName.status, badPrice.status, taken.status, twin.status, again.status], [400, 400, 409, 409, 409]);
+  assert.equal(twin.json.existing.code, "NB-TAKEN");
+  return { statuses: [noName.status, badPrice.status, taken.status, twin.status, again.status], twin: twin.json.existing.code };
+});
+
+scenario("barang baru: only a manager hands it to Accurate, which opens one task staff never see; cancelling closes it", async (d) => {
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const made = await requestItem(d, rep, { name: "Kursi Ergonomis Baru", uom: "Unit", proposed_price: 2500000 });
+  const item = made.json.item;
+  const byRep = await d.api("POST", `/api/pending-items/${item.id}/submit`, { session: rep });
+  const ok = await d.api("POST", `/api/pending-items/${item.id}/submit`, { session: manager });
+  const twice = await d.api("POST", `/api/pending-items/${item.id}/submit`, { session: manager });
+  const taskOf = async (s: Session) =>
+    ((await d.api("GET", "/api/fix-tasks?status=open", { session: s })).json.tasks as { kind: string; code: string; quote_id: number | null; detail: string }[]).filter(
+      (t) => t.kind === "new_item" && t.code === item.code,
+    );
+  const forManager = await taskOf(manager);
+  const forRep = await taskOf(rep);
+  const repBadge = (await d.api("GET", "/api/fix-tasks/count", { session: rep })).json.open;
+  assert.equal(byRep.status, 403);
+  assert.equal(ok.status, 200, JSON.stringify(ok.json));
+  assert.equal(ok.json.item.status, "submitted");
+  assert.equal(twice.status, 409);
+  assert.equal(forManager.length, 1);
+  assert.equal(forManager[0].quote_id, null);
+  assert.ok(forManager[0].detail.includes(item.code) && forManager[0].detail.includes("Kursi Ergonomis Baru"), "the task says what to create and under which code");
+  assert.equal(forRep.length, 0, "staff do not see it");
+  const cancel = await d.api("POST", `/api/pending-items/${item.id}/cancel`, { session: manager });
+  const after = await taskOf(manager);
+  const again = await d.api("POST", `/api/pending-items/${item.id}/cancel`, { session: manager });
+  assert.equal(cancel.status, 200);
+  assert.equal(after.length, 0, "cancelling closes the task");
+  assert.equal(again.status, 409);
+  return { byRep: byRep.status, submit: ok.status, twice: twice.status, tasks: [forManager.length, forRep.length], repBadge, cancel: cancel.status, after: after.length };
+});
+
+scenario("barang baru: once the catalog has the code the line is released, the request linked and its task closed", async (d) => {
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const made = await requestItem(d, rep, { name: "Printer Label Baru", uom: "Unit", proposed_price: 900000 });
+  const item = made.json.item;
+  await d.api("POST", `/api/pending-items/${item.id}/submit`, { session: manager });
+  const id = await repQuoteWith(d, rep, item.code);
+  const before = (await d.api("GET", `/api/quotes/${id}`, { session: manager })).json.quote.items[0];
+  // The Accurate admin creates it under that code; sync + Terapkan bring it into the catalog.
+  await importRows(d, [{ code: item.code, name: "Printer Label Baru", uom: "Unit", cogs: 700000, list_price: 950000 }]);
+  const after = (await d.api("GET", `/api/quotes/${id}`, { session: manager })).json.quote.items[0];
+  const list = (await d.api("GET", "/api/pending-items", { session: manager })).json.items as { code: string; status: string }[];
+  const tasks = (await d.api("GET", "/api/fix-tasks?status=open", { session: manager })).json.tasks as { kind: string; code: string }[];
+  assert.equal(before.held, true);
+  assert.equal(before.holdReason, "new_item");
+  assert.equal(Boolean(after.held), false, "released once the catalog has the code");
+  assert.equal(list.find((i) => i.code === item.code)?.status, "linked");
+  assert.ok(!tasks.some((t) => t.kind === "new_item" && t.code === item.code), "the task closes itself");
+  return { before: [before.held, before.holdReason], afterHeld: Boolean(after.held), cogsAfter: after.cogs, linked: list.find((i) => i.code === item.code)?.status };
+});
+
+scenario("barang baru: staff list only their own requests, a manager sees all", async (d) => {
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const rep2 = await loginCached(d, "rep2@test.local", "password123");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const a = await requestItem(d, rep, { name: "Milik rep satu" });
+  const b = await requestItem(d, rep2, { name: "Milik rep dua" });
+  const codes = async (s: Session) => ((await d.api("GET", "/api/pending-items", { session: s })).json.items as { code: string }[]).map((i) => i.code);
+  const [r1, r2, m] = [await codes(rep), await codes(rep2), await codes(manager)];
+  assert.ok(r1.includes(a.json.item.code) && !r1.includes(b.json.item.code));
+  assert.ok(r2.includes(b.json.item.code) && !r2.includes(a.json.item.code));
+  assert.ok(m.includes(a.json.item.code) && m.includes(b.json.item.code));
+  const noAuth = await d.api("GET", "/api/pending-items", {});
+  assert.equal(noAuth.status, 401);
+  return { rep1HasOwn: r1.includes(a.json.item.code), rep1HasOther: r1.includes(b.json.item.code), managerSeesBoth: m.includes(a.json.item.code) && m.includes(b.json.item.code), anon: noAuth.status };
+});
+
+// Review of PR #23 (2026-10-08).
+
+scenario("barang baru: cancelling keeps its lines held, so a zero-cost line is never offered or approved", async (d) => {
+  await importRows(d, [{ code: "NB-CXL-OK", name: "Barang biasa batal", cogs: 1000, list_price: 2000 }]);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const made = await requestItem(d, rep, { name: "Barang yang batal dibuat", uom: "Pcs", proposed_price: 480000 });
+  const item = made.json.item;
+  const id = await repQuoteWith(d, rep, item.code, [{ id: "n2", code: "NB-CXL-OK", qty: 10, rrp: 2000 }]);
+  const cancel = await d.api("POST", `/api/pending-items/${item.id}/cancel`, { session: manager });
+  assert.equal(cancel.status, 200);
+  const forRep = (await d.api("GET", `/api/quotes/${id}`, { session: rep })).json.quote;
+  const only = (await d.api("POST", "/api/quotes/preview", { body: { snapshot: { items: [{ id: "n2", code: "NB-CXL-OK", qty: 10, rrp: 2000 }] } }, session: rep })).json.quote;
+  const check = await d.api("POST", "/api/catalog/cogs-check", { body: { codes: [item.code] }, session: rep });
+  const line = forRep.items.find((i: { id: string }) => i.id === "n1");
+  assert.equal(line.held, true, "a cancelled barang baru stays held");
+  assert.equal(line.holdReason, "new_item_cancelled");
+  assert.equal(forRep.pricing.subtotal, only.pricing.subtotal, "and is not totalled");
+  assert.match(check.json.problems[item.code], /dibatalkan/, "staff get the cancelled text, not a cost warning");
+  const sub = await d.api("POST", `/api/quotes/${id}/submit`, { session: manager });
+  assert.equal(sub.status, 200, JSON.stringify(sub.json));
+  const after = (await d.api("GET", `/api/quotes/${id}`, { session: manager })).json.quote;
+  const afterLine = after.items.find((i: { id: string }) => i.id === "n1");
+  assert.equal(afterLine.held, true, "the decided quote does not offer it");
+  return { held: [line.held, line.holdReason], subtotalMatches: forRep.pricing.subtotal === only.pricing.subtotal, status: after.status, heldAfter: afterLine.held };
+});
+
+scenario("barang baru: automatic BARU numbers skip the catalog's, and a typed BARU code is refused", async (d) => {
+  await importRows(d, [{ code: "BARU-0950", name: "Barang yang sudah bernomor BARU", cogs: 1000, list_price: 2000 }]);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const typed = await requestItem(d, rep, { name: "Kode ketik sendiri", code: "baru-0951" });
+  const auto = await requestItem(d, rep, { name: "Nomor otomatis setelah katalog" });
+  const next = await requestItem(d, rep, { name: "Nomor otomatis berikutnya" });
+  assert.equal(typed.status, 400, JSON.stringify(typed.json));
+  assert.equal(auto.status, 201, JSON.stringify(auto.json));
+  assert.equal(next.status, 201, JSON.stringify(next.json));
+  const n = (c: string) => Number(c.slice(5));
+  assert.ok(n(auto.json.item.code) > 950, `${auto.json.item.code} must not reuse the catalog's numbers`);
+  assert.equal(n(next.json.item.code), n(auto.json.item.code) + 1);
+  return { typed: typed.status, auto: auto.json.item.code, next: next.json.item.code };
+});
+
+scenario("barang baru: a code typed with double spaces is stored as the lookups spell it", async (d) => {
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const made = await requestItem(d, rep, { name: "Kode berspasi ganda", code: "  WS   PB-01 " });
+  assert.equal(made.status, 201, JSON.stringify(made.json));
+  assert.equal(made.json.item.code, "WS PB-01");
+  const id = await repQuoteWith(d, rep, "ws pb-01");
+  const line = (await d.api("GET", `/api/quotes/${id}`, { session: rep })).json.quote.items[0];
+  assert.equal(line.holdReason, "new_item", "a line for it finds the request");
+  return { code: made.json.item.code, hold: line.holdReason };
+});
+
+scenario("barang baru: a catalog import that brings the code closes its task right away", async (d) => {
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const made = await requestItem(d, rep, { name: "Rak Arsip Baru", uom: "Unit", proposed_price: 300000 });
+  const item = made.json.item;
+  await d.api("POST", `/api/pending-items/${item.id}/submit`, { session: manager });
+  await importRows(d, [{ code: item.code, name: "Rak Arsip Baru", uom: "Unit", cogs: 200000, list_price: 320000 }]);
+  // Straight after the import, without opening the Barang baru list.
+  const tasks = (await d.api("GET", "/api/fix-tasks?status=open", { session: manager })).json.tasks as { kind: string; code: string }[];
+  assert.ok(!tasks.some((t) => t.kind === "new_item" && t.code === item.code), "the import links the request and closes its task");
+  return { open: tasks.filter((t) => t.kind === "new_item" && t.code === item.code).length };
+});
+
+scenario("barang baru: another rep adding the line gets the item, not the requester's estimated price", async (d) => {
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const rep2 = await loginCached(d, "rep2@test.local", "password123");
+  const made = await requestItem(d, rep, { name: "Meja Rapat Lipat Baru", uom: "Unit", proposed_price: 777777 });
+  const code = made.json.item.code;
+  const preview = async (s: Session) =>
+    (await d.api("POST", "/api/quotes/preview", { body: { snapshot: { items: [{ id: "x1", code, qty: 1 }] } }, session: s })).json.quote.items[0];
+  const own = await preview(rep);
+  const other = await preview(rep2);
+  assert.equal(other.name, "Meja Rapat Lipat Baru");
+  assert.ok(!JSON.stringify(other).includes("777777"), JSON.stringify(other));
+  assert.ok(JSON.stringify(own).includes("777777"), "the requester still sees their own estimate");
+  return { otherName: other.name, otherHasEstimate: JSON.stringify(other).includes("777777"), ownHasEstimate: JSON.stringify(own).includes("777777") };
+});
 
 async function main() {
   const express = await makeExpressDriver();

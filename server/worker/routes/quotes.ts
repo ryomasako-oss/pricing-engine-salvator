@@ -140,7 +140,7 @@ quotesRouter.post("/preview", async (c) => {
   if (parsed.data.quote_id && !base) return c.json({ error: "Quotation tidak ditemukan." }, 404);
   const stored = base?.items ?? [];
   const lines = parsed.data.snapshot.items;
-  const catalog = await catalogListsByKeys(c.env.DB, [...stored.map((i) => i.code), ...lines.map((l) => l.code)]);
+  const catalog = await catalogListsByKeys(c.env.DB, [...stored.map((i) => i.code), ...lines.map((l) => l.code)], { viewerId: user.id });
   const merged = mergeStaffItems(stored, lines, catalog, base?.scenario);
   if ("error" in merged) return c.json(merged, 400);
   const draft = {
@@ -217,7 +217,7 @@ quotesRouter.post("/", async (c) => {
       const staff = staffSnapshotSchema.partial().safeParse(parsed.data.snapshot);
       if (!staff.success) return c.json({ error: zodMessage(staff.error) }, 400);
       const lines = staff.data.items ?? [];
-      const merged = mergeStaffItems([], lines, await catalogListsByKeys(c.env.DB, lines.map((l) => l.code)));
+      const merged = mergeStaffItems([], lines, await catalogListsByKeys(c.env.DB, lines.map((l) => l.code), { viewerId: user.id }));
       if ("error" in merged) return c.json(merged, 400);
       requested = { items: merged.items, ...(staff.data.meta ? { meta: staff.data.meta } : {}) };
     }
@@ -323,7 +323,7 @@ quotesRouter.put("/:id", async (c) => {
     const staff = staffSnapshotSchema.safeParse(parsed.data.snapshot);
     if (!staff.success) return c.json({ error: zodMessage(staff.error) }, 400);
     const codes = [...existing.items.map((it) => it.code), ...staff.data.items.map((l) => l.code)];
-    const merged = mergeStaffItems(existing.items, staff.data.items, await catalogListsByKeys(c.env.DB, codes), existing.scenario);
+    const merged = mergeStaffItems(existing.items, staff.data.items, await catalogListsByKeys(c.env.DB, codes, { viewerId: user.id }), existing.scenario);
     if ("error" in merged) return c.json(merged, 400);
     s = {
       assumptions: existing.assumptions,

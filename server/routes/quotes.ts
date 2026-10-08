@@ -147,7 +147,7 @@ quotesRouter.post("/preview", (req: AuthedRequest, res) => {
   }
   const stored = base?.items ?? [];
   const lines = parsed.data.snapshot.items;
-  const merged = mergeStaffItems(stored, lines, catalogListsByKeys([...stored.map((i) => i.code), ...lines.map((l) => l.code)]), base?.scenario);
+  const merged = mergeStaffItems(stored, lines, catalogListsByKeys([...stored.map((i) => i.code), ...lines.map((l) => l.code)], { viewerId: req.user!.id }), base?.scenario);
   if ("error" in merged) {
     res.status(400).json(merged);
     return;
@@ -233,7 +233,7 @@ quotesRouter.post("/", (req: AuthedRequest, res) => {
         return;
       }
       const lines = staff.data.items ?? [];
-      const merged = mergeStaffItems([], lines, catalogListsByKeys(lines.map((l) => l.code)));
+      const merged = mergeStaffItems([], lines, catalogListsByKeys(lines.map((l) => l.code), { viewerId: req.user!.id }));
       if ("error" in merged) {
         res.status(400).json(merged);
         return;
@@ -347,7 +347,7 @@ quotesRouter.put("/:id", (req: AuthedRequest, res) => {
       return;
     }
     const codes = [...existing.items.map((it) => it.code), ...staff.data.items.map((l) => l.code)];
-    const merged = mergeStaffItems(existing.items, staff.data.items, catalogListsByKeys(codes), existing.scenario);
+    const merged = mergeStaffItems(existing.items, staff.data.items, catalogListsByKeys(codes, { viewerId: req.user!.id }), existing.scenario);
     if ("error" in merged) {
       res.status(400).json(merged);
       return;

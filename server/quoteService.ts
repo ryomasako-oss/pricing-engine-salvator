@@ -8,6 +8,7 @@ import { computeEngine } from "../shared/engine.js";
 import { type CogsRow, applyHolds, cogsLookupKeys, cogsRowsSql, liveHoldCodes, problemsByCode, recostCodes } from "./cogsCheck.js";
 import { type CatalogByKey, catalogByKeysSql, staffLookupKeys } from "./staffView.js";
 import { normalizeCode } from "../shared/duplicates.js";
+import { keysNotIn, pendingCodesSql, pendingProblems, pendingRowsSql } from "./pendingItems.js";
 import type { CatalogItem, UnitFactor } from "../shared/types.js";
 import { DEFAULT_POLICY, evaluatePolicy } from "../shared/policy.js";
 import type {
@@ -180,7 +181,14 @@ export const STATUS_FLOW: Partial<Record<QuoteStatus, QuoteStatus[]>> = {
 export function cogsProblemsFor(codes: string[]): Map<string, string> {
   const keys = cogsLookupKeys(codes);
   if (!keys.length) return new Map();
-  return problemsByCode(codes, all<CogsRow>(cogsRowsSql(keys.length), ...keys));
+  const rows = all<CogsRow>(cogsRowsSql(keys.length), ...keys);
+  const out = problemsByCode(codes, rows);
+  // A code the catalog doesn't have may be a "barang baru": held too.
+  const missing = keysNotIn(keys, rows);
+  if (missing.length) {
+    for (const [code, p] of pendingProblems(codes, all<{ key: string; cancelled: number }>(pendingCodesSql(missing.length), ...missing))) out.set(code, p);
+  }
+  return out;
 }
 
 /**
@@ -188,7 +196,11 @@ export function cogsProblemsFor(codes: string[]): Map<string, string> {
  * are unique only with exact case, so "atk-01" and "ATK-01" can both exist;
  * applyHolds needs all of them to pick the exact one.
  */
-export function catalogListsByKeys(codes: string[]): CatalogByKey {
+export function catalogListsByKeys(
+  codes: string[],
+  /** Staff edits only: a live "barang baru" stands in for its missing catalog row, priced for this viewer. */
+  pendingFor?: { viewerId: number },
+): CatalogByKey {
   const keys = staffLookupKeys(codes);
   const out: CatalogByKey = new Map();
   if (!keys.length) return out;
@@ -203,6 +215,12 @@ export function catalogListsByKeys(codes: string[]): CatalogByKey {
     const own: UnitFactor[] = units.filter((u) => u.code === r.code).map((u) => ({ uom: u.uom, factor: u.factor }));
     const key = normalizeCode(r.code);
     out.set(key, [...(out.get(key) ?? []), { ...r, units: own }]);
+  }
+  if (!pendingFor) return out;
+  // A pending "barang baru" stands in for a catalog row until the catalog has the code.
+  const missing = keysNotIn(keys, rows);
+  if (missing.length) {
+    for (const r of all<CatalogItem>(pendingRowsSql(missing.length), pendingFor.viewerId, ...missing)) out.set(normalizeCode(r.code), [{ ...r, units: [] }]);
   }
   return out;
 }

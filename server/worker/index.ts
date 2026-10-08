@@ -18,6 +18,7 @@ import { chatRouter } from "./routes/chat";
 import { settingsRouter } from "./routes/settings";
 import { accurateRouter } from "./routes/accurate";
 import { fixTasksRouter } from "./routes/fixTasks";
+import { pendingItemsRouter } from "./routes/pendingItems";
 import { DIGEST_CRON, runFixDigest } from "./fixDigest";
 import { appLink, notifyEmail } from "./notify";
 import { syncTick } from "./accurate/sync";
@@ -63,6 +64,7 @@ app.route("/api/assistant", assistantRouter);
 app.route("/api/ocr", ocrRouter);
 app.route("/api/chat", chatRouter);
 app.route("/api/fix-tasks", fixTasksRouter);
+app.route("/api/pending-items", pendingItemsRouter);
 app.route("/api/settings", settingsRouter);
 app.route("/api/accurate", accurateRouter);
 
