@@ -12,6 +12,7 @@
    Rows not seen by the finishing run (deleted in Accurate) are pruned.
    ============================================================ */
 
+import { reconcileDue, runReconcile } from "./reconcile";
 import { all, batch, get, run, stmt } from "../../db.d1";
 import { AccurateClient, AccurateError, type AccurateCreds } from "./client";
 import { ITEM_FIELDS, mapItem, mapStock, mapWarehouse } from "./mapping";
@@ -33,6 +34,7 @@ export interface SyncState {
   stock_rows: number;
   started_at: string | null;
   last_success_at: string | null;
+  reconciled_at: string | null;
   last_error: string | null;
   last_error_at: string | null;
   locked_until: string | null;
@@ -288,5 +290,15 @@ export async function syncTick(env: Bindings, opts: { deadlineMs: number }): Pro
   const deadline = Date.now() + opts.deadlineMs;
   const out: StepResult[] = [];
   for (const e of entities) out.push(await syncStep(env.DB, e, credsFor(env, e)!, per, { deadline }));
+  // A completed run is cross-checked against the catalog in a later tick in
+  // which the catalog's own entity is idle (the tick that finishes a run is
+  // near the budget). The other entity may be syncing or failing meanwhile:
+  // waiting for both to be idle at once starved the check for days (a CV
+  // token failing on every tick meant PT was never checked). Its step plus
+  // the check stays within 50 (accurate/reconcile.test.ts).
+  const mine = catalogEntity(env);
+  if (out.find((r) => r.entity === mine)?.outcome === "idle" && (await reconcileDue(env.DB, mine))) {
+    await runReconcile(env.DB, mine);
+  }
   return out;
 }
