@@ -213,5 +213,9 @@ describe("desiredTasks", () => {
     expect(t[0].detail).toMatch(/^3 barang\./);
     expect(t[0].detail).toContain("A (katalog Rp 1, Accurate Rp 2)");
     expect(t[0].detail).toContain("dan lainnya");
+    // A side with nothing to show is left out rather than printed as "-".
+    const neg = desiredTasks({ ...zero, negative_stock: 1 }, { negative_stock: [{ code: "B", name: "", catalog: "", accurate: "stok -5" }] });
+    expect(neg[0].detail).toContain("B (Accurate stok -5)");
+    expect(neg[0].detail).not.toContain("dan lainnya");
   });
 });

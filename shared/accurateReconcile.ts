@@ -86,7 +86,10 @@ export function checkDetail(key: CheckKey, count: number, examples: ExampleRow[]
   const def = CHECKS[key];
   const listed = examples.slice(0, EXAMPLES_IN_TASK);
   const shown = listed
-    .map((e) => (e.catalog || e.accurate ? `${e.code} (katalog ${e.catalog || "-"}, Accurate ${e.accurate || "-"})` : e.code))
+    .map((e) => {
+      const sides = [e.catalog && `katalog ${e.catalog}`, e.accurate && `Accurate ${e.accurate}`].filter(Boolean).join(", ");
+      return sides ? `${e.code} (${sides})` : e.code;
+    })
     .join("; ");
   const more = count > listed.length ? ", dan lainnya" : "";
   return `${count} barang. ${def.todo}${shown ? ` Contoh: ${shown}${more}.` : ""} Daftar lengkap: Katalog → Sinkron Accurate → Cek silang.`;
