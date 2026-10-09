@@ -1,14 +1,16 @@
 /* Renders the small markdown subset the assistant is told to produce:
-   headings, bullets, **bold**, and ==highlighted numbers==. */
+   headings, bullets, **bold**, *italic*, and ==highlighted numbers==. */
 
 import type { JSX } from "react";
 
 function inline(s: string): JSX.Element[] {
   return String(s)
-    .split(/(\*\*[^*]+\*\*|==[^=]+==)/g)
+    .split(/(\*\*[^*]+\*\*|==[^=]+==|\*[^*\s][^*]*\*)/g)
     .map((part, i) => {
       if (part.startsWith("**") && part.endsWith("**") && part.length > 4)
         return <strong key={i}>{inline(part.slice(2, -2))}</strong>;
+      if (part.startsWith("*") && part.endsWith("*") && part.length > 2 && !part.startsWith("**"))
+        return <em key={i}>{inline(part.slice(1, -1))}</em>;
       if (part.startsWith("==") && part.endsWith("==") && part.length > 4)
         return (
           <mark key={i} className="mark">
