@@ -15,7 +15,7 @@
     "test:watch": "vitest",
     "test:integration": "tsx scripts/test-approval-workflow.ts",
     "test:parity": "tsx scripts/test-backend-parity.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.worker.json && tsc -p tsconfig.worker-tests.json",
     "d1:migrate:local": "wrangler d1 migrations apply DB --local",
     "d1:migrate:remote": "wrangler d1 migrations apply DB --remote",
     "d1:smoke": "wrangler dev --local"
