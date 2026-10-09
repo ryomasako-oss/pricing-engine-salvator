@@ -130,7 +130,7 @@ app.listen(port, () => {
   console.log(`\n  Pricing Engine Salvator`);
   console.log(`  API      http://localhost:${port}/api`);
   console.log(`  Mode     ${isProd ? "production" : "development"}`);
-  console.log(`  Asisten  ${assistantEnabled() ? "aktif" : "nonaktif (ANTHROPIC_API_KEY kosong)"}`);
+  console.log(`  Silvy    ${assistantEnabled() ? "aktif" : "nonaktif (SILVY_URL / SILVY_SHARED_SECRET kosong)"}`);
   if (!isProd) console.log(`  Web      http://localhost:5173\n`);
   else console.log(`  Web      http://localhost:${port}\n`);
 });

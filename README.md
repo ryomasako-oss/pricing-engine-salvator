@@ -51,7 +51,7 @@ kompilasi modul native).
 npm install
 cp .env.example .env
 #   isi JWT_SECRET:  openssl rand -hex 32
-#   isi ANTHROPIC_API_KEY bila ingin asisten AI aktif
+#   isi SILVY_URL dan SILVY_SHARED_SECRET bila ingin Silvy aktif (lihat agent-service/README.md)
 npm run dev
 ```
 
@@ -77,7 +77,7 @@ Satu proses Node menyajikan API sekaligus aplikasi webnya.
 docker build -t pricing-engine-salvator .
 docker run -d -p 8787:8787 \
   -e JWT_SECRET="$(openssl rand -hex 32)" \
-  -e ANTHROPIC_API_KEY=sk-ant-... \
+  -e SILVY_URL=https://silvy.example -e SILVY_SHARED_SECRET=... \
   -v halokantor-data:/app/data \
   pricing-engine-salvator
 ```
@@ -193,19 +193,21 @@ Pengujian importer berjalan terhadap berkas Accurate asli bila ada di folder
 
 ---
 
-## Asisten AI
+## Silvy (asisten AI)
 
-Asisten hanya menjawab dari angka quotation yang sedang dibuka: rincian item,
+Silvy hanya menjawab dari angka quotation yang sedang dibuka: rincian item,
 asumsi, logistik, dan pelanggaran kebijakan. Ia boleh **mengusulkan** perubahan
 (misalnya menaikkan margin leader), tetapi usulan itu ditampilkan dulu sebagai
 daftar dan baru diterapkan setelah pengguna menekan **Terapkan**. Engine tetap
 satu-satunya penentu harga.
 
-Kunci API disimpan di server dan tidak pernah dikirim ke browser. Tanpa
-`ANTHROPIC_API_KEY`, seluruh aplikasi tetap berjalan normal dan panel asisten
-menampilkan keterangan bahwa fiturnya belum aktif.
-
-Model diatur lewat `ANTHROPIC_MODEL` (bawaan: `claude-opus-5`).
+Silvy berjalan di `agent-service/` dengan Gemini. App ini hanya gerbangnya:
+ia mengautentikasi user, menolak staff (data berisi COGS), membatasi laju, dan
+mencatat audit, lalu meneruskan ke agent lewat `SILVY_URL` dengan rahasia
+bersama `SILVY_SHARED_SECRET`. Kunci Gemini hanya ada di agent dan tidak pernah
+sampai ke browser atau Worker. Tanpa kedua variabel itu, seluruh aplikasi tetap
+berjalan normal dan panel menampilkan keterangan bahwa Silvy belum aktif.
+Model diatur di agent lewat `GEMINI_MODEL`.
 
 ## Catatan keamanan
 

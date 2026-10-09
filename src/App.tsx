@@ -138,6 +138,7 @@ function RequirePermission({ permission, children }: { permission: Permission; c
 
 export function App() {
   const { user, loading, can } = useAuth();
+  const { pathname } = useLocation();
 
   if (loading) {
     return (
@@ -175,7 +176,9 @@ export function App() {
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/quotes" replace />} />
       </Routes>
-      <ChatDock />
+      {/* The quotation editor has Silvy docked in its side column; a second round
+          button there would cover the panel's composer. Staff get no panel, so they keep it. */}
+      {!(can("view_costs") && /^\/quotes\/\d+/.test(pathname)) && <ChatDock />}
     </div>
     </ChatProvider>
   );

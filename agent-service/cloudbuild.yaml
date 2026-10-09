@@ -1,0 +1,9 @@
+# Build dari ROOT repo (Dockerfile mengimpor ../shared):
+#   gcloud builds submit --config agent-service/cloudbuild.yaml \
+#     --substitutions _IMAGE=REGION-docker.pkg.dev/PROJECT/silvy/agent:$(git rev-parse --short HEAD) .
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: ["build", "-f", "agent-service/Dockerfile", "-t", "${_IMAGE}", "."]
+images: ["${_IMAGE}"]
+substitutions:
+  _IMAGE: ""

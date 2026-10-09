@@ -18,8 +18,9 @@ import { KnowledgeStore } from "./knowledge-store.js";
 import { fullSync, type SyncReport } from "./sync.js";
 import { industryProfileForClient } from "./industry.js";
 import { generateRecommendation, findSimilarQuotes } from "./recommend.js";
-import { GeminiClient, GEMINI_MODELS } from "./gemini.js";
+import { GeminiClient } from "./gemini.js";
 import { GmailClient } from "./email.js";
+import { silvyAsk, silvyDocument, authorize } from "./silvy/handlers.js";
 import { IndustryTag } from "./types.js";
 
 // ---- env ----
@@ -36,12 +37,13 @@ const AGENT_DB_PATH = envOr("AGENT_DB_PATH", "./data/agent-knowledge.db");
 const GOOGLE_SA_EMAIL = envOr("GOOGLE_SERVICE_ACCOUNT_EMAIL");
 const GOOGLE_PRIVATE_KEY = envOr("GOOGLE_PRIVATE_KEY");
 const GOOGLE_SEND_AS = envOr("GOOGLE_SEND_AS_EMAIL");
+const SILVY_SHARED_SECRET = envOr("SILVY_SHARED_SECRET");
 const PORT = Number(envOr("AGENT_PORT", "8888")) || 8888;
 
 // ---- dependencies ----
 
 const store = new KnowledgeStore(AGENT_DB_PATH);
-const gemini = GEMINI_API_KEY ? new GeminiClient(GEMINI_API_KEY) : null;
+const gemini = GEMINI_API_KEY ? new GeminiClient(GEMINI_API_KEY, envOr("GEMINI_MODEL")) : null;
 const gmail = (GOOGLE_SA_EMAIL && GOOGLE_PRIVATE_KEY && GOOGLE_SEND_AS)
   ? new GmailClient({ clientEmail: GOOGLE_SA_EMAIL, privateKeyPem: GOOGLE_PRIVATE_KEY, impersonatedUser: GOOGLE_SEND_AS })
   : null;
@@ -49,7 +51,7 @@ const gmail = (GOOGLE_SA_EMAIL && GOOGLE_PRIVATE_KEY && GOOGLE_SEND_AS)
 // ---- helpers ----
 
 function sendJSON(res: { writeHead: (code: number, headers: Record<string, string>) => void; end: (body: string) => void }, code: number, data: unknown): void {
-  res.writeHead(code, { "content-type": "application/json; charset=utf-8", "access-control-allow-origin": "*" });
+  res.writeHead(code, { "content-type": "application/json; charset=utf-8" });
   res.end(JSON.stringify(data));
 }
 
@@ -74,6 +76,13 @@ const server = createServer(async (req, res) => {
   const method = req.method;
 
   try {
+    // ---- pagar rahasia bersama (semua rute kecuali /health bila secret diisi) ----
+    const header = req.headers["x-silvy-secret"];
+    if (authorize(path, Array.isArray(header) ? header[0] : header, SILVY_SHARED_SECRET) !== "ok") {
+      sendError(res, SILVY_SHARED_SECRET ? 401 : 503, SILVY_SHARED_SECRET ? "Tidak berwenang." : "Silvy belum aktif: SILVY_SHARED_SECRET belum diisi.");
+      return;
+    }
+
     // ---- health ----
     if (path === "/health" && method === "GET") {
       sendJSON(res, 200, { status: "ok", timestamp: new Date().toISOString() });
@@ -83,7 +92,7 @@ const server = createServer(async (req, res) => {
     // ---- status ----
     if (path === "/status" && method === "GET") {
       sendJSON(res, 200, {
-        gemini: gemini ? { configured: true, models: Object.values(GEMINI_MODELS) } : { configured: false },
+        gemini: gemini ? { configured: true, model: gemini.model } : { configured: false },
         gmail: gmail ? { configured: true } : { configured: false },
         knowledgeStore: {
           quotes: store.allQuotes().length,
@@ -247,6 +256,29 @@ const server = createServer(async (req, res) => {
       }
       console.log("[webhook/gmail] incoming notification:", await readBody(req));
       sendJSON(res, 200, { received: true });
+      return;
+    }
+
+    // ---- silvy (hanya dari gerbang aplikasi pricing) ----
+    if ((path === "/silvy/ask" || path === "/silvy/document") && method === "POST") {
+      if (!gemini) {
+        sendError(res, 503, "Silvy belum aktif: GEMINI_API_KEY belum diisi.");
+        return;
+      }
+      const raw = await readBody(req);
+      if (raw.length > 1_000_000) {
+        sendError(res, 413, "Permintaan terlalu besar.");
+        return;
+      }
+      let body: unknown;
+      try {
+        body = JSON.parse(raw);
+      } catch {
+        sendError(res, 400, "Body bukan JSON valid.");
+        return;
+      }
+      const out = path === "/silvy/ask" ? await silvyAsk(gemini, body) : await silvyDocument(gemini, body);
+      sendJSON(res, out.status, out.body);
       return;
     }
 

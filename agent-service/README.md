@@ -5,7 +5,7 @@ Service terpisah dari aplikasi utama `pricing.salvator.co.id`. Bertugas membaca 
 ## Kenapa terpisah?
 
 Agent ini **bukan** bagian dari app utama. Alasannya:
-- **LLM provider berbeda**: app utama pakai Anthropic (Claude), agent pakai Gemini (lebih murah untuk workload analitik).
+- **LLM provider**: agent dan Silvy memakai Gemini; app pricing tidak lagi memakai Anthropic.
 - **Tidak ada sisi write**: agent hanya baca data dari API, tidak modify database utama.
 - **Lifecycle berbeda**: agent bisa dijadwalkan (sync periodik, rekomendasi harian) tanpa mempengaruhi uptime app utama.
 
@@ -43,7 +43,7 @@ Cari kutipan "mirip" berdasarkan:
 Output: clientName, similarQuote, reasons, similarScenario, similarMargin, confidence.
 
 ### 4. Gemini Integration
-LLM untuk task yang butuh NLP (mis. generate narasi rekomendasi, analisis qualitative). Pakai `gemini-2.0-flash` (cepat, murah). App utama tertinggal di Anthropic.
+LLM untuk task yang butuh NLP (mis. generate narasi rekomendasi, analisis qualitative). Model dari `GEMINI_MODEL` (default `gemini-3.1-flash-lite`). Semua panggilan lewat `src/gemini.ts`.
 
 ### 5. Gmail Trigger (opsional)
 Kirim notifikasi email via Gmail API dengan service account Google Workspace + JWT Bearer flow.
@@ -63,7 +63,9 @@ cp .env.example .env
 |----------|--------|------------|
 | `HALOKANTOR_API_BASE` | Tidak | Base URL API (default: https://pricing.salvator.co.id) |
 | `HALOKANTOR_API_KEY` | **Ya** untuk sync | API key read-only |
-| `GEMINI_API_KEY` | Tidak | Gemini API key |
+| `GEMINI_API_KEY` | Tidak | Gemini API key (Google AI Studio, tier berbayar) |
+| `GEMINI_MODEL` | Tidak | Model Gemini (default gemini-3.1-flash-lite) |
+| `SILVY_SHARED_SECRET` | Untuk Silvy | Rahasia bersama dengan app pricing (header `x-silvy-secret`). Kosong = `/silvy/*` mati (503) |
 | `AGENT_DB_PATH` | Tidak | Path SQLite (default: ./data/agent-knowledge.db) |
 | `GOOGLE_SERVICE_ACCOUNT_EMAIL` | Tidak | Service account email untuk Gmail |
 | `GOOGLE_PRIVATE_KEY` | Tidak | Private key PEM |
@@ -105,6 +107,8 @@ npm run recommend "PT Agrinesia"
 | GET | /quotes/similar?client=NamaKlien&scenario=S&limit=N | Cari kutipan mirip |
 | POST | /recommend | Generate rekomendasi (body: { client, industryTags?, preferredScenario? }) |
 | GET | /industries/:clientId | Deteksi industri untuk klien |
+| POST | /silvy/ask | Tanya Silvy tentang satu quotation. Hanya dari app pricing (x-silvy-secret); app yang mengautentikasi user, menolak staff, membatasi laju, dan mencatat audit |
+| POST | /silvy/document | Dokumen: briefing, faq, risk, negotiation. Syarat sama dengan /silvy/ask |
 | POST | /webhook/gmail | Webhook incoming Gmail push notification |
 
 ## Struktur
