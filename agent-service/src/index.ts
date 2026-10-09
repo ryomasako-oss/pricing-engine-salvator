@@ -20,7 +20,7 @@ import { industryProfileForClient } from "./industry.js";
 import { generateRecommendation, findSimilarQuotes } from "./recommend.js";
 import { GeminiClient } from "./gemini.js";
 import { GmailClient } from "./email.js";
-import { silvyAsk, silvyDocument, secretMatches } from "./silvy/handlers.js";
+import { silvyAsk, silvyDocument, authorize } from "./silvy/handlers.js";
 import { IndustryTag } from "./types.js";
 
 // ---- env ----
@@ -51,7 +51,7 @@ const gmail = (GOOGLE_SA_EMAIL && GOOGLE_PRIVATE_KEY && GOOGLE_SEND_AS)
 // ---- helpers ----
 
 function sendJSON(res: { writeHead: (code: number, headers: Record<string, string>) => void; end: (body: string) => void }, code: number, data: unknown): void {
-  res.writeHead(code, { "content-type": "application/json; charset=utf-8", "access-control-allow-origin": "*" });
+  res.writeHead(code, { "content-type": "application/json; charset=utf-8" });
   res.end(JSON.stringify(data));
 }
 
@@ -76,6 +76,13 @@ const server = createServer(async (req, res) => {
   const method = req.method;
 
   try {
+    // ---- pagar rahasia bersama (semua rute kecuali /health bila secret diisi) ----
+    const header = req.headers["x-silvy-secret"];
+    if (authorize(path, Array.isArray(header) ? header[0] : header, SILVY_SHARED_SECRET) !== "ok") {
+      sendError(res, SILVY_SHARED_SECRET ? 401 : 503, SILVY_SHARED_SECRET ? "Tidak berwenang." : "Silvy belum aktif: SILVY_SHARED_SECRET belum diisi.");
+      return;
+    }
+
     // ---- health ----
     if (path === "/health" && method === "GET") {
       sendJSON(res, 200, { status: "ok", timestamp: new Date().toISOString() });
@@ -254,16 +261,6 @@ const server = createServer(async (req, res) => {
 
     // ---- silvy (hanya dari gerbang aplikasi pricing) ----
     if ((path === "/silvy/ask" || path === "/silvy/document") && method === "POST") {
-      // Tanpa rahasia bersama, jalur ini mati: lebih baik tertutup daripada terbuka.
-      if (!SILVY_SHARED_SECRET) {
-        sendError(res, 503, "Silvy belum aktif: SILVY_SHARED_SECRET belum diisi.");
-        return;
-      }
-      const header = req.headers["x-silvy-secret"];
-      if (!secretMatches(Array.isArray(header) ? header[0] : header, SILVY_SHARED_SECRET)) {
-        sendError(res, 401, "Tidak berwenang.");
-        return;
-      }
       if (!gemini) {
         sendError(res, 503, "Silvy belum aktif: GEMINI_API_KEY belum diisi.");
         return;
