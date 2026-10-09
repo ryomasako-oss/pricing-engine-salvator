@@ -53,7 +53,7 @@ app.use("/api/*", async (c, next) => {
   await next();
 });
 
-app.get("/api/health", (c) => c.json({ ok: true, ai: assistantEnabled(c.env.ANTHROPIC_API_KEY), version: "1.0.0" }));
+app.get("/api/health", (c) => c.json({ ok: true, ai: assistantEnabled(c.env), version: "1.0.0" }));
 
 app.route("/api/auth", authRouter);
 app.route("/api/clients", clientsRouter);

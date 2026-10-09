@@ -18,8 +18,9 @@ import { KnowledgeStore } from "./knowledge-store.js";
 import { fullSync, type SyncReport } from "./sync.js";
 import { industryProfileForClient } from "./industry.js";
 import { generateRecommendation, findSimilarQuotes } from "./recommend.js";
-import { GeminiClient, GEMINI_MODELS } from "./gemini.js";
+import { GeminiClient } from "./gemini.js";
 import { GmailClient } from "./email.js";
+import { silvyAsk, silvyDocument, secretMatches } from "./silvy/handlers.js";
 import { IndustryTag } from "./types.js";
 
 // ---- env ----
@@ -36,12 +37,13 @@ const AGENT_DB_PATH = envOr("AGENT_DB_PATH", "./data/agent-knowledge.db");
 const GOOGLE_SA_EMAIL = envOr("GOOGLE_SERVICE_ACCOUNT_EMAIL");
 const GOOGLE_PRIVATE_KEY = envOr("GOOGLE_PRIVATE_KEY");
 const GOOGLE_SEND_AS = envOr("GOOGLE_SEND_AS_EMAIL");
+const SILVY_SHARED_SECRET = envOr("SILVY_SHARED_SECRET");
 const PORT = Number(envOr("AGENT_PORT", "8888")) || 8888;
 
 // ---- dependencies ----
 
 const store = new KnowledgeStore(AGENT_DB_PATH);
-const gemini = GEMINI_API_KEY ? new GeminiClient(GEMINI_API_KEY) : null;
+const gemini = GEMINI_API_KEY ? new GeminiClient(GEMINI_API_KEY, envOr("GEMINI_MODEL")) : null;
 const gmail = (GOOGLE_SA_EMAIL && GOOGLE_PRIVATE_KEY && GOOGLE_SEND_AS)
   ? new GmailClient({ clientEmail: GOOGLE_SA_EMAIL, privateKeyPem: GOOGLE_PRIVATE_KEY, impersonatedUser: GOOGLE_SEND_AS })
   : null;
@@ -83,7 +85,7 @@ const server = createServer(async (req, res) => {
     // ---- status ----
     if (path === "/status" && method === "GET") {
       sendJSON(res, 200, {
-        gemini: gemini ? { configured: true, models: Object.values(GEMINI_MODELS) } : { configured: false },
+        gemini: gemini ? { configured: true, model: gemini.model } : { configured: false },
         gmail: gmail ? { configured: true } : { configured: false },
         knowledgeStore: {
           quotes: store.allQuotes().length,
@@ -247,6 +249,39 @@ const server = createServer(async (req, res) => {
       }
       console.log("[webhook/gmail] incoming notification:", await readBody(req));
       sendJSON(res, 200, { received: true });
+      return;
+    }
+
+    // ---- silvy (hanya dari gerbang aplikasi pricing) ----
+    if ((path === "/silvy/ask" || path === "/silvy/document") && method === "POST") {
+      // Tanpa rahasia bersama, jalur ini mati: lebih baik tertutup daripada terbuka.
+      if (!SILVY_SHARED_SECRET) {
+        sendError(res, 503, "Silvy belum aktif: SILVY_SHARED_SECRET belum diisi.");
+        return;
+      }
+      const header = req.headers["x-silvy-secret"];
+      if (!secretMatches(Array.isArray(header) ? header[0] : header, SILVY_SHARED_SECRET)) {
+        sendError(res, 401, "Tidak berwenang.");
+        return;
+      }
+      if (!gemini) {
+        sendError(res, 503, "Silvy belum aktif: GEMINI_API_KEY belum diisi.");
+        return;
+      }
+      const raw = await readBody(req);
+      if (raw.length > 1_000_000) {
+        sendError(res, 413, "Permintaan terlalu besar.");
+        return;
+      }
+      let body: unknown;
+      try {
+        body = JSON.parse(raw);
+      } catch {
+        sendError(res, 400, "Body bukan JSON valid.");
+        return;
+      }
+      const out = path === "/silvy/ask" ? await silvyAsk(gemini, body) : await silvyDocument(gemini, body);
+      sendJSON(res, out.status, out.body);
       return;
     }
 

@@ -2,7 +2,7 @@
    Best-effort approval-workflow notifications: email (Gmail API,
    Workspace service account) and WhatsApp (Twilio). Both are
    optional — silently no-op when their env vars aren't configured,
-   same pattern as the AI assistant's ANTHROPIC_API_KEY gate. Never
+   same pattern as the Silvy gate (SILVY_URL / SILVY_SHARED_SECRET). Never
    throws: a notification failure must never block the submit/decide
    transaction it's attached to.
    ============================================================ */
