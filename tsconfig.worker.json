@@ -15,7 +15,6 @@
   "include": [
     "server/db.d1.ts",
     "server/validate.ts",
-    "server/assistantContext.ts",
     "server/worker",
     "shared"
   ]

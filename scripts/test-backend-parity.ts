@@ -32,8 +32,42 @@ import { D1DatabaseShim, AlwaysAllowRateLimit } from "./d1-sqlite-shim.js";
 type Session = { cookie: string };
 type ApiResult = { status: number; json: any };
 
+/** Stand-in for agent-service: records what the app forwards, answers on demand. */
+interface FakeAgent {
+  url: string;
+  log: { path: string; secret: string | undefined; body: any }[];
+  /** Force a status (e.g. 401) instead of the normal success reply. */
+  forceStatus: number | null;
+  close(): Promise<void>;
+}
+const AGENT_SECRET = "parity-secret";
+
+async function makeFakeAgent(): Promise<FakeAgent> {
+  const { createServer } = await import("node:http");
+  const agent: FakeAgent = { url: "", log: [], forceStatus: null, close: async () => undefined };
+  const srv = createServer((req, res) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (c) => chunks.push(c));
+    req.on("end", () => {
+      const path = req.url ?? "";
+      agent.log.push({ path, secret: req.headers["x-silvy-secret"] as string | undefined, body: JSON.parse(Buffer.concat(chunks).toString() || "{}") });
+      const code = agent.forceStatus ?? 200;
+      const payload = code !== 200 ? { error: "ditolak" } : path === "/silvy/ask" ? { answer: "ok", sources: ["summary"], actions: [], followups: [] } : { content: "## Briefing" };
+      res.writeHead(code, { "content-type": "application/json" });
+      res.end(JSON.stringify(payload));
+    });
+  });
+  await new Promise<void>((r) => srv.listen(0, "127.0.0.1", r));
+  agent.url = `http://127.0.0.1:${(srv.address() as { port: number }).port}`;
+  agent.close = () => new Promise<void>((r) => srv.close(() => r()));
+  return agent;
+}
+
 interface Driver {
   name: string;
+  agent: FakeAgent;
+  /** on = configured and reachable, off = not configured, down = configured but nothing listening. */
+  setSilvy(mode: "on" | "off" | "down"): void;
   api(method: string, routePath: string, opts?: { body?: unknown; session?: Session }): Promise<ApiResult>;
   login(email: string, password: string): Promise<Session>;
   seedUser(email: string, name: string, role: "rep" | "manager" | "admin", password: string): Promise<void>;
@@ -89,8 +123,19 @@ async function makeExpressDriver(): Promise<Driver> {
   const port = typeof address === "object" && address ? address.port : 0;
   const baseUrl = `http://127.0.0.1:${port}`;
 
+  const agent = await makeFakeAgent();
   return {
     name: "express",
+    agent,
+    setSilvy(mode) {
+      if (mode === "off") {
+        delete process.env.SILVY_URL;
+        delete process.env.SILVY_SHARED_SECRET;
+      } else {
+        process.env.SILVY_URL = mode === "on" ? agent.url : "http://127.0.0.1:1";
+        process.env.SILVY_SHARED_SECRET = AGENT_SECRET;
+      }
+    },
     async api(method, routePath, opts = {}) {
       const res = await fetch(`${baseUrl}${routePath}`, {
         method,
@@ -120,6 +165,7 @@ async function makeExpressDriver(): Promise<Driver> {
       );
     },
     async teardown() {
+      await agent.close();
       await new Promise((resolve) => server!.close(resolve));
       rmSync(dbDir, { recursive: true, force: true });
     },
@@ -167,7 +213,8 @@ async function makeWorkerDriver(): Promise<Driver> {
   app.route("/api/fix-tasks", fixTasksRouter);
   app.route("/api/pending-items", pendingItemsRouter);
 
-  const env = {
+  const agent = await makeFakeAgent();
+  const env: Record<string, unknown> = {
     DB: db,
     JWT_SECRET: "test-only-secret-not-for-production-0000000000",
     NODE_ENV: "test",
@@ -187,6 +234,16 @@ async function makeWorkerDriver(): Promise<Driver> {
 
   return {
     name: "worker",
+    agent,
+    setSilvy(mode) {
+      if (mode === "off") {
+        delete env.SILVY_URL;
+        delete env.SILVY_SHARED_SECRET;
+      } else {
+        env.SILVY_URL = mode === "on" ? agent.url : "http://127.0.0.1:1";
+        env.SILVY_SHARED_SECRET = AGENT_SECRET;
+      }
+    },
     async api(method, routePath, opts = {}) {
       const res = await app.request(
         routePath,
@@ -222,7 +279,7 @@ async function makeWorkerDriver(): Promise<Driver> {
       );
     },
     async teardown() {
-      /* in-memory sqlite, nothing to clean up */
+      await agent.close();
     },
   };
 }
@@ -2402,6 +2459,121 @@ scenario("barang baru: staff list only their own requests, a manager sees all", 
   const noAuth = await d.api("GET", "/api/pending-items", {});
   assert.equal(noAuth.status, 401);
   return { rep1HasOwn: r1.includes(a.json.item.code), rep1HasOther: r1.includes(b.json.item.code), managerSeesBoth: m.includes(a.json.item.code) && m.includes(b.json.item.code), anon: noAuth.status };
+});
+
+// ---------------------------------------------------------------
+// Silvy gateway: the app authenticates/gates, the agent answers.
+// ---------------------------------------------------------------
+const askBody = (msg = "Naikkan margin") => ({
+  context: { snapshot: snapshotFor([cleanItem()]), number: "Q-1", title: "Uji", status: "draft", clientName: "PT Uji", sections: {} },
+  messages: [{ role: "user", content: msg }],
+});
+
+scenario("Silvy: a rep is refused before the agent is ever called", async (d) => {
+  d.setSilvy("on");
+  d.agent.log.length = 0;
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const ask = await d.api("POST", "/api/assistant/ask", { body: askBody(), session: rep });
+  const doc = await d.api("POST", "/api/assistant/document", { body: { ...askBody(), kind: "risk", messages: undefined }, session: rep });
+  const status = await d.api("GET", "/api/assistant/status", { session: rep });
+  assert.equal(ask.status, 403);
+  assert.equal(doc.status, 403);
+  assert.equal(d.agent.log.length, 0, "agent must not see a staff request");
+  return { ask: ask.status, doc: doc.status, status: status.status, enabled: status.json.enabled, calls: d.agent.log.length };
+});
+
+scenario("Silvy: unauthenticated requests are 401 and never reach the agent", async (d) => {
+  d.setSilvy("on");
+  d.agent.log.length = 0;
+  const r = await d.api("POST", "/api/assistant/ask", { body: askBody() });
+  assert.equal(r.status, 401);
+  assert.equal(d.agent.log.length, 0);
+  return { status: r.status };
+});
+
+scenario("Silvy: a manager's ask is forwarded with the secret and the server-side policy", async (d) => {
+  d.setSilvy("on");
+  d.agent.log.length = 0;
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const r = await d.api("POST", "/api/assistant/ask", { body: askBody("halo"), session: manager });
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  assert.equal(d.agent.log.length, 1);
+  const seen = d.agent.log[0];
+  assert.equal(seen.secret, AGENT_SECRET);
+  assert.equal(typeof seen.body.policy.minNetMargin, "number", "policy comes from the server");
+  return { status: r.status, answer: r.json.answer, path: seen.path, messages: seen.body.messages, policyKeys: Object.keys(seen.body.policy).sort() };
+});
+
+scenario("Silvy: a browser-supplied policy is ignored in favour of the server's", async (d) => {
+  d.setSilvy("on");
+  d.agent.log.length = 0;
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const body: any = askBody();
+  body.policy = { minNetMargin: -5, minLineMargin: -5, maxBasketDiscount: 1, allowBelowCost: true, approvalValueThreshold: 1e15 };
+  await d.api("POST", "/api/assistant/ask", { body, session: manager });
+  assert.notEqual(d.agent.log[0].body.policy.minNetMargin, -5);
+  return { minNetMargin: d.agent.log[0].body.policy.minNetMargin, allowBelowCost: d.agent.log[0].body.policy.allowBelowCost };
+});
+
+scenario("Silvy: documents are forwarded and unknown kinds are 400 without a call", async (d) => {
+  d.setSilvy("on");
+  d.agent.log.length = 0;
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const { messages: _m, ...rest } = askBody();
+  const ok = await d.api("POST", "/api/assistant/document", { body: { ...rest, kind: "briefing" }, session: manager });
+  const bad = await d.api("POST", "/api/assistant/document", { body: { ...rest, kind: "rahasia" }, session: manager });
+  assert.equal(ok.status, 200);
+  assert.equal(bad.status, 400);
+  assert.equal(d.agent.log.length, 1);
+  return { ok: ok.json, bad: bad.status, path: d.agent.log[0].path };
+});
+
+scenario("Silvy: malformed asks are 400 and never reach the agent", async (d) => {
+  d.setSilvy("on");
+  d.agent.log.length = 0;
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const empty = await d.api("POST", "/api/assistant/ask", { body: { ...askBody(), messages: [] }, session: manager });
+  const huge = await d.api("POST", "/api/assistant/ask", { body: askBody("x".repeat(8001)), session: manager });
+  const none = await d.api("POST", "/api/assistant/ask", { body: {}, session: manager });
+  assert.deepEqual([empty.status, huge.status, none.status], [400, 400, 400]);
+  assert.equal(d.agent.log.length, 0);
+  return { statuses: [empty.status, huge.status, none.status] };
+});
+
+scenario("Silvy: not configured -> 503 and status says disabled", async (d) => {
+  d.setSilvy("off");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const ask = await d.api("POST", "/api/assistant/ask", { body: askBody(), session: manager });
+  const status = await d.api("GET", "/api/assistant/status", { session: manager });
+  d.setSilvy("on");
+  assert.equal(ask.status, 503);
+  return { ask: ask.status, error: ask.json.error, enabled: status.json.enabled };
+});
+
+scenario("Silvy: agent unreachable -> 503 with a readable message", async (d) => {
+  d.setSilvy("down");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const ask = await d.api("POST", "/api/assistant/ask", { body: askBody(), session: manager });
+  d.setSilvy("on");
+  assert.equal(ask.status, 503);
+  return { status: ask.status, error: ask.json.error };
+});
+
+scenario("Silvy: agent rejecting the secret is reported as a config problem (502), not a user error", async (d) => {
+  d.setSilvy("on");
+  d.agent.forceStatus = 401;
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const ask = await d.api("POST", "/api/assistant/ask", { body: askBody(), session: manager });
+  d.agent.forceStatus = null;
+  assert.equal(ask.status, 502);
+  return { status: ask.status, error: ask.json.error };
+});
+
+scenario("Silvy: status lists the documents Silvy can write", async (d) => {
+  d.setSilvy("on");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const status = await d.api("GET", "/api/assistant/status", { session: manager });
+  return { enabled: status.json.enabled, model: status.json.model, docs: Object.keys(status.json.docs).sort() };
 });
 
 async function main() {
