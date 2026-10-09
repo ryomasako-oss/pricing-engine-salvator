@@ -521,6 +521,21 @@ input[type=checkbox] { accent-color: var(--navy); width: 17px; height: 17px; fle
 .proposal { border-left: 3px solid var(--marker); background: var(--flag-bg); padding: 10px 12px; border-radius: 0 12px 12px 0; margin-bottom: 9px; font-size: 12.5px; }
 .proposal ul { margin: 5px 0 8px; padding-left: 18px; }
 
+/* Silvy identity: a navy monogram (the one authority color), no new accent. */
+.silvy-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--rule); flex-wrap: wrap; }
+.silvy-mono { width: 28px; height: 28px; border-radius: 50%; background: var(--navy); color: #fff; display: grid; place-items: center; font-weight: 750; font-size: 13px; flex: none; }
+.silvy-id { display: flex; flex-direction: column; min-width: 0; flex: 1; line-height: 1.25; }
+.silvy-tabs { flex: 1 1 100%; }
+.silvy-tabs button { flex: 1; text-align: center; }
+.silvy-sources { margin: 6px 0 0; font-size: 11.5px; font-weight: 550; color: var(--muted); }
+.silvy-docs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.silvy-doc { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 9px 11px; border: 1px solid var(--rule); border-radius: 12px; background: var(--field); }
+.silvy-doc:hover:not(:disabled) { border-color: var(--navy); background: var(--s1-bg); }
+.silvy-doc.on { border-color: var(--navy); box-shadow: inset 0 0 0 1px var(--navy); }
+.silvy-doc:disabled { opacity: .6; cursor: not-allowed; }
+.silvy-docout { border: 1px solid var(--rule); border-radius: 12px; background: var(--sheet); padding: 12px; font-size: 13px; }
+@media (max-width: 420px) { .silvy-docs { grid-template-columns: 1fr; } }
+
 /* ---------------- quotation document ----------------
    Always renders as a white printable sheet, regardless of app theme
    — like a document page in a dark-mode-aware editor. */

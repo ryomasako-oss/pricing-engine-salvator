@@ -827,7 +827,7 @@ export function QuoteEditorPage() {
 
           <div className="card">
             <div className="card-head">
-              <h2><Icon name="spark" size={14} /> Asisten harga</h2>
+              <h2><Icon name="spark" size={14} /> Silvy · asisten harga</h2>
             </div>
             <AssistantPanel
               snapshot={snapshot}

@@ -18,11 +18,26 @@ export interface AssistantAction {
   value: unknown;
 }
 
+interface DocMeta {
+  title: string;
+  desc: string;
+}
+
+/** Names the part of the quotation data an answer was drawn from. */
+const SOURCE_LABEL: Record<string, string> = {
+  summary: "Ringkasan",
+  policy: "Kebijakan",
+  assumptions: "Asumsi",
+  items: "Item",
+  delivery: "Pengiriman",
+};
+
 interface Message {
   id: string;
   role: "user" | "assistant";
   text: string;
   error?: boolean;
+  sources?: string[];
   actions?: AssistantAction[];
   followups?: string[];
   applied?: boolean;
@@ -74,6 +89,10 @@ export function AssistantPanel({
 }: Props) {
   const toast = useToast();
   const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [tab, setTab] = useState<"ask" | "docs">("ask");
+  const [docs, setDocs] = useState<Record<string, DocMeta>>({});
+  const [docBusy, setDocBusy] = useState<string | null>(null);
+  const [docOut, setDocOut] = useState<{ kind: string; text: string } | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -82,8 +101,11 @@ export function AssistantPanel({
 
   useEffect(() => {
     api
-      .get<{ enabled: boolean }>("/assistant/status")
-      .then((r) => setEnabled(r.enabled))
+      .get<{ enabled: boolean; docs?: Record<string, DocMeta> }>("/assistant/status")
+      .then((r) => {
+        setEnabled(r.enabled);
+        setDocs(r.docs ?? {});
+      })
       .catch(() => setEnabled(false));
   }, []);
 
@@ -98,6 +120,40 @@ export function AssistantPanel({
     el.style.height = `${Math.min(el.scrollHeight, 110)}px`;
   }, [input]);
 
+  const context = () => ({
+    snapshot,
+    number,
+    title,
+    status,
+    clientName,
+    sections: { assumptions: true, items: true, delivery: true },
+    notes: [],
+  });
+
+  const makeDoc = async (kind: string) => {
+    if (docBusy) return;
+    setDocBusy(kind);
+    setDocOut(null);
+    try {
+      const r = await api.post<{ content: string }>("/assistant/document", { context: context(), kind });
+      setDocOut({ kind, text: r.content });
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Silvy gagal membuat dokumen.", "error");
+    } finally {
+      setDocBusy(null);
+    }
+  };
+
+  const copyDoc = async () => {
+    if (!docOut) return;
+    try {
+      await navigator.clipboard.writeText(docOut.text.replace(/==/g, ""));
+      toast("Dokumen disalin.", "success");
+    } catch {
+      toast("Tidak bisa menyalin. Salin manual dari teks.", "error");
+    }
+  };
+
   const send = async (textArg?: string) => {
     const text = (textArg ?? input).trim();
     if (!text || busy) return;
@@ -108,18 +164,11 @@ export function AssistantPanel({
     try {
       const r = await api.post<{
         answer: string;
+        sources?: string[];
         actions: AssistantAction[];
         followups: string[];
       }>("/assistant/ask", {
-        context: {
-          snapshot,
-          number,
-          title,
-          status,
-          clientName,
-          sections: { assumptions: true, items: true, delivery: true },
-          notes: [],
-        },
+        context: context(),
         messages: history
           .filter((m) => !m.error)
           .slice(-10)
@@ -131,6 +180,7 @@ export function AssistantPanel({
           id: uid(),
           role: "assistant",
           text: r.answer,
+          sources: r.sources,
           actions: readOnly ? [] : r.actions,
           followups: r.followups,
         },
@@ -142,7 +192,7 @@ export function AssistantPanel({
           id: uid(),
           role: "assistant",
           error: true,
-          text: e instanceof Error ? e.message : "Asisten gagal menjawab.",
+          text: e instanceof Error ? e.message : "Silvy gagal menjawab.",
         },
       ]);
     } finally {
@@ -175,14 +225,64 @@ export function AssistantPanel({
     "Naikkan margin leader jadi 12%",
   ];
 
+  const docKinds = Object.keys(docs);
+
   return (
     <div className="chat">
+      <div className="silvy-head">
+        <span className="silvy-mono" aria-hidden="true">S</span>
+        <div className="silvy-id">
+          <strong>Silvy</strong>
+          <span className="muted small">Menjawab hanya dari angka quotation ini</span>
+        </div>
+        {docKinds.length > 0 && (
+          <div className="tabs silvy-tabs" role="tablist" aria-label="Mode Silvy">
+            <button role="tab" aria-selected={tab === "ask"} className={tab === "ask" ? "on" : ""} onClick={() => setTab("ask")}>Tanya</button>
+            <button role="tab" aria-selected={tab === "docs"} className={tab === "docs" ? "on" : ""} onClick={() => setTab("docs")}>Dokumen</button>
+          </div>
+        )}
+      </div>
+
+      {tab === "docs" ? (
+        <div className="chat-scroll">
+          <p className="muted small">
+            Silvy menulis dokumen internal dari angka quotation ini. Hasilnya bukan untuk klien.
+          </p>
+          <div className="silvy-docs">
+            {docKinds.map((k) => (
+              <button
+                key={k}
+                className={`silvy-doc ${docOut?.kind === k ? "on" : ""}`}
+                disabled={docBusy !== null}
+                onClick={() => void makeDoc(k)}
+              >
+                <strong>{docs[k].title}</strong>
+                <span className="muted small">{docs[k].desc}</span>
+              </button>
+            ))}
+          </div>
+          {docBusy && (
+            <div className="loading">
+              <span className="dots"><i /><i /><i /></span> Silvy menulis {docs[docBusy]?.title.toLowerCase()}…
+            </div>
+          )}
+          {docOut && !docBusy && (
+            <div className="silvy-docout">
+              <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+                <strong>{docs[docOut.kind]?.title}</strong>
+                <button className="btn small ghost" onClick={() => void copyDoc()}>Salin</button>
+              </div>
+              <Rich text={docOut.text} />
+            </div>
+          )}
+        </div>
+      ) : (
+      <>
       <div className="chat-scroll" ref={scrollRef}>
         {messages.length === 0 && (
           <div>
             <p className="muted small">
-              Tanya apa saja soal harga quotation ini. Jawaban hanya diambil dari angka yang ada di
-              sini, bukan dari luar.
+              Tanya apa saja soal harga quotation ini, atau minta Silvy mengubah asumsi.
             </p>
             <div className="chips">
               {suggestions.map((q) => (
@@ -199,6 +299,11 @@ export function AssistantPanel({
             ) : (
               <div className={`answer ${m.error ? "error" : ""}`}>
                 <Rich text={m.text} />
+                {!m.error && m.sources && m.sources.length > 0 && (
+                  <p className="silvy-sources">
+                    Sumber: {m.sources.map((x) => SOURCE_LABEL[x] ?? x).join(" · ")}
+                  </p>
+                )}
                 {m.actions && m.actions.length > 0 && (
                   <div className="proposal">
                     <strong>{m.applied ? "Sudah diterapkan" : "Usulan perubahan"}</strong>
@@ -252,12 +357,14 @@ export function AssistantPanel({
               void send();
             }
           }}
-          aria-label="Pesan ke asisten"
+          aria-label="Pesan ke Silvy"
         />
         <button className="send" type="submit" disabled={!input.trim() || busy} aria-label="Kirim">
           <Icon name="send" size={17} />
         </button>
       </form>
+      </>
+      )}
     </div>
   );
 }
