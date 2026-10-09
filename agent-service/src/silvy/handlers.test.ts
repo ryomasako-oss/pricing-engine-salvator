@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { sanitizeActions, secretMatches, silvyAsk, silvyDocument, type Llm } from "./handlers.js";
+import { authorize, sanitizeActions, secretMatches, silvyAsk, silvyDocument, type Llm } from "./handlers.js";
 import { GeminiError } from "../gemini.js";
 import { DEFAULT_ASSUMPTIONS } from "../../../shared/engine.js";
 import { DEFAULT_POLICY } from "../../../shared/policy.js";
@@ -126,4 +126,23 @@ test("document: known kinds work, unknown kinds (incl. prototype keys) are refus
   for (const kind of ["nope", "__proto__", "constructor", 5, undefined])
     assert.equal((await silvyDocument(llm, body({ kind }))).status, 400);
   assert.equal(llm.calls.length, 1);
+});
+
+test("authorize: /health is always open", () => {
+  assert.equal(authorize("/health", undefined, ""), "ok");
+  assert.equal(authorize("/health", undefined, "s"), "ok");
+});
+
+test("authorize: with a secret set, every other route needs it (no open /sync, /recommend, /status)", () => {
+  for (const path of ["/status", "/sync", "/recommend", "/quotes/similar", "/silvy/ask", "/webhook/gmail", "/nope"]) {
+    assert.equal(authorize(path, undefined, "s"), "unauthorized", path);
+    assert.equal(authorize(path, "wrong", "s"), "unauthorized", path);
+    assert.equal(authorize(path, "s", "s"), "ok", path);
+  }
+});
+
+test("authorize: without a secret only local-style routes stay open and /silvy/* is closed", () => {
+  assert.equal(authorize("/status", undefined, ""), "ok");
+  assert.equal(authorize("/silvy/ask", undefined, ""), "unauthorized");
+  assert.equal(authorize("/silvy/document", "anything", ""), "unauthorized");
 });

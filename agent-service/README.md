@@ -5,7 +5,7 @@ Service terpisah dari aplikasi utama `pricing.salvator.co.id`. Bertugas membaca 
 ## Kenapa terpisah?
 
 Agent ini **bukan** bagian dari app utama. Alasannya:
-- **LLM provider berbeda**: app utama pakai Anthropic (Claude), agent pakai Gemini (lebih murah untuk workload analitik).
+- **LLM provider**: agent dan Silvy memakai Gemini; app pricing tidak lagi memakai Anthropic.
 - **Tidak ada sisi write**: agent hanya baca data dari API, tidak modify database utama.
 - **Lifecycle berbeda**: agent bisa dijadwalkan (sync periodik, rekomendasi harian) tanpa mempengaruhi uptime app utama.
 

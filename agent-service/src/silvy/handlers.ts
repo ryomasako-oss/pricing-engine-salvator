@@ -31,6 +31,18 @@ export function secretMatches(provided: string | undefined, expected: string): b
   return timingSafeEqual(h(provided), h(expected));
 }
 
+/**
+ * Pagar untuk server HTTP agent. Begitu SILVY_SHARED_SECRET diisi, semua rute
+ * selain /health butuh rahasia itu, jadi /sync, /recommend dan /status tidak
+ * terbuka ke internet saat agent dijalankan sebagai layanan publik. Tanpa
+ * secret (pemakaian lokal) perilaku lama tetap: rute lama terbuka, /silvy/* mati.
+ */
+export function authorize(path: string, provided: string | undefined, secret: string): "ok" | "unauthorized" {
+  if (path === "/health") return "ok";
+  if (!secret) return path.startsWith("/silvy/") ? "unauthorized" : "ok";
+  return secretMatches(provided, secret) ? "ok" : "unauthorized";
+}
+
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const str = (v: unknown, max: number, fallback = ""): string => (typeof v === "string" ? v.slice(0, max) : fallback);
 
