@@ -8,6 +8,7 @@ import { useToast } from "../context/ToastContext";
 import { Icon } from "./Icon";
 import { Rich } from "./Rich";
 import { pct, uid } from "@shared/format";
+import { isScenarioActionValue } from "@shared/silvyDocs";
 import type { Assumptions, QuoteSnapshot, ScenarioIndex } from "@shared/types";
 
 export interface AssistantAction {
@@ -418,7 +419,7 @@ export function applyActions(
       }
     } else if (action.type === "scenario") {
       const v = Number(action.value);
-      if ([1, 2, 3].includes(v)) {
+      if (isScenarioActionValue(v)) {
         scenario = (v - 1) as ScenarioIndex;
         labels.push(`Skenario jadi S${v}`);
       }

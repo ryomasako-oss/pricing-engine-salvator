@@ -11,6 +11,7 @@
 import { timingSafeEqual, createHash } from "node:crypto";
 import { GeminiError, extractJSON, type GeminiMessage, type GeminiOptions } from "../gemini.js";
 import { DOCS, buildContext, chatSystem, docSystem } from "./context.js";
+import { isScenarioActionValue } from "../../../shared/silvyDocs.js";
 import type { PricingPolicy, QuoteSnapshot, ScenarioIndex } from "../../../shared/types.js";
 
 export interface Llm {
@@ -126,7 +127,7 @@ export function sanitizeActions(raw: unknown): Record<string, unknown>[] {
     } else if (a.type === "item" && Number.isInteger(a.no) && typeof a.field === "string" && ITEM_FIELDS.has(a.field)) {
       if (a.field === "role" ? typeof a.value === "string" && ROLES.has(a.value) : num && (a.value as number) >= 0)
         out.push({ type: "item", no: a.no, field: a.field, value: a.value });
-    } else if (a.type === "scenario" && (a.value === 0 || a.value === 1 || a.value === 2)) {
+    } else if (a.type === "scenario" && isScenarioActionValue(a.value)) {
       out.push({ type: "scenario", value: a.value });
     }
   }

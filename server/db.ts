@@ -7,6 +7,7 @@
 import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
+import { positional, type SqlParam } from "./sqlParams.js";
 
 const dbPath = process.env.DATABASE_PATH || "./data/halokantor.db";
 fs.mkdirSync(path.dirname(path.resolve(dbPath)), { recursive: true });
@@ -311,18 +312,22 @@ db.exec("CREATE INDEX IF NOT EXISTS idx_quotes_assigned_to ON quotes(assigned_to
 
 /* ---------------- typed query helpers ---------------- */
 
-type Param = string | number | null | bigint | Uint8Array;
+type Param = SqlParam;
 
+// SQL shared with the Worker may use ?1, ?2 (server/sqlParams.ts).
 export function all<T = Record<string, unknown>>(sql: string, ...params: Param[]): T[] {
-  return db.prepare(sql).all(...params) as T[];
+  const q = positional(sql, params);
+  return db.prepare(q.sql).all(...q.params) as T[];
 }
 
 export function get<T = Record<string, unknown>>(sql: string, ...params: Param[]): T | undefined {
-  return db.prepare(sql).get(...params) as T | undefined;
+  const q = positional(sql, params);
+  return db.prepare(q.sql).get(...q.params) as T | undefined;
 }
 
 export function run(sql: string, ...params: Param[]) {
-  return db.prepare(sql).run(...params);
+  const q = positional(sql, params);
+  return db.prepare(q.sql).run(...q.params);
 }
 
 /** Runs fn inside a transaction, rolling back on any throw. */

@@ -169,7 +169,7 @@ Keluarkan HANYA JSON valid, tanpa teks lain dan tanpa backtick:
   {"type":"set","key":"step|months","value":50}
   {"type":"set","key":"includeLogistics","value":true}
   {"type":"item","no":3,"field":"qty|cogs|rrp|role","value":123}
-  {"type":"scenario","value":2}
+  {"type":"scenario","value":2}   (value = nomor skenario: 1 untuk S1, 2 untuk S2, 3 untuk S3)
 - followups: 2 sampai 3 pertanyaan lanjutan pendek.
 
 DATA QUOTATION:
