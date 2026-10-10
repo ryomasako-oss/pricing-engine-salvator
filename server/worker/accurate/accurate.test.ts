@@ -433,3 +433,91 @@ describe("Workers Free plan budget (Ryoma, 2026-10-06)", () => {
     expect(v("ACCURATE_CATALOG_ENTITY")).toBe("PT");
   });
 });
+
+describe("panel aggregates are cached (D1 daily read allowance exhausted 2026-10-10)", () => {
+  function setup() {
+    const { sqlite, db } = freshDb();
+    sqlite.exec(`INSERT INTO users(id, email, name, password_hash, role) VALUES (1, 'm@x', 'M', 'x', 'manager')`);
+    const app = new Hono<Env>();
+    app.use(async (c, next) => {
+      c.set("user", { id: 1, email: "m@x", name: "M", role: "manager" } as never);
+      await next();
+    });
+    app.route("/api/accurate", accurateRouter);
+    const env = { DB: db } as unknown as Env["Bindings"];
+    const getJson = async (p: string) => (await app.request(p, {}, env)).json() as Promise<any>;
+    const addItems = (entity: string, from: number, n: number, name = (i: number) => `Barang ${i}`) => {
+      for (let i = from; i < from + n; i++)
+        sqlite.exec(`INSERT INTO accurate_items(entity, accurate_id, code, name, uom, unit_price, run_id) VALUES ('${entity}', ${i}, 'C${i}', '${name(i)}', 'Pcs', 1000, 'r')`);
+    };
+    const addStock = (n: number, from: number) => {
+      for (let i = from; i < from + n; i++)
+        sqlite.exec(`INSERT INTO accurate_stock(entity, warehouse_id, item_code, quantity, run_id, synced_at) VALUES ('PT', 1, 'S${i}', -1, 'r', datetime('now'))`);
+    };
+    const ptItems = async (p = "/api/accurate/status") => (await getJson(p)).entities.find((e: any) => e.entity === "PT").items;
+    return { sqlite, getJson, addItems, addStock, ptItems };
+  }
+
+  it("/status recounts only after the TTL or with fresh=1, not on every poll", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-10T10:00:00Z"));
+    try {
+      const t = setup();
+      t.addItems("PT", 0, 3);
+      expect(await t.ptItems()).toBe(3);
+
+      t.addItems("PT", 3, 2);
+      expect(await t.ptItems()).toBe(3); // served from the cache: no recount
+      expect(await t.ptItems("/api/accurate/status?fresh=1")).toBe(5); // an action that changed data bypasses it
+
+      t.addItems("PT", 5, 1);
+      vi.setSystemTime(new Date("2026-10-10T10:04:00Z"));
+      expect(await t.ptItems()).toBe(5); // still inside the 5 minute TTL
+      vi.setSystemTime(new Date("2026-10-10T10:06:00Z"));
+      expect(await t.ptItems()).toBe(6); // expired: recounted
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("/status still reports the sync cursor live; only the counts are cached", async () => {
+    const t = setup();
+    expect((await t.getJson("/api/accurate/status")).entities.find((e: any) => e.entity === "PT").phase).toBe("idle");
+    t.sqlite.exec("UPDATE accurate_sync_state SET phase = 'stock', page = 7 WHERE entity = 'PT'");
+    const pt = (await t.getJson("/api/accurate/status")).entities.find((e: any) => e.entity === "PT");
+    expect(pt).toMatchObject({ phase: "stock", page: 7 });
+  });
+
+  it("/flags counts come from the cache until it expires or fresh=1", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-10T10:00:00Z"));
+    try {
+      const t = setup();
+      t.addStock(1, 0);
+      expect((await t.getJson("/api/accurate/flags?limit=1")).counts.negative_stock).toBe(1);
+      t.addStock(2, 10);
+      expect((await t.getJson("/api/accurate/flags?limit=1")).counts.negative_stock).toBe(1);
+      expect((await t.getJson("/api/accurate/flags?limit=1&fresh=1")).counts.negative_stock).toBe(3);
+      t.addStock(1, 20);
+      vi.setSystemTime(new Date("2026-10-10T10:11:00Z"));
+      expect((await t.getJson("/api/accurate/flags?limit=1")).counts.negative_stock).toBe(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("flags with no CV data skip the CV joins and report none; with CV data they still find mismatches", async () => {
+    const t = setup();
+    t.addItems("PT", 0, 2);
+    const none = await t.getJson("/api/accurate/flags?limit=5&fresh=1");
+    expect(none.crossEntityMismatch).toEqual([]);
+    expect(none.counts).toMatchObject({ overlapping_codes: 0, cross_entity_mismatch: 0 });
+
+    // CV row sharing PT's code C0 but with another name.
+    t.sqlite.exec(`INSERT INTO accurate_items(entity, accurate_id, code, name, uom, unit_price, run_id) VALUES ('CV', 99, 'C0', 'Nama lain', 'Pcs', 1000, 'r')`);
+    const some = await t.getJson("/api/accurate/flags?limit=5&fresh=1");
+    expect(some.counts).toMatchObject({ overlapping_codes: 1, cross_entity_mismatch: 1 });
+    expect(some.crossEntityMismatch).toHaveLength(1);
+    expect(some.crossEntityMismatch[0]).toMatchObject({ code: "C0", name_cv: "Nama lain", name_pt: "Barang 0" });
+  });
+});
