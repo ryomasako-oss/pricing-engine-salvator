@@ -256,12 +256,17 @@ export async function syncStep(
 
     if (client.movedTo) await save({ host: client.movedTo, host_checked_at: new Date().toISOString() });
 
+    // This tick got through without an exception: whatever failed before (a wrong token, a host
+    // that was down) is over. Without this the panel kept showing the old error until a whole run
+    // finished, which looked like the sync was still broken while it was making progress.
+    if (st.last_error) await save({ last_error: null, last_error_at: null });
+
     if (finished) {
       await batch(db, [
         stmt(db, "DELETE FROM accurate_items WHERE entity = ? AND run_id <> ?", entity, runId),
         stmt(db, "DELETE FROM accurate_stock WHERE entity = ? AND run_id <> ?", entity, runId),
       ]);
-      await save({ phase: "idle", page: 1, warehouse_idx: 0, last_success_at: new Date().toISOString(), last_error: null });
+      await save({ phase: "idle", page: 1, warehouse_idx: 0, last_success_at: new Date().toISOString(), last_error: null, last_error_at: null });
       return { entity, outcome: "finished", phase: "idle", calls: client.calls };
     }
     return { entity, outcome: "progress", phase: st.phase, calls: client.calls };
