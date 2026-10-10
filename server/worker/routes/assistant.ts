@@ -5,7 +5,7 @@ import { currentPolicy } from "../quoteService";
 import { DOCS } from "../../../shared/silvyDocs";
 import { zodMessage } from "../../validate";
 import { STAFF_ASSISTANT_DENIED, canSeeCosts } from "../../staffView";
-import { SILVY_BUSY_MESSAGE, SILVY_OFF_MESSAGE, askSchema, documentSchema, forwardToSilvy, silvyEnabled, type SilvyConfig } from "../../silvy";
+import { SILVY_BUSY_MESSAGE, SILVY_OFF_MESSAGE, askSchema, documentSchema, forwardToSilvy, silvyConfigFrom, silvyEnabled, type SilvyConfig } from "../../silvy";
 import { clientIp, type Bindings, type Env } from "../env";
 
 // Silvy (agent-service) menjawab; router ini hanya gerbangnya. Path tetap
@@ -22,12 +22,12 @@ assistantRouter.use(async (c, next) => {
   await next();
 });
 
-export const silvyConfig = (env: Pick<Bindings, "SILVY_URL" | "SILVY_SHARED_SECRET">): SilvyConfig => ({
-  url: env.SILVY_URL,
-  secret: env.SILVY_SHARED_SECRET,
-});
-export const assistantEnabled = (env: Pick<Bindings, "SILVY_URL" | "SILVY_SHARED_SECRET">): boolean =>
-  silvyEnabled(silvyConfig(env));
+type SilvyEnv = Pick<
+  Bindings,
+  "SILVY_URL" | "SILVY_SHARED_SECRET" | "SILVY_IAM_AUTH" | "GOOGLE_SERVICE_ACCOUNT_EMAIL" | "GOOGLE_PRIVATE_KEY"
+> & { SILVY_TOKEN_URL?: string };
+export const silvyConfig = (env: SilvyEnv): SilvyConfig => silvyConfigFrom(env);
+export const assistantEnabled = (env: SilvyEnv): boolean => silvyEnabled(silvyConfig(env));
 
 assistantRouter.get("/status", (c) => c.json({ enabled: assistantEnabled(c.env), model: "Silvy", docs: DOCS }));
 

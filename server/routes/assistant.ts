@@ -6,7 +6,7 @@ import { currentPolicy } from "../quoteService.js";
 import { DOCS } from "../../shared/silvyDocs.js";
 import { zodMessage } from "../validate.js";
 import { STAFF_ASSISTANT_DENIED, canSeeCosts } from "../staffView.js";
-import { SILVY_BUSY_MESSAGE, SILVY_OFF_MESSAGE, askSchema, documentSchema, forwardToSilvy, silvyEnabled, type SilvyConfig } from "../silvy.js";
+import { SILVY_BUSY_MESSAGE, SILVY_OFF_MESSAGE, askSchema, documentSchema, forwardToSilvy, silvyConfigFrom, silvyEnabled, type SilvyConfig } from "../silvy.js";
 
 // Silvy (agent-service) menjawab; router ini hanya gerbangnya. Path tetap
 // /api/assistant supaya panel di browser tidak berubah.
@@ -23,7 +23,7 @@ assistantRouter.use((req: AuthedRequest, res, next) => {
   next();
 });
 
-const silvyConfig = (): SilvyConfig => ({ url: process.env.SILVY_URL, secret: process.env.SILVY_SHARED_SECRET });
+const silvyConfig = (): SilvyConfig => silvyConfigFrom(process.env);
 export const assistantEnabled = (): boolean => silvyEnabled(silvyConfig());
 
 const askLimiter = rateLimit({
