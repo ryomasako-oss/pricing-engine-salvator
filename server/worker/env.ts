@@ -8,6 +8,8 @@ export interface Bindings {
   /* Silvy (agent-service). URL dasar dan rahasia bersama; set with `wrangler secret put SILVY_SHARED_SECRET`. */
   SILVY_URL?: string;
   SILVY_SHARED_SECRET?: string;
+  /* "true" = the agent is a private Cloud Run service: send a Google ID token minted with GOOGLE_SERVICE_ACCOUNT_*. */
+  SILVY_IAM_AUTH?: string;
   /* Reads PDF/photo request lists (server/ocr.ts). Set with `wrangler secret put GEMINI_API_KEY`. */
   GEMINI_API_KEY?: string;
   GEMINI_MODEL?: string;
