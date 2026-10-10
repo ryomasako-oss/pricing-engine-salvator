@@ -110,6 +110,29 @@ describe("syncStep", () => {
     expect(sqlite.prepare("SELECT host FROM accurate_sync_state").get()).toEqual({ host: "https://hera.accurate.id" });
   });
 
+  it("clears a stale error on the first tick that gets through, not only when a whole run ends", async () => {
+    const { sqlite, db } = freshDb();
+    const read = () => sqlite.prepare("SELECT phase, page, last_error, last_error_at FROM accurate_sync_state").get() as Record<string, unknown>;
+    const broken: typeof fetch = async () => new Response(JSON.stringify({ s: false, d: ["Invalid access token"] }), { status: 401 });
+    await syncStep(db, "CV", creds, cfg, { deadline: Date.now() + 5000, fetchImpl: broken, gapMs: 0 });
+    expect(read().last_error).toContain("Invalid access token");
+    expect(read().last_error_at).not.toBeNull();
+
+    // The token is fixed; a tight budget makes this tick progress without finishing the run.
+    const fake = fakeAccurate({ items: ITEMS, stock: { 1: [{ no: "A1", quantity: 1 }] } });
+    const r = await syncStep(db, "CV", creds, { ...cfg, callsPerTick: 2 }, { deadline: Date.now() + 5000, fetchImpl: fake.impl, gapMs: 0 });
+    expect(r.outcome).toBe("progress");
+    expect(read()).toMatchObject({ last_error: null, last_error_at: null });
+    expect(read().page).toBeGreaterThan(1);
+  });
+
+  it("a tick that errors again keeps reporting the new error", async () => {
+    const { sqlite, db } = freshDb();
+    const broken: typeof fetch = async () => new Response(JSON.stringify({ s: false, d: ["Invalid access token"] }), { status: 401 });
+    for (let i = 0; i < 2; i++) await syncStep(db, "CV", creds, cfg, { deadline: Date.now() + 5000, fetchImpl: broken, gapMs: 0 });
+    expect(sqlite.prepare("SELECT last_error FROM accurate_sync_state").get()).toEqual({ last_error: expect.stringContaining("Invalid access token") });
+  });
+
   it("records an error without losing the cursor", async () => {
     const { sqlite, db } = freshDb();
     const broken: typeof fetch = async () => new Response(JSON.stringify({ s: false, d: ["Invalid or Revoked API Token"] }), { status: 401 });
