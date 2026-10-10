@@ -26,3 +26,13 @@ export const DOCS: Record<string, { title: string; desc: string; prompt: string 
       "Buat catatan negosiasi (maksimal 250 kata): 3 argumen nilai yang bisa dipakai sales, item mana yang masih punya ruang turun harga beserta batas bawahnya menurut kebijakan, dan item mana yang tidak boleh diturunkan lagi. Sebut angka.",
   },
 };
+
+/**
+ * A scenario action names the scenario as shown to people and to the model:
+ * 1, 2, 3 for S1, S2, S3 (the editor turns it into the 0-based index). One
+ * list for the agent's filter and the editor, which once disagreed (0-2 vs
+ * 1-3) and so dropped every switch to S3.
+ */
+export const SCENARIO_ACTION_VALUES = [1, 2, 3] as const;
+export const isScenarioActionValue = (v: unknown): v is (typeof SCENARIO_ACTION_VALUES)[number] =>
+  (SCENARIO_ACTION_VALUES as readonly unknown[]).includes(v);
