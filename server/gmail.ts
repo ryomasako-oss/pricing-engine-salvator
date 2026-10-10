@@ -26,15 +26,15 @@ function toBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-function toBase64Url(bytes: Uint8Array): string {
+export function toBase64Url(bytes: Uint8Array): string {
   return toBase64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-function stringToBase64Url(s: string): string {
+export function stringToBase64Url(s: string): string {
   return toBase64Url(new TextEncoder().encode(s));
 }
 
-async function importPrivateKey(pem: string) {
+export async function importPrivateKey(pem: string) {
   const normalized = pem.replace(/\\n/g, "\n");
   const body = normalized
     .replace(/-----BEGIN PRIVATE KEY-----/, "")
