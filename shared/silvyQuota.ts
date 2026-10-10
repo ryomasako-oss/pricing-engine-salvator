@@ -2,10 +2,10 @@
    Silvy usage quota: the one control that actually stops spend.
    (A GCP budget only emails; the per-minute rate limit is not a cost cap.)
 
-   Every successful question or document already writes an audit row, so the
-   counters are just COUNT(*) over audit_log. Months and days are calendar
-   periods in WIB (UTC+7); audit_log.created_at is UTC text.
-   Pure functions here; each backend only runs the two COUNT queries.
+   Reserve each accepted question or document atomically in audit_log before
+   forwarding. Failed attempts count too: a failed response can still incur
+   model usage. Months and days are calendar periods in WIB (UTC+7);
+   audit_log.created_at is UTC text. Historical successful rows still count.
    ============================================================ */
 
 export interface QuotaLimits {
@@ -51,6 +51,29 @@ export const QUOTA_COUNT_SQL = {
   userDay:
     "SELECT COUNT(*) AS n FROM audit_log WHERE entity = 'assistant' AND action IN ('ask', 'document') AND actor_id = ? AND created_at >= ?",
 } as const;
+
+/** The cap check and reservation must be one write, including on D1. */
+export const QUOTA_RESERVE_SQL = `
+  INSERT INTO audit_log(actor_id, entity, entity_id, action, detail, created_at)
+  SELECT ?, 'assistant', 0, ?, ?, ?
+  WHERE (${QUOTA_COUNT_SQL.month}) < ?
+    AND (${QUOTA_COUNT_SQL.userDay}) < ?
+`;
+
+export function quotaReservationParams(
+  userId: number,
+  action: "ask" | "document",
+  detail: Record<string, unknown>,
+  limits: QuotaLimits,
+  now: Date,
+): (string | number)[] {
+  return [
+    userId, action, JSON.stringify({ ...detail, phase: "reserved" }), sql(now),
+    monthStartUtc(now), limits.monthly, userId, dayStartUtc(now), limits.perUserDay,
+  ];
+}
+
+export type QuotaReservation = { ok: true; id: number } | { ok: false; message: string };
 
 export type QuotaVerdict = { ok: true } | { ok: false; message: string };
 
