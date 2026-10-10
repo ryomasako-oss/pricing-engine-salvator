@@ -35,12 +35,22 @@ type ApiResult = { status: number; json: any };
 /** Stand-in for agent-service: records what the app forwards, answers on demand. */
 interface FakeAgent {
   url: string;
-  log: { path: string; secret: string | undefined; body: any }[];
+  log: { path: string; secret: string | undefined; authorization: string | undefined; body: any }[];
   /** Force a status (e.g. 401) instead of the normal success reply. */
   forceStatus: number | null;
   close(): Promise<void>;
 }
 const AGENT_SECRET = "parity-secret";
+
+/** One throwaway RSA key for the ID-token scenarios (shared by both drivers). */
+const { generateKeyPairSync } = await import("node:crypto");
+const IAM_KEYS = generateKeyPairSync("rsa", {
+  modulusLength: 2048,
+  privateKeyEncoding: { type: "pkcs8", format: "pem" },
+  publicKeyEncoding: { type: "spki", format: "pem" },
+});
+const IAM_EMAIL = "notify@parity.iam.gserviceaccount.com";
+const fakeIdToken = () => `h.${Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 })).toString("base64url")}.s`;
 
 async function makeFakeAgent(): Promise<FakeAgent> {
   const { createServer } = await import("node:http");
@@ -50,7 +60,15 @@ async function makeFakeAgent(): Promise<FakeAgent> {
     req.on("data", (c) => chunks.push(c));
     req.on("end", () => {
       const path = req.url ?? "";
-      agent.log.push({ path, secret: req.headers["x-silvy-secret"] as string | undefined, body: JSON.parse(Buffer.concat(chunks).toString() || "{}") });
+      const raw = Buffer.concat(chunks).toString();
+      if (path === "/token") {
+        // Stand-in for Google's token endpoint: the body is form-encoded, the reply carries an id_token.
+        agent.log.push({ path, secret: undefined, authorization: undefined, body: Object.fromEntries(new URLSearchParams(raw)) });
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ id_token: fakeIdToken() }));
+        return;
+      }
+      agent.log.push({ path, secret: req.headers["x-silvy-secret"] as string | undefined, authorization: req.headers.authorization, body: JSON.parse(raw || "{}") });
       const code = agent.forceStatus ?? 200;
       const payload = code !== 200 ? { error: "ditolak" } : path === "/silvy/ask" ? { answer: "ok", sources: ["summary"], actions: [], followups: [] } : { content: "## Briefing" };
       res.writeHead(code, { "content-type": "application/json" });
@@ -67,7 +85,9 @@ interface Driver {
   name: string;
   agent: FakeAgent;
   /** on = configured and reachable, off = not configured, down = configured but nothing listening. */
-  setSilvy(mode: "on" | "off" | "down"): void;
+  setSilvy(mode: "on" | "off" | "down" | "iam" | "iam-badkey"): void;
+  /** Set the Silvy spend caps (null = back to the defaults). */
+  setQuota(limits: { monthly?: number; perUserDay?: number } | null): void;
   api(method: string, routePath: string, opts?: { body?: unknown; session?: Session }): Promise<ApiResult>;
   login(email: string, password: string): Promise<Session>;
   seedUser(email: string, name: string, role: "rep" | "manager" | "admin", password: string): Promise<void>;
@@ -127,13 +147,25 @@ async function makeExpressDriver(): Promise<Driver> {
   return {
     name: "express",
     agent,
+    setQuota(l) {
+      for (const k of ["SILVY_MONTHLY_LIMIT", "SILVY_USER_DAILY_LIMIT"]) delete process.env[k];
+      if (l?.monthly) process.env.SILVY_MONTHLY_LIMIT = String(l.monthly);
+      if (l?.perUserDay) process.env.SILVY_USER_DAILY_LIMIT = String(l.perUserDay);
+    },
     setSilvy(mode) {
+      for (const k of ["SILVY_IAM_AUTH", "SILVY_TOKEN_URL", "GOOGLE_SERVICE_ACCOUNT_EMAIL", "GOOGLE_PRIVATE_KEY"]) delete process.env[k];
       if (mode === "off") {
         delete process.env.SILVY_URL;
         delete process.env.SILVY_SHARED_SECRET;
       } else {
-        process.env.SILVY_URL = mode === "on" ? agent.url : "http://127.0.0.1:1";
+        process.env.SILVY_URL = mode === "down" ? "http://127.0.0.1:1" : agent.url;
         process.env.SILVY_SHARED_SECRET = AGENT_SECRET;
+        if (mode === "iam" || mode === "iam-badkey") {
+          process.env.SILVY_IAM_AUTH = "true";
+          process.env.SILVY_TOKEN_URL = `${agent.url}/token`;
+          process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL = IAM_EMAIL;
+          process.env.GOOGLE_PRIVATE_KEY = mode === "iam" ? IAM_KEYS.privateKey : "not a key";
+        }
       }
     },
     async api(method, routePath, opts = {}) {
@@ -235,13 +267,25 @@ async function makeWorkerDriver(): Promise<Driver> {
   return {
     name: "worker",
     agent,
+    setQuota(l) {
+      for (const k of ["SILVY_MONTHLY_LIMIT", "SILVY_USER_DAILY_LIMIT"]) delete env[k];
+      if (l?.monthly) env.SILVY_MONTHLY_LIMIT = String(l.monthly);
+      if (l?.perUserDay) env.SILVY_USER_DAILY_LIMIT = String(l.perUserDay);
+    },
     setSilvy(mode) {
+      for (const k of ["SILVY_IAM_AUTH", "SILVY_TOKEN_URL", "GOOGLE_SERVICE_ACCOUNT_EMAIL", "GOOGLE_PRIVATE_KEY"]) delete env[k];
       if (mode === "off") {
         delete env.SILVY_URL;
         delete env.SILVY_SHARED_SECRET;
       } else {
-        env.SILVY_URL = mode === "on" ? agent.url : "http://127.0.0.1:1";
+        env.SILVY_URL = mode === "down" ? "http://127.0.0.1:1" : agent.url;
         env.SILVY_SHARED_SECRET = AGENT_SECRET;
+        if (mode === "iam" || mode === "iam-badkey") {
+          env.SILVY_IAM_AUTH = "true";
+          env.SILVY_TOKEN_URL = `${agent.url}/token`;
+          env.GOOGLE_SERVICE_ACCOUNT_EMAIL = IAM_EMAIL;
+          env.GOOGLE_PRIVATE_KEY = mode === "iam" ? IAM_KEYS.privateKey : "not a key";
+        }
       }
     },
     async api(method, routePath, opts = {}) {
@@ -2648,6 +2692,112 @@ scenario("Silvy: agent rejecting the secret is reported as a config problem (502
   d.agent.forceStatus = null;
   assert.equal(ask.status, 502);
   return { status: ask.status, error: ask.json.error };
+});
+
+scenario("Silvy IAM: a private agent gets an ID token for its own URL plus the secret", async (d) => {
+  d.setSilvy("iam");
+  d.agent.log.length = 0;
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const r = await d.api("POST", "/api/assistant/ask", { body: askBody("halo"), session: manager });
+  d.setSilvy("on");
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  const ask = d.agent.log.find((l) => l.path === "/silvy/ask")!;
+  const mint = d.agent.log.find((l) => l.path === "/token")!;
+  assert.ok(ask.authorization?.startsWith("Bearer h."), "the agent call carries the minted ID token");
+  assert.equal(ask.secret, AGENT_SECRET, "the shared secret is still sent");
+  const claims = JSON.parse(Buffer.from(mint.body.assertion.split(".")[1], "base64url").toString());
+  assert.equal(claims.target_audience, d.agent.url, "audience is the agent URL");
+  assert.equal(claims.iss, IAM_EMAIL);
+  assert.equal(claims.sub, IAM_EMAIL);
+  assert.equal(claims.scope, undefined, "an ID-token request must not ask for a scope");
+  return {
+    status: r.status,
+    answer: r.json.answer,
+    bearer: ask.authorization!.startsWith("Bearer "),
+    secretSent: ask.secret === AGENT_SECRET,
+    audienceIsAgent: claims.target_audience === d.agent.url,
+    iss: claims.iss,
+    sub: claims.sub,
+    hasScope: claims.scope !== undefined,
+    grant: mint.body.grant_type,
+  };
+});
+
+scenario("Silvy IAM: without the flag no authorization header is sent", async (d) => {
+  d.setSilvy("on");
+  d.agent.log.length = 0;
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const r = await d.api("POST", "/api/assistant/ask", { body: askBody("halo"), session: manager });
+  assert.equal(r.status, 200);
+  assert.equal(d.agent.log.length, 1);
+  assert.equal(d.agent.log[0].authorization, undefined);
+  return { status: r.status, authorization: d.agent.log[0].authorization ?? null };
+});
+
+scenario("Silvy IAM: a key that cannot sign is a 502 and the agent is never called", async (d) => {
+  // Tokens are cached per audience, so an earlier scenario's token would hide the bad key.
+  (await import("../server/googleIdToken.js")).clearIdTokenCache();
+  d.setSilvy("iam-badkey");
+  d.agent.log.length = 0;
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const r = await d.api("POST", "/api/assistant/ask", { body: askBody("halo"), session: manager });
+  d.setSilvy("on");
+  assert.equal(r.status, 502);
+  assert.equal(d.agent.log.filter((l) => l.path === "/silvy/ask").length, 0);
+  return { status: r.status, error: r.json.error };
+});
+
+scenario("Silvy IAM: Cloud Run's 403 (no run.invoker) is reported as a permission problem", async (d) => {
+  d.setSilvy("iam");
+  d.agent.forceStatus = 403;
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const r = await d.api("POST", "/api/assistant/ask", { body: askBody("halo"), session: manager });
+  d.agent.forceStatus = null;
+  d.setSilvy("on");
+  assert.equal(r.status, 502);
+  assert.match(String(r.json.error), /run\.invoker/);
+  return { status: r.status, error: r.json.error };
+});
+
+scenario("Silvy quota: a per-user daily cap blocks before the agent is called, and only that user", async (d) => {
+  d.setSilvy("on");
+  d.setQuota({ perUserDay: 1 });
+  d.agent.log.length = 0;
+  const admin = await loginCached(d, "admin@test.local", "password123");
+  const first = await d.api("POST", "/api/assistant/ask", { body: askBody("satu"), session: admin });
+  const second = await d.api("POST", "/api/assistant/ask", { body: askBody("dua"), session: admin });
+  const docBlocked = await d.api("POST", "/api/assistant/document", { body: { ...askBody(), kind: "risk", messages: undefined }, session: admin });
+  const callsAfter = d.agent.log.filter((l) => l.path.startsWith("/silvy/")).length;
+  d.setQuota(null);
+  assert.equal(first.status, 200, JSON.stringify(first.json));
+  assert.equal(second.status, 429);
+  assert.equal(docBlocked.status, 429, "documents share the same cap");
+  assert.equal(callsAfter, 1, "blocked requests never reach the agent");
+  return { first: first.status, second: second.status, doc: docBlocked.status, error: second.json.error, calls: callsAfter };
+});
+
+scenario("Silvy quota: the monthly cap blocks everyone before the agent is called", async (d) => {
+  d.setSilvy("on");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  d.setQuota({ monthly: 1 });
+  d.agent.log.length = 0;
+  const before = (await d.api("GET", "/api/quotes", { session: manager })).status; // sanity: session is valid
+  const r = await d.api("POST", "/api/assistant/ask", { body: askBody("halo"), session: manager });
+  d.setQuota(null);
+  assert.equal(before, 200);
+  assert.equal(r.status, 429);
+  assert.match(String(r.json.error), /bulan ini sudah habis/);
+  assert.equal(d.agent.log.length, 0);
+  return { status: r.status, error: r.json.error };
+});
+
+scenario("Silvy quota: back under the cap, questions work again", async (d) => {
+  d.setSilvy("on");
+  d.setQuota(null);
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const r = await d.api("POST", "/api/assistant/ask", { body: askBody("lagi"), session: manager });
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  return { status: r.status };
 });
 
 scenario("Silvy: status lists the documents Silvy can write", async (d) => {

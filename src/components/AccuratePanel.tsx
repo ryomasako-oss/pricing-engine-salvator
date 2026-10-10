@@ -2,7 +2,7 @@
    "sync now" button, data-quality flags, and the explicit step that copies
    one entity's selling prices and stock into the catalog. */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { useToast } from "../context/ToastContext";
 import { Icon } from "./Icon";
@@ -37,6 +37,8 @@ interface Flags {
   };
 }
 
+const STATUS_POLL_MS = 20_000;
+
 const PHASE: Record<EntityStatus["phase"], string> = {
   idle: "Siap",
   items: "Menarik barang",
@@ -51,27 +53,49 @@ export function AccuratePanel({ onApplied }: { onApplied: () => void }) {
   const [flags, setFlags] = useState<Flags | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
-  const load = useCallback(() => {
+  // `fresh` skips the server's short cache; use it only right after an action that changed the data.
+  const loadStatus = useCallback((fresh = false) => {
     api
-      .get<{ entities: EntityStatus[]; catalogEntity?: Entity }>("/accurate/status")
+      .get<{ entities: EntityStatus[]; catalogEntity?: Entity }>(`/accurate/status${fresh ? "?fresh=1" : ""}`)
       .then((r) => {
         setEntities(r.entities);
         if (r.catalogEntity) setCatalogEntity(r.catalogEntity);
       })
       .catch(() => setEntities(null));
-    api.get<Flags>("/accurate/flags?limit=1").then(setFlags).catch(() => undefined);
   }, []);
+  const loadFlags = useCallback((fresh = false) => {
+    api.get<Flags>(`/accurate/flags?limit=1${fresh ? "&fresh=1" : ""}`).then(setFlags).catch(() => undefined);
+  }, []);
+  const load = useCallback(
+    (fresh = false) => {
+      loadStatus(fresh);
+      loadFlags(fresh);
+    },
+    [loadStatus, loadFlags],
+  );
 
   useEffect(() => {
     load();
   }, [load]);
 
-  // Poll while a run is in progress so the counters move.
+  // Poll the (cheap) status while a run is in progress so the counters move, and only while this tab is
+  // visible. The data-quality flags are heavy aggregates over the whole catalogue: they are loaded on
+  // open, after an action, and once when a run finishes, never on a timer. A panel left open on a
+  // second screen used to read millions of rows a day and exhaust D1's daily allowance.
+  const running = !!entities?.some((e) => e.phase !== "idle");
   useEffect(() => {
-    if (!entities?.some((e) => e.phase !== "idle")) return;
-    const t = setInterval(load, 15000);
+    if (!running) return;
+    const t = setInterval(() => {
+      if (!document.hidden) loadStatus();
+    }, STATUS_POLL_MS);
     return () => clearInterval(t);
-  }, [entities, load]);
+  }, [running, loadStatus]);
+
+  const wasRunning = useRef(false);
+  useEffect(() => {
+    if (wasRunning.current && !running) load(true);
+    wasRunning.current = running;
+  }, [running, load]);
 
   if (!entities) return null;
   const configured = entities.filter((e) => e.configured);
@@ -90,7 +114,7 @@ export function AccuratePanel({ onApplied }: { onApplied: () => void }) {
       toast((e as Error).message, "error");
     } finally {
       setBusy(null);
-      load();
+      load(true);
     }
   };
 
@@ -114,7 +138,7 @@ export function AccuratePanel({ onApplied }: { onApplied: () => void }) {
       toast((e as Error).message, "error");
     } finally {
       setBusy(null);
-      load();
+      load(true);
     }
   };
 
