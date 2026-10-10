@@ -12,28 +12,14 @@
    ============================================================ */
 
 import { DatabaseSync } from "node:sqlite";
+// D1 binds ?1-style placeholders by position; node:sqlite before 22.15 does not (server/sqlParams.ts).
+import { positional } from "../server/sqlParams";
 
 type Param = string | number | null | boolean;
 
 function bindable(params: Param[]) {
   // SQLite has no boolean type; D1's client accepts booleans and stores 0/1.
   return params.map((p) => (typeof p === "boolean" ? (p ? 1 : 0) : p));
-}
-
-/**
- * D1 binds ?1-style numbered placeholders by position, but node:sqlite's
- * handling of them varies across Node versions. A statement that uses only
- * numbered placeholders is rewritten to plain ?s with the values repeated in
- * order, which every version binds the same way.
- */
-function positional(sql: string, params: Param[]): { sql: string; params: Param[] } {
-  if (!/\?\d/.test(sql) || /\?(?!\d)/.test(sql)) return { sql, params };
-  const out: Param[] = [];
-  const rewritten = sql.replace(/\?(\d+)/g, (_, n: string) => {
-    out.push(params[Number(n) - 1]);
-    return "?";
-  });
-  return { sql: rewritten, params: out };
 }
 
 /** Like D1, run() returns a query's rows too (a SELECT inside batch() gives its results). */

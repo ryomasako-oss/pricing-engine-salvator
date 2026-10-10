@@ -35,6 +35,8 @@ const KIND_BADGE: Record<FixKind, string> = {
   cogs_held: "amber",
   unit_unknown: "amber",
   sales_rejected: "blue",
+  accurate_check: "blue",
+  new_item: "amber",
 };
 
 export function FixTasksPage() {
@@ -148,12 +150,19 @@ export function FixTasksPage() {
                         {r.item_name}
                         {r.qty ? <span className="muted"> · {grp(r.qty)} {r.uom}</span> : null}
                       </strong>
-                      <div className="muted small">
-                        {r.code && <>{r.code} · </>}
-                        {r.quote_number ?? "—"}
-                        {r.client_name && <> · {r.client_name}</>}
-                        {r.created_by_name && <> · dicatat {r.created_by_name}</>}
-                      </div>
+                      {r.kind !== "accurate_check" && (
+                        <div className="muted small">
+                          {r.code}
+                          {r.quote_id && (
+                            <>
+                              {r.code && " · "}
+                              {r.quote_number ?? "—"}
+                              {r.client_name && <> · {r.client_name}</>}
+                              {r.created_by_name && <> · dicatat {r.created_by_name}</>}
+                            </>
+                          )}
+                        </div>
+                      )}
                       <div className="small">{r.detail}</div>
                       {status === "open" ? (
                         <div className="muted small">{FIX_KINDS[r.kind].todo}</div>

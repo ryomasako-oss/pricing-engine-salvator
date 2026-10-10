@@ -6,6 +6,7 @@ import { Icon } from "../components/Icon";
 import { Modal } from "../components/Modal";
 import { ImportDialog } from "../components/ImportDialog";
 import { AccuratePanel } from "../components/AccuratePanel";
+import { PendingItemsPanel } from "../components/PendingItemsPanel";
 import { fmtDateTime, grp } from "@shared/format";
 import type { CatalogItem, UnitFactor } from "@shared/types";
 import { cleanUnits, sameUom } from "@shared/uom";
@@ -184,6 +185,8 @@ export function CatalogPage() {
           </div>
         </div>
       )}
+
+      {can("edit_catalog") && <PendingItemsPanel />}
 
       {can("import_catalog") && <AccuratePanel onApplied={load} />}
 

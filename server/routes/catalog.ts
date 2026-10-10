@@ -17,6 +17,7 @@ import {
 } from "../catalogMatch.js";
 import { VERIFY_COGS_SQL, cogsCheckInput, withProblems } from "../cogsCheck.js";
 import { cogsProblemsFor } from "../quoteService.js";
+import { sweepPending } from "./pendingItems.js";
 import { canSeeCosts, catalogItemsForViewer, problemsForViewer } from "../staffView.js";
 import { cleanUnits, type ItemUnits } from "../../shared/uom.js";
 import type { CatalogItem, UnitFactor } from "../../shared/types.js";
@@ -309,6 +310,8 @@ catalogRouter.post("/import", requirePermission("import_catalog"), (req: AuthedR
   });
 
   audit(req.user!.id, "catalog", 0, "imported", { ...result, source, mode, rows: rows.length });
+  // Barang baru requests whose code this import brought into the catalog are linked, and their tasks closed.
+  sweepPending();
   res.json({ ...result, total: rows.length });
 });
 

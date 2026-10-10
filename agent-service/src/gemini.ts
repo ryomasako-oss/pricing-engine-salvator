@@ -1,128 +1,139 @@
 /* ============================================================
-   Gemini client — LLM provider untuk agent service.
+   Gemini client — satu-satunya pintu ke LLM untuk Silvy.
 
-   Mengapa Gemini vs Anthropic (yang dipakai app utama):
-   - Harga jauh lebih murah untuk workload agent yang tidak perlu
-     reasoning mendalam seperti Claude.
-   - App utama tetap pakai Anthropic (ANTHROPIC_API_KEY); agent
-     service pakai Gemini (GEMINI_API_KEY). Mereka independen.
+   Semua panggilan Gemini lewat sini. Kalau nanti pindah dari Google
+   AI Studio ke Vertex AI, hanya endpoint dan autentikasi di berkas
+   ini yang berubah.
    ============================================================ */
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 
-export interface GeminiCandidate {
-  text: string;
-  /** Apakah candidate ini tampak mengandung JSON (di-extract dari markdown code fence atau brace pair). */
-  isJSON: boolean;
+/** Model default: sudah dites hidup di key Salvator. Ganti lewat GEMINI_MODEL. */
+export const DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite";
+
+export type GeminiRole = "user" | "model";
+export interface GeminiMessage {
+  role: GeminiRole;
+  content: string;
+}
+
+export interface GeminiOptions {
+  model?: string;
+  temperature?: number;
+  maxOutputTokens?: number;
+  /** Paksa keluaran JSON valid (responseMimeType). */
+  json?: boolean;
+}
+
+/** Galat Gemini dengan pesan yang bisa dibaca orang kantor. */
+export class GeminiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "GeminiError";
+  }
+}
+
+/**
+ * Key dari .env sering membawa tanda kutip, CR, atau komentar di
+ * belakangnya. Ambil token pertama saja.
+ */
+export function cleanApiKey(raw: string | undefined): string {
+  return (raw ?? "").replace(/["'\r]/g, "").trim().split(/\s+/)[0] ?? "";
+}
+
+export function describeGeminiHttp(status: number, body: string): string {
+  if (status === 400 && /API key not valid|API_KEY_INVALID/i.test(body))
+    return "Kunci Gemini ditolak. Periksa GEMINI_API_KEY di server.";
+  if (status === 401 || status === 403)
+    return "Gemini menolak akses. Periksa GEMINI_API_KEY dan pastikan billing project-nya aktif.";
+  if (status === 404) return "Model Gemini tidak ditemukan. Periksa GEMINI_MODEL.";
+  if (status === 429) return "Silvy sedang kena batas pemakaian Gemini. Coba lagi sebentar lagi.";
+  if (status >= 500) return "Layanan Gemini sedang bermasalah. Coba lagi nanti.";
+  return `Gemini mengembalikan error ${status}.`;
+}
+
+interface GeminiResponse {
+  candidates?: Array<{ content?: { parts?: Array<{ text?: string; thought?: boolean }> }; finishReason?: string }>;
+  promptFeedback?: { blockReason?: string };
 }
 
 export class GeminiClient {
-  private apiKey: string;
+  private readonly apiKey: string;
+  readonly model: string;
 
-  constructor(apiKey: string) {
-    if (!apiKey) throw new Error("GEMINI_API_KEY wajib diisi");
-    this.apiKey = apiKey;
+  constructor(apiKey: string, model?: string) {
+    this.apiKey = cleanApiKey(apiKey);
+    if (!this.apiKey) throw new Error("GEMINI_API_KEY wajib diisi");
+    this.model = (model ?? "").trim() || DEFAULT_GEMINI_MODEL;
   }
 
-  /**
-   * Call Gemini dengan model tertentu, system prompt, dan daftar messages.
-   * Default model: gemini-2.0-flash (cepat, murah, cukup untuk task agent).
-   * Maksimal ~8000 token input untuk flash.
-   */
-  async chat(model: string, system: string, messages: { role: "user" | "model"; content: string }[]): Promise<string> {
-    if (!this.apiKey) throw new Error("Gemini tidak terkonfigurasi");
-    const url = `${GEMINI_API_BASE}/models/${model}:generateContent?key=${this.apiKey}`;
-
-    const contents = messages.map((m) => ({
-      role: m.role === "model" ? "model" : "user",
-      parts: [{ text: m.content }],
-    }));
-
-    const body: object = {
-      contents,
+  /** Kirim percakapan, kembalikan teks jawaban. */
+  async chat(system: string, messages: GeminiMessage[], opts: GeminiOptions = {}): Promise<string> {
+    const model = opts.model ?? this.model;
+    const body = {
+      systemInstruction: { parts: [{ text: system }] },
+      contents: messages.map((m) => ({ role: m.role, parts: [{ text: m.content }] })),
       generationConfig: {
-        temperature: 0.3,
-        topK: 4,
-        topP: 0.95,
-        maxOutputTokens: 4096,
+        temperature: opts.temperature ?? 0.3,
+        maxOutputTokens: opts.maxOutputTokens ?? 2000,
+        ...(opts.json ? { responseMimeType: "application/json" } : {}),
       },
-      safetySettings: [
-        { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
-        { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-        { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-        { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-      ],
     };
 
-    // Gemini tidak punya field "system" eksplisit di generateContent; kita
-    // prepend system prompt sebagai pesan pertama dengan role "user" dan
-    // prefix "[system] " — pola yang umum dipakai saat integrasi langsung.
-    const prefixedContents: object[] = [
-      { role: "user", parts: [{ text: `[system]\n${system}` }] },
-      ...contents,
-    ];
-
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contents: prefixedContents, ...body }),
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${GEMINI_API_BASE}/models/${encodeURIComponent(model)}:generateContent`, {
+        method: "POST",
+        // Key lewat header, bukan query string, supaya tidak bocor ke log URL.
+        headers: { "Content-Type": "application/json", "x-goog-api-key": this.apiKey },
+        body: JSON.stringify(body),
+      });
+    } catch {
+      throw new GeminiError("Tidak bisa menghubungi Gemini. Periksa koneksi internet server.", 503);
+    }
 
     if (!res.ok) {
       const errText = await res.text().catch(() => "");
-      throw new Error(`Gemini API ${res.status}: ${errText.slice(0, 500)}`);
+      throw new GeminiError(describeGeminiHttp(res.status, errText), res.status);
     }
 
-    const json = (await res.json()) as { candidates?: Array<{ content: { parts: Array<{ text: string }> } }>; promptFeedback?: { blockReason?: string } };
-    if (!json.candidates || json.candidates.length === 0) {
-      const reason = json.promptFeedback?.blockReason ?? "unknown";
-      throw new Error(`Gemini tidak mengembalikan candidate (blockReason: ${reason})`);
+    const json = (await res.json()) as GeminiResponse;
+    const parts = json.candidates?.[0]?.content?.parts;
+    if (!parts?.length) {
+      const reason = json.promptFeedback?.blockReason ?? json.candidates?.[0]?.finishReason ?? "unknown";
+      throw new GeminiError(`Gemini tidak mengembalikan jawaban (${reason}).`, 502);
     }
-
-    const text = json.candidates
-      .map((c) => c.content.parts.map((p) => p.text).join(""))
-      .join("\n\n");
-
-    return text;
-  }
-
-  /**
-   * Variasi chat yang hanya mengambil teks pertama dan trim.
-   */
-  async chatText(model: string, system: string, messages: { role: "user" | "model"; content: string }[]): Promise<string> {
-    const raw = await this.chat(model, system, messages);
-    return raw.trim();
-  }
-
-  /**
-   * Extract JSON dari respons Gemini. Model sering membungkus output
-   * dalam markdown code fence atau teks prosa; fungsi ini mencoba
-   * beberapa strategi: JSON fence, brace pair, dan parse langsung.
-   */
-  extractJSON(raw: string): Record<string, unknown> | null {
-    const cleaned = raw.replace(/```json|```/g, "").trim();
-    try {
-      return JSON.parse(cleaned) as Record<string, unknown>;
-    } catch {
-      // fall through
-    }
-    const start = cleaned.indexOf("{");
-    const end = cleaned.lastIndexOf("}");
-    if (start >= 0 && end > start) {
-      try {
-        return JSON.parse(cleaned.slice(start, end + 1)) as Record<string, unknown>;
-      } catch {
-        return null;
-      }
-    }
-    return null;
+    return parts
+      .filter((p) => !p.thought)
+      .map((p) => p.text ?? "")
+      .join("")
+      .trim();
   }
 }
 
-/** Model Gemini yang tersedia untuk agent. Flash lebih murah dan cepat. */
-export const GEMINI_MODELS = {
-  flash: "gemini-2.0-flash",
-  flashLite: "gemini-2.0-flash-lite",
-} as const;
-
-export type GeminiModel = keyof typeof GEMINI_MODELS;
+/**
+ * Ambil objek JSON dari keluaran model. Model kadang membungkusnya
+ * dengan code fence atau prosa; coba parse langsung, lalu potong
+ * dari kurung kurawal pertama sampai terakhir.
+ */
+export function extractJSON(raw: string): Record<string, unknown> | null {
+  const cleaned = String(raw || "").replace(/```json|```/g, "").trim();
+  try {
+    return JSON.parse(cleaned) as Record<string, unknown>;
+  } catch {
+    /* coba potong */
+  }
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start >= 0 && end > start) {
+    try {
+      return JSON.parse(cleaned.slice(start, end + 1)) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}

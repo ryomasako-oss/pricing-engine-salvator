@@ -4,7 +4,7 @@
 import * as XLSX from "xlsx";
 import { SCENARIOS } from "@shared/engine";
 import { paymentLabel, warrantyLabel } from "@shared/terms";
-import { heldNote, offeredRows } from "@shared/holds";
+import { heldNote, holdInfo, offeredRows } from "@shared/holds";
 import { docColumns } from "@shared/docColumns";
 import type { Assumptions, EngineResult, QuoteMeta, ScenarioIndex } from "@shared/types";
 
@@ -94,7 +94,7 @@ export function quoteWorkbook(input: Input): XLSX.WorkBook {
   /* Internal analysis */
   const analysis = engine.rows.map((r) => ({
     No: r.lineNo,
-    Ditahan: r.held ? (r.holdReason === "sales" ? "Ya (ditolak sales, menyusul)" : "Ya (COGS perlu dicek)") : "",
+    Ditahan: r.held ? holdInfo(r.holdReason).sheet : "",
     Item: r.name,
     Satuan: r.uom,
     Qty: r.qty,

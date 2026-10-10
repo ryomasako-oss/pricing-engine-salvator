@@ -7,6 +7,7 @@
 import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
+import { positional, type SqlParam } from "./sqlParams.js";
 
 const dbPath = process.env.DATABASE_PATH || "./data/halokantor.db";
 fs.mkdirSync(path.dirname(path.resolve(dbPath)), { recursive: true });
@@ -238,6 +239,26 @@ CREATE TABLE IF NOT EXISTS fix_tasks (
 CREATE UNIQUE INDEX IF NOT EXISTS ux_fix_tasks_open ON fix_tasks(dedupe) WHERE status = 'open';
 CREATE INDEX IF NOT EXISTS idx_fix_tasks_status ON fix_tasks(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_fix_tasks_quote ON fix_tasks(quote_id);
+
+-- Mirrors migrations/0015_pending_items.sql.
+CREATE TABLE IF NOT EXISTS pending_items (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  code           TEXT NOT NULL,
+  name           TEXT NOT NULL,
+  uom            TEXT NOT NULL DEFAULT 'Pcs',
+  proposed_price REAL NOT NULL DEFAULT 0,
+  note           TEXT NOT NULL DEFAULT '',
+  status         TEXT NOT NULL DEFAULT 'draft',
+  requested_by   INTEGER REFERENCES users(id),
+  created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+  submitted_by   INTEGER REFERENCES users(id),
+  submitted_at   TEXT,
+  linked_at      TEXT
+);
+-- One live request per code, however it is spelled.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_pending_items_live_code
+  ON pending_items(lower(trim(code))) WHERE status IN ('draft', 'submitted');
+CREATE INDEX IF NOT EXISTS idx_pending_items_status ON pending_items(status, created_at);
 `);
 
 // Mirrors migrations/0010_cogs_reference_by_manager.sql: the reference COGS
@@ -291,18 +312,22 @@ db.exec("CREATE INDEX IF NOT EXISTS idx_quotes_assigned_to ON quotes(assigned_to
 
 /* ---------------- typed query helpers ---------------- */
 
-type Param = string | number | null | bigint | Uint8Array;
+type Param = SqlParam;
 
+// SQL shared with the Worker may use ?1, ?2 (server/sqlParams.ts).
 export function all<T = Record<string, unknown>>(sql: string, ...params: Param[]): T[] {
-  return db.prepare(sql).all(...params) as T[];
+  const q = positional(sql, params);
+  return db.prepare(q.sql).all(...q.params) as T[];
 }
 
 export function get<T = Record<string, unknown>>(sql: string, ...params: Param[]): T | undefined {
-  return db.prepare(sql).get(...params) as T | undefined;
+  const q = positional(sql, params);
+  return db.prepare(q.sql).get(...q.params) as T | undefined;
 }
 
 export function run(sql: string, ...params: Param[]) {
-  return db.prepare(sql).run(...params);
+  const q = positional(sql, params);
+  return db.prepare(q.sql).run(...q.params);
 }
 
 /** Runs fn inside a transaction, rolling back on any throw. */

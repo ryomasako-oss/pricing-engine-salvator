@@ -10,9 +10,9 @@ export function ChatDock() {
   return (
     <div className="no-print">
       {open && (
-        <section className="chat-dock card" aria-label="Chat dengan Salvi">
+        <section className="chat-dock card" aria-label="Chat dengan Silvy">
           <div className="card-head">
-            <h2>Salvi · asisten penawaran</h2>
+            <h2>Silvy · asisten penawaran</h2>
             <div className="row" style={{ gap: 6 }}>
               {messages.length > 0 && (
                 <button className="btn small ghost" onClick={reset} disabled={busy}>Baru</button>
@@ -28,7 +28,7 @@ export function ChatDock() {
       <button
         className={`chat-fab ${open ? "on" : ""}`}
         onClick={() => setOpen(!open)}
-        aria-label={open ? "Tutup chat" : "Buka chat dengan Salvi"}
+        aria-label={open ? "Tutup chat" : "Buka chat dengan Silvy"}
         aria-expanded={open}
       >
         <Icon name={open ? "x" : "send"} size={20} />

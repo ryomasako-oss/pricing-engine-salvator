@@ -1,17 +1,18 @@
 /* ============================================================
-   Builds the grounding context and system prompt for the pricing
-   assistant. Everything the model is allowed to assert comes from
-   here, so the prompt can insist on "no numbers outside this block".
+   Struktur pengetahuan Silvy, dipindah dari asisten Claude lama
+   (server/assistantContext.ts). Semua yang boleh Silvy sebut
+   berasal dari blok data ini, jadi prompt bisa menegaskan
+   "tidak ada angka di luar blok ini".
    ============================================================ */
 
-import { SCENARIOS, computeEngine } from "../shared/engine.js";
-import { evaluatePolicy } from "../shared/policy.js";
-import { grp, pct } from "../shared/format.js";
+import { SCENARIOS, computeEngine } from "../../../shared/engine.js";
+import { evaluatePolicy } from "../../../shared/policy.js";
+import { grp, pct } from "../../../shared/format.js";
 import type {
   PricingPolicy,
   QuoteSnapshot,
   ScenarioIndex,
-} from "../shared/types.js";
+} from "../../../shared/types.js";
 
 export const RULES_TEXT = `Definisi engine:
 - Landed cost = COGS x (1 + opex + logistik bila dinyalakan). Target price = landed / (1 - target margin).
@@ -147,7 +148,7 @@ export function buildContext({
 }
 
 export const chatSystem = (ctx: string): string =>
-  `Kamu asisten pricing di aplikasi Pricing Engine Salvator (PT Salvator Inti Pratama, distributor ATK B2B). Aplikasi ini menyusun quotation kontrak dengan 3 skenario: S1 Full Margin, S2 Cross Subsidise, S3 RRP Discount. RRP adalah harga plafon klien.
+  `Kamu Silvy, asisten pricing di aplikasi Pricing Engine Salvator (PT Salvator Inti Pratama, distributor ATK B2B). Aplikasi ini menyusun quotation kontrak dengan 3 skenario: S1 Full Margin, S2 Cross Subsidise, S3 RRP Discount. RRP adalah harga plafon klien.
 
 ${RULES_TEXT}
 
@@ -168,43 +169,18 @@ Keluarkan HANYA JSON valid, tanpa teks lain dan tanpa backtick:
   {"type":"set","key":"step|months","value":50}
   {"type":"set","key":"includeLogistics","value":true}
   {"type":"item","no":3,"field":"qty|cogs|rrp|role","value":123}
-  {"type":"scenario","value":2}
+  {"type":"scenario","value":2}   (value = nomor skenario: 1 untuk S1, 2 untuk S2, 3 untuk S3)
 - followups: 2 sampai 3 pertanyaan lanjutan pendek.
 
 DATA QUOTATION:
 ${ctx}`;
 
 export const docSystem = (ctx: string): string =>
-  `Kamu analis pricing Halokantor (PT Salvator Inti Pratama). Tulis dokumen dari DATA QUOTATION saja, jangan mengarang angka.
+  `Kamu Silvy, analis pricing Halokantor (PT Salvator Inti Pratama). Tulis dokumen dari DATA QUOTATION saja, jangan mengarang angka.
 ${RULES_TEXT}
 Format: markdown sederhana. Pakai "## " untuk judul bagian, "- " untuk poin, **tebal**, dan ==angka== untuk angka kunci. Jangan keluarkan JSON. Bahasa Indonesia yang rapi dan singkat.
 
 DATA QUOTATION:
 ${ctx}`;
 
-export const DOCS: Record<string, { title: string; desc: string; prompt: string }> = {
-  briefing: {
-    title: "Briefing untuk atasan",
-    desc: "Ringkasan satu halaman, siap diteruskan",
-    prompt:
-      "Tulis briefing untuk atasan (maksimal 230 kata): satu paragraf ringkasan, lalu satu bagian per skenario dengan angka kunci, lalu bagian risiko, lalu 2 sampai 3 keputusan yang perlu diambil.",
-  },
-  faq: {
-    title: "FAQ tim sales",
-    desc: "Pertanyaan procurement dan jawabannya",
-    prompt:
-      "Buat 5 tanya jawab yang kemungkinan ditanyakan procurement klien atau tim sales tentang penawaran ini (maksimal 260 kata). Tiap pertanyaan sebagai judul '## ', jawaban 1 sampai 3 kalimat berbasis data.",
-  },
-  risk: {
-    title: "Cek risiko harga",
-    desc: "Item dan asumsi yang rawan",
-    prompt:
-      "Buat daftar risiko harga (maksimal 230 kata): item yang mentok di RRP, item margin tipis atau di bawah modal, ketergantungan subsidi S2 pada volume item profit, COGS estimasi, dan pelanggaran kebijakan. Urutkan dari yang paling berdampak, sebut angka.",
-  },
-  negotiation: {
-    title: "Amunisi negosiasi",
-    desc: "Argumen dan batas bawah per item",
-    prompt:
-      "Buat catatan negosiasi (maksimal 250 kata): 3 argumen nilai yang bisa dipakai sales, item mana yang masih punya ruang turun harga beserta batas bawahnya menurut kebijakan, dan item mana yang tidak boleh diturunkan lagi. Sebut angka.",
-  },
-};
+export { DOCS } from "../../../shared/silvyDocs.js";

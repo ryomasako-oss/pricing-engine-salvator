@@ -24,6 +24,7 @@ import { ocrRouter } from "./routes/ocr.js";
 import { chatRouter } from "./routes/chat.js";
 import { settingsRouter } from "./routes/settings.js";
 import { fixTasksRouter } from "./routes/fixTasks.js";
+import { pendingItemsRouter } from "./routes/pendingItems.js";
 import { ensureSeed } from "./seed.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -87,6 +88,7 @@ app.use("/api/ocr", ocrRouter);
 app.use("/api/chat", chatRouter);
 app.use("/api/settings", settingsRouter);
 app.use("/api/fix-tasks", fixTasksRouter);
+app.use("/api/pending-items", pendingItemsRouter);
 
 app.use("/api", (_req, res) => {
   res.status(404).json({ error: "Endpoint tidak ditemukan." });
@@ -128,7 +130,7 @@ app.listen(port, () => {
   console.log(`\n  Pricing Engine Salvator`);
   console.log(`  API      http://localhost:${port}/api`);
   console.log(`  Mode     ${isProd ? "production" : "development"}`);
-  console.log(`  Asisten  ${assistantEnabled() ? "aktif" : "nonaktif (ANTHROPIC_API_KEY kosong)"}`);
+  console.log(`  Silvy    ${assistantEnabled() ? "aktif" : "nonaktif (SILVY_URL / SILVY_SHARED_SECRET kosong)"}`);
   if (!isProd) console.log(`  Web      http://localhost:5173\n`);
   else console.log(`  Web      http://localhost:${port}\n`);
 });

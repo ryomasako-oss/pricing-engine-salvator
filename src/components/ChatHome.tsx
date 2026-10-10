@@ -9,7 +9,7 @@ export function ChatHome() {
   return (
     <div className="card chat-home" style={{ marginBottom: 16 }}>
       <div className="card-head">
-        <h2>Salvi · asisten penawaran</h2>
+        <h2>Silvy · asisten penawaran</h2>
         {messages.length > 0 && (
           <button className="btn small ghost" onClick={reset} disabled={busy}>Percakapan baru</button>
         )}
