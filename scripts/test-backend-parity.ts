@@ -86,6 +86,8 @@ interface Driver {
   agent: FakeAgent;
   /** on = configured and reachable, off = not configured, down = configured but nothing listening. */
   setSilvy(mode: "on" | "off" | "down" | "iam" | "iam-badkey"): void;
+  /** Set the Silvy spend caps (null = back to the defaults). */
+  setQuota(limits: { monthly?: number; perUserDay?: number } | null): void;
   api(method: string, routePath: string, opts?: { body?: unknown; session?: Session }): Promise<ApiResult>;
   login(email: string, password: string): Promise<Session>;
   seedUser(email: string, name: string, role: "rep" | "manager" | "admin", password: string): Promise<void>;
@@ -145,6 +147,11 @@ async function makeExpressDriver(): Promise<Driver> {
   return {
     name: "express",
     agent,
+    setQuota(l) {
+      for (const k of ["SILVY_MONTHLY_LIMIT", "SILVY_USER_DAILY_LIMIT"]) delete process.env[k];
+      if (l?.monthly) process.env.SILVY_MONTHLY_LIMIT = String(l.monthly);
+      if (l?.perUserDay) process.env.SILVY_USER_DAILY_LIMIT = String(l.perUserDay);
+    },
     setSilvy(mode) {
       for (const k of ["SILVY_IAM_AUTH", "SILVY_TOKEN_URL", "GOOGLE_SERVICE_ACCOUNT_EMAIL", "GOOGLE_PRIVATE_KEY"]) delete process.env[k];
       if (mode === "off") {
@@ -260,6 +267,11 @@ async function makeWorkerDriver(): Promise<Driver> {
   return {
     name: "worker",
     agent,
+    setQuota(l) {
+      for (const k of ["SILVY_MONTHLY_LIMIT", "SILVY_USER_DAILY_LIMIT"]) delete env[k];
+      if (l?.monthly) env.SILVY_MONTHLY_LIMIT = String(l.monthly);
+      if (l?.perUserDay) env.SILVY_USER_DAILY_LIMIT = String(l.perUserDay);
+    },
     setSilvy(mode) {
       for (const k of ["SILVY_IAM_AUTH", "SILVY_TOKEN_URL", "GOOGLE_SERVICE_ACCOUNT_EMAIL", "GOOGLE_PRIVATE_KEY"]) delete env[k];
       if (mode === "off") {
@@ -2745,6 +2757,47 @@ scenario("Silvy IAM: Cloud Run's 403 (no run.invoker) is reported as a permissio
   assert.equal(r.status, 502);
   assert.match(String(r.json.error), /run\.invoker/);
   return { status: r.status, error: r.json.error };
+});
+
+scenario("Silvy quota: a per-user daily cap blocks before the agent is called, and only that user", async (d) => {
+  d.setSilvy("on");
+  d.setQuota({ perUserDay: 1 });
+  d.agent.log.length = 0;
+  const admin = await loginCached(d, "admin@test.local", "password123");
+  const first = await d.api("POST", "/api/assistant/ask", { body: askBody("satu"), session: admin });
+  const second = await d.api("POST", "/api/assistant/ask", { body: askBody("dua"), session: admin });
+  const docBlocked = await d.api("POST", "/api/assistant/document", { body: { ...askBody(), kind: "risk", messages: undefined }, session: admin });
+  const callsAfter = d.agent.log.filter((l) => l.path.startsWith("/silvy/")).length;
+  d.setQuota(null);
+  assert.equal(first.status, 200, JSON.stringify(first.json));
+  assert.equal(second.status, 429);
+  assert.equal(docBlocked.status, 429, "documents share the same cap");
+  assert.equal(callsAfter, 1, "blocked requests never reach the agent");
+  return { first: first.status, second: second.status, doc: docBlocked.status, error: second.json.error, calls: callsAfter };
+});
+
+scenario("Silvy quota: the monthly cap blocks everyone before the agent is called", async (d) => {
+  d.setSilvy("on");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  d.setQuota({ monthly: 1 });
+  d.agent.log.length = 0;
+  const before = (await d.api("GET", "/api/quotes", { session: manager })).status; // sanity: session is valid
+  const r = await d.api("POST", "/api/assistant/ask", { body: askBody("halo"), session: manager });
+  d.setQuota(null);
+  assert.equal(before, 200);
+  assert.equal(r.status, 429);
+  assert.match(String(r.json.error), /bulan ini sudah habis/);
+  assert.equal(d.agent.log.length, 0);
+  return { status: r.status, error: r.json.error };
+});
+
+scenario("Silvy quota: back under the cap, questions work again", async (d) => {
+  d.setSilvy("on");
+  d.setQuota(null);
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const r = await d.api("POST", "/api/assistant/ask", { body: askBody("lagi"), session: manager });
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  return { status: r.status };
 });
 
 scenario("Silvy: status lists the documents Silvy can write", async (d) => {

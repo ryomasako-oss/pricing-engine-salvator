@@ -10,6 +10,9 @@ export interface Bindings {
   SILVY_SHARED_SECRET?: string;
   /* "true" = the agent is a private Cloud Run service: send a Google ID token minted with GOOGLE_SERVICE_ACCOUNT_*. */
   SILVY_IAM_AUTH?: string;
+  /* Caps that stop Gemini spend (shared/silvyQuota.ts). Defaults: 3000 a month, 150 per user a day. */
+  SILVY_MONTHLY_LIMIT?: string;
+  SILVY_USER_DAILY_LIMIT?: string;
   /* Reads PDF/photo request lists (server/ocr.ts). Set with `wrangler secret put GEMINI_API_KEY`. */
   GEMINI_API_KEY?: string;
   GEMINI_MODEL?: string;
