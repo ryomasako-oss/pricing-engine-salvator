@@ -17,6 +17,17 @@ export interface GeminiMessage {
   content: string;
 }
 
+/** How much a thinking model reasons before answering. Thinking tokens are billed as output. */
+export type ThinkingLevel = "minimal" | "low" | "medium" | "high";
+export const THINKING_LEVELS: readonly ThinkingLevel[] = ["minimal", "low", "medium", "high"];
+
+/** GEMINI_THINKING_LEVEL: a level, or "off" to send no thinking config. Anything else means "low". */
+export function thinkingLevelFrom(raw: string | undefined): ThinkingLevel | null {
+  const v = (raw ?? "").trim().toLowerCase();
+  if (v === "off") return null;
+  return (THINKING_LEVELS as readonly string[]).includes(v) ? (v as ThinkingLevel) : "low";
+}
+
 export interface GeminiOptions {
   model?: string;
   temperature?: number;
@@ -63,8 +74,10 @@ interface GeminiResponse {
 export class GeminiClient {
   private readonly apiKey: string;
   readonly model: string;
+  readonly thinkingLevel: ThinkingLevel | null;
 
-  constructor(apiKey: string, model?: string) {
+  constructor(apiKey: string, model?: string, thinkingLevel: ThinkingLevel | null = "low") {
+    this.thinkingLevel = thinkingLevel;
     this.apiKey = cleanApiKey(apiKey);
     if (!this.apiKey) throw new Error("GEMINI_API_KEY wajib diisi");
     this.model = (model ?? "").trim() || DEFAULT_GEMINI_MODEL;
@@ -73,26 +86,35 @@ export class GeminiClient {
   /** Kirim percakapan, kembalikan teks jawaban. */
   async chat(system: string, messages: GeminiMessage[], opts: GeminiOptions = {}): Promise<string> {
     const model = opts.model ?? this.model;
-    const body = {
+    const build = (withThinking: boolean) => ({
       systemInstruction: { parts: [{ text: system }] },
       contents: messages.map((m) => ({ role: m.role, parts: [{ text: m.content }] })),
       generationConfig: {
         temperature: opts.temperature ?? 0.3,
         maxOutputTokens: opts.maxOutputTokens ?? 2000,
         ...(opts.json ? { responseMimeType: "application/json" } : {}),
+        ...(withThinking && this.thinkingLevel ? { thinkingConfig: { thinkingLevel: this.thinkingLevel } } : {}),
       },
+    });
+    const send = async (withThinking: boolean): Promise<Response> => {
+      try {
+        return await fetch(`${GEMINI_API_BASE}/models/${encodeURIComponent(model)}:generateContent`, {
+          method: "POST",
+          // Key lewat header, bukan query string, supaya tidak bocor ke log URL.
+          headers: { "Content-Type": "application/json", "x-goog-api-key": this.apiKey },
+          body: JSON.stringify(build(withThinking)),
+        });
+      } catch {
+        throw new GeminiError("Tidak bisa menghubungi Gemini. Periksa koneksi internet server.", 503);
+      }
     };
 
-    let res: Response;
-    try {
-      res = await fetch(`${GEMINI_API_BASE}/models/${encodeURIComponent(model)}:generateContent`, {
-        method: "POST",
-        // Key lewat header, bukan query string, supaya tidak bocor ke log URL.
-        headers: { "Content-Type": "application/json", "x-goog-api-key": this.apiKey },
-        body: JSON.stringify(body),
-      });
-    } catch {
-      throw new GeminiError("Tidak bisa menghubungi Gemini. Periksa koneksi internet server.", 503);
+    let res = await send(true);
+    // A model that does not take a thinking level answers 400 naming it: retry once without,
+    // so a model swap via GEMINI_MODEL can never turn Silvy off.
+    if (res.status === 400 && this.thinkingLevel) {
+      const detail = await res.clone().text().catch(() => "");
+      if (/thinking/i.test(detail)) res = await send(false);
     }
 
     if (!res.ok) {

@@ -2,6 +2,8 @@ import { Router } from "express";
 import rateLimit from "express-rate-limit";
 import { type AuthedRequest, requireAuth } from "../auth.js";
 import { audit } from "../audit.js";
+import { get } from "../db.js";
+import { QUOTA_COUNT_SQL, dayStartUtc, monthStartUtc, quotaLimitsFrom, quotaVerdict } from "../../shared/silvyQuota.js";
 import { currentPolicy } from "../quoteService.js";
 import { DOCS } from "../../shared/silvyDocs.js";
 import { zodMessage } from "../validate.js";
@@ -34,6 +36,15 @@ const askLimiter = rateLimit({
   message: { error: SILVY_BUSY_MESSAGE },
 });
 
+/** Refuse before spending anything on Gemini once a monthly or per-user daily cap is reached. */
+function overQuota(userId: number): string | null {
+  const now = new Date();
+  const month = get<{ n: number }>(QUOTA_COUNT_SQL.month, monthStartUtc(now))?.n ?? 0;
+  const userToday = get<{ n: number }>(QUOTA_COUNT_SQL.userDay, userId, dayStartUtc(now))?.n ?? 0;
+  const v = quotaVerdict({ month, userToday }, quotaLimitsFrom(process.env));
+  return v.ok ? null : v.message;
+}
+
 assistantRouter.get("/status", (_req, res) => {
   res.json({ enabled: assistantEnabled(), model: "Silvy", docs: DOCS });
 });
@@ -46,6 +57,11 @@ assistantRouter.post("/ask", askLimiter, async (req: AuthedRequest, res) => {
   const parsed = askSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: zodMessage(parsed.error) });
+    return;
+  }
+  const blocked = overQuota(req.user!.id);
+  if (blocked) {
+    res.status(429).json({ error: blocked });
     return;
   }
   const out = await forwardToSilvy(silvyConfig(), "ask", parsed.data, currentPolicy());
@@ -65,6 +81,11 @@ assistantRouter.post("/document", askLimiter, async (req: AuthedRequest, res) =>
   const parsed = documentSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: zodMessage(parsed.error) });
+    return;
+  }
+  const blocked = overQuota(req.user!.id);
+  if (blocked) {
+    res.status(429).json({ error: blocked });
     return;
   }
   const out = await forwardToSilvy(silvyConfig(), "document", parsed.data, currentPolicy());
