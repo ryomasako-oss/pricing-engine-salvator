@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import { requireAuth } from "../auth";
 import { audit } from "../audit";
+import { get } from "../../db.d1";
+import { QUOTA_COUNT_SQL, dayStartUtc, monthStartUtc, quotaLimitsFrom, quotaVerdict } from "../../../shared/silvyQuota";
 import { currentPolicy } from "../quoteService";
 import { DOCS } from "../../../shared/silvyDocs";
 import { zodMessage } from "../../validate";
@@ -29,6 +31,15 @@ type SilvyEnv = Pick<
 export const silvyConfig = (env: SilvyEnv): SilvyConfig => silvyConfigFrom(env);
 export const assistantEnabled = (env: SilvyEnv): boolean => silvyEnabled(silvyConfig(env));
 
+/** Refuse before spending anything on Gemini once a monthly or per-user daily cap is reached. */
+async function overQuota(env: Bindings, userId: number): Promise<string | null> {
+  const now = new Date();
+  const month = (await get<{ n: number }>(env.DB, QUOTA_COUNT_SQL.month, monthStartUtc(now)))?.n ?? 0;
+  const userToday = (await get<{ n: number }>(env.DB, QUOTA_COUNT_SQL.userDay, userId, dayStartUtc(now)))?.n ?? 0;
+  const v = quotaVerdict({ month, userToday }, quotaLimitsFrom(env as unknown as Record<string, string | undefined>));
+  return v.ok ? null : v.message;
+}
+
 assistantRouter.get("/status", (c) => c.json({ enabled: assistantEnabled(c.env), model: "Silvy", docs: DOCS }));
 
 assistantRouter.post("/ask", async (c) => {
@@ -41,6 +52,8 @@ assistantRouter.post("/ask", async (c) => {
   const parsed = askSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
 
+  const blocked = await overQuota(c.env, user.id);
+  if (blocked) return c.json({ error: blocked }, 429);
   const out = await forwardToSilvy(silvyConfig(c.env), "ask", parsed.data, await currentPolicy(c.env.DB));
   if (out.status === 200) {
     await audit(c.env.DB, user.id, "assistant", 0, "ask", {
@@ -59,6 +72,8 @@ assistantRouter.post("/document", async (c) => {
   const parsed = documentSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
 
+  const blocked = await overQuota(c.env, user.id);
+  if (blocked) return c.json({ error: blocked }, 429);
   const out = await forwardToSilvy(silvyConfig(c.env), "document", parsed.data, await currentPolicy(c.env.DB));
   if (out.status === 200) await audit(c.env.DB, user.id, "assistant", 0, "document", { kind: parsed.data.kind });
   else console.error("[assistant] document failed:", out.status, out.body.error);
