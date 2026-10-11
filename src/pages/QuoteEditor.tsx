@@ -121,6 +121,8 @@ export function QuoteEditorPage() {
   // (old quotes and imported lines included) so a unit switch can rescale
   // COGS/RRP. `unitsFetched` holds codes already asked, found or not.
   const [unitsByCode, setUnitsByCode] = useState<Record<string, ItemUnits>>({});
+  // Data Hub thumbnail per code, returned by the same /catalog/units call (empty when Data Hub is not configured).
+  const [imagesByCode, setImagesByCode] = useState<Record<string, string>>({});
   const [unitsFetched, setUnitsFetched] = useState<Set<string>>(new Set());
   const saved = useRef<string>("");
 
@@ -181,9 +183,10 @@ export function QuoteEditorPage() {
     const missing = lineCodes ? lineCodes.split("\n").filter((c) => !unitsFetched.has(c)) : [];
     if (!missing.length) return;
     api
-      .post<{ units: Record<string, ItemUnits> }>("/catalog/units", { codes: missing })
+      .post<{ units: Record<string, ItemUnits>; images?: Record<string, string> }>("/catalog/units", { codes: missing })
       .then((r) => {
         setUnitsByCode((m) => ({ ...m, ...r.units }));
+        if (r.images) setImagesByCode((m) => ({ ...m, ...r.images }));
         setUnitsFetched((f) => new Set([...f, ...missing]));
       })
       // Leave them unfetched: coded lines keep a disabled unit picker rather
@@ -577,6 +580,7 @@ export function QuoteEditorPage() {
                   onUpdate={updateItem}
                   onChangeUom={changeItemUom}
                   unitsByCode={unitsByCode}
+                  imagesByCode={imagesByCode}
                   unitsPending={(code) => !!code.trim() && !unitsFetched.has(code.trim())}
                   onRemove={removeItem}
                   onAdd={addBlank}

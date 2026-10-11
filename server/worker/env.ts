@@ -29,6 +29,9 @@ export interface Bindings {
   TWILIO_ACCOUNT_SID?: string;
   TWILIO_AUTH_TOKEN?: string;
   TWILIO_WHATSAPP_FROM?: string;
+  /** Data Hub Salvator (opsional): gambar barang, lihat shared/hubImages.ts. */
+  HUB_API_URL?: string;
+  HUB_API_KEY?: string;
   /* Accurate Online (API Token auth). Set with `wrangler secret put`. One
      token per Data Usaha; an entity without a token is skipped. */
   ACCURATE_SIGNATURE_SECRET?: string;

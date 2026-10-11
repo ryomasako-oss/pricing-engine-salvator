@@ -132,6 +132,32 @@ hanya ada di backend Workers; server Express lokal tidak memilikinya.
 
 ---
 
+## Gambar barang dari Data Hub
+
+Katalog, pemilih barang, dan baris quotation bisa menampilkan gambar produk
+yang diambil dari Data Hub Salvator.
+
+```bash
+npm run d1:migrate:remote        # tabel hub_images 0016_hub_images.sql
+wrangler secret put HUB_API_URL
+wrangler secret put HUB_API_KEY
+```
+
+- **Tidak ada sakelar.** Fitur hidup begitu `HUB_API_URL` + `HUB_API_KEY` terisi;
+  kosongkan keduanya dan katalog tetap seperti biasa, tanpa gambar.
+- Yang disalin **hanya nama berkas** (`hub_images`), bukan byte gambarnya.
+  Browser memuat lewat proxy `/api/hub-media/<berkas>`, jadi kunci Hub tidak
+  pernah sampai ke browser dan CSP tetap `self`. `/media/products` Hub dibaca
+  tanpa header `Authorization`.
+- Kode alias di Hub memakai gambar induknya, jadi katalog yang masih memakai
+  kode lama tetap bergambar. URL gambar di luar `/media/products` Hub diabaikan.
+- Salinan disegarkan saat katalog atau quotation dibuka, paling sering tiap 30
+  menit. Hub sedang turun tidak emptying salinan: gambar lama tetap dipakai dan
+  errornya dicatat di pengaturan `hub_images_status`.
+- Klik thumbnail membuka gambar penuh di halaman yang sama (zoom, seret, Esc).
+
+---
+
 ## Peran pengguna
 
 | Peran | Bisa melakukan |

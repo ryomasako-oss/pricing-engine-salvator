@@ -5,6 +5,7 @@ import { useToast } from "../context/ToastContext";
 import { Icon } from "../components/Icon";
 import { Modal } from "../components/Modal";
 import { ImportDialog } from "../components/ImportDialog";
+import { Thumb } from "../components/Thumb";
 import { AccuratePanel } from "../components/AccuratePanel";
 import { PendingItemsPanel } from "../components/PendingItemsPanel";
 import { fmtDateTime, grp } from "@shared/format";
@@ -276,7 +277,14 @@ export function CatalogPage() {
                     <tr key={item.id} className={(seeCosts ? item.cogs > 0 : !item.cogs_problem) ? "" : "flagged"}>
                       <td className="l muted num">{item.code}</td>
                       <td className="l">
-                        {item.name}
+                        {item.image ? (
+                          <div className="with-thumb">
+                            <Thumb src={item.image} alt={item.name} />
+                            <span className="grow">{item.name}</span>
+                          </div>
+                        ) : (
+                          item.name
+                        )}
                         {item.cogs_problem && (!seeCosts || item.cogs > 0) && (
                           <div className="small" style={{ color: "var(--danger)" }}>
                             ⚠ {item.cogs_problem}. Tidak bisa dipakai di penawaran.

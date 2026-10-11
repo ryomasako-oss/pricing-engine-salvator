@@ -20,6 +20,8 @@ import { cogsProblemsFor } from "../quoteService.js";
 import { sweepPending } from "./pendingItems.js";
 import { canSeeCosts, catalogItemsForViewer, problemsForViewer } from "../staffView.js";
 import { cleanUnits, type ItemUnits } from "../../shared/uom.js";
+import { refreshHubImagesIfStale, useHubImages } from "../hubImages.js";
+import { hubMediaUrl } from "../../shared/hubImages.js";
 import type { CatalogItem, UnitFactor } from "../../shared/types.js";
 
 export const catalogRouter = Router();
@@ -49,11 +51,28 @@ function replaceUnits(code: string, baseUom: string | undefined, units: UnitFact
   }
 }
 
+/** Thumbnail Data Hub per kode barang (lewat /api/hub-media); kode tanpa gambar tidak masuk. */
+function imagesByCode(codes: string[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (let i = 0; i < codes.length; i += 500) {
+    const chunk = codes.slice(i, i + 500);
+    const rows = all<{ code: string; thumb: string }>(
+      `SELECT code, thumb FROM hub_images WHERE code IN (${chunk.map(() => "?").join(",")})`,
+      ...chunk,
+    );
+    for (const r of rows) map.set(r.code, hubMediaUrl(r.thumb)!);
+  }
+  return map;
+}
+
 catalogRouter.get("/", (req, res) => {
   const q = String(req.query.q ?? "").trim();
   const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 100));
   const offset = Math.max(0, Number(req.query.offset) || 0);
   const withCogs = String(req.query.withCogs ?? "") === "1";
+
+  // Gambar: bukan sakelar, hanya ikut aktif bila Hub terkonfigurasi.
+  if (useHubImages()) refreshHubImagesIfStale();
 
   const where: string[] = [];
   const params: (string | number)[] = [];
@@ -87,8 +106,10 @@ catalogRouter.get("/", (req, res) => {
   const codes = items.map((i) => i.code);
   const units = unitsByCode(codes);
   const withUnits = items.map((i) => ({ ...i, units: units.get(i.code) ?? [] }));
+  const images = useHubImages() ? imagesByCode(codes) : new Map<string, string>();
   const role = (req as AuthedRequest).user!.role;
-  res.json({ items: catalogItemsForViewer(role, withProblems(withUnits, cogsProblemsFor(codes))), total: total?.n ?? 0 });
+  const visible = catalogItemsForViewer(role, withProblems(withUnits, cogsProblemsFor(codes)));
+  res.json({ items: visible.map((i) => ({ ...i, image: images.get(i.code) ?? null })), total: total?.n ?? 0 });
 });
 
 /**
@@ -102,6 +123,8 @@ catalogRouter.post("/units", (req, res) => {
     return;
   }
   const codes = [...new Set(parsed.data.codes)];
+  // Opening a quote also warms the image copy: the editor calls this directly.
+  if (useHubImages()) refreshHubImagesIfStale();
   const out: Record<string, ItemUnits> = {};
   // SQLite caps bound parameters per statement; chunk like the Worker does.
   for (let i = 0; i < codes.length; i += 500) {
@@ -113,7 +136,7 @@ catalogRouter.post("/units", (req, res) => {
     const units = unitsByCode(bases.map((b) => b.code));
     for (const b of bases) out[b.code] = { baseUom: b.uom, units: units.get(b.code) ?? [] };
   }
-  res.json({ units: out });
+  res.json({ units: out, images: useHubImages() ? Object.fromEntries(imagesByCode(codes)) : {} });
 });
 
 /**

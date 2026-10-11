@@ -312,6 +312,8 @@ export interface CatalogItem {
   updated_at: string;
   /** Extra units and how many base units (`uom`) each holds, e.g. Box = 24. */
   units?: UnitFactor[];
+  /** Data Hub thumbnail (served via /api/hub-media); null otherwise. */
+  image?: string | null;
   /** Why this item must not be sold right now, or null. Set by the API. */
   cogs_problem?: string | null;
 }

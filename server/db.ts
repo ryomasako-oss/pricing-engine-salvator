@@ -240,6 +240,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_fix_tasks_open ON fix_tasks(dedupe) WHERE s
 CREATE INDEX IF NOT EXISTS idx_fix_tasks_status ON fix_tasks(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_fix_tasks_quote ON fix_tasks(quote_id);
 
+-- Mirrors migrations/0016_hub_images.sql.
+CREATE TABLE IF NOT EXISTS hub_images (
+  code  TEXT PRIMARY KEY,
+  thumb TEXT NOT NULL,
+  image TEXT NOT NULL
+);
+
 -- Mirrors migrations/0015_pending_items.sql.
 CREATE TABLE IF NOT EXISTS pending_items (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,

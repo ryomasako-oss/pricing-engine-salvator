@@ -8,6 +8,7 @@ import type { ComputedRow, EngineResult, ItemRole, QuoteItem, ScenarioIndex } fr
 import { uomChoices, uomWarning, type ItemUnits } from "@shared/uom";
 import { Icon } from "./Icon";
 import { UomCell } from "./UomCell";
+import { Thumb } from "./Thumb";
 import { NumberCell } from "./NumberCell";
 import { LineBadge } from "./pricing";
 import { holdInfo } from "@shared/holds";
@@ -28,6 +29,8 @@ interface Props {
   onChangeUom: (id: string, uom: string) => void;
   /** Catalog base unit + ratios per item code. */
   unitsByCode?: Record<string, ItemUnits>;
+  /** Data Hub thumbnail per item code (served via /api/hub-media); empty draws no images. */
+  imagesByCode?: Record<string, string>;
   /** True while a coded line's ratios are still loading; its picker stays disabled. */
   unitsPending?: (code: string) => boolean;
 }
@@ -49,11 +52,13 @@ export function ItemsTable({
   uomOptions = [],
   onChangeUom,
   unitsByCode = {},
+  imagesByCode = {},
   unitsPending = () => false,
 }: Props) {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "lineNo", dir: 1 });
   const [onlyFlagged, setOnlyFlagged] = useState(false);
+  const hasImages = Object.keys(imagesByCode).length > 0;
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -158,7 +163,7 @@ export function ItemsTable({
             <thead>
               <tr>
                 {head("lineNo", "No", "c")}
-                {head("name", "Item", "l", 230)}
+                {head("name", "Item", "l", hasImages ? 276 : 230)}
                 {head("qty", "Qty")}
                 <th className="l">UOM</th>
                 {head("cogs", "COGS")}
@@ -185,26 +190,31 @@ export function ItemsTable({
                   <tr key={r.id} className={flagged ? "flagged" : ""}>
                     <td className="c muted">{r.lineNo}</td>
                     <td className="l">
-                      {readOnly ? (
-                        <div style={{ fontWeight: 550 }}>{r.name}</div>
-                      ) : (
-                        <input
-                          className="cell l"
-                          value={r.name}
-                          onChange={(e) => onUpdate(r.id, { name: e.target.value })}
-                          aria-label={`Nama item baris ${r.lineNo}`}
-                        />
-                      )}
-                      {(r.code || r.estCogs) && (
-                        <div className="muted small">
-                          {[r.code, r.estCogs ? "COGS estimasi" : ""].filter(Boolean).join(" · ")}
+                      <div className={hasImages ? "with-thumb" : undefined}>
+                        {hasImages && <Thumb src={imagesByCode[r.code.trim()]} alt={r.name} />}
+                        <div className="grow">
+                          {readOnly ? (
+                            <div style={{ fontWeight: 550 }}>{r.name}</div>
+                          ) : (
+                            <input
+                              className="cell l"
+                              value={r.name}
+                              onChange={(e) => onUpdate(r.id, { name: e.target.value })}
+                              aria-label={`Nama item baris ${r.lineNo}`}
+                            />
+                          )}
+                          {(r.code || r.estCogs) && (
+                            <div className="muted small">
+                              {[r.code, r.estCogs ? "COGS estimasi" : ""].filter(Boolean).join(" · ")}
+                            </div>
+                          )}
                         </div>
-                      )}
-                      {r.held && (
-                        <span className={`badge ${holdInfo(r.holdReason).tone}`} title={holdInfo(r.holdReason).manager}>
-                          {holdInfo(r.holdReason).badge}
-                        </span>
-                      )}
+                        {r.held && (
+                          <span className={`badge ${holdInfo(r.holdReason).tone}`} title={holdInfo(r.holdReason).manager}>
+                            {holdInfo(r.holdReason).badge}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td>
                       <NumberCell

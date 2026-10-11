@@ -12,6 +12,7 @@ import { uomChoices, uomWarning } from "@shared/uom";
 import { Modal } from "./Modal";
 import { Icon } from "./Icon";
 import { UomCell } from "./UomCell";
+import { Thumb } from "./Thumb";
 import { NewItemForm } from "./NewItemForm";
 
 export function CatalogPicker({
@@ -174,17 +175,22 @@ export function CatalogPicker({
                 return (
                 <tr key={item.id}>
                   <td className="l">
-                    <div style={{ fontWeight: 550 }}>{item.name}</div>
-                    <div className="muted small">
-                      {item.code}
-                      {item.category ? ` · ${item.category}` : ""}
-                      {existingCodes.has(normalizeCode(item.code)) && (
-                        <span className="badge amber" style={{ marginLeft: 6 }}>sudah ada</span>
-                      )}
+                    <div className={item.image ? "with-thumb" : undefined}>
+                      {item.image && <Thumb src={item.image} alt={item.name} />}
+                      <div className="grow">
+                        <div style={{ fontWeight: 550 }}>{item.name}</div>
+                        <div className="muted small">
+                          {item.code}
+                          {item.category ? ` · ${item.category}` : ""}
+                          {existingCodes.has(normalizeCode(item.code)) && (
+                            <span className="badge amber" style={{ marginLeft: 6 }}>sudah ada</span>
+                          )}
+                        </div>
+                        {item.cogs_problem && (
+                          <div className="small" style={{ color: "var(--warn)" }}>⚠ {item.cogs_problem}. Masuk sebagai baris ditahan sampai dicek manajer.</div>
+                        )}
+                      </div>
                     </div>
-                    {item.cogs_problem && (
-                      <div className="small" style={{ color: "var(--warn)" }}>⚠ {item.cogs_problem}. Masuk sebagai baris ditahan sampai dicek manajer.</div>
-                    )}
                   </td>
                   {seeCosts && <td className="num">{item.cogs > 0 ? grp(line.cogs) : <span className="muted">—</span>}</td>}
                   <td className="num">{item.list_price > 0 ? grp(line.rrp) : <span className="muted">—</span>}</td>

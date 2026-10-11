@@ -17,6 +17,7 @@ import { loadUser } from "./auth.js";
 import { authRouter } from "./routes/auth.js";
 import { clientsRouter } from "./routes/clients.js";
 import { catalogRouter } from "./routes/catalog.js";
+import { hubMediaRouter } from "./routes/hubMedia.js";
 import { quotesRouter } from "./routes/quotes.js";
 import { approvalsRouter } from "./routes/approvals.js";
 import { assistantRouter, assistantEnabled } from "./routes/assistant.js";
@@ -81,6 +82,7 @@ app.get("/api/health", (_req, res) => {
 app.use("/api/auth", authRouter);
 app.use("/api/clients", clientsRouter);
 app.use("/api/catalog", catalogRouter);
+app.use("/api/hub-media", hubMediaRouter);
 app.use("/api/quotes", quotesRouter);
 app.use("/api/approvals", approvalsRouter);
 app.use("/api/assistant", assistantRouter);
