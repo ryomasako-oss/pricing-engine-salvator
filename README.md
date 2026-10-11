@@ -209,6 +209,15 @@ sampai ke browser atau Worker. Tanpa kedua variabel itu, seluruh aplikasi tetap
 berjalan normal dan panel menampilkan keterangan bahwa Silvy belum aktif.
 Model diatur di agent lewat `GEMINI_MODEL`.
 
+Kuota pertanyaan dan dokumen dibatasi oleh `SILVY_MONTHLY_LIMIT` (default 3000
+untuk semua pengguna per bulan) dan `SILVY_USER_DAILY_LIMIT` (default 150 per
+pengguna per hari), mengikuti kalender WIB. Slot kuota dicatat secara atomik
+sebelum permintaan diteruskan, sehingga permintaan bersamaan tidak melewati
+batas. Percobaan yang gagal atau timeout tetap menghabiskan satu slot karena
+model mungkin sudah dipakai. Permintaan yang ditolak oleh validasi, izin,
+atau batas laju tidak menghabiskan kuota. Audit penggunaan lama tetap dihitung;
+perbaikan ini tidak membutuhkan migrasi database baru.
+
 ## Catatan keamanan
 
 - Kata sandi di-hash dengan bcrypt (12 putaran); sesi berupa JWT di cookie

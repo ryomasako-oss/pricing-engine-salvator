@@ -4,6 +4,7 @@
    Read-only towards Accurate: nothing here writes back to Accurate.
    ============================================================ */
 
+import { COUNTS_TTL_MS, FLAGS_TTL_MS, cachedFor } from "../accurate/cache";
 import { Hono } from "hono";
 import { z } from "zod";
 import { all, batch, get, stmt } from "../../db.d1";
@@ -35,16 +36,25 @@ const entitySchema = z.enum(ENTITY_KEYS as [EntityKey, ...EntityKey[]]);
 
 accurateRouter.get("/status", requirePermission("import_catalog"), async (c) => {
   const configured = configuredEntities(c.env);
+  const fresh = c.req.query("fresh") === "1";
   const entities = [];
   for (const e of ENTITY_KEYS) {
     const st = await loadState(c.env.DB, e);
-    const counts = await get<{ items: number; priced: number; stock: number; warehouses: number }>(
+    // Recounting 7,000+ items on every poll is what exhausted D1's daily read allowance (see cache.ts).
+    const counts = await cachedFor(
       c.env.DB,
-      `SELECT (SELECT COUNT(*) FROM accurate_items WHERE entity = ?1) AS items,
-              (SELECT COUNT(*) FROM accurate_items WHERE entity = ?1 AND unit_price > 0) AS priced,
-              (SELECT COUNT(*) FROM accurate_stock WHERE entity = ?1) AS stock,
-              (SELECT COUNT(*) FROM accurate_warehouses WHERE entity = ?1) AS warehouses`,
-      e,
+      `cache:accurate:counts:${e}`,
+      COUNTS_TTL_MS,
+      () =>
+        get<{ items: number; priced: number; stock: number; warehouses: number }>(
+          c.env.DB,
+          `SELECT (SELECT COUNT(*) FROM accurate_items WHERE entity = ?1) AS items,
+                  (SELECT COUNT(*) FROM accurate_items WHERE entity = ?1 AND unit_price > 0) AS priced,
+                  (SELECT COUNT(*) FROM accurate_stock WHERE entity = ?1) AS stock,
+                  (SELECT COUNT(*) FROM accurate_warehouses WHERE entity = ?1) AS warehouses`,
+          e,
+        ),
+      { fresh },
     );
     entities.push({
       entity: e,
@@ -103,8 +113,19 @@ accurateRouter.post("/sync", requirePermission("import_catalog"), async (c) => {
 /** Data-quality flags over the staged Accurate data. */
 accurateRouter.get("/flags", requirePermission("import_catalog"), async (c) => {
   const limit = Math.min(500, Math.max(1, Number(c.req.query("limit")) || 50));
-  const negativeStock = await all(
+  const payload = await cachedFor(
     c.env.DB,
+    `cache:accurate:flags:${limit}`,
+    FLAGS_TTL_MS,
+    () => computeFlags(c.env.DB, limit),
+    { fresh: c.req.query("fresh") === "1" },
+  );
+  return c.json(payload);
+});
+
+async function computeFlags(db: D1Database, limit: number) {
+  const negativeStock = await all(
+    db,
     `SELECT s.entity, w.name AS warehouse, s.item_code AS code, i.name, s.quantity
        FROM accurate_stock s
        LEFT JOIN accurate_warehouses w ON w.entity = s.entity AND w.accurate_id = s.warehouse_id
@@ -113,8 +134,11 @@ accurateRouter.get("/flags", requirePermission("import_catalog"), async (c) => {
       ORDER BY s.quantity ASC LIMIT ?`,
     limit,
   );
-  const crossEntityMismatch = await all(
-    c.env.DB,
+  // The cross-entity checks compare CV with PT. With no CV rows (the usual case here) they are empty,
+  // so skip two joins over the whole table.
+  const hasCv = !!(await get(db, "SELECT 1 AS x FROM accurate_items WHERE entity = 'CV' LIMIT 1"));
+  const crossEntityMismatch = !hasCv ? [] : await all(
+    db,
     `SELECT cv.code, cv.name AS name_cv, pt.name AS name_pt,
             cv.unit_price AS price_cv, pt.unit_price AS price_pt, cv.uom AS uom_cv, pt.uom AS uom_pt
        FROM accurate_items cv
@@ -127,7 +151,7 @@ accurateRouter.get("/flags", requirePermission("import_catalog"), async (c) => {
     limit,
   );
   const sameNameDifferentCode = await all(
-    c.env.DB,
+    db,
     `SELECT lower(trim(name)) AS name_key, MIN(name) AS name, COUNT(DISTINCT code) AS codes,
             GROUP_CONCAT(DISTINCT entity || ':' || code) AS refs
        FROM accurate_items WHERE trim(name) <> ''
@@ -136,21 +160,25 @@ accurateRouter.get("/flags", requirePermission("import_catalog"), async (c) => {
     limit,
   );
   const counts = await get(
-    c.env.DB,
+    db,
     `SELECT (SELECT COUNT(*) FROM accurate_stock WHERE quantity < 0) AS negative_stock,
-            (SELECT COUNT(*) FROM accurate_items cv JOIN accurate_items pt
+            ${
+              hasCv
+                ? `(SELECT COUNT(*) FROM accurate_items cv JOIN accurate_items pt
                 ON pt.code = cv.code AND pt.entity = 'PT' WHERE cv.entity = 'CV') AS overlapping_codes,
             (SELECT COUNT(*) FROM accurate_items cv JOIN accurate_items pt
                 ON pt.code = cv.code AND pt.entity = 'PT' WHERE cv.entity = 'CV'
                  AND (lower(trim(cv.name)) <> lower(trim(pt.name))
                       OR abs(cv.unit_price - pt.unit_price) > 0.5
-                      OR lower(cv.uom) <> lower(pt.uom))) AS cross_entity_mismatch,
+                      OR lower(cv.uom) <> lower(pt.uom))) AS cross_entity_mismatch,`
+                : "0 AS overlapping_codes, 0 AS cross_entity_mismatch,"
+            }
             (SELECT COUNT(*) FROM (SELECT 1 FROM accurate_items WHERE trim(name) <> ''
                 GROUP BY lower(trim(name)) HAVING COUNT(DISTINCT code) > 1)) AS same_name_different_code,
             (SELECT COUNT(*) FROM accurate_items WHERE unit_price <= 0 AND suspended = 0) AS no_selling_price`,
   );
-  return c.json({ counts, negativeStock, crossEntityMismatch, sameNameDifferentCode });
-});
+  return { counts, negativeStock, crossEntityMismatch, sameNameDifferentCode };
+}
 
 /**
  * Promotes one entity's staged data into catalog_items, set-based (one

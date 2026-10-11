@@ -18,7 +18,7 @@ import { KnowledgeStore } from "./knowledge-store.js";
 import { fullSync, type SyncReport } from "./sync.js";
 import { industryProfileForClient } from "./industry.js";
 import { generateRecommendation, findSimilarQuotes } from "./recommend.js";
-import { GeminiClient } from "./gemini.js";
+import { GeminiClient, thinkingLevelFrom } from "./gemini.js";
 import { GmailClient } from "./email.js";
 import { silvyAsk, silvyDocument, authorize } from "./silvy/handlers.js";
 import { IndustryTag } from "./types.js";
@@ -43,7 +43,7 @@ const PORT = Number(envOr("AGENT_PORT", "8888")) || 8888;
 // ---- dependencies ----
 
 const store = new KnowledgeStore(AGENT_DB_PATH);
-const gemini = GEMINI_API_KEY ? new GeminiClient(GEMINI_API_KEY, envOr("GEMINI_MODEL")) : null;
+const gemini = GEMINI_API_KEY ? new GeminiClient(GEMINI_API_KEY, envOr("GEMINI_MODEL"), thinkingLevelFrom(envOr("GEMINI_THINKING_LEVEL"))) : null;
 const gmail = (GOOGLE_SA_EMAIL && GOOGLE_PRIVATE_KEY && GOOGLE_SEND_AS)
   ? new GmailClient({ clientEmail: GOOGLE_SA_EMAIL, privateKeyPem: GOOGLE_PRIVATE_KEY, impersonatedUser: GOOGLE_SEND_AS })
   : null;
@@ -92,7 +92,7 @@ const server = createServer(async (req, res) => {
     // ---- status ----
     if (path === "/status" && method === "GET") {
       sendJSON(res, 200, {
-        gemini: gemini ? { configured: true, model: gemini.model } : { configured: false },
+        gemini: gemini ? { configured: true, model: gemini.model, thinking: gemini.thinkingLevel ?? "off" } : { configured: false },
         gmail: gmail ? { configured: true } : { configured: false },
         knowledgeStore: {
           quotes: store.allQuotes().length,

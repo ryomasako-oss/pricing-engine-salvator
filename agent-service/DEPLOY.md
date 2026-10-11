@@ -7,8 +7,13 @@ hanya ada di sini dan tidak pernah di Worker atau browser.
 - Semua rute **kecuali `/health`** butuh header `x-silvy-secret`. Tanpa
   `SILVY_SHARED_SECRET`, `/silvy/*` mati (503), dan layanan tidak boleh dibuka publik.
 - Tanpa header CORS (tidak ada pemanggil browser).
-- Karena itu layanan boleh `--allow-unauthenticated`: yang menjaga adalah rahasia bersama.
-  Untuk pengetatan lebih lanjut (ID token IAM) Worker perlu menandatangani token; belum dibuat.
+- **Layanan dibuat PRIVAT** (`--no-allow-unauthenticated`). Kebijakan organisasi
+  `salvator.co.id` (`iam.allowedPolicyMemberDomains`) melarang `allUsers`, dan pembuatan
+  kunci service account baru juga dilarang (`iam.disableServiceAccountKeyCreation`). Jadi
+  Worker memanggil dengan **ID token Google** (audience = URL layanan) yang dibuat dari kunci
+  service account yang sudah ada di Worker (`GOOGLE_SERVICE_ACCOUNT_EMAIL` / `GOOGLE_PRIVATE_KEY`,
+  `server/googleIdToken.ts`). Akun itu harus punya `roles/run.invoker` pada layanan ini.
+  Rahasia bersama tetap dikirim sebagai lapisan kedua.
 
 ## Yang perlu ada dulu
 - `gcloud` terpasang dan sudah `gcloud auth login` (oleh pemilik akun).
@@ -42,19 +47,28 @@ done
 IMAGE=$REGION-docker.pkg.dev/$PROJECT/silvy/agent:$(git rev-parse --short HEAD)
 gcloud builds submit --config agent-service/cloudbuild.yaml --substitutions _IMAGE=$IMAGE .
 gcloud run deploy silvy-agent --image $IMAGE --region $REGION \
-  --allow-unauthenticated --min-instances 0 --max-instances 2 \
+  --no-allow-unauthenticated --min-instances 0 --max-instances 2 \
   --concurrency 10 --timeout 120 --cpu 1 --memory 512Mi \
   --set-secrets GEMINI_API_KEY=gemini-api-key:latest,SILVY_SHARED_SECRET=silvy-shared-secret:latest \
   --set-env-vars GEMINI_MODEL=gemini-3.5-flash
 URL=$(gcloud run services describe silvy-agent --region $REGION --format='value(status.url)')
 
-# 5. Verifikasi agent
-curl -s $URL/health                                   # 200
-curl -s -o /dev/null -w '%{http_code}\n' $URL/status  # harus 401 tanpa rahasia
+# 5. Beri akun layanan Worker hak memanggil (satu akun, satu layanan; dijalankan pemilik akun)
+NOTIFY_SA=halokantor-notify@galvanic-host-505711-k5.iam.gserviceaccount.com
+gcloud run services add-iam-policy-binding silvy-agent --region $REGION \
+  --member=serviceAccount:$NOTIFY_SA --role=roles/run.invoker
 
-# 6. Sambungkan Worker (rahasia dialirkan lewat pipe, tidak dicetak)
+# 6. Verifikasi agent (token ID milik Anda sendiri)
+URL=$(gcloud run services describe silvy-agent --region $REGION --format='value(status.url)')
+T=$(gcloud auth print-identity-token)
+curl -s -o /dev/null -w '%{http_code}\n' $URL/health                                  # 403 (privat)
+curl -s -H "Authorization: Bearer $T" $URL/health                                      # 200
+curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $T" $URL/status    # 401 tanpa rahasia
+
+# 7. Sambungkan Worker (rahasia dialirkan lewat pipe, tidak dicetak)
 printf '%s' "$URL" | npx wrangler secret put SILVY_URL
 gcloud secrets versions access latest --secret silvy-shared-secret | npx wrangler secret put SILVY_SHARED_SECRET
+printf 'true' | npx wrangler secret put SILVY_IAM_AUTH
 ```
 
 Lalu cek di app: `/api/health` harus `ai:true`, dan panel Silvy di editor menjawab.
