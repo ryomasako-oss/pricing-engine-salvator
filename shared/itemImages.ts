@@ -68,5 +68,14 @@ export const itemImageUrl = (code: string): string => `${ITEM_IMAGE_ROUTE}/${ite
 /** Nama berkas dari URL thumbnail (`<kode>-thumb.webp` -> `<kode>.webp`). */
 export const itemFullFile = (file: string): string => file.replace(/-thumb\.webp$/, ".webp");
 
+/** Pasangan berkas: thumbnail <-> gambar penuh. Route memakainya sebagai cadangan,
+ *  jadi impor yang hanya punya satu ukuran tetap bisa dilayani untuk keduanya --
+ *  lightbox tidak gagal walau tidak ada gambar penuh. */
+export function itemOtherFile(file: string): string {
+  const code = itemImageCode(file);
+  if (!code) return file;
+  return file.endsWith("-thumb.webp") ? `${code}.webp` : `${code}-thumb.webp`;
+}
+
 /** URL gambar penuh dari URL thumbnail, untuk lightbox. */
 export const itemFullImageUrl = (thumbUrl: string): string => thumbUrl.replace(/-thumb\.webp$/, ".webp");

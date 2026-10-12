@@ -119,6 +119,14 @@ describe("gambar barang di storage sendiri", () => {
     expect(await fallback.text()).toBe(WEBP + "f2");
   });
 
+  it("hanya ada thumbnail: nama gambar penuh dilayani dari thumbnail", async () => {
+    bucket = fakeR2({ "ATK-9-thumb.webp": WEBP + "t9" });
+    env = { DB: db, IMAGES: bucket };
+    const full = await app.request("/api/item-image/ATK-9.webp", {}, env);
+    expect(full.status).toBe(200);
+    expect(await full.text()).toBe(WEBP + "t9");
+  });
+
   it("proxy menolak nama berkas di luar pola dan path traversal", async () => {
     for (const bad of ["readme.txt", "../rahasia-thumb.webp", "a..b-thumb.webp", "%2e%2e%2fsecrets.webp"]) {
       expect((await app.request(`/api/item-image/${bad}`, {}, env)).status).toBe(404);

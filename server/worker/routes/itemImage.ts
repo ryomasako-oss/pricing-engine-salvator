@@ -4,7 +4,7 @@
 
 import { Hono } from "hono";
 import { requireAuth } from "../auth";
-import { itemFullFile, itemImageCode } from "../../../shared/itemImages";
+import { itemImageCode, itemOtherFile } from "../../../shared/itemImages";
 import type { Env } from "../env";
 
 export const itemImageRouter = new Hono<Env>();
@@ -13,7 +13,7 @@ itemImageRouter.use(requireAuth);
 itemImageRouter.get("/:file", async (c) => {
   const file = c.req.param("file");
   if (!itemImageCode(file)) return c.json({ error: "Gambar tidak ditemukan." }, 404);
-  const object = (await c.env.IMAGES?.get(file)) ?? (await c.env.IMAGES?.get(itemFullFile(file)));
+  const object = (await c.env.IMAGES?.get(file)) ?? (await c.env.IMAGES?.get(itemOtherFile(file)));
   if (!object) return c.json({ error: "Gambar tidak ditemukan." }, 404);
   // Nama berkas ikut berubah kalau isinya berubah, jadi aman disimpan lama.
   return new Response(object.body, {

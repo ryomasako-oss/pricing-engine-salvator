@@ -5,7 +5,7 @@
 import fs from "node:fs";
 import { Router } from "express";
 import { requireAuth } from "../auth.js";
-import { itemFullFile, itemImageCode } from "../../shared/itemImages.js";
+import { itemImageCode, itemOtherFile } from "../../shared/itemImages.js";
 import { imageFilePath } from "../itemImages.js";
 
 export const itemImageRouter = Router();
@@ -22,7 +22,7 @@ function sendFirstAvailable(res: import("express").Response, file: string): void
     fs.createReadStream(full).pipe(res);
     return true;
   };
-  if (!send(file) && !send(itemFullFile(file))) res.status(404).json({ error: "Gambar tidak ditemukan." });
+  if (!send(file) && !send(itemOtherFile(file))) res.status(404).json({ error: "Gambar tidak ditemukan." });
 }
 
 itemImageRouter.get("/:file", (req, res) => {

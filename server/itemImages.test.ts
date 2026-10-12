@@ -3,7 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { itemImageCode, itemImageUrl, itemFullImageUrl } from "../shared/itemImages.js";
+import { itemImageCode, itemImageUrl, itemFullImageUrl, itemOtherFile } from "../shared/itemImages.js";
 
 /**
  * `itemImages` menulis lewat `./db.js`, yang membuka database dan menjalankan
@@ -58,6 +58,14 @@ describe("nama berkas gambar", () => {
     const thumb = itemImageUrl("ATK-1");
     expect(thumb).toBe("/api/item-image/ATK-1-thumb.webp");
     expect(itemFullImageUrl(thumb)).toBe("/api/item-image/ATK-1.webp");
+  });
+
+  it("pasangan berkas saling menggantikan, ke dua arah", () => {
+    expect(itemOtherFile("ATK-1-thumb.webp")).toBe("ATK-1.webp");
+    expect(itemOtherFile("ATK-1.webp")).toBe("ATK-1-thumb.webp");
+    // Kode yang memang berakhiran "-thumb" tidak boleh terpotong jadi kode lain.
+    expect(itemOtherFile("ATK-thumb-thumb.webp")).toBe("ATK-thumb.webp");
+    expect(itemOtherFile("bukan-gambar.txt")).toBe("bukan-gambar.txt");
   });
 });
 
