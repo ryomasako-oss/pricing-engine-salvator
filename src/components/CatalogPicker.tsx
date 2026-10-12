@@ -37,6 +37,8 @@ export function CatalogPicker({
   // drops earlier matches from it. Cache the full row here so add() doesn't
   // need the item to still be in the current search results.
   const [pickedItems, setPickedItems] = useState<Record<number, CatalogItem>>({});
+  // Baris tanpa gambar tetap dapat kotak kosong supaya kolom nama tidak bergeser.
+  const hasImages = items.some((item) => item.image);
   const [onlyPriced, setOnlyPriced] = useState(true);
   // Managed satuan list. A row's UOM can be switched at pick time (e.g. an
   // item mastered in Pcs but ordered per Lusin); COGS/RRP are rescaled with
@@ -175,8 +177,8 @@ export function CatalogPicker({
                 return (
                 <tr key={item.id}>
                   <td className="l">
-                    <div className={item.image ? "with-thumb" : undefined}>
-                      {item.image && <Thumb src={item.image} alt={item.name} />}
+                    <div className={hasImages ? "with-thumb" : undefined}>
+                      {hasImages && <Thumb src={item.image} alt={item.name} />}
                       <div className="grow">
                         <div style={{ fontWeight: 550 }}>{item.name}</div>
                         <div className="muted small">
