@@ -58,7 +58,6 @@ export function ItemsTable({
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "lineNo", dir: 1 });
   const [onlyFlagged, setOnlyFlagged] = useState(false);
-  const hasImages = Object.keys(imagesByCode).length > 0;
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -163,7 +162,7 @@ export function ItemsTable({
             <thead>
               <tr>
                 {head("lineNo", "No", "c")}
-                {head("name", "Item", "l", hasImages ? 276 : 230)}
+                {head("name", "Item", "l", 276)}
                 {head("qty", "Qty")}
                 <th className="l">UOM</th>
                 {head("cogs", "COGS")}
@@ -190,8 +189,8 @@ export function ItemsTable({
                   <tr key={r.id} className={flagged ? "flagged" : ""}>
                     <td className="c muted">{r.lineNo}</td>
                     <td className="l">
-                      <div className={hasImages ? "with-thumb" : undefined}>
-                        {hasImages && <Thumb src={imagesByCode[r.code.trim()]} alt={r.name} />}
+                      <div className="with-thumb">
+                        <Thumb src={imagesByCode[r.code.trim()]} alt={r.name} />
                         <div className="grow">
                           {readOnly ? (
                             <div style={{ fontWeight: 550 }}>{r.name}</div>

@@ -681,10 +681,10 @@ input[type=checkbox] { accent-color: var(--navy); width: 17px; height: 17px; fle
   border: 1px solid var(--rule);
   background: var(--sheet);
 }
+/* Slot gambar yang belum terisi: kotak abu-abu polos sized sama seperti thumbnail. */
 .thumb-empty {
   display: inline-block;
   background: var(--soft);
-  border-style: dashed;
 }
 .with-thumb {
   display: flex;

@@ -45,8 +45,6 @@ export function CatalogPage() {
   // The base unit when the form opened: ratios are relative to it.
   const [baseAtOpen, setBaseAtOpen] = useState("");
   const PAGE = 50;
-  // Baris tanpa gambar tetap dapat kotak kosong supaya kolom nama tidak bergeser.
-  const hasImages = items.some((item) => item.image);
 
   /** Manager confirms a COGS that moved >50% from its reference is real (shared/cogsCheck.ts). */
   const verifyCogs = async (id: number) => {
@@ -279,14 +277,10 @@ export function CatalogPage() {
                     <tr key={item.id} className={(seeCosts ? item.cogs > 0 : !item.cogs_problem) ? "" : "flagged"}>
                       <td className="l muted num">{item.code}</td>
                       <td className="l">
-                        {hasImages ? (
-                          <div className="with-thumb">
-                            <Thumb src={item.image} alt={item.name} />
-                            <span className="grow">{item.name}</span>
-                          </div>
-                        ) : (
-                          item.name
-                        )}
+                        <div className="with-thumb">
+                          <Thumb src={item.image} alt={item.name} />
+                          <span className="grow">{item.name}</span>
+                        </div>
                         {item.cogs_problem && (!seeCosts || item.cogs > 0) && (
                           <div className="small" style={{ color: "var(--danger)" }}>
                             ⚠ {item.cogs_problem}. Tidak bisa dipakai di penawaran.
