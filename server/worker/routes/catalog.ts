@@ -20,8 +20,8 @@ import { cogsProblemsFor } from "../quoteService";
 import { sweepPending } from "./pendingItems";
 import { canSeeCosts, catalogItemsForViewer, problemsForViewer } from "../../staffView";
 import { cleanUnits, type ItemUnits } from "../../../shared/uom";
-import { hubImagesEnabled, refreshHubImagesIfStale } from "../hubImages";
-import { hubMediaUrl } from "../../../shared/hubImages";
+import { refreshItemImagesIfStale } from "../itemImages";
+import { itemImageUrl } from "../../../shared/itemImages";
 import type { CatalogItem, UnitFactor } from "../../../shared/types";
 import type { Env } from "../env";
 
@@ -63,16 +63,16 @@ function replaceUnitsStmts(db: D1Database, code: string, baseUom: string | undef
   ];
 }
 
-/** Thumbnail Data Hub per kode barang (lewat /api/hub-media); kode tanpa gambar tidak masuk. */
+/** URL gambar untuk kode yang punya gambar di storage sendiri (lihat shared/itemImages.ts). */
 async function imagesByCode(d1: D1Database, codes: string[]): Promise<Map<string, string>> {
   const map = new Map<string, string>();
   for (const chunk of chunks(codes, CHUNK)) {
-    const rows = await all<{ code: string; thumb: string }>(
+    const rows = await all<{ code: string }>(
       d1,
-      `SELECT code, thumb FROM hub_images WHERE code IN (${chunk.map(() => "?").join(",")})`,
+      `SELECT code FROM item_images WHERE code IN (${chunk.map(() => "?").join(",")})`,
       ...chunk,
     );
-    for (const r of rows) map.set(r.code, hubMediaUrl(r.thumb)!);
+    for (const r of rows) map.set(r.code, itemImageUrl(r.code));
   }
   return map;
 }
@@ -83,8 +83,8 @@ catalogRouter.get("/", async (c) => {
   const offset = Math.max(0, Number(c.req.query("offset")) || 0);
   const withCogs = c.req.query("withCogs") === "1";
 
-  // Gambar: bukan sakelar, hanya ikut aktif bila Hub terkonfigurasi.
-  if (await hubImagesEnabled(c.env)) await refreshHubImagesIfStale(c.env);
+  // Daftar kode bergambar sudah basi? Perbarui sekalian (bucket R2).
+  await refreshItemImagesIfStale(c.env);
 
   const where: string[] = [];
   const params: (string | number)[] = [];
@@ -119,7 +119,7 @@ catalogRouter.get("/", async (c) => {
   const codes = items.map((i) => i.code);
   const units = await unitsByCode(c.env.DB, codes);
   const withUnits = items.map((i) => ({ ...i, units: units.get(i.code) ?? [] }));
-  const images = (await hubImagesEnabled(c.env)) ? await imagesByCode(c.env.DB, codes) : new Map<string, string>();
+  const images = await imagesByCode(c.env.DB, codes);
   const role = c.get("user")!.role;
   const visible = catalogItemsForViewer(role, withProblems(withUnits, await cogsProblemsFor(c.env.DB, codes)));
   return c.json({
@@ -138,8 +138,8 @@ catalogRouter.post("/units", async (c) => {
     .safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
   const codes = [...new Set(parsed.data.codes)];
-  // Opening a quote also warms the image copy: the editor calls this directly.
-  if (await hubImagesEnabled(c.env)) await refreshHubImagesIfStale(c.env);
+  // Opening a quote also warms the image list: the editor calls this directly.
+  await refreshItemImagesIfStale(c.env);
   const out: Record<string, ItemUnits> = {};
   for (const chunk of chunks(codes, CHUNK)) {
     const bases = await all<{ code: string; uom: string }>(
@@ -150,7 +150,7 @@ catalogRouter.post("/units", async (c) => {
     const units = await unitsByCode(c.env.DB, bases.map((b) => b.code));
     for (const b of bases) out[b.code] = { baseUom: b.uom, units: units.get(b.code) ?? [] };
   }
-  return c.json({ units: out, images: (await hubImagesEnabled(c.env)) ? Object.fromEntries(await imagesByCode(c.env.DB, codes)) : {} });
+  return c.json({ units: out, images: Object.fromEntries(await imagesByCode(c.env.DB, codes)) });
 });
 
 /**

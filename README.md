@@ -132,29 +132,41 @@ hanya ada di backend Workers; server Express lokal tidak memilikinya.
 
 ---
 
-## Gambar barang dari Data Hub
+## Gambar barang
 
-Katalog, pemilih barang, dan baris quotation bisa menampilkan gambar produk
-yang diambil dari Data Hub Salvator.
+Katalog, pemilih barang, dan baris quotation menampilkan gambar produk yang
+disimpan pricing engine sendiri. Tidak ada server lain yang terlibat.
 
-```bash
-npm run d1:migrate:remote        # tabel hub_images 0016_hub_images.sql
-wrangler secret put HUB_API_URL
-wrangler secret put HUB_API_KEY
+Nama berkas mengikuti kode barang, jadi tidak perlu rename:
+
+```
+<kode>.webp         gambar penuh
+<kode>-thumb.webp   thumbnail (opsional)
 ```
 
-- **Tidak ada sakelar.** Fitur hidup begitu `HUB_API_URL` + `HUB_API_KEY` terisi;
-  kosongkan keduanya dan katalog tetap seperti biasa, tanpa gambar.
-- Yang disalin **hanya nama berkas** (`hub_images`), bukan byte gambarnya.
-  Browser memuat lewat proxy `/api/hub-media/<berkas>`, jadi kunci Hub tidak
-  pernah sampai ke browser dan CSP tetap `self`. `/media/products` Hub dibaca
-  tanpa header `Authorization`.
-- Kode alias di Hub memakai gambar induknya, jadi katalog yang masih memakai
-  kode lama tetap bergambar. URL gambar di luar `/media/products` Hub diabaikan.
-- Salinan disegarkan saat katalog atau quotation dibuka, paling sering tiap 30
-  menit. Hub sedang turun tidak emptying salinan: gambar lama tetap dipakai dan
-  errornya dicatat di pengaturan `hub_images_status`.
+Salin dari folder mana pun ke folder gambar:
+
+```bash
+npm run import:images -- /path/ke/folder/gambar
+```
+
+- **Tidak ada sakelar.** Folder gambar kosong = katalog tetap seperti biasa.
+- Yang disimpan di database hanya daftar kode yang punya gambar (`item_images`),
+  supaya barang tanpa gambar tidak menambah satu 404 per baris.
+- Byte-nya dilayani dari storage sendiri lewat `/api/item-image/<berkas>`, jadi
+  CSP tetap `self` dan tidak ada kunci API yang tersentuh. Rute ini butuh login.
+- Storage lokal (Node) = folder `IMAGES_DIR`. Workers = bucket R2 `pricing-images`
+  lewat binding `IMAGES` di `wrangler.toml`. Satu kali di dashboard Cloudflare:
+  nyalakan R2, lalu `wrangler r2 bucket create pricing-images`.
+- Hanya thumbnail yang ada? Route mencarinya, dan kalau hilang dilayani dari
+  gambar penuh — jadi cukup kirim gambar penuh saja kalau tidak ada thumbnail.
+- Daftar kode disegarkan saat katalog atau quotation dibuka, paling sering tiap 30
+  menit. Folder/bucket sedang tidak terbaca tidak mengosongkan daftar: kode lama
+  tetap dipakai dan errornya dicatat di pengaturan `item_images_status`.
 - Klik thumbnail membuka gambar penuh di halaman yang sama (zoom, seret, Esc).
+
+`npm run import:images` hanya mengisi folder lokal. Bucket R2 belum punya
+pengirim massal; sampai itu ada, isi R2 dari mesin yang memang punya gambarnya.
 
 ---
 

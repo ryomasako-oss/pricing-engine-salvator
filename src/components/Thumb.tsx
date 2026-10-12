@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { hubFullImageUrl } from "@shared/hubImages";
+import { itemFullImageUrl } from "@shared/itemImages";
 import { ImageLightbox } from "./ImageLightbox";
 
-/** Thumbnail barang dari Data Hub (lewat /api/hub-media), atau kotak kosong bila tidak ada gambar.
- *  Klik membuka gambar penuh di halaman yang sama, bisa di-zoom. */
+/** Thumbnail barang (lewat /api/item-image), atau kotak kosong bila kode ini tidak punya
+ *  gambar. Klik membuka gambar penuh di halaman yang sama, bisa di-zoom. */
 export function Thumb({ src, alt }: { src?: string | null; alt: string }) {
   const [open, setOpen] = useState(false);
   if (!src) return <span className="thumb thumb-empty" aria-hidden="true" />;
@@ -18,7 +18,7 @@ export function Thumb({ src, alt }: { src?: string | null; alt: string }) {
         decoding="async"
         onClick={() => setOpen(true)}
       />
-      {open && <ImageLightbox src={hubFullImageUrl(src)} fallbackSrc={src} alt={alt} onClose={() => setOpen(false)} />}
+      {open && <ImageLightbox src={itemFullImageUrl(src)} fallbackSrc={src} alt={alt} onClose={() => setOpen(false)} />}
     </>
   );
 }

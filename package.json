@@ -11,6 +11,7 @@
     "build": "tsc -p tsconfig.server.json && vite build",
     "start": "cross-env NODE_ENV=production node dist/server/index.js",
     "seed": "tsx server/seed.ts",
+    "import:images": "tsx scripts/import-images.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "tsx scripts/test-approval-workflow.ts",
