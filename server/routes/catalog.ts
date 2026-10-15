@@ -306,7 +306,8 @@ catalogRouter.post("/import", requirePermission("import_catalog"), (req: AuthedR
         inserted++;
       }
     }
-    return { inserted, updated };
+    // Accurate goods receipts live only in the Worker's D1, so here no COGS is kept from purchases.
+    return { inserted, updated, cogsFromPurchases: 0 };
   });
 
   audit(req.user!.id, "catalog", 0, "imported", { ...result, source, mode, rows: rows.length });
