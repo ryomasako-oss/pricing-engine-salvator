@@ -55,6 +55,9 @@ export interface FakeReceipt {
 /** Accurate "dd/MM/yyyy[ HH:mm:ss]" → sortable key, for the fake's filters. */
 const sortKey = (v: string) => v.replace(/^(\d{2})\/(\d{2})\/(\d{4})(.*)$/, "$3-$2-$1$4");
 
+/** Workers Paid limits per invocation (developers.cloudflare.com/workers/platform/limits, /d1/platform/limits). */
+export const PAID_PLAN = { d1Queries: 1000, subrequests: 10_000 };
+
 export function fakeAccurate(opts: {
   items: Record<string, unknown>[];
   stock: Record<number, Record<string, unknown>[]>;

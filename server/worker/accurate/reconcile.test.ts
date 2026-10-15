@@ -8,7 +8,7 @@ import { accurateRouter } from "../routes/accurate";
 import { reconcileDue, reconcileExamples, runReconcile } from "./reconcile";
 import { syncTick } from "./sync";
 import { countTasksSql, listTasksSql, tasksForViewer } from "../../fixTasks";
-import { countQueries, fakeAccurate } from "./testing";
+import { countQueries, fakeAccurate, PAID_PLAN } from "./testing";
 import { CHECKS, CHECK_KEYS, desiredTasks, type ReconcileCounts } from "../../../shared/accurateReconcile";
 import { digestEmail, type OpenTaskRow } from "../../../shared/fixTasks";
 import type { Env } from "../env";
@@ -238,7 +238,7 @@ describe("cross-check: review fixes (2026-10-08)", () => {
     expect(await reconcileDue(db, "PT")).toBe(false);
   });
 
-  it("checking while CV syncs keeps every tick within 50 queries + Accurate calls", async () => {
+  it("checking while CV syncs keeps every tick within the plan's queries and subrequests", async () => {
     const { sqlite, db: raw } = freshDb();
     seed(sqlite);
     ptFinishedJustNow(sqlite);
@@ -248,17 +248,20 @@ describe("cross-check: review fixes (2026-10-08)", () => {
     let calls = 0;
     vi.stubGlobal("fetch", ((u: RequestInfo | URL, i?: RequestInit) => (calls++, fake.impl(u, i))) as typeof fetch);
     let worst = 0;
+    let worstQueries = 0;
     let cvDone = false;
     for (let tick = 0; tick < 60 && !cvDone; tick++) {
       calls = 0;
       reset();
       const r = await syncTick(bothEntities(db), { deadlineMs: 10_000 });
       worst = Math.max(worst, calls + queries());
+      worstQueries = Math.max(worstQueries, queries());
       cvDone = r.find((x) => x.entity === "CV")?.outcome === "finished";
     }
     expect(cvDone).toBe(true);
     expect(openTasks(sqlite).length).toBe(5); // checked while CV was still syncing
-    expect(worst).toBeLessThanOrEqual(50);
+    expect(worst).toBeLessThanOrEqual(PAID_PLAN.subrequests);
+    expect(worstQueries).toBeLessThanOrEqual(PAID_PLAN.d1Queries);
   }, 30_000);
 
   it("an item suspended in Accurate is only reported as suspended, not as a price to apply", async () => {

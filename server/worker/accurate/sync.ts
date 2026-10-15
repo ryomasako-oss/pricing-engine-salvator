@@ -54,7 +54,7 @@ export function syncConfig(env: Bindings): SyncConfig {
   };
   return {
     pageSize: n(env.ACCURATE_PAGE_SIZE, 100, 10, 1000),
-    // Free-plan Workers allow 50 subrequests per invocation; keep headroom.
+    // Default stays within the Free plan's 50 subrequests; wrangler.toml sets the deployed value.
     callsPerTick: n(env.ACCURATE_CALLS_PER_TICK, 40, 1, 900),
     everyHours: n(env.ACCURATE_SYNC_EVERY_HOURS, 6, 1, 24 * 7),
   };

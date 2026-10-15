@@ -8,7 +8,7 @@ import { isoDate, mapReceipt, mapReceiptLines, updateKey } from "./mapping";
 import { RECEIPTS_CRON, receiptConfig, receiptStep, wibTimestamp, type ReceiptConfig } from "./receipts";
 import { syncConfig } from "./sync";
 import { accurateRouter } from "../routes/accurate";
-import { countQueries, fakeAccurate, type FakeReceipt } from "./testing";
+import { PAID_PLAN, countQueries, fakeAccurate, type FakeReceipt } from "./testing";
 import type { Env } from "../env";
 
 function freshDb() {
@@ -130,7 +130,7 @@ describe("receiptStep", () => {
     expect(sqlite.prepare("SELECT last_error FROM accurate_receipt_state").get()).toEqual({ last_error: null });
   });
 
-  it("with the deployed settings every receipts tick stays within 50 subrequests (Accurate + D1)", async () => {
+  it("with the deployed settings every receipts tick stays within the plan's subrequests and D1 queries", async () => {
     const toml = readFileSync(new URL("../../../wrangler.toml", import.meta.url), "utf8");
     const v = (k: string) => toml.match(new RegExp(`^${k}\\s*=\\s*"([^"]*)"`, "m"))?.[1];
     const { db: raw } = freshDb();
@@ -146,6 +146,7 @@ describe("receiptStep", () => {
     const budget = syncConfig(env).callsPerTick;
     const c = receiptConfig(env);
     let worst = 0;
+    let worstQueries = 0;
     let finished = false;
     for (let t = 0; t < 400 && !finished; t++) {
       calls = 0;
@@ -153,10 +154,13 @@ describe("receiptStep", () => {
       const r = await receiptStep(db, "PT", creds, c, { budget, deadline: Date.now() + 10_000, fetchImpl: counted, gapMs: 0 });
       if (r.outcome === "error") throw new Error(r.error);
       worst = Math.max(worst, calls + queries());
+      worstQueries = Math.max(worstQueries, queries());
       finished = r.outcome === "finished";
     }
     expect(finished).toBe(true);
-    expect(worst).toBeLessThanOrEqual(50);
+    expect(worst).toBeLessThanOrEqual(PAID_PLAN.subrequests);
+    expect(worstQueries).toBeLessThanOrEqual(PAID_PLAN.d1Queries);
+    expect(budget).toBe(60);
     expect(v("ACCURATE_RECEIPTS_ENABLED")).toBe("false"); // stays off until verified on PT
   });
 
