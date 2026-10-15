@@ -296,6 +296,26 @@ accurateRouter.post("/apply", requirePermission("import_catalog"), async (c) => 
 });
 
 /**
+ * Where collecting goods receipts stands, for the "COGS dari pembelian terakhir" panel.
+ * One row read (accurate_receipt_state); the panel polls it while a pass runs.
+ */
+accurateRouter.get("/receipts", requirePermission("import_catalog"), requirePermission("view_costs"), async (c) => {
+  const entity = catalogEntity(c.env);
+  const st = await loadReceiptState(c.env.DB, entity);
+  return c.json({
+    entity,
+    enabled: receiptsEnabled(c.env),
+    inProgress: !!st.pass_started_at,
+    receiptsSeen: st.receipts_seen,
+    lastPassAt: st.last_pass_at,
+    through: st.since_update,
+    since: st.backfill_since,
+    lastError: st.last_error,
+    lastErrorAt: st.last_error_at,
+  });
+});
+
+/**
  * COGS = harga pembelian terakhir: sets each catalog item's COGS to the unit
  * price of its latest Accurate goods receipt (server/worker/accurate/purchaseCost.ts).
  * `dryRun` (default) only reports what would change. Separate from /apply,

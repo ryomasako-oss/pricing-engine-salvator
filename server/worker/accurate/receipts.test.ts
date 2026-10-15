@@ -205,8 +205,9 @@ describe("POST /api/accurate/apply-cogs", () => {
     const env = { DB: db } as unknown as Env["Bindings"];
     const post = (body: unknown) =>
       app.request("/api/accurate/apply-cogs", { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" } }, env);
+    const get = (p: string) => app.request(p, {}, env);
     const cogs = () => Object.fromEntries((sqlite.prepare("SELECT code, cogs FROM catalog_items").all() as { code: string; cogs: number }[]).map((r) => [r.code, r.cogs]));
-    return { sqlite, post, cogs };
+    return { sqlite, post, get, cogs };
   }
 
   it("waits for a complete receipts pass", async () => {
@@ -223,8 +224,8 @@ describe("POST /api/accurate/apply-cogs", () => {
     expect(preview.dryRun).toBe(true);
     expect(cogs()).toEqual(before);
     expect(preview.changed).toEqual([
-      { code: "101311", from: 10_831_300, to: 11_005_000, receiptNo: "RI.2026.05.00022", transDate: "2026-05-22" },
-      { code: "A1", from: 9000, to: 10_000, receiptNo: "RI.2026.05.00022", transDate: "2026-05-22" },
+      { code: "101311", name: "Keset", from: 10_831_300, to: 11_005_000, receiptNo: "RI.2026.05.00022", transDate: "2026-05-22" },
+      { code: "A1", name: "Kertas", from: 9000, to: 10_000, receiptNo: "RI.2026.05.00022", transDate: "2026-05-22" },
     ]);
     expect(preview.skipped.map((s: any) => [s.code, s.reason])).toEqual([
       ["B1", "unknown_unit"], // Lusin has no ratio in Accurate
@@ -246,7 +247,15 @@ describe("POST /api/accurate/apply-cogs", () => {
   });
 
   it("is closed to sales reps (purchase prices are cost data)", async () => {
-    const { post } = setup("rep");
+    const { post, get } = setup("rep");
     expect((await post({})).status).toBe(403);
+    expect((await get("/api/accurate/receipts")).status).toBe(403);
+  });
+
+  it("reports how far collecting receipts has got", async () => {
+    const { sqlite, get } = setup();
+    expect(await (await get("/api/accurate/receipts")).json()).toMatchObject({ entity: "PT", inProgress: false, receiptsSeen: 0, lastPassAt: null });
+    sqlite.exec("UPDATE accurate_receipt_state SET pass_started_at = '2026-10-15T10:17:46Z', receipts_seen = 60, backfill_since = '15/10/2025'");
+    expect(await (await get("/api/accurate/receipts")).json()).toMatchObject({ inProgress: true, receiptsSeen: 60, since: "15/10/2025" });
   });
 });

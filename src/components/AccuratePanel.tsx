@@ -1,12 +1,15 @@
 /* Accurate Online sync status for managers: per-entity progress, a
-   "sync now" button, data-quality flags, and the explicit step that copies
-   one entity's selling prices and stock into the catalog. */
+   "sync now" button, data-quality flags, the explicit step that copies
+   one entity's selling prices and stock into the catalog, and (for roles
+   that see costs) COGS from the latest purchase price. */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { useToast } from "../context/ToastContext";
 import { Icon } from "./Icon";
 import { AccurateReconcile } from "./AccurateReconcile";
+import { AccuratePurchaseCost } from "./AccuratePurchaseCost";
+import { useAuth } from "../context/AuthContext";
 import { fmtDateTime, grp } from "@shared/format";
 
 type Entity = "CV" | "PT";
@@ -48,6 +51,7 @@ const PHASE: Record<EntityStatus["phase"], string> = {
 
 export function AccuratePanel({ onApplied }: { onApplied: () => void }) {
   const toast = useToast();
+  const { can } = useAuth();
   const [entities, setEntities] = useState<EntityStatus[] | null>(null);
   const [catalogEntity, setCatalogEntity] = useState<Entity>("PT");
   const [flags, setFlags] = useState<Flags | null>(null);
@@ -146,7 +150,7 @@ export function AccuratePanel({ onApplied }: { onApplied: () => void }) {
     <div className="card" style={{ marginBottom: 16 }}>
       <div className="card-head">
         <h3>Sinkron Accurate</h3>
-        <span className="muted small">Hanya membaca dari Accurate. COGS tetap dari laporan Nilai Persediaan.</span>
+        <span className="muted small">Hanya membaca dari Accurate. COGS dari harga pembelian terakhir.</span>
       </div>
       <div className="card-body">
         {configured.length === 0 ? (
@@ -198,6 +202,7 @@ export function AccuratePanel({ onApplied }: { onApplied: () => void }) {
               </div>
             )}
             {configured.some((e) => e.entity === catalogEntity) && <AccurateReconcile />}
+            {configured.some((e) => e.entity === catalogEntity) && can("view_costs") && <AccuratePurchaseCost onApplied={onApplied} />}
           </div>
         )}
       </div>
