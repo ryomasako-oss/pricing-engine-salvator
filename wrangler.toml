@@ -26,8 +26,11 @@ run_worker_first = true
 #   wrangler secret put ACCURATE_TOKEN_PT
 [triggers]
 # 1) Accurate sync tick. 2) 08:00 WIB "Perlu diperbaiki" email
-#    (server/worker/fixDigest.ts DIGEST_CRON). Free plan: 5 cron triggers per account.
-crons = ["*/5 * * * *", "0 1 * * *"]
+#    (server/worker/fixDigest.ts DIGEST_CRON). 3) Accurate goods receipts for
+#    COGS = harga pembelian terakhir (server/worker/accurate/receipts.ts
+#    RECEIPTS_CRON, a no-op until ACCURATE_RECEIPTS_ENABLED = "true").
+#    Free plan: 5 cron triggers per account.
+crons = ["*/5 * * * *", "0 1 * * *", "2,7,12,17,22,27,32,37,42,47,52,57 * * * *"]
 
 [vars]
 NODE_ENV = "production"
@@ -40,6 +43,10 @@ ACCURATE_CALLS_PER_TICK = "5"
 # other is synced, if it has a token, for the cross-entity checks only.
 ACCURATE_CATALOG_ENTITY = "PT"
 ACCURATE_SYNC_EVERY_HOURS = "6"
+# Goods receipts → COGS = harga pembelian terakhir. Off until the receipt
+# fields are verified on PT with GET /api/accurate/probe (101311 must give
+# 11.005.000). First pass reads receipts dated on/after ACCURATE_RECEIPTS_SINCE.
+ACCURATE_RECEIPTS_ENABLED = "false"
 
 # Brute-force protection: Workers isolates have no shared in-memory counter,
 # so login/password attempts and the AI assistant are throttled through

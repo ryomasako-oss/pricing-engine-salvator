@@ -21,6 +21,7 @@ import { fixTasksRouter } from "./routes/fixTasks";
 import { pendingItemsRouter } from "./routes/pendingItems";
 import { DIGEST_CRON, runFixDigest } from "./fixDigest";
 import { appLink, notifyEmail } from "./notify";
+import { RECEIPTS_CRON, receiptsTick } from "./accurate/receipts";
 import { syncTick } from "./accurate/sync";
 import { clientIp, type Bindings, type Env } from "./env";
 
@@ -100,6 +101,15 @@ async function scheduled(controller: ScheduledController, env: Bindings, ctx: Ex
       }).then(
         (r) => console.log("[fix-digest]", JSON.stringify(r)),
         (err) => console.error("[fix-digest] failed:", err),
+      ),
+    );
+    return;
+  }
+  if (controller.cron === RECEIPTS_CRON) {
+    ctx.waitUntil(
+      receiptsTick(env, { deadlineMs: 25_000 }).then(
+        (r) => r && r.outcome !== "idle" && console.log("[accurate] receipts", JSON.stringify(r)),
+        (err) => console.error("[accurate] receipts failed:", err),
       ),
     );
     return;

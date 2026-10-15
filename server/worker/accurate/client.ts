@@ -175,6 +175,12 @@ export class AccurateClient {
     };
   }
 
+  /** GET <host>/accurate/api/<path>; returns the "d" object of a detail call. */
+  async detail<T = Record<string, unknown>>(path: string, params: Record<string, string | number>): Promise<T | null> {
+    const body = (await this.raw(path, params)) as { d?: unknown };
+    return body.d && typeof body.d === "object" && !Array.isArray(body.d) ? (body.d as T) : null;
+  }
+
   /** Raw GET, for the admin probe endpoint. */
   async raw(path: string, params: Record<string, string | number>): Promise<unknown> {
     const host = await this.ensureHost();
