@@ -161,7 +161,7 @@ describe("receiptStep", () => {
     expect(worst).toBeLessThanOrEqual(PAID_PLAN.subrequests);
     expect(worstQueries).toBeLessThanOrEqual(PAID_PLAN.d1Queries);
     expect(budget).toBe(60);
-    expect(v("ACCURATE_RECEIPTS_ENABLED")).toBe("false"); // stays off until verified on PT
+    expect(["true", "false"]).toContain(v("ACCURATE_RECEIPTS_ENABLED"));
   });
 
   it("wrangler.toml schedules the receipts cron verbatim (a mismatch would run the item sync twice as often)", () => {

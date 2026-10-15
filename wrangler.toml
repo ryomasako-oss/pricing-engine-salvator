@@ -45,10 +45,12 @@ ACCURATE_CALLS_PER_TICK = "60"
 # other is synced, if it has a token, for the cross-entity checks only.
 ACCURATE_CATALOG_ENTITY = "PT"
 ACCURATE_SYNC_EVERY_HOURS = "6"
-# Goods receipts → COGS = harga pembelian terakhir. Off until the receipt
-# fields are verified on PT with GET /api/accurate/probe (101311 must give
-# 11.005.000). First pass reads receipts dated on/after ACCURATE_RECEIPTS_SINCE.
-ACCURATE_RECEIPTS_ENABLED = "false"
+# Goods receipts → COGS = harga pembelian terakhir. Verified on PT
+# 2026-10-15 with GET /api/accurate/probe: RI.2026.05.00210 gives 101311 at
+# 11.005.000 (= Mutasi), and the lastUpdate filter narrows 7.469 receipts to
+# the ~50 changed in a day. First pass reads receipts dated on/after
+# ACCURATE_RECEIPTS_SINCE (default one year back). Set "false" to stop.
+ACCURATE_RECEIPTS_ENABLED = "true"
 
 # Brute-force protection: Workers isolates have no shared in-memory counter,
 # so login/password attempts and the AI assistant are throttled through
