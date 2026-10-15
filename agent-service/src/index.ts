@@ -20,7 +20,7 @@ import { industryProfileForClient } from "./industry.js";
 import { generateRecommendation, findSimilarQuotes } from "./recommend.js";
 import { GeminiClient, thinkingLevelFrom } from "./gemini.js";
 import { GmailClient } from "./email.js";
-import { silvyAsk, silvyDocument, authorize } from "./silvy/handlers.js";
+import { silvyAsk, silvyDocument, authorize, silvyReport } from "./silvy/handlers.js";
 import { IndustryTag } from "./types.js";
 
 // ---- env ----
@@ -260,7 +260,7 @@ const server = createServer(async (req, res) => {
     }
 
     // ---- silvy (hanya dari gerbang aplikasi pricing) ----
-    if ((path === "/silvy/ask" || path === "/silvy/document") && method === "POST") {
+    if ((path === "/silvy/ask" || path === "/silvy/document" || path === "/silvy/report") && method === "POST") {
       if (!gemini) {
         sendError(res, 503, "Silvy belum aktif: GEMINI_API_KEY belum diisi.");
         return;
@@ -277,7 +277,12 @@ const server = createServer(async (req, res) => {
         sendError(res, 400, "Body bukan JSON valid.");
         return;
       }
-      const out = path === "/silvy/ask" ? await silvyAsk(gemini, body) : await silvyDocument(gemini, body);
+      const out =
+        path === "/silvy/ask"
+          ? await silvyAsk(gemini, body)
+          : path === "/silvy/document"
+            ? await silvyDocument(gemini, body)
+            : await silvyReport(gemini, body);
       sendJSON(res, out.status, out.body);
       return;
     }

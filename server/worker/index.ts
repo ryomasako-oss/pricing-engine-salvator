@@ -21,6 +21,7 @@ import { fixTasksRouter } from "./routes/fixTasks";
 import { pendingItemsRouter } from "./routes/pendingItems";
 import { DIGEST_CRON, runFixDigest } from "./fixDigest";
 import { appLink, notifyEmail } from "./notify";
+import { runAccurateRecap } from "./accurateRecap";
 import { RECEIPTS_CRON, receiptsTick } from "./accurate/receipts";
 import { syncTick } from "./accurate/sync";
 import { clientIp, type Bindings, type Env } from "./env";
@@ -101,6 +102,16 @@ async function scheduled(controller: ScheduledController, env: Bindings, ctx: Ex
       }).then(
         (r) => console.log("[fix-digest]", JSON.stringify(r)),
         (err) => console.error("[fix-digest] failed:", err),
+      ),
+    );
+    ctx.waitUntil(
+      runAccurateRecap(env, {
+        now: new Date(),
+        link: appLink(env, "/catalog"),
+        send: (to, subject, html) => notifyEmail(env, to, subject, html),
+      }).then(
+        (r) => console.log("[accurate-recap]", JSON.stringify(r)),
+        (err) => console.error("[accurate-recap] failed:", err),
       ),
     );
     return;

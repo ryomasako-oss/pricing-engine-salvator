@@ -1,5 +1,5 @@
 /* ============================================================
-   Silvy: /silvy/ask dan /silvy/document.
+   Silvy: /silvy/ask, /silvy/document, dan /silvy/report.
 
    Pure functions (tanpa HTTP) supaya bisa dites. Aplikasi pricing
    adalah gerbangnya: ia yang mengautentikasi user, menolak role
@@ -12,6 +12,7 @@ import { timingSafeEqual, createHash } from "node:crypto";
 import { GeminiError, extractJSON, type GeminiMessage, type GeminiOptions } from "../gemini.js";
 import { DOCS, buildContext, chatSystem, docSystem } from "./context.js";
 import { isScenarioActionValue } from "../../../shared/silvyDocs.js";
+import { RECAP_MAX_OUTPUT_TOKENS, RECAP_SYSTEM, recapPrompt, type AccurateRecap } from "../../../shared/accurateRecap.js";
 import type { PricingPolicy, QuoteSnapshot, ScenarioIndex } from "../../../shared/types.js";
 
 export interface Llm {
@@ -175,6 +176,34 @@ export async function silvyDocument(llm: Llm, body: unknown): Promise<Result> {
   try {
     const content = await llm.chat(docSystem(built.ctx), [{ role: "user", content: DOCS[kind].prompt }], { maxOutputTokens: 4000 });
     return { status: 200, body: { content } };
+  } catch (err) {
+    return llmError(err);
+  }
+}
+
+/** Bentuk minimal rekap dari app; isinya dirender ulang di sini lewat recapPrompt, bukan diteruskan mentah. */
+function parseRecap(v: unknown): AccurateRecap | null {
+  if (!isObj(v) || typeof v.date !== "string" || typeof v.entity !== "string") return null;
+  const { cogs, receipts, checks } = v;
+  if (!isObj(cogs) || !isObj(receipts) || !Array.isArray(checks)) return null;
+  if (!Array.isArray(cogs.topChanges) || !Array.isArray(cogs.topSkipped)) return null;
+  return v as unknown as AccurateRecap;
+}
+
+/**
+ * Ringkasan pagi rekap Accurate (shared/accurateRecap.ts). Satu panggilan Gemini per hari dari
+ * cron app; keluaran teks biasa ~160 kata. Angka di tabel email dibuat app, bukan oleh model.
+ */
+export async function silvyReport(llm: Llm, body: unknown): Promise<Result> {
+  if (!isObj(body)) return fail(400, "Permintaan tidak valid.");
+  const recap = parseRecap(body.recap);
+  if (!recap) return fail(400, "Rekap Accurate tidak valid.");
+  try {
+    const content = await llm.chat(RECAP_SYSTEM, [{ role: "user", content: recapPrompt(recap) }], {
+      temperature: 0.2,
+      maxOutputTokens: RECAP_MAX_OUTPUT_TOKENS,
+    });
+    return { status: 200, body: { content: content.trim() } };
   } catch (err) {
     return llmError(err);
   }
