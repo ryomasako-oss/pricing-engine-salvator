@@ -16,6 +16,7 @@ import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { grp } from "@shared/format";
 import { lineFromCatalog, type MatchResult, type RequestLine } from "@shared/match";
+import { PENDING_BADGE } from "@shared/pendingItems";
 import type { CatalogItem, Client, QuoteItem } from "@shared/types";
 import { uomWarning } from "@shared/uom";
 import { Icon } from "./Icon";
@@ -223,6 +224,8 @@ export function ListToQuote({
   const blockedOf = (r: Row) => (r.chosen != null ? items.get(r.chosen)?.cogs_problem ?? null : null);
   const pending = rows?.filter((r) => r.chosen != null && !r.confirmed).length ?? 0;
   const isPending = (r: Row) => (r.chosen != null ? items.get(r.chosen)?.source === "pending" : false);
+  /** Nothing matched and the rep has not decided yet: the row still needs an adjustment. */
+  const unresolved = (r: Row) => r.chosen == null && r.result.status === "none" && !r.confirmed;
   const heldCount = rows?.filter((r) => blockedOf(r) || isPending(r)).length ?? 0;
   const used = lines.filter(Boolean).length;
   // Rows left out by choice (or with nothing found).
@@ -404,7 +407,9 @@ export function ListToQuote({
               onCreated={(_line, item) => {
                 const at = newItemRow;
                 setItems((m) => new Map(m).set(item.id, item));
-                update(at, { chosen: item.id, confirmed: true });
+                // Into `extra` as well, or the dropdown has no option for it and shows
+                // "— tidak dipakai —" over a row that does have an item.
+                update(at, { chosen: item.id, confirmed: true, extra: [...rows[at].extra, item.id] });
                 setNewItemRow(null);
                 toast(`"${item.name}" diminta ke Accurate. Barisnya ditahan sampai barangnya dibuat.`);
               }}
@@ -512,11 +517,21 @@ export function ListToQuote({
                           >
                             <Icon name="check" size={13} /> Benar
                           </button>
+                        ) : isPending(row) ? (
+                          <span className="badge amber">{PENDING_BADGE}</span>
                         ) : blockedOf(row) ? (
                           <span className="badge amber">Ditahan</span>
                         ) : (
-                          <span className={`badge ${row.chosen == null ? "grey" : row.result.status === "review" ? "green" : label.cls}`}>
-                            {row.chosen == null ? "Tidak dipakai" : row.result.status === "review" ? "Sudah dicek" : label.text}
+                          // A row the matcher could not resolve is an adjustment the rep still owes,
+                          // not a row they chose to drop; those two looked the same before.
+                          <span className={`badge ${unresolved(row) ? label.cls : row.chosen == null ? "grey" : row.result.status === "review" ? "green" : label.cls}`}>
+                            {unresolved(row)
+                              ? label.text
+                              : row.chosen == null
+                                ? "Tidak dipakai"
+                                : row.result.status === "review"
+                                  ? "Sudah dicek"
+                                  : label.text}
                           </span>
                         )}
                       </td>
