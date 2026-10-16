@@ -507,6 +507,7 @@ export function ListToQuote({
                         {searchRow === i && (
                           <CatalogSearch
                             initial={row.request.name}
+                            seeCosts={seeCosts}
                             onPick={(it) => {
                               setItems((m) => new Map(m).set(it.id, it));
                               update(i, { chosen: it.id, confirmed: true, extra: [...row.extra, it.id] });
@@ -578,7 +579,16 @@ export function ListToQuote({
 }
 
 /** Small inline catalog search for a row the matcher could not resolve. */
-function CatalogSearch({ initial, onPick }: { initial: string; onPick: (item: CatalogItem) => void }) {
+function CatalogSearch({
+  initial,
+  seeCosts,
+  onPick,
+}: {
+  initial: string;
+  /** PE-1: the server strips cogs for a rep, so the chip must not print it either. */
+  seeCosts: boolean;
+  onPick: (item: CatalogItem) => void;
+}) {
   const [q, setQ] = useState(initial);
   const [found, setFound] = useState<CatalogItem[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -609,7 +619,12 @@ function CatalogSearch({ initial, onPick }: { initial: string; onPick: (item: Ca
       {found && found.length === 0 && <span className="muted small">Tidak ada. Coba kata kunci lebih pendek, misal merek saja.</span>}
       {found?.map((it) => (
         <button key={it.id} className="chip" type="button" onClick={() => onPick(it)}>
-          {it.name} <span className="muted">· {it.code} · COGS {grp(it.cogs)}</span>
+          {it.name}{" "}
+          <span className="muted">
+            {/* A rep gets no cogs from the server; grp(undefined) printed "COGS 0" on items that
+                have one. The unit is what they need to pick the right row anyway. */}
+            · {it.code} · {seeCosts ? `COGS ${grp(it.cogs)}` : it.uom || "Pcs"}
+          </span>
         </button>
       ))}
     </div>
