@@ -267,9 +267,25 @@ export function ListToQuote({
         .filter((row) => items.get(row.chosen!)?.source !== "pending")
         .filter((row) => row.result.status === "review" || row.result.status === "none" || row.chosen !== row.result.candidates[0]?.id)
         .map((row) => ({ text: row.request.name, code: items.get(row.chosen!)!.code }));
-      if (pairs.length) {
+      // Every row is reported, right or wrong, with or without a client: the
+      // pairs above become rules, this is the evidence behind the learning
+      // report (shared/matchLearning.ts). Without it nothing was ever recorded.
+      const feedback = rows.map((row) => {
+        const item = row.chosen != null ? items.get(row.chosen) : undefined;
+        const suggested = row.result.candidates[0] ? (items.get(row.result.candidates[0].id)?.code ?? null) : null;
+        return {
+          text: row.request.name,
+          status: row.result.status,
+          via: row.result.via ?? "",
+          suggested,
+          score: row.result.candidates[0]?.score ?? 0,
+          chosen: item?.code ?? null,
+          isNew: item?.source === "pending",
+        };
+      });
+      if (pairs.length || feedback.length) {
         await api
-          .post("/catalog/aliases", { client_id: clientId, pairs })
+          .post("/catalog/aliases", { client_id: clientId === "" ? null : clientId, pairs, feedback })
           .catch(() => toast("Quotation dibuat, tetapi pasangan nama-katalog gagal disimpan untuk lain kali.", "error"));
       }
       onCreated(r.quote.id);

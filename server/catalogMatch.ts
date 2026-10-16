@@ -8,6 +8,7 @@
    ============================================================ */
 
 import { z } from "zod";
+import { feedbackRowSchema } from "./matchLearning.js";
 import { normalizeCode } from "../shared/duplicates.js";
 import { type AliasMaps, type MatchResult, matchLines, normalizeText } from "../shared/match.js";
 import { hasPermission } from "../shared/permissions.js";
@@ -33,10 +34,13 @@ export const matchInput = z.object({
 
 export const aliasInput = z.object({
   client_id: z.number().int().positive().nullable().optional(),
+  /** May be empty: a list where every guess was right stores no rule but still teaches. */
   pairs: z
     .array(z.object({ text: z.string().trim().min(1).max(300), code: z.string().trim().min(1).max(64) }))
-    .min(1)
-    .max(MAX_MATCH_LINES),
+    .max(MAX_MATCH_LINES)
+    .default([]),
+  /** Every reviewed row, right or wrong (server/matchLearning.ts). */
+  feedback: z.array(feedbackRowSchema).max(MAX_MATCH_LINES).default([]),
 });
 
 /**
@@ -72,8 +76,9 @@ export function runMatch(
   input: z.infer<typeof matchInput>,
   catalog: CatalogItem[],
   aliases: AliasRow[],
+  rejected?: Map<string, Set<string>>,
 ): { results: MatchResult[]; referenced: CatalogItem[] } {
-  const results = matchLines(input.lines, catalog, aliasMaps(aliases, input.client_id));
+  const results = matchLines(input.lines, catalog, aliasMaps(aliases, input.client_id), rejected);
   const ids = new Set(results.flatMap((r) => r.candidates.map((c) => c.id)));
   return { results, referenced: catalog.filter((it) => ids.has(it.id)) };
 }

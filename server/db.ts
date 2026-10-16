@@ -205,6 +205,24 @@ CREATE TABLE IF NOT EXISTS catalog_aliases (
   PRIMARY KEY (alias, client_id)
 );
 
+-- Mirrors migrations/0018_match_learning.sql.
+CREATE TABLE IF NOT EXISTS match_feedback (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  client_id  INTEGER NOT NULL DEFAULT 0,
+  text       TEXT NOT NULL,
+  raw_text   TEXT NOT NULL,
+  status     TEXT NOT NULL,
+  via        TEXT NOT NULL DEFAULT '',
+  suggested  TEXT,
+  score      REAL NOT NULL DEFAULT 0,
+  chosen     TEXT,
+  outcome    TEXT NOT NULL,
+  user_id    INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_match_feedback_pair ON match_feedback(text, suggested);
+CREATE INDEX IF NOT EXISTS idx_match_feedback_time ON match_feedback(created_at);
+
 -- Mirrors migrations/0012_sales_reviews.sql.
 CREATE TABLE IF NOT EXISTS sales_reviews (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
