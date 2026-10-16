@@ -13,21 +13,24 @@ import { Modal } from "./Modal";
 export function NewItemForm({
   uomOptions,
   initialName,
+  fixedQty,
   onBack,
   onClose,
   onCreated,
 }: {
   uomOptions: string[];
   initialName: string;
+  /** Set when the caller already knows the quantity (a client's list says it): the field is then hidden. */
+  fixedQty?: number;
   onBack: () => void;
   onClose: () => void;
-  /** The held quote line for the new item. */
-  onCreated: (line: QuoteItem) => void;
+  /** The held quote line, plus the catalog-shaped row it was built from. */
+  onCreated: (line: QuoteItem, item: CatalogItem) => void;
 }) {
   const [name, setName] = useState(initialName);
   const [uom, setUom] = useState("Pcs");
   const [price, setPrice] = useState("");
-  const [qty, setQty] = useState("1");
+  const [qty, setQty] = useState(String(fixedQty ?? 1));
   const [code, setCode] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -50,7 +53,7 @@ export function NewItemForm({
         stock: 0, category: "", source: "pending", updated_at: it.created_at,
       };
       // Held right away; the server holds it on every read too, until the catalog has the code.
-      onCreated({ ...lineFromCatalog(row, Math.max(1, Number(qty) || 1)), held: true, holdReason: "new_item" });
+      onCreated({ ...lineFromCatalog(row, Math.max(1, Number(qty) || 1)), held: true, holdReason: "new_item" }, row);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -89,10 +92,12 @@ export function NewItemForm({
               ))}
             </select>
           </label>
-          <label className="field" style={{ flex: 1, minWidth: 120 }}>
-            <span className="small">Qty</span>
-            <input className="input" type="number" min="1" value={qty} onChange={(e) => setQty(e.target.value)} />
-          </label>
+          {fixedQty === undefined && (
+            <label className="field" style={{ flex: 1, minWidth: 120 }}>
+              <span className="small">Qty</span>
+              <input className="input" type="number" min="1" value={qty} onChange={(e) => setQty(e.target.value)} />
+            </label>
+          )}
           <label className="field" style={{ flex: 2, minWidth: 160 }}>
             <span className="small">Perkiraan harga jual (opsional)</span>
             <input className="input" type="number" min="0" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="0" />

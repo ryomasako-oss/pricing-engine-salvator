@@ -21,6 +21,7 @@ import { uomWarning } from "@shared/uom";
 import { Icon } from "./Icon";
 import { ClientQuickAdd } from "./ClientQuickAdd";
 import { Modal } from "./Modal";
+import { NewItemForm } from "./NewItemForm";
 import { WaitingLine } from "./WaitingLine";
 
 const MAX_LINES = 500;
@@ -63,7 +64,8 @@ const STATUS_LABEL: Record<MatchResult["status"], { text: string; cls: string }>
   exact: { text: "Pasti", cls: "green" },
   match: { text: "Cocok", cls: "green" },
   review: { text: "Perlu dicek", cls: "amber" },
-  none: { text: "Tidak ketemu", cls: "red" },
+  // Ryoma (catatan 23): a row with no candidate is something the rep adjusts, not a failure.
+  none: { text: "Adjustment", cls: "blue" },
 };
 
 export function ListToQuote({
@@ -105,6 +107,16 @@ export function ListToQuote({
   const [error, setError] = useState("");
   const [drag, setDrag] = useState(false);
   const [searchRow, setSearchRow] = useState<number | null>(null);
+  /** Row whose "Barang baru" form is open (catatan 24/25: a row with no match can still become an item). */
+  const [newItemRow, setNewItemRow] = useState<number | null>(null);
+  const [uomOptions, setUomOptions] = useState<string[]>([]);
+
+  useEffect(() => {
+    api
+      .get<{ options: { name: string }[] }>("/catalog/uom")
+      .then((r) => setUomOptions(r.options.map((o) => o.name)))
+      .catch(() => setUomOptions([]));
+  }, []);
 
   /** Match request rows against the catalog and open the review. */
   const match = async (lines: RequestLine[], extraNotes: string[], label: string) => {
@@ -174,6 +186,9 @@ export function ListToQuote({
       const item = r.chosen != null ? items.get(r.chosen) : undefined;
       if (!item) return null;
       const line = lineFromCatalog(item, r.request.qty ?? 1, { uom: r.request.uom, rrp: r.request.rrp });
+      // "Barang baru" is not in the catalog yet, so its line waits for Accurate
+      // (shared/pendingItems.ts). The server holds it on every read as well.
+      if (item.source === "pending") return { ...line, held: true, holdReason: "new_item" as const };
       // A catalog item with a bad COGS goes on the quote held (server/cogsCheck.ts):
       // not offered or totalled until a manager checks it, but not forgotten.
       return item.cogs_problem ? { ...line, held: true } : line;
@@ -207,7 +222,8 @@ export function ListToQuote({
 
   const blockedOf = (r: Row) => (r.chosen != null ? items.get(r.chosen)?.cogs_problem ?? null : null);
   const pending = rows?.filter((r) => r.chosen != null && !r.confirmed).length ?? 0;
-  const heldCount = rows?.filter((r) => blockedOf(r)).length ?? 0;
+  const isPending = (r: Row) => (r.chosen != null ? items.get(r.chosen)?.source === "pending" : false);
+  const heldCount = rows?.filter((r) => blockedOf(r) || isPending(r)).length ?? 0;
   const used = lines.filter(Boolean).length;
   // Rows left out by choice (or with nothing found).
   const skipped = (rows?.length ?? 0) - used;
@@ -243,6 +259,9 @@ export function ListToQuote({
       // company-wide rule.
       const pairs = clientId === "" ? [] : rows
         .filter((row) => row.chosen != null && row.result.via !== "code")
+        // A "barang baru" code (BARU-0001) is replaced once Accurate has the real one,
+        // so an alias pointing at it would never match anything.
+        .filter((row) => items.get(row.chosen!)?.source !== "pending")
         .filter((row) => row.result.status === "review" || row.result.status === "none" || row.chosen !== row.result.candidates[0]?.id)
         .map((row) => ({ text: row.request.name, code: items.get(row.chosen!)!.code }));
       if (pairs.length) {
@@ -367,13 +386,30 @@ export function ListToQuote({
               <span className="badge grey">{fileName}</span>
               <span className="badge green">{summary!.sure} cocok</span>
               {summary!.review > 0 && <span className="badge amber">{summary!.review} perlu dicek</span>}
-              {summary!.none > 0 && <span className="badge red">{summary!.none} tidak ketemu</span>}
+              {summary!.none > 0 && <span className="badge blue">{summary!.none} adjustment</span>}
               {heldCount > 0 && <span className="badge amber">{heldCount} ditahan</span>}
             </div>
           </div>
           {notes.map((n) => (
             <p key={n} className="notice info">{n}</p>
           ))}
+
+          {newItemRow !== null && rows?.[newItemRow] && (
+            <NewItemForm
+              uomOptions={uomOptions}
+              initialName={rows[newItemRow].request.name}
+              fixedQty={rows[newItemRow].request.qty ?? 1}
+              onBack={() => setNewItemRow(null)}
+              onClose={() => setNewItemRow(null)}
+              onCreated={(_line, item) => {
+                const at = newItemRow;
+                setItems((m) => new Map(m).set(item.id, item));
+                update(at, { chosen: item.id, confirmed: true });
+                setNewItemRow(null);
+                toast(`"${item.name}" diminta ke Accurate. Barisnya ditahan sampai barangnya dibuat.`);
+              }}
+            />
+          )}
 
           <div className="table-wrap" style={{ maxHeight: "58vh" }}>
             <table className="table">
@@ -437,6 +473,14 @@ export function ListToQuote({
                             onClick={() => setSearchRow(searchRow === i ? null : i)}
                           >
                             <Icon name="search" size={15} />
+                          </button>
+                          <button
+                            className="icon-btn"
+                            title="Barang baru: belum ada di katalog"
+                            aria-label={`Buat barang baru untuk ${row.request.name}`}
+                            onClick={() => setNewItemRow(i)}
+                          >
+                            <Icon name="plus" size={15} />
                           </button>
                         </div>
                         {searchRow === i && (
