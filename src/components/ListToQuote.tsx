@@ -16,13 +16,13 @@ import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { grp } from "@shared/format";
 import { lineFromCatalog, type MatchResult, type RequestLine } from "@shared/match";
-import { PENDING_BADGE } from "@shared/pendingItems";
 import type { CatalogItem, Client, QuoteItem } from "@shared/types";
 import { uomWarning } from "@shared/uom";
 import { Icon } from "./Icon";
 import { ClientQuickAdd } from "./ClientQuickAdd";
 import { Modal } from "./Modal";
 import { NewItemForm } from "./NewItemForm";
+import { reviewRowBadge } from "./reviewRow";
 import { WaitingLine } from "./WaitingLine";
 
 const MAX_LINES = 500;
@@ -60,14 +60,6 @@ interface Row {
   /** Extra items found by a manual search for this row. */
   extra: number[];
 }
-
-const STATUS_LABEL: Record<MatchResult["status"], { text: string; cls: string }> = {
-  exact: { text: "Pasti", cls: "green" },
-  match: { text: "Cocok", cls: "green" },
-  review: { text: "Perlu dicek", cls: "amber" },
-  // Ryoma (catatan 23): a row with no candidate is something the rep adjusts, not a failure.
-  none: { text: "Adjustment", cls: "blue" },
-};
 
 export function ListToQuote({
   clients,
@@ -224,8 +216,6 @@ export function ListToQuote({
   const blockedOf = (r: Row) => (r.chosen != null ? items.get(r.chosen)?.cogs_problem ?? null : null);
   const pending = rows?.filter((r) => r.chosen != null && !r.confirmed).length ?? 0;
   const isPending = (r: Row) => (r.chosen != null ? items.get(r.chosen)?.source === "pending" : false);
-  /** Nothing matched and the rep has not decided yet: the row still needs an adjustment. */
-  const unresolved = (r: Row) => r.chosen == null && r.result.status === "none" && !r.confirmed;
   const heldCount = rows?.filter((r) => blockedOf(r) || isPending(r)).length ?? 0;
   const used = lines.filter(Boolean).length;
   // Rows left out by choice (or with nothing found).
@@ -448,7 +438,13 @@ export function ListToQuote({
               <tbody>
                 {rows.map((row, i) => {
                   const line = lines[i];
-                  const label = STATUS_LABEL[row.result.status];
+                  const badge = reviewRowBadge({
+                    status: row.result.status,
+                    chosen: row.chosen != null,
+                    confirmed: row.confirmed,
+                    pending: isPending(row),
+                    held: !!blockedOf(row),
+                  });
                   const options = [...row.result.candidates.map((c) => c.id), ...row.extra.filter((id) => !row.result.candidates.some((c) => c.id === id))];
                   const scoreOf = new Map(row.result.candidates.map((c) => [c.id, c.score]));
                   const warn = line ? uomWarning(line) : null;
@@ -526,7 +522,7 @@ export function ListToQuote({
                         )}
                       </td>
                       <td className="l">
-                        {row.chosen != null && !row.confirmed ? (
+                        {badge.kind === "confirm" ? (
                           <button
                             className="btn small"
                             onClick={() => update(i, { confirmed: true })}
@@ -534,22 +530,8 @@ export function ListToQuote({
                           >
                             <Icon name="check" size={13} /> Benar
                           </button>
-                        ) : isPending(row) ? (
-                          <span className="badge amber">{PENDING_BADGE}</span>
-                        ) : blockedOf(row) ? (
-                          <span className="badge amber">Ditahan</span>
                         ) : (
-                          // A row the matcher could not resolve is an adjustment the rep still owes,
-                          // not a row they chose to drop; those two looked the same before.
-                          <span className={`badge ${unresolved(row) ? label.cls : row.chosen == null ? "grey" : row.result.status === "review" ? "green" : label.cls}`}>
-                            {unresolved(row)
-                              ? label.text
-                              : row.chosen == null
-                                ? "Tidak dipakai"
-                                : row.result.status === "review"
-                                  ? "Sudah dicek"
-                                  : label.text}
-                          </span>
+                          <span className={`badge ${badge.cls}`}>{badge.text}</span>
                         )}
                       </td>
                       <td className="num">
