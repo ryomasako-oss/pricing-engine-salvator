@@ -49,8 +49,16 @@ ACCURATE_SYNC_EVERY_HOURS = "6"
 # 2026-10-15 with GET /api/accurate/probe: RI.2026.05.00210 gives 101311 at
 # 11.005.000 (= Mutasi), and the lastUpdate filter narrows 7.469 receipts to
 # the ~50 changed in a day. First pass reads receipts dated on/after
-# ACCURATE_RECEIPTS_SINCE (default one year back). Set "false" to stop.
+# ACCURATE_RECEIPTS_SINCE. Set "false" to stop.
 ACCURATE_RECEIPTS_ENABLED = "true"
+# How far back the FIRST pass reads, by transaction date (default: one year).
+# A year gave 3.231 receipts but left 3.720 catalog items without a purchase
+# price; 98% of those also hold no stock, so they are dormant rather than
+# missed. Three years (Ryoma, 2026-10-16) is to confirm that and to catch the
+# 44 that still hold stock. Widening it only takes effect on a pass that runs
+# in transDate mode: clear accurate_receipt_state.since_update first, or the
+# cursor stays in lastUpdate mode and nothing older is ever fetched.
+ACCURATE_RECEIPTS_SINCE = "2023-10-16"
 
 # Brute-force protection: Workers isolates have no shared in-memory counter,
 # so login/password attempts and the AI assistant are throttled through
