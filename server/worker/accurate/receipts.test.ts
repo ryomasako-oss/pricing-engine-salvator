@@ -186,8 +186,10 @@ describe("receiptConfig: how far back the first pass reads", () => {
     expect(receiptConfig({} as never, new Date("2026-01-01T18:00:00Z")).since).toBe("02/01/2025");
   });
 
-  it("uses the deployed wrangler.toml value, and it is three years back", () => {
-    expect(receiptConfig({ ACCURATE_RECEIPTS_SINCE: v("ACCURATE_RECEIPTS_SINCE") } as never).since).toBe("16/10/2023");
+  it("is left unset in the deployed config, so the first pass reads one year (Ryoma, 2026-10-16)", () => {
+    expect(v("ACCURATE_RECEIPTS_SINCE")).toBeUndefined();
+    const since = receiptConfig({ ACCURATE_RECEIPTS_SINCE: v("ACCURATE_RECEIPTS_SINCE") } as never, new Date("2026-10-16T05:00:00Z")).since;
+    expect(since).toBe("16/10/2025");
   });
 
   it("ignores a widened window while the cursor is in lastUpdate mode (clear since_update to backfill again)", async () => {

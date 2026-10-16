@@ -51,14 +51,14 @@ ACCURATE_SYNC_EVERY_HOURS = "6"
 # the ~50 changed in a day. First pass reads receipts dated on/after
 # ACCURATE_RECEIPTS_SINCE. Set "false" to stop.
 ACCURATE_RECEIPTS_ENABLED = "true"
-# How far back the FIRST pass reads, by transaction date (default: one year).
-# A year gave 3.231 receipts but left 3.720 catalog items without a purchase
-# price; 98% of those also hold no stock, so they are dormant rather than
-# missed. Three years (Ryoma, 2026-10-16) is to confirm that and to catch the
-# 44 that still hold stock. Widening it only takes effect on a pass that runs
-# in transDate mode: clear accurate_receipt_state.since_update first, or the
-# cursor stays in lastUpdate mode and nothing older is ever fetched.
-ACCURATE_RECEIPTS_SINCE = "2023-10-16"
+# ACCURATE_RECEIPTS_SINCE is how far back the FIRST pass reads, by transaction
+# date; left unset, it is one year. A year gave 3.231 receipts and left 3.749
+# catalog items without a purchase price, but 98% of those hold no stock in
+# Accurate either, so they are dormant rather than missed. Ryoma decided on
+# 2026-10-16 not to widen it: older receipts would only describe items that
+# are no longer traded. Note for whoever widens it later — the value alone
+# does nothing once a first pass has finished, because the cursor then
+# filters by lastUpdate; clear accurate_receipt_state.since_update too.
 
 # Brute-force protection: Workers isolates have no shared in-memory counter,
 # so login/password attempts and the AI assistant are throttled through
