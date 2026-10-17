@@ -4,7 +4,12 @@
    A client sends "Kertas A4 Sinar Dunia 70gsm — 50 rim"; the catalog has
    "KERTAS HVS SIDU A4 70GR". Each requested line is matched in this order:
 
-   1. Code: the request carries a catalog code (case/space-insensitive).
+   1. Code: the request carries a catalog code (case/space-insensitive) and
+      its name agrees with that item (CODE_NAME_AGREES), or names nothing
+      but the code. A client's own item codes share our 6-digit range: CGV's
+      100591 "CAFE_GARAM 1 KG" is our 100591 DOWSIL sealant (2026-10-17, 71
+      of 104 lines of their list were "exact" to the wrong item). A code
+      whose name disagrees is ignored and the line is matched by name.
    2. Alias: a sales rep confirmed this exact wording earlier. A mapping
       saved for the quote's client wins over a global one, because one
       client's "pulpen hitam" can be a different pen from another's.
@@ -67,6 +72,11 @@ export const REVIEW_SCORE = 0.45;
 /** A "match" must beat the runner-up by this much, or it is a coin toss. */
 export const MATCH_MARGIN = 0.08;
 export const MAX_ALTERNATIVES = 5;
+/**
+ * A code match also needs the line's name to look like the item. CGV's colliding codes scored
+ * at most 0.24 against the item they hit; a genuine code with a two-word name scores 0.78+.
+ */
+export const CODE_NAME_AGREES = REVIEW_SCORE;
 
 const SYNONYMS: Record<string, string> = {
   pena: "pulpen",
@@ -90,7 +100,9 @@ const SYNONYMS: Record<string, string> = {
 };
 
 /** Words that say nothing about which product is meant. */
-const STOP = new Set(["dan", "untuk", "isi", "merk", "merek", "warna", "ukuran", "uk", "type", "tipe", "jenis", "per", "the", "x"]);
+// "atk" (alat tulis kantor) is a category a client prefixes to every line ("ATK_LAKBAN ..."), never part
+// of an item name (0 of 7.123 catalog names, 2026-10-17); as a word the item "lacks" it blocked every auto-match.
+const STOP = new Set(["dan", "untuk", "isi", "merk", "merek", "warna", "ukuran", "uk", "type", "tipe", "jenis", "per", "the", "x", "atk"]);
 
 /** Lowercase, unify units glued to numbers ("70 gsm" -> "70g"), strip punctuation. */
 export function normalizeText(s: string): string {
@@ -222,13 +234,19 @@ export function matchLine<T extends MatchableItem>(
 ): MatchResult {
   const code = normalizeCode(line.code);
   const byCode = code ? catalog.byCode.get(code) : undefined;
-  if (byCode) return { index, status: "exact", via: "code", candidates: [{ id: byCode.id, score: 1 }] };
+  const req = tokens(line.name);
+  if (byCode) {
+    // A line that names nothing but its code (or nothing at all) has nothing to disagree with.
+    const nameIsCode = !req.length || normalizeCode(line.name) === code;
+    if (nameIsCode || similarity(req, tokens(byCode.name)) >= CODE_NAME_AGREES) {
+      return { index, status: "exact", via: "code", candidates: [{ id: byCode.id, score: 1 }] };
+    }
+  }
 
   const text = normalizeText(line.name);
   const aliased = aliases.client.get(text) ?? aliases.global.get(text);
   const byAlias = aliased ? catalog.byCode.get(normalizeCode(aliased)) : undefined;
 
-  const req = tokens(line.name);
   const scored: Candidate[] = [];
   const posOf = new Map<number, number>();
   for (const i of candidatesFor(req, catalog)) {

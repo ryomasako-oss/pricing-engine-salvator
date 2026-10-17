@@ -221,4 +221,33 @@ describe("request list (no prices needed)", () => {
     const csv = ["Qty,Harga", "1,2"].join("\n");
     await expect(parseRequestList(new File([csv], "x.csv"))).rejects.toThrow(/nama item/);
   });
+
+  it("reads the item from DES, not ITEM CODE, on every sheet that has a header (CGV list, 2026-10-17)", async () => {
+    const wb = XLSX.utils.book_new();
+    const sheet = (name: string, grid: unknown[][]) => XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(grid), name);
+    sheet("ATK", [
+      ["NO", "ITEM CODE", "Gambar", "DES", "QTY", "Satuan", "Harga"],
+      [1, 112585, null, "ATK_PYRAMID INK STAMP PAD - HITAM", 1, "EA", 7200],
+    ]);
+    sheet("HOUSEHOLD", [
+      ["NO", "ITEM CODE", "DES", "DETAIL", "Satuan", "Sell Price", "Link", "Modal"],
+      [1, 100613, "ATK_HANSAPLAST", null, "1 PACK ISI 10 PCS", 21600, "https://x", 17000],
+    ]);
+    sheet("Catatan", [["Harga exclude PPN"]]);
+    const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
+
+    const { lines, report } = await parseRequestList(new File([buf], "ED - CGV - ATK & HOUSEHOLD.xlsx"));
+    expect(lines.map((l) => [l.name, l.code])).toEqual([
+      ["ATK_PYRAMID INK STAMP PAD - HITAM", "112585"],
+      ["ATK_HANSAPLAST", "100613"],
+    ]);
+    expect(report.sheetName).toBe("ATK, HOUSEHOLD");
+    expect(report.notes).toContain("Dibaca 2 sheet: ATK, HOUSEHOLD.");
+  });
+
+  it("a plain Item column is still the name when there is no description column", async () => {
+    const csv = ["Item Code,Item,Qty", "X1,Spidol whiteboard,12"].join("\n");
+    const { lines } = await parseRequestList(new File([csv], "items.csv"));
+    expect(lines[0]).toMatchObject({ name: "Spidol whiteboard", code: "X1", qty: 12 });
+  });
 });

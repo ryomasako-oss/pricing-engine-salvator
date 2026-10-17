@@ -69,9 +69,23 @@ describe("similarity", () => {
 });
 
 describe("matchLines", () => {
-  it("matches by code first, case and spaces ignored", () => {
+  it("matches by code first, case and spaces ignored, when the name agrees or names only the code", () => {
+    const [named] = matchLines([{ code: " k-bd70 ", name: CATALOG[2].name.toLowerCase() }], CATALOG, none);
+    expect(named).toMatchObject({ status: "exact", via: "code", candidates: [{ id: 3, score: 1 }] });
+    const [bare] = matchLines([{ code: "K-BD70", name: "K-BD70" }], CATALOG, none);
+    expect(bare).toMatchObject({ status: "exact", via: "code" });
+    const [empty] = matchLines([{ code: "K-BD70", name: "" }], CATALOG, none);
+    expect(empty).toMatchObject({ status: "exact", via: "code" });
+  });
+
+  it("ignores a client's own code that hits a different item (CGV 100591 garam vs our 100591 sealant, 2026-10-17)", () => {
     const [r] = matchLines([{ code: " k-bd70 ", name: "something unrelated" }], CATALOG, none);
-    expect(r).toMatchObject({ status: "exact", via: "code", candidates: [{ id: 3, score: 1 }] });
+    expect(r.via).not.toBe("code");
+    expect(r.status).not.toBe("exact");
+    // The line is then matched by its name like any other.
+    const [byName] = matchLines([{ code: "k-bd70", name: "Stabilo boss highlighter orange" }], CATALOG, none);
+    expect(byName).toMatchObject({ status: "match", via: "name" });
+    expect(byName.candidates[0].id).toBe(1);
   });
 
   it("auto-matches a strong, unambiguous, complete name match", () => {
