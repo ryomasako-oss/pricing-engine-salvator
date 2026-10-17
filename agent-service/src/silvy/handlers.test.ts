@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { authorize, sanitizeActions, secretMatches, silvyAsk, silvyDocument, type Llm } from "./handlers.js";
+import { authorize, sanitizeActions, secretMatches, silvyAsk, silvyDocument, silvyReport, type Llm } from "./handlers.js";
 import { GeminiError } from "../gemini.js";
 import { DEFAULT_ASSUMPTIONS } from "../../../shared/engine.js";
 import { DEFAULT_POLICY } from "../../../shared/policy.js";
@@ -145,4 +145,46 @@ test("authorize: without a secret only local-style routes stay open and /silvy/*
   assert.equal(authorize("/status", undefined, ""), "ok");
   assert.equal(authorize("/silvy/ask", undefined, ""), "unauthorized");
   assert.equal(authorize("/silvy/document", "anything", ""), "unauthorized");
+});
+
+// ---- /silvy/report (rekap Accurate pagi) ----
+
+const recapBody = () => ({
+  recap: {
+    date: "2026-10-16",
+    entity: "PT",
+    receipts: { lastPassAt: "2026-10-16T02:00:00Z", inProgress: false, receiptsSeen: 4800 },
+    cogs: {
+      withReceipt: 2, changed: 1, up: 1, down: 0, bigJumps: 0, unchanged: 1, skipped: 0, noReceipt: 5,
+      topChanges: [{ code: "101311", name: "3M KESET", from: 10831300, to: 11005000, receiptNo: "RI.2026.05.00210", transDate: "2026-05-22" }],
+      topSkipped: [],
+    },
+    checks: [{ key: "price_below_cogs", label: "Harga jual Accurate di bawah COGS katalog", count: 250, notify: true }],
+  },
+});
+
+test("silvyReport renders the DATA block itself and asks for a short, cheap reply", async () => {
+  const llm = fake("  Ringkasan.\nPrioritas:\n- Cek 101311  ");
+  const out = await silvyReport(llm, recapBody());
+  assert.equal(out.status, 200);
+  assert.equal(out.body.content, "Ringkasan.\nPrioritas:\n- Cek 101311");
+  assert.equal(llm.calls.length, 1);
+  const { system, messages, opts } = llm.calls[0];
+  assert.match(system, /maksimal 60 kata/);
+  assert.match(messages[0].content, /101311 3M KESET: Rp 10\.831\.300 -> Rp 11\.005\.000/);
+  assert.equal(opts.maxOutputTokens, 300);
+  assert.equal(opts.temperature, 0.2);
+});
+
+test("silvyReport refuses a malformed recap without calling Gemini", async () => {
+  const llm = fake("x");
+  for (const b of [null, {}, { recap: { date: "x" } }, { recap: { ...recapBody().recap, cogs: { topChanges: "no" } } }]) {
+    assert.equal((await silvyReport(llm, b)).status, 400);
+  }
+  assert.equal(llm.calls.length, 0);
+});
+
+test("silvyReport maps a Gemini failure like the other Silvy routes", async () => {
+  const out = await silvyReport(fake(new GeminiError("Kuota habis", 429)), recapBody());
+  assert.equal(out.status, 429);
 });

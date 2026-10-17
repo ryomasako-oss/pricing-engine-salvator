@@ -175,6 +175,41 @@ describe("receiptStep", () => {
   });
 });
 
+describe("receiptConfig: how far back the first pass reads", () => {
+  const toml = readFileSync(new URL("../../../wrangler.toml", import.meta.url), "utf8");
+  const v = (k: string) => toml.match(new RegExp(`^${k}\\s*=\\s*"([^"]*)"`, "m"))?.[1];
+
+  it("reads ACCURATE_RECEIPTS_SINCE as YYYY-MM-DD and sends it to Accurate as dd/MM/yyyy", () => {
+    expect(receiptConfig({ ACCURATE_RECEIPTS_SINCE: "2023-10-16" } as never).since).toBe("16/10/2023");
+    // Anything unparseable falls back to a year back in WIB, never to "everything".
+    expect(receiptConfig({ ACCURATE_RECEIPTS_SINCE: "16/10/2023" } as never, new Date("2026-10-16T05:00:00Z")).since).toBe("16/10/2025");
+    expect(receiptConfig({} as never, new Date("2026-01-01T18:00:00Z")).since).toBe("02/01/2025");
+  });
+
+  it("is left unset in the deployed config, so the first pass reads one year (Ryoma, 2026-10-16)", () => {
+    expect(v("ACCURATE_RECEIPTS_SINCE")).toBeUndefined();
+    const since = receiptConfig({ ACCURATE_RECEIPTS_SINCE: v("ACCURATE_RECEIPTS_SINCE") } as never, new Date("2026-10-16T05:00:00Z")).since;
+    expect(since).toBe("16/10/2025");
+  });
+
+  it("ignores a widened window while the cursor is in lastUpdate mode (clear since_update to backfill again)", async () => {
+    const { sqlite, db } = freshDb();
+    const fake = fakeAccurate({ items: [], stock: {}, receipts: RECEIPTS });
+    await runPass(db, fake.impl);
+    sqlite.exec("UPDATE accurate_receipt_state SET last_pass_at = '2000-01-01T00:00:00Z'");
+    fake.log.length = 0;
+    // A three-year window, but since_update is set: the list is still filtered by lastUpdate.
+    await runPass(db, fake.impl, 5, { ...cfg, since: "01/01/2023" });
+    expect(fake.log.some((l) => l.includes("list.do"))).toBe(true);
+    expect(sqlite.prepare("SELECT backfill_since FROM accurate_receipt_state").get()).toEqual({ backfill_since: null });
+
+    // Clearing it puts the next pass back into transDate mode with the new floor.
+    sqlite.exec("UPDATE accurate_receipt_state SET since_update = NULL, backfill_since = NULL, last_pass_at = '2000-01-01T00:00:00Z'");
+    await runPass(db, fake.impl, 5, { ...cfg, since: "01/01/2023" });
+    expect(sqlite.prepare("SELECT backfill_since FROM accurate_receipt_state").get()).toEqual({ backfill_since: "01/01/2023" });
+  });
+});
+
 describe("POST /api/accurate/apply-cogs", () => {
   function setup(role = "manager") {
     const { sqlite, db } = freshDb();

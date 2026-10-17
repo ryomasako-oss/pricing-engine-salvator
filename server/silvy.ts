@@ -68,7 +68,8 @@ export const documentSchema = z.object({
   kind: z.enum(["briefing", "faq", "risk", "negotiation"]),
 });
 
-export type SilvyPath = "ask" | "document";
+/** "report" = the morning Accurate recap (shared/accurateRecap.ts), sent by the app's cron, not by a user. */
+export type SilvyPath = "ask" | "document" | "report";
 
 export interface SilvyReply {
   status: number;

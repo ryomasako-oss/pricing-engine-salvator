@@ -22,6 +22,7 @@
 
 import { normalizeCode } from "./duplicates.js";
 import type { CatalogItem, QuoteItem } from "./types.js";
+import { REJECTED_PENALTY, isRejectedPair, type Rejected } from "./matchLearning.js";
 import { changeLineUom, sameUom } from "./uom.js";
 
 export interface RequestLine {
@@ -216,6 +217,8 @@ export function matchLine<T extends MatchableItem>(
   index: number,
   catalog: CatalogIndex<T>,
   aliases: AliasMaps = { client: new Map(), global: new Map() },
+  /** Pairings a rep already replaced (shared/matchLearning.ts); their score is cut. */
+  rejected?: Rejected,
 ): MatchResult {
   const code = normalizeCode(line.code);
   const byCode = code ? catalog.byCode.get(code) : undefined;
@@ -229,8 +232,11 @@ export function matchLine<T extends MatchableItem>(
   const scored: Candidate[] = [];
   const posOf = new Map<number, number>();
   for (const i of candidatesFor(req, catalog)) {
-    const score = similarity(req, catalog.tokens[i]);
-    if (score < REVIEW_SCORE / 2) continue;
+    const raw = similarity(req, catalog.tokens[i]);
+    if (raw < REVIEW_SCORE / 2) continue;
+    // A pairing this wording was already corrected away from never scores as a
+    // certainty again, but stays on the list: one correction can be the mistake.
+    const score = isRejectedPair(rejected, text, catalog.items[i].code) ? raw * REJECTED_PENALTY : raw;
     scored.push({ id: catalog.items[i].id, score: Math.round(score * 1000) / 1000 });
     posOf.set(catalog.items[i].id, i);
   }
@@ -258,9 +264,10 @@ export function matchLines<T extends MatchableItem>(
   lines: RequestLine[],
   catalog: T[],
   aliases?: AliasMaps,
+  rejected?: Rejected,
 ): MatchResult[] {
   const idx = buildIndex(catalog);
-  return lines.map((line, i) => matchLine(line, i, idx, aliases));
+  return lines.map((line, i) => matchLine(line, i, idx, aliases, rejected));
 }
 
 /**

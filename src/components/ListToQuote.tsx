@@ -21,6 +21,8 @@ import { uomWarning } from "@shared/uom";
 import { Icon } from "./Icon";
 import { ClientQuickAdd } from "./ClientQuickAdd";
 import { Modal } from "./Modal";
+import { NewItemForm } from "./NewItemForm";
+import { reviewRowBadge } from "./reviewRow";
 import { WaitingLine } from "./WaitingLine";
 
 const MAX_LINES = 500;
@@ -58,13 +60,6 @@ interface Row {
   /** Extra items found by a manual search for this row. */
   extra: number[];
 }
-
-const STATUS_LABEL: Record<MatchResult["status"], { text: string; cls: string }> = {
-  exact: { text: "Pasti", cls: "green" },
-  match: { text: "Cocok", cls: "green" },
-  review: { text: "Perlu dicek", cls: "amber" },
-  none: { text: "Tidak ketemu", cls: "red" },
-};
 
 export function ListToQuote({
   clients,
@@ -105,6 +100,16 @@ export function ListToQuote({
   const [error, setError] = useState("");
   const [drag, setDrag] = useState(false);
   const [searchRow, setSearchRow] = useState<number | null>(null);
+  /** Row whose "Barang baru" form is open (catatan 24/25: a row with no match can still become an item). */
+  const [newItemRow, setNewItemRow] = useState<number | null>(null);
+  const [uomOptions, setUomOptions] = useState<string[]>([]);
+
+  useEffect(() => {
+    api
+      .get<{ options: { name: string }[] }>("/catalog/uom")
+      .then((r) => setUomOptions(r.options.map((o) => o.name)))
+      .catch(() => setUomOptions([]));
+  }, []);
 
   /** Match request rows against the catalog and open the review. */
   const match = async (lines: RequestLine[], extraNotes: string[], label: string) => {
@@ -174,6 +179,9 @@ export function ListToQuote({
       const item = r.chosen != null ? items.get(r.chosen) : undefined;
       if (!item) return null;
       const line = lineFromCatalog(item, r.request.qty ?? 1, { uom: r.request.uom, rrp: r.request.rrp });
+      // "Barang baru" is not in the catalog yet, so its line waits for Accurate
+      // (shared/pendingItems.ts). The server holds it on every read as well.
+      if (item.source === "pending") return { ...line, held: true, holdReason: "new_item" as const };
       // A catalog item with a bad COGS goes on the quote held (server/cogsCheck.ts):
       // not offered or totalled until a manager checks it, but not forgotten.
       return item.cogs_problem ? { ...line, held: true } : line;
@@ -207,7 +215,8 @@ export function ListToQuote({
 
   const blockedOf = (r: Row) => (r.chosen != null ? items.get(r.chosen)?.cogs_problem ?? null : null);
   const pending = rows?.filter((r) => r.chosen != null && !r.confirmed).length ?? 0;
-  const heldCount = rows?.filter((r) => blockedOf(r)).length ?? 0;
+  const isPending = (r: Row) => (r.chosen != null ? items.get(r.chosen)?.source === "pending" : false);
+  const heldCount = rows?.filter((r) => blockedOf(r) || isPending(r)).length ?? 0;
   const used = lines.filter(Boolean).length;
   // Rows left out by choice (or with nothing found).
   const skipped = (rows?.length ?? 0) - used;
@@ -243,11 +252,30 @@ export function ListToQuote({
       // company-wide rule.
       const pairs = clientId === "" ? [] : rows
         .filter((row) => row.chosen != null && row.result.via !== "code")
+        // A "barang baru" code (BARU-0001) is replaced once Accurate has the real one,
+        // so an alias pointing at it would never match anything.
+        .filter((row) => items.get(row.chosen!)?.source !== "pending")
         .filter((row) => row.result.status === "review" || row.result.status === "none" || row.chosen !== row.result.candidates[0]?.id)
         .map((row) => ({ text: row.request.name, code: items.get(row.chosen!)!.code }));
-      if (pairs.length) {
+      // Every row is reported, right or wrong, with or without a client: the
+      // pairs above become rules, this is the evidence behind the learning
+      // report (shared/matchLearning.ts). Without it nothing was ever recorded.
+      const feedback = rows.map((row) => {
+        const item = row.chosen != null ? items.get(row.chosen) : undefined;
+        const suggested = row.result.candidates[0] ? (items.get(row.result.candidates[0].id)?.code ?? null) : null;
+        return {
+          text: row.request.name,
+          status: row.result.status,
+          via: row.result.via ?? "",
+          suggested,
+          score: row.result.candidates[0]?.score ?? 0,
+          chosen: item?.code ?? null,
+          isNew: item?.source === "pending",
+        };
+      });
+      if (pairs.length || feedback.length) {
         await api
-          .post("/catalog/aliases", { client_id: clientId, pairs })
+          .post("/catalog/aliases", { client_id: clientId === "" ? null : clientId, pairs, feedback })
           .catch(() => toast("Quotation dibuat, tetapi pasangan nama-katalog gagal disimpan untuk lain kali.", "error"));
       }
       onCreated(r.quote.id);
@@ -367,13 +395,32 @@ export function ListToQuote({
               <span className="badge grey">{fileName}</span>
               <span className="badge green">{summary!.sure} cocok</span>
               {summary!.review > 0 && <span className="badge amber">{summary!.review} perlu dicek</span>}
-              {summary!.none > 0 && <span className="badge red">{summary!.none} tidak ketemu</span>}
+              {summary!.none > 0 && <span className="badge blue">{summary!.none} adjustment</span>}
               {heldCount > 0 && <span className="badge amber">{heldCount} ditahan</span>}
             </div>
           </div>
           {notes.map((n) => (
             <p key={n} className="notice info">{n}</p>
           ))}
+
+          {newItemRow !== null && rows?.[newItemRow] && (
+            <NewItemForm
+              uomOptions={uomOptions}
+              initialName={rows[newItemRow].request.name}
+              fixedQty={rows[newItemRow].request.qty ?? 1}
+              onBack={() => setNewItemRow(null)}
+              onClose={() => setNewItemRow(null)}
+              onCreated={(_line, item) => {
+                const at = newItemRow;
+                setItems((m) => new Map(m).set(item.id, item));
+                // Into `extra` as well, or the dropdown has no option for it and shows
+                // "— tidak dipakai —" over a row that does have an item.
+                update(at, { chosen: item.id, confirmed: true, extra: [...rows[at].extra, item.id] });
+                setNewItemRow(null);
+                toast(`"${item.name}" diminta ke Accurate. Barisnya ditahan sampai barangnya dibuat.`);
+              }}
+            />
+          )}
 
           <div className="table-wrap" style={{ maxHeight: "58vh" }}>
             <table className="table">
@@ -391,7 +438,13 @@ export function ListToQuote({
               <tbody>
                 {rows.map((row, i) => {
                   const line = lines[i];
-                  const label = STATUS_LABEL[row.result.status];
+                  const badge = reviewRowBadge({
+                    status: row.result.status,
+                    chosen: row.chosen != null,
+                    confirmed: row.confirmed,
+                    pending: isPending(row),
+                    held: !!blockedOf(row),
+                  });
                   const options = [...row.result.candidates.map((c) => c.id), ...row.extra.filter((id) => !row.result.candidates.some((c) => c.id === id))];
                   const scoreOf = new Map(row.result.candidates.map((c) => [c.id, c.score]));
                   const warn = line ? uomWarning(line) : null;
@@ -438,10 +491,19 @@ export function ListToQuote({
                           >
                             <Icon name="search" size={15} />
                           </button>
+                          <button
+                            className="icon-btn"
+                            title="Barang baru: belum ada di katalog"
+                            aria-label={`Buat barang baru untuk ${row.request.name}`}
+                            onClick={() => setNewItemRow(i)}
+                          >
+                            <Icon name="plus" size={15} />
+                          </button>
                         </div>
                         {searchRow === i && (
                           <CatalogSearch
                             initial={row.request.name}
+                            seeCosts={seeCosts}
                             onPick={(it) => {
                               setItems((m) => new Map(m).set(it.id, it));
                               update(i, { chosen: it.id, confirmed: true, extra: [...row.extra, it.id] });
@@ -460,7 +522,7 @@ export function ListToQuote({
                         )}
                       </td>
                       <td className="l">
-                        {row.chosen != null && !row.confirmed ? (
+                        {badge.kind === "confirm" ? (
                           <button
                             className="btn small"
                             onClick={() => update(i, { confirmed: true })}
@@ -468,12 +530,8 @@ export function ListToQuote({
                           >
                             <Icon name="check" size={13} /> Benar
                           </button>
-                        ) : blockedOf(row) ? (
-                          <span className="badge amber">Ditahan</span>
                         ) : (
-                          <span className={`badge ${row.chosen == null ? "grey" : row.result.status === "review" ? "green" : label.cls}`}>
-                            {row.chosen == null ? "Tidak dipakai" : row.result.status === "review" ? "Sudah dicek" : label.text}
-                          </span>
+                          <span className={`badge ${badge.cls}`}>{badge.text}</span>
                         )}
                       </td>
                       <td className="num">
@@ -503,7 +561,16 @@ export function ListToQuote({
 }
 
 /** Small inline catalog search for a row the matcher could not resolve. */
-function CatalogSearch({ initial, onPick }: { initial: string; onPick: (item: CatalogItem) => void }) {
+function CatalogSearch({
+  initial,
+  seeCosts,
+  onPick,
+}: {
+  initial: string;
+  /** PE-1: the server strips cogs for a rep, so the chip must not print it either. */
+  seeCosts: boolean;
+  onPick: (item: CatalogItem) => void;
+}) {
   const [q, setQ] = useState(initial);
   const [found, setFound] = useState<CatalogItem[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -534,7 +601,12 @@ function CatalogSearch({ initial, onPick }: { initial: string; onPick: (item: Ca
       {found && found.length === 0 && <span className="muted small">Tidak ada. Coba kata kunci lebih pendek, misal merek saja.</span>}
       {found?.map((it) => (
         <button key={it.id} className="chip" type="button" onClick={() => onPick(it)}>
-          {it.name} <span className="muted">· {it.code} · COGS {grp(it.cogs)}</span>
+          {it.name}{" "}
+          <span className="muted">
+            {/* A rep gets no cogs from the server; grp(undefined) printed "COGS 0" on items that
+                have one. The unit is what they need to pick the right row anyway. */}
+            · {it.code} · {seeCosts ? `COGS ${grp(it.cogs)}` : it.uom || "Pcs"}
+          </span>
         </button>
       ))}
     </div>
