@@ -1,7 +1,9 @@
 /* COGS dari harga pembelian terakhir (server/worker/accurate/purchaseCost.ts).
    A manager previews what the latest Accurate goods receipts would change in
    the catalog, then applies it. Nothing changes until "Terapkan". A big jump
-   still holds quote lines until the manager confirms it ("COGS ini benar"). */
+   still holds quote lines until the manager confirms it ("COGS ini benar").
+   A change too far off (purchaseCostHold) is never applied: it is listed as
+   "ditahan" so the manager fixes the RI in Accurate or sets the COGS by hand. */
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
@@ -27,6 +29,11 @@ interface Change {
   transDate: string;
 }
 
+interface Held extends Change {
+  listPrice: number;
+  reason: string;
+}
+
 interface Skip {
   code: string;
   name: string;
@@ -37,6 +44,7 @@ interface Skip {
 interface Preview {
   withReceipt: number;
   changed: Change[];
+  held: Held[];
   unchanged: number;
   skipped: Skip[];
   noReceipt: number;
@@ -55,6 +63,7 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
   const [status, setStatus] = useState<ReceiptStatus | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [showSkipped, setShowSkipped] = useState(false);
+  const [showHeld, setShowHeld] = useState(true);
   const [busy, setBusy] = useState<"preview" | "apply" | null>(null);
 
   const loadStatus = useCallback(() => {
@@ -92,6 +101,7 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
     const ok = window.confirm(
       `Ubah COGS ${grp(preview.changed.length)} barang ke harga pembelian terakhir?\n\n` +
         (big ? `${grp(big)} barang berubah lebih dari 50%: barisnya di quotation akan ditahan sampai manajer menekan "COGS ini benar".\n\n` : "") +
+        (preview.held.length ? `${grp(preview.held.length)} barang ditahan dan tidak ikut diubah.\n\n` : "") +
         "COGS acuan tidak berubah. Barang yang dilewati tetap memakai COGS lamanya.",
     );
     if (!ok) return;
@@ -147,6 +157,16 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
           <div className="row-wrap">
             <span className="badge amber">{grp(preview.changed.length)} berubah</span>
             <span className="badge green">{grp(preview.unchanged)} sudah sama</span>
+            {preview.held.length > 0 && (
+              <button
+                className="badge red"
+                style={{ border: 0, cursor: "pointer" }}
+                onClick={() => setShowHeld((v) => !v)}
+                aria-expanded={showHeld}
+              >
+                {grp(preview.held.length)} ditahan
+              </button>
+            )}
             <button
               className="badge grey"
               style={{ border: 0, cursor: preview.skipped.length ? "pointer" : "default" }}
@@ -158,6 +178,44 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
             </button>
             <span className="badge grey">{grp(preview.noReceipt)} tanpa RI, COGS tetap</span>
           </div>
+
+          {showHeld && preview.held.length > 0 && (
+            <>
+              <div className="muted" style={{ marginTop: 8 }}>
+                Tidak ikut diterapkan: harga beli 3x harga jual atau lebih, atau lebih dari dua kali / kurang dari separuh COGS sekarang. Biasanya
+                satu pak/box tercatat 1 PCS di RI. Betulkan RI di Accurate, atau isi COGS manual di katalog.
+              </div>
+              <div className="table-wrap" style={{ marginTop: 4 }}>
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th className="l">Kode</th>
+                      <th className="l">Nama</th>
+                      <th>COGS sekarang</th>
+                      <th>Pembelian terakhir</th>
+                      <th className="l">Kenapa ditahan</th>
+                      <th className="l">Sumber</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {preview.held.slice(0, SHOWN).map((h) => (
+                      <tr key={h.code}>
+                        <td className="l">{h.code}</td>
+                        <td className="l">{h.name}</td>
+                        <td>{h.from > 0 ? rp(h.from) : "kosong"}</td>
+                        <td>{rp(h.to)}</td>
+                        <td className="l">{h.reason}</td>
+                        <td className="l muted">
+                          {h.receiptNo} · {fmtDate(h.transDate)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {preview.held.length > SHOWN && <div className="muted">Menampilkan {SHOWN} dari {grp(preview.held.length)}.</div>}
+              </div>
+            </>
+          )}
 
           {showSkipped && preview.skipped.length > 0 && (
             <div className="table-wrap" style={{ marginTop: 8 }}>
