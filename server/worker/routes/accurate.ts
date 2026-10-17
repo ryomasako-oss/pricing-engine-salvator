@@ -334,6 +334,7 @@ accurateRouter.post("/apply-cogs", requirePermission("import_catalog"), requireP
     await audit(c.env.DB, c.get("user")!.id, "catalog", 0, "cogs_from_purchases", {
       entity,
       changed: result.changed.length,
+      held: result.held.length,
       unchanged: result.unchanged,
       skipped: result.skipped.length,
       noReceipt: result.noReceipt,

@@ -88,3 +88,20 @@ describe("recapEmail", () => {
     expect(narrativeHtml("Halo\n- satu\n* dua\nAkhir <script>")).toBe("<p>Halo</p><ul><li>satu</li><li>dua</li></ul><p>Akhir &lt;script&gt;</p>");
   });
 });
+
+describe("held changes (guard for Terapkan, 2026-10-17)", () => {
+  const held = [{ code: "078328", name: "Tissue roll", from: 0, to: 74_750, receiptNo: "RI.2025.12.00214", transDate: "2025-12-30", reason: "Harga beli Rp 74.750 3x lipat atau lebih dari harga jual katalog Rp 7.500" }];
+  const only = { preview: { withReceipt: 1, changed: [], held, unchanged: 0, skipped: [], noReceipt: 0 }, counts: zeroCounts };
+
+  it("a held item alone is still worth an email, and says why", () => {
+    const r = recap(only);
+    expect(r.cogs.held).toBe(1);
+    expect(recapIsEmpty(r)).toBe(false);
+    const mail = recapEmail(r, null, "https://x");
+    expect(mail.subject).toContain("1 ditahan");
+    expect(mail.html).toContain("078328");
+    expect(mail.html).toContain("3x lipat atau lebih dari harga jual katalog Rp 7.500");
+    expect(recapPrompt(r)).toContain("- 078328 Tissue roll: Harga beli Rp 74.750 3x lipat");
+  });
+});
+
