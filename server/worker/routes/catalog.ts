@@ -18,6 +18,7 @@ import {
 import { VERIFY_COGS_SQL, cogsCheckInput, withProblems } from "../../cogsCheck";
 import { cogsProblemsFor } from "../quoteService";
 import { sweepPending } from "./pendingItems";
+import { catalogEntity } from "../accurate/sync";
 import { canSeeCosts, catalogItemsForViewer, problemsForViewer } from "../../staffView";
 import { cleanUnits, type ItemUnits } from "../../../shared/uom";
 import type { CatalogItem, UnitFactor } from "../../../shared/types";
@@ -297,6 +298,22 @@ catalogRouter.post("/import", requirePermission("import_catalog"), async (c) => 
     }
   }
 
+  // COGS = harga pembelian terakhir (Ryoma, 2026-10-15): an existing item with a priced
+  // Accurate goods receipt takes its COGS from POST /api/accurate/apply-cogs, so a
+  // spreadsheet (the Nilai Persediaan average) must not overwrite it. Other fields still update.
+  const purchased = new Set<string>();
+  const entity = catalogEntity(c.env);
+  for (const chunk of chunks([...existing.keys()], CHUNK - 1)) {
+    const found = await all<{ item_code: string }>(
+      c.env.DB,
+      `SELECT DISTINCT item_code FROM accurate_receipt_lines
+        WHERE entity = ? AND unit_price > 0 AND quantity > 0 AND item_code IN (${chunk.map(() => "?").join(",")})`,
+      entity,
+      ...chunk,
+    );
+    for (const f of found) purchased.add(f.item_code);
+  }
+
   const UPSERT = `
     INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock, category, source)
     VALUES (
@@ -305,7 +322,7 @@ catalogRouter.post("/import", requirePermission("import_catalog"), async (c) => 
     ON CONFLICT(code) DO UPDATE SET
       name = ?2,
       uom = CASE WHEN ?3 != '' THEN ?3 ELSE catalog_items.uom END,
-      cogs = CASE WHEN ?4 > 0 THEN ?4 ELSE catalog_items.cogs END,
+      cogs = CASE WHEN ?9 > 0 THEN ?9 ELSE catalog_items.cogs END,
       list_price = CASE WHEN ?5 > 0 THEN ?5 ELSE catalog_items.list_price END,
       stock = COALESCE(?6, catalog_items.stock),
       category = CASE WHEN ?7 != '' THEN ?7 ELSE catalog_items.category END,
@@ -314,12 +331,15 @@ catalogRouter.post("/import", requirePermission("import_catalog"), async (c) => 
 
   let inserted = 0;
   let updated = 0;
+  let cogsFromPurchases = 0;
   const validRows = rows.filter((r) => r.code.trim());
   for (const chunk of chunks(validRows, CHUNK)) {
     const statements = chunk.flatMap((r) => {
       const code = r.code.trim();
       if (mode === "replace" || !existing.has(code)) inserted++;
       else updated++;
+      const keepCogs = purchased.has(code) && (r.cogs ?? 0) > 0;
+      if (keepCogs) cogsFromPurchases++;
       return [
         stmt(
           c.env.DB,
@@ -332,6 +352,7 @@ catalogRouter.post("/import", requirePermission("import_catalog"), async (c) => 
           r.stock ?? null,
           r.category ?? "",
           source,
+          keepCogs ? 0 : (r.cogs ?? 0),
         ),
         ...(r.units
           ? replaceUnitsStmts(c.env.DB, code, r.uom || existing.get(code) || "Pcs", r.units)
@@ -341,7 +362,7 @@ catalogRouter.post("/import", requirePermission("import_catalog"), async (c) => 
     await batch(c.env.DB, statements);
   }
 
-  const result = { inserted, updated };
+  const result = { inserted, updated, cogsFromPurchases };
   await audit(c.env.DB, user.id, "catalog", 0, "imported", { ...result, source, mode, rows: rows.length });
   // Barang baru requests whose code this import brought into the catalog are linked, and their tasks closed.
   await sweepPending(c.env.DB);

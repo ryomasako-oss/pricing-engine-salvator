@@ -8,6 +8,7 @@ import { isoDate, mapReceipt, mapReceiptLines, updateKey } from "./mapping";
 import { RECEIPTS_CRON, receiptConfig, receiptStep, wibTimestamp, type ReceiptConfig } from "./receipts";
 import { syncConfig } from "./sync";
 import { accurateRouter } from "../routes/accurate";
+import { catalogRouter } from "../routes/catalog";
 import { PAID_PLAN, countQueries, fakeAccurate, type FakeReceipt } from "./testing";
 import type { Env } from "../env";
 
@@ -205,8 +206,9 @@ describe("POST /api/accurate/apply-cogs", () => {
     const env = { DB: db } as unknown as Env["Bindings"];
     const post = (body: unknown) =>
       app.request("/api/accurate/apply-cogs", { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" } }, env);
+    const get = (p: string) => app.request(p, {}, env);
     const cogs = () => Object.fromEntries((sqlite.prepare("SELECT code, cogs FROM catalog_items").all() as { code: string; cogs: number }[]).map((r) => [r.code, r.cogs]));
-    return { sqlite, post, cogs };
+    return { sqlite, post, get, cogs };
   }
 
   it("waits for a complete receipts pass", async () => {
@@ -223,8 +225,8 @@ describe("POST /api/accurate/apply-cogs", () => {
     expect(preview.dryRun).toBe(true);
     expect(cogs()).toEqual(before);
     expect(preview.changed).toEqual([
-      { code: "101311", from: 10_831_300, to: 11_005_000, receiptNo: "RI.2026.05.00022", transDate: "2026-05-22" },
-      { code: "A1", from: 9000, to: 10_000, receiptNo: "RI.2026.05.00022", transDate: "2026-05-22" },
+      { code: "101311", name: "Keset", from: 10_831_300, to: 11_005_000, receiptNo: "RI.2026.05.00022", transDate: "2026-05-22" },
+      { code: "A1", name: "Kertas", from: 9000, to: 10_000, receiptNo: "RI.2026.05.00022", transDate: "2026-05-22" },
     ]);
     expect(preview.skipped.map((s: any) => [s.code, s.reason])).toEqual([
       ["B1", "unknown_unit"], // Lusin has no ratio in Accurate
@@ -246,7 +248,63 @@ describe("POST /api/accurate/apply-cogs", () => {
   });
 
   it("is closed to sales reps (purchase prices are cost data)", async () => {
-    const { post } = setup("rep");
+    const { post, get } = setup("rep");
     expect((await post({})).status).toBe(403);
+    expect((await get("/api/accurate/receipts")).status).toBe(403);
+  });
+
+  it("reports how far collecting receipts has got", async () => {
+    const { sqlite, get } = setup();
+    expect(await (await get("/api/accurate/receipts")).json()).toMatchObject({ entity: "PT", inProgress: false, receiptsSeen: 0, lastPassAt: null });
+    sqlite.exec("UPDATE accurate_receipt_state SET pass_started_at = '2026-10-15T10:17:46Z', receipts_seen = 60, backfill_since = '15/10/2025'");
+    expect(await (await get("/api/accurate/receipts")).json()).toMatchObject({ inProgress: true, receiptsSeen: 60, since: "15/10/2025" });
+  });
+});
+
+describe("POST /api/catalog/import keeps COGS from the latest purchase (2026-10-15)", () => {
+  it("an import doesn't overwrite the COGS of an item with a priced receipt; other items still take it", async () => {
+    const { sqlite, db } = freshDb();
+    sqlite.exec(`INSERT INTO users(id, email, name, password_hash, role) VALUES (1, 'm@x', 'M', 'x', 'manager')`);
+    sqlite.exec(`INSERT INTO catalog_items(code, name, uom, cogs, list_price) VALUES
+      ('101311', 'Keset', 'PCS', 11005000, 12000000),
+      ('A1', 'Kertas', 'Pcs', 9000, 15000),
+      ('Z1', 'Hanya bonus', 'Pcs', 500, 900)`);
+    sqlite.exec(`INSERT INTO accurate_receipt_lines(entity, receipt_id, line_id, receipt_no, trans_date, item_code, unit, quantity, unit_price) VALUES
+      ('PT', 89205, 1, 'RI.2026.05.00210', '2026-05-22', '101311', 'PCS', 1, 11005000),
+      ('PT', 600, 1, 'RI.BONUS', '2026-06-01', 'Z1', 'Pcs', 1, 0),
+      ('PT', 601, 1, 'RI.NEW', '2026-06-02', 'N9', 'Pcs', 1, 4000)`);
+    const app = new Hono<Env>();
+    app.use(async (c, next) => {
+      c.set("user", { id: 1, email: "m@x", name: "M", role: "manager" } as never);
+      await next();
+    });
+    app.route("/api/catalog", catalogRouter);
+    const env = { DB: db } as unknown as Env["Bindings"];
+    // The Nilai Persediaan average for the keset, as the old import computed it.
+    const res = await app.request(
+      "/api/catalog/import",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          rows: [
+            { code: "101311", name: "Keset", cogs: 10831300 },
+            { code: "A1", name: "Kertas", cogs: 9500 },
+            { code: "Z1", name: "Hanya bonus", cogs: 600 }, // a zero-price receipt is not a purchase price
+            { code: "N9", name: "Baru", cogs: 3900 }, // new to the catalog: inserted as given
+          ],
+          mode: "merge",
+        }),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ inserted: 1, updated: 3, cogsFromPurchases: 1 });
+    expect(Object.fromEntries((sqlite.prepare("SELECT code, cogs FROM catalog_items").all() as { code: string; cogs: number }[]).map((r) => [r.code, r.cogs]))).toEqual({
+      "101311": 11005000,
+      A1: 9500,
+      Z1: 600,
+      N9: 3900,
+    });
   });
 });

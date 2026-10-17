@@ -18,6 +18,7 @@ import type { EntityKey } from "./sync";
 
 interface LatestRow {
   code: string;
+  name: string;
   catalog_uom: string;
   catalog_cogs: number;
   accurate_uom: string;
@@ -33,6 +34,7 @@ interface LatestRow {
 
 export interface PurchaseCostChange {
   code: string;
+  name: string;
   from: number;
   to: number;
   receiptNo: string;
@@ -41,6 +43,7 @@ export interface PurchaseCostChange {
 
 export interface PurchaseCostSkip {
   code: string;
+  name: string;
   reason: "uom_mismatch" | "unknown_unit";
   detail: string;
 }
@@ -64,7 +67,7 @@ const LATEST_SQL = `
              PARTITION BY l.item_code ORDER BY l.trans_date DESC, l.receipt_id DESC, l.line_id DESC) AS rn
       FROM accurate_receipt_lines l
      WHERE l.entity = ?1 AND l.unit_price > 0 AND l.quantity > 0)
-  SELECT c.code, c.uom AS catalog_uom, c.cogs AS catalog_cogs,
+  SELECT c.code, c.name, c.uom AS catalog_uom, c.cogs AS catalog_cogs,
          COALESCE(NULLIF(i.uom, ''), 'Pcs') AS accurate_uom, i.units,
          r.receipt_id, r.line_id, r.receipt_no, r.trans_date, r.unit, r.quantity, r.unit_price
     FROM ranked r
@@ -83,12 +86,12 @@ const parseUnits = (s: string): UnitFactor[] => {
 
 function describeSkip(code: string, r: Exclude<PurchaseCost, { ok: true } | { reason: "no_receipt" }>, row: LatestRow): PurchaseCostSkip {
   return r.reason === "uom_mismatch"
-    ? { code, reason: r.reason, detail: `Satuan katalog ${row.catalog_uom}, satuan dasar Accurate ${row.accurate_uom}` }
-    : { code, reason: r.reason, detail: `${r.receiptNo} (${r.transDate}) memakai satuan "${r.unit}" tanpa rasio ke ${row.accurate_uom}` };
+    ? { code, name: row.name, reason: r.reason, detail: `Satuan katalog ${row.catalog_uom}, satuan dasar Accurate ${row.accurate_uom}` }
+    : { code, name: row.name, reason: r.reason, detail: `${r.receiptNo} (${r.transDate}) memakai satuan "${r.unit}" tanpa rasio ke ${row.accurate_uom}` };
 }
 
 export async function applyPurchaseCosts(db: D1Database, entity: EntityKey, opts: { dryRun: boolean }): Promise<PurchaseCostResult> {
-  const rows = await all<LatestRow>(db, LATEST_SQL, entity);
+  const rows = (await all<LatestRow>(db, LATEST_SQL, entity)).sort((a, b) => a.code.localeCompare(b.code));
   const changed: PurchaseCostChange[] = [];
   const skipped: PurchaseCostSkip[] = [];
   let unchanged = 0;
@@ -100,7 +103,7 @@ export async function applyPurchaseCosts(db: D1Database, entity: EntityKey, opts
     );
     if (r.ok) {
       if (Math.abs(r.cost - row.catalog_cogs) < 0.005) unchanged++;
-      else changed.push({ code: row.code, from: row.catalog_cogs, to: r.cost, receiptNo: r.receiptNo, transDate: r.transDate });
+      else changed.push({ code: row.code, name: row.name, from: row.catalog_cogs, to: r.cost, receiptNo: r.receiptNo, transDate: r.transDate });
     } else if (r.reason !== "no_receipt") {
       skipped.push(describeSkip(row.code, r, row));
     }
