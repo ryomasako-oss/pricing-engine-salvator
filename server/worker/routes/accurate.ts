@@ -12,7 +12,9 @@ import { audit } from "../audit";
 import { requireAuth, requirePermission } from "../auth";
 import { zodMessage } from "../../validate";
 import { AccurateClient } from "../accurate/client";
-import { ITEM_FIELDS } from "../accurate/mapping";
+import { ITEM_FIELDS, RECEIPT_LIST_FIELDS } from "../accurate/mapping";
+import { applyPurchaseCosts } from "../accurate/purchaseCost";
+import { loadReceiptState, receiptsEnabled, wibTimestamp } from "../accurate/receipts";
 import { sweepPending } from "./pendingItems";
 import { reconcileCounts, reconcileExamples, runReconcile } from "../accurate/reconcile";
 import { CHECKS, CHECK_KEYS, isCheckKey } from "../../../shared/accurateReconcile";
@@ -293,6 +295,54 @@ accurateRouter.post("/apply", requirePermission("import_catalog"), async (c) => 
   return c.json(result);
 });
 
+/**
+ * Where collecting goods receipts stands, for the "COGS dari pembelian terakhir" panel.
+ * One row read (accurate_receipt_state); the panel polls it while a pass runs.
+ */
+accurateRouter.get("/receipts", requirePermission("import_catalog"), requirePermission("view_costs"), async (c) => {
+  const entity = catalogEntity(c.env);
+  const st = await loadReceiptState(c.env.DB, entity);
+  return c.json({
+    entity,
+    enabled: receiptsEnabled(c.env),
+    inProgress: !!st.pass_started_at,
+    receiptsSeen: st.receipts_seen,
+    lastPassAt: st.last_pass_at,
+    through: st.since_update,
+    since: st.backfill_since,
+    lastError: st.last_error,
+    lastErrorAt: st.last_error_at,
+  });
+});
+
+/**
+ * COGS = harga pembelian terakhir: sets each catalog item's COGS to the unit
+ * price of its latest Accurate goods receipt (server/worker/accurate/purchaseCost.ts).
+ * `dryRun` (default) only reports what would change. Separate from /apply,
+ * which never touches COGS. Purchase prices are cost data, hence view_costs.
+ */
+accurateRouter.post("/apply-cogs", requirePermission("import_catalog"), requirePermission("view_costs"), async (c) => {
+  const parsed = z.object({ dryRun: z.boolean().default(true) }).safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
+  const entity = catalogEntity(c.env);
+  const st = await loadReceiptState(c.env.DB, entity);
+  if (!st.last_pass_at) {
+    return c.json({ error: `Riwayat penerimaan barang Accurate ${entity} belum lengkap. Tunggu satu putaran sinkron penerimaan selesai.` }, 409);
+  }
+  const result = await applyPurchaseCosts(c.env.DB, entity, { dryRun: parsed.data.dryRun });
+  if (!result.dryRun) {
+    await audit(c.env.DB, c.get("user")!.id, "catalog", 0, "cogs_from_purchases", {
+      entity,
+      changed: result.changed.length,
+      unchanged: result.unchanged,
+      skipped: result.skipped.length,
+      noReceipt: result.noReceipt,
+      receiptsThrough: st.since_update,
+    });
+  }
+  return c.json({ ...result, receipts: { lastPassAt: st.last_pass_at, through: st.since_update, inProgress: !!st.pass_started_at } });
+});
+
 /** Where the catalog's Accurate cross-check stands: the staged data of the catalog entity must be a completed run. */
 async function reconcileState(db: D1Database, entity: EntityKey) {
   const st = await loadState(db, entity);
@@ -358,7 +408,31 @@ accurateRouter.get("/probe", requirePermission("manage_company"), async (c) => {
     const stock = whId
       ? await client.raw("item/list-stock.do", { warehouseId: whId, "sp.page": 1, "sp.pageSize": 2 })
       : null;
-    return c.json({ host: info.host, alias: info.alias, items, warehouses, stock });
+    // Goods receipts (COGS = harga pembelian terakhir): one listed row and one detail, or the
+    // detail of ?receipt=<nomor RI> to compare its unit price with Accurate's Mutasi tab.
+    // The two row counts show whether Accurate honours the lastUpdate filter the receipts sync relies
+    // on: if it were ignored, every pass would re-read the whole history, one call per receipt.
+    let receipts: unknown = null;
+    let receiptDetail: unknown = null;
+    let receiptFilterCheck: unknown = null;
+    if (receiptsEnabled(c.env) || c.req.query("receipts") === "1" || c.req.query("receipt")) {
+      receipts = await client.raw("receive-item/list.do", { fields: RECEIPT_LIST_FIELDS, "sp.page": 1, "sp.pageSize": 1, "sp.sort": "id|desc" });
+      const yesterday = wibTimestamp(new Date(Date.now() - 86_400_000));
+      const recent = await client.raw("receive-item/list.do", {
+        fields: "id", "sp.page": 1, "sp.pageSize": 1,
+        "filter.lastUpdate.op": "GREATER_EQUAL_THAN", "filter.lastUpdate.val": yesterday,
+      });
+      const rowCount = (b: unknown) => (b as { sp?: { rowCount?: number } }).sp?.rowCount ?? null;
+      receiptFilterCheck = { all: rowCount(receipts), updatedSince: yesterday, updatedRecently: rowCount(recent) };
+      const number = c.req.query("receipt");
+      const firstId = ((receipts as { d?: { id?: number }[] }).d ?? [])[0]?.id;
+      receiptDetail = number
+        ? await client.raw("receive-item/detail.do", { number })
+        : firstId
+          ? await client.raw("receive-item/detail.do", { id: firstId })
+          : null;
+    }
+    return c.json({ host: info.host, alias: info.alias, items, warehouses, stock, receipts, receiptFilterCheck, receiptDetail });
   } catch (err) {
     return c.json({ error: (err as Error).message }, 502);
   }

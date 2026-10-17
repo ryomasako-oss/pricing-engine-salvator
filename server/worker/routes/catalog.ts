@@ -16,8 +16,13 @@ import {
   runMatch,
 } from "../../catalogMatch";
 import { VERIFY_COGS_SQL, cogsCheckInput, withProblems } from "../../cogsCheck";
+import {
+  COUNTS_SQL, INSERT_FEEDBACK_SQL, MISSED_SQL, REJECTED_SQL, TOP_MISSED, WEEKS_SQL,
+  buildReport, feedbackRows, feedbackSchema, rejectedMap,
+} from "../../matchLearning";
 import { cogsProblemsFor } from "../quoteService";
 import { sweepPending } from "./pendingItems";
+import { catalogEntity } from "../accurate/sync";
 import { canSeeCosts, catalogItemsForViewer, problemsForViewer } from "../../staffView";
 import { cleanUnits, type ItemUnits } from "../../../shared/uom";
 import type { CatalogItem, UnitFactor } from "../../../shared/types";
@@ -144,7 +149,10 @@ catalogRouter.post("/match", async (c) => {
     "SELECT alias, client_id, code FROM catalog_aliases WHERE client_id IN (0, ?)",
     parsed.data.client_id ?? 0,
   );
-  const { results, referenced } = runMatch(parsed.data, catalog, aliases);
+  // Pairings the reps already corrected away never come back as a certainty
+  // (shared/matchLearning.ts). Read across clients: a bad guess is usually bad for all.
+  const rejected = rejectedMap(await all<{ text: string; suggested: string }>(c.env.DB, REJECTED_SQL));
+  const { results, referenced } = runMatch(parsed.data, catalog, aliases, rejected);
   const codes = referenced.map((i) => i.code);
   const body = matchResponse(results, referenced, await unitsByCode(c.env.DB, codes));
   const role = c.get("user")!.role;
@@ -178,7 +186,9 @@ catalogRouter.post("/aliases", async (c) => {
   const parsed = aliasInput.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
   const clientId = parsed.data.client_id ?? 0;
-  if (!mayStoreAlias(user.role, clientId)) return c.json({ error: GLOBAL_ALIAS_DENIED }, 403);
+  // The permission is about storing a RULE. Recording what happened is an
+  // observation anyone reviewing a list may leave, with or without a client.
+  if (parsed.data.pairs.length && !mayStoreAlias(user.role, clientId)) return c.json({ error: GLOBAL_ALIAS_DENIED }, 403);
   if (clientId && !(await get(c.env.DB, "SELECT id FROM clients WHERE id = ?", clientId))) {
     return c.json({ error: "Klien tidak ditemukan." }, 400);
   }
@@ -212,8 +222,37 @@ catalogRouter.post("/aliases", async (c) => {
       ),
     );
   }
-  await audit(c.env.DB, user.id, "catalog", 0, "aliases_saved", { client_id: clientId, count: pairs.length });
-  return c.json({ saved: pairs.length });
+  // Every reviewed row is recorded, right or wrong: the alias above is the rule,
+  // this is the evidence. It is why a report can exist at all.
+  const feedback = feedbackRows({ client_id: clientId, rows: parsed.data.feedback ?? [] }, user.id);
+  if (feedback.length) await run(c.env.DB, INSERT_FEEDBACK_SQL, JSON.stringify(feedback));
+  await audit(c.env.DB, user.id, "catalog", 0, "aliases_saved", { client_id: clientId, count: pairs.length, feedback: feedback.length });
+  return c.json({ saved: pairs.length, recorded: feedback.length });
+});
+
+/**
+ * How well the matcher is doing and what it keeps missing
+ * (shared/matchLearning.ts). Costs: it reads the judged rows of the last 10
+ * weeks, so it is a manager action, never part of matching.
+ */
+catalogRouter.get("/match-learning", requirePermission("import_catalog"), async (c) => {
+  const [counts, weeks, missed, aliases, rejected] = await batch(c.env.DB, [
+    stmt(c.env.DB, COUNTS_SQL),
+    stmt(c.env.DB, WEEKS_SQL),
+    stmt(c.env.DB, MISSED_SQL, TOP_MISSED),
+    stmt(c.env.DB, "SELECT COUNT(*) AS n FROM catalog_aliases"),
+    stmt(c.env.DB, `SELECT COUNT(*) AS n FROM (${REJECTED_SQL})`),
+  ]);
+  const one = (r: { results: unknown[] }) => Number((r.results[0] as { n: number } | undefined)?.n ?? 0);
+  return c.json(
+    buildReport({
+      counts: counts.results as { outcome: string; n: number }[],
+      weeks: weeks.results as { created_at: string; outcome: string }[],
+      missed: missed.results as never,
+      aliases: one(aliases),
+      rejectedPairs: one(rejected),
+    }),
+  );
 });
 
 /** Managed UOM list — any manager/admin can extend it. Per-item ratios live in catalog_item_uoms. */
@@ -297,6 +336,22 @@ catalogRouter.post("/import", requirePermission("import_catalog"), async (c) => 
     }
   }
 
+  // COGS = harga pembelian terakhir (Ryoma, 2026-10-15): an existing item with a priced
+  // Accurate goods receipt takes its COGS from POST /api/accurate/apply-cogs, so a
+  // spreadsheet (the Nilai Persediaan average) must not overwrite it. Other fields still update.
+  const purchased = new Set<string>();
+  const entity = catalogEntity(c.env);
+  for (const chunk of chunks([...existing.keys()], CHUNK - 1)) {
+    const found = await all<{ item_code: string }>(
+      c.env.DB,
+      `SELECT DISTINCT item_code FROM accurate_receipt_lines
+        WHERE entity = ? AND unit_price > 0 AND quantity > 0 AND item_code IN (${chunk.map(() => "?").join(",")})`,
+      entity,
+      ...chunk,
+    );
+    for (const f of found) purchased.add(f.item_code);
+  }
+
   const UPSERT = `
     INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock, category, source)
     VALUES (
@@ -305,7 +360,7 @@ catalogRouter.post("/import", requirePermission("import_catalog"), async (c) => 
     ON CONFLICT(code) DO UPDATE SET
       name = ?2,
       uom = CASE WHEN ?3 != '' THEN ?3 ELSE catalog_items.uom END,
-      cogs = CASE WHEN ?4 > 0 THEN ?4 ELSE catalog_items.cogs END,
+      cogs = CASE WHEN ?9 > 0 THEN ?9 ELSE catalog_items.cogs END,
       list_price = CASE WHEN ?5 > 0 THEN ?5 ELSE catalog_items.list_price END,
       stock = COALESCE(?6, catalog_items.stock),
       category = CASE WHEN ?7 != '' THEN ?7 ELSE catalog_items.category END,
@@ -314,12 +369,15 @@ catalogRouter.post("/import", requirePermission("import_catalog"), async (c) => 
 
   let inserted = 0;
   let updated = 0;
+  let cogsFromPurchases = 0;
   const validRows = rows.filter((r) => r.code.trim());
   for (const chunk of chunks(validRows, CHUNK)) {
     const statements = chunk.flatMap((r) => {
       const code = r.code.trim();
       if (mode === "replace" || !existing.has(code)) inserted++;
       else updated++;
+      const keepCogs = purchased.has(code) && (r.cogs ?? 0) > 0;
+      if (keepCogs) cogsFromPurchases++;
       return [
         stmt(
           c.env.DB,
@@ -332,6 +390,7 @@ catalogRouter.post("/import", requirePermission("import_catalog"), async (c) => 
           r.stock ?? null,
           r.category ?? "",
           source,
+          keepCogs ? 0 : (r.cogs ?? 0),
         ),
         ...(r.units
           ? replaceUnitsStmts(c.env.DB, code, r.uom || existing.get(code) || "Pcs", r.units)
@@ -341,7 +400,7 @@ catalogRouter.post("/import", requirePermission("import_catalog"), async (c) => 
     await batch(c.env.DB, statements);
   }
 
-  const result = { inserted, updated };
+  const result = { inserted, updated, cogsFromPurchases };
   await audit(c.env.DB, user.id, "catalog", 0, "imported", { ...result, source, mode, rows: rows.length });
   // Barang baru requests whose code this import brought into the catalog are linked, and their tasks closed.
   await sweepPending(c.env.DB);

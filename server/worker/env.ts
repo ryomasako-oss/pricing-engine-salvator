@@ -38,6 +38,11 @@ export interface Bindings {
   ACCURATE_CALLS_PER_TICK?: string;
   ACCURATE_SYNC_EVERY_HOURS?: string;
   ACCURATE_SYNC_ENABLED?: string;
+  /** Goods receipts → COGS = harga pembelian terakhir (accurate/receipts.ts). Off unless "true". */
+  ACCURATE_RECEIPTS_ENABLED?: string;
+  /** First pass only: receipts dated on or after this day, YYYY-MM-DD (default: one year back). */
+  ACCURATE_RECEIPTS_SINCE?: string;
+  ACCURATE_RECEIPTS_PAGE_SIZE?: string;
   /** The Data Usaha whose data may be applied to the catalog ("PT" or "CV"; default PT). */
   ACCURATE_CATALOG_ENTITY?: string;
 }

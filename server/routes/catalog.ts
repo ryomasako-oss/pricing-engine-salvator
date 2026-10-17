@@ -15,6 +15,10 @@ import {
   mayStoreAlias,
   runMatch,
 } from "../catalogMatch.js";
+import {
+  COUNTS_SQL, INSERT_FEEDBACK_SQL, MISSED_SQL, REJECTED_SQL, TOP_MISSED, WEEKS_SQL,
+  buildReport, feedbackRows, rejectedMap,
+} from "../matchLearning.js";
 import { VERIFY_COGS_SQL, cogsCheckInput, withProblems } from "../cogsCheck.js";
 import { cogsProblemsFor } from "../quoteService.js";
 import { sweepPending } from "./pendingItems.js";
@@ -132,7 +136,9 @@ catalogRouter.post("/match", (req, res) => {
     "SELECT alias, client_id, code FROM catalog_aliases WHERE client_id IN (0, ?)",
     parsed.data.client_id ?? 0,
   );
-  const { results, referenced } = runMatch(parsed.data, catalog, aliases);
+  // Pairings the reps already corrected away never come back as a certainty.
+  const rejected = rejectedMap(all<{ text: string; suggested: string }>(REJECTED_SQL));
+  const { results, referenced } = runMatch(parsed.data, catalog, aliases, rejected);
   const codes = referenced.map((i) => i.code);
   const body = matchResponse(results, referenced, unitsByCode(codes));
   const role = (req as AuthedRequest).user!.role;
@@ -175,7 +181,8 @@ catalogRouter.post("/aliases", (req: AuthedRequest, res) => {
     return;
   }
   const clientId = parsed.data.client_id ?? 0;
-  if (!mayStoreAlias(req.user!.role, clientId)) {
+  // The permission is about storing a RULE; recording what happened is an observation.
+  if (parsed.data.pairs.length && !mayStoreAlias(req.user!.role, clientId)) {
     res.status(403).json({ error: GLOBAL_ALIAS_DENIED });
     return;
   }
@@ -184,10 +191,12 @@ catalogRouter.post("/aliases", (req: AuthedRequest, res) => {
     return;
   }
   const codes = [...new Set(parsed.data.pairs.map((p) => p.code))];
-  const found = all<{ code: string }>(
-    `SELECT code FROM catalog_items WHERE code COLLATE NOCASE IN (${codes.map(() => "?").join(",")})`,
-    ...codes,
-  );
+  const found = codes.length
+    ? all<{ code: string }>(
+        `SELECT code FROM catalog_items WHERE code COLLATE NOCASE IN (${codes.map(() => "?").join(",")})`,
+        ...codes,
+      )
+    : [];
   const { pairs, unknown } = cleanAliasPairs(parsed.data.pairs, found.map((f) => f.code));
   if (unknown.length) {
     res.status(400).json({ error: `Kode tidak ada di katalog: ${unknown.slice(0, 5).join(", ")}` });
@@ -206,8 +215,24 @@ catalogRouter.post("/aliases", (req: AuthedRequest, res) => {
       );
     }
   });
-  audit(req.user!.id, "catalog", 0, "aliases_saved", { client_id: clientId, count: pairs.length });
-  res.json({ saved: pairs.length });
+  const feedback = feedbackRows({ client_id: clientId, rows: parsed.data.feedback ?? [] }, req.user!.id);
+  if (feedback.length) run(INSERT_FEEDBACK_SQL, JSON.stringify(feedback));
+  audit(req.user!.id, "catalog", 0, "aliases_saved", { client_id: clientId, count: pairs.length, feedback: feedback.length });
+  res.json({ saved: pairs.length, recorded: feedback.length });
+});
+
+/** How well the matcher is doing and what it keeps missing (shared/matchLearning.ts). */
+catalogRouter.get("/match-learning", requirePermission("import_catalog"), (_req, res) => {
+  const one = (sql: string) => Number(get<{ n: number }>(sql)?.n ?? 0);
+  res.json(
+    buildReport({
+      counts: all<{ outcome: string; n: number }>(COUNTS_SQL),
+      weeks: all<{ created_at: string; outcome: string }>(WEEKS_SQL),
+      missed: all(MISSED_SQL, TOP_MISSED),
+      aliases: one("SELECT COUNT(*) AS n FROM catalog_aliases"),
+      rejectedPairs: one(`SELECT COUNT(*) AS n FROM (${REJECTED_SQL})`),
+    }),
+  );
 });
 
 /** Managed UOM list — any manager/admin can extend it. Per-item ratios live in catalog_item_uoms. */
@@ -306,7 +331,8 @@ catalogRouter.post("/import", requirePermission("import_catalog"), (req: AuthedR
         inserted++;
       }
     }
-    return { inserted, updated };
+    // Accurate goods receipts live only in the Worker's D1, so here no COGS is kept from purchases.
+    return { inserted, updated, cogsFromPurchases: 0 };
   });
 
   audit(req.user!.id, "catalog", 0, "imported", { ...result, source, mode, rows: rows.length });

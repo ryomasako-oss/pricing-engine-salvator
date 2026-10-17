@@ -42,7 +42,28 @@ export function countQueries(raw: D1Database): { db: D1Database; queries: () => 
   return { db, queries: () => d1, reset: () => void (d1 = 0) };
 }
 
-export function fakeAccurate(opts: { items: Record<string, unknown>[]; stock: Record<number, Record<string, unknown>[]>; moveHost?: boolean }) {
+/** A goods receipt as the fake serves it: list fields plus its detail lines. */
+export interface FakeReceipt {
+  id: number;
+  number: string;
+  transDate: string; // dd/MM/yyyy
+  lastUpdate: string; // dd/MM/yyyy HH:mm:ss
+  status?: string;
+  detailItem: Record<string, unknown>[];
+}
+
+/** Accurate "dd/MM/yyyy[ HH:mm:ss]" → sortable key, for the fake's filters. */
+const sortKey = (v: string) => v.replace(/^(\d{2})\/(\d{2})\/(\d{4})(.*)$/, "$3-$2-$1$4");
+
+/** Workers Paid limits per invocation (developers.cloudflare.com/workers/platform/limits, /d1/platform/limits). */
+export const PAID_PLAN = { d1Queries: 1000, subrequests: 10_000 };
+
+export function fakeAccurate(opts: {
+  items: Record<string, unknown>[];
+  stock: Record<number, Record<string, unknown>[]>;
+  moveHost?: boolean;
+  receipts?: FakeReceipt[];
+}) {
   const log: string[] = [];
   let moved = false;
   const json = (body: unknown, status = 200) =>
@@ -68,6 +89,21 @@ export function fakeAccurate(opts: { items: Record<string, unknown>[]; stock: Re
     }
     if (url.pathname.endsWith("/item/list.do")) return page(opts.items, url);
     if (url.pathname.endsWith("/warehouse/list.do")) return page([{ id: 1, name: "Gudang Utama" }, { id: 2, name: "Bogor" }], url);
+    if (url.pathname.endsWith("/receive-item/list.do")) {
+      const q = url.searchParams;
+      const since = (k: string) => q.get(`filter.${k}.val`);
+      const rows = (opts.receipts ?? [])
+        .filter((r) => !since("lastUpdate") || sortKey(r.lastUpdate) >= sortKey(since("lastUpdate")!))
+        .filter((r) => !since("transDate") || sortKey(r.transDate) >= sortKey(since("transDate")!))
+        .sort((a, b) => a.id - b.id)
+        .map(({ detailItem: _, ...head }) => head);
+      return page(rows, url);
+    }
+    if (url.pathname.endsWith("/receive-item/detail.do")) {
+      const id = Number(url.searchParams.get("id"));
+      const r = (opts.receipts ?? []).find((x) => x.id === id || x.number === url.searchParams.get("number"));
+      return r ? json({ s: true, d: r }) : json({ s: false, d: ["Data tidak ditemukan"] }, 404);
+    }
     if (url.pathname.endsWith("/item/list-stock.do")) return page(opts.stock[Number(url.searchParams.get("warehouseId"))] ?? [], url);
     return json({ s: false, d: ["not found"] }, 404);
   };

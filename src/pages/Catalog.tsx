@@ -6,10 +6,15 @@ import { Icon } from "../components/Icon";
 import { Modal } from "../components/Modal";
 import { ImportDialog } from "../components/ImportDialog";
 import { AccuratePanel } from "../components/AccuratePanel";
+import { MatchLearningPanel } from "../components/MatchLearningPanel";
 import { PendingItemsPanel } from "../components/PendingItemsPanel";
 import { fmtDateTime, grp } from "@shared/format";
 import type { CatalogItem, UnitFactor } from "@shared/types";
 import { cleanUnits, sameUom } from "@shared/uom";
+
+/** COGS = harga pembelian terakhir: an import leaves the COGS of purchased items alone (server/worker/routes/catalog.ts). */
+const keptNote = (n = 0) =>
+  n > 0 ? ` COGS ${grp(n)} barang tidak diubah karena memakai harga pembelian terakhir dari Accurate.` : "";
 
 interface Stats {
   total: number;
@@ -118,8 +123,8 @@ export function CatalogPage() {
         <div>
           <h1>Katalog barang</h1>
           <p>
-            Harga pokok berasal dari laporan Nilai Persediaan, harga jual acuan dari Daftar Barang
-            dan Jasa. Keduanya diekspor dari Accurate.
+            Harga pokok = harga pembelian terakhir di Accurate (penerimaan barang); barang yang belum
+            pernah dibeli memakai laporan Nilai Persediaan. Harga jual acuan dari Daftar Barang dan Jasa.
           </p>
         </div>
         {can("import_catalog") && (
@@ -190,11 +195,14 @@ export function CatalogPage() {
 
       {can("import_catalog") && <AccuratePanel onApplied={load} />}
 
+      {can("import_catalog") && <MatchLearningPanel />}
+
       {stats && stats.total > 0 && stats.priced / stats.total < 0.6 && (
         <p className="notice warn" style={{ marginBottom: 12 }}>
           <Icon name="alert" size={14} /> Hanya {Math.round((stats.priced / stats.total) * 100)}%
-          item punya harga pokok. Barang tanpa mutasi dan tanpa nilai di laporan persediaan memang
-          tidak bisa dihitung COGS-nya — isi manual untuk item yang benar-benar dijual.
+          item punya harga pokok. Barang yang belum pernah dibeli (tanpa penerimaan barang di Accurate)
+          tidak punya harga pembelian terakhir — isi manual atau lewat impor Nilai Persediaan untuk item
+          yang benar-benar dijual.
         </p>
       )}
 
@@ -342,7 +350,7 @@ export function CatalogPage() {
       {modal === "inventory" && (
         <ImportDialog
           title="Impor laporan Nilai Persediaan"
-          description='Export Accurate "Nilai Persediaan". COGS per unit dihitung dari nilai barang masuk dibagi kuantitasnya.'
+          description='Export Accurate "Nilai Persediaan". COGS per unit dihitung dari nilai barang masuk dibagi kuantitasnya. Barang yang punya harga pembelian terakhir dari Accurate tidak diubah COGS-nya.'
           onClose={() => {
             setModal(null);
             load();
@@ -350,14 +358,14 @@ export function CatalogPage() {
           onFile={async (file) => {
             const { parseInventory } = await import("../import/parsers");
             const { rows, report } = await parseInventory(file);
-            const r = await api.post<{ inserted: number; updated: number }>("/catalog/import", {
+            const r = await api.post<{ inserted: number; updated: number; cogsFromPurchases?: number }>("/catalog/import", {
               rows,
               source: file.name,
               mode: "merge",
             });
             return {
               report,
-              summary: `${report.count} barang terbaca. ${r.inserted} baru ditambahkan, ${r.updated} diperbarui.`,
+              summary: `${report.count} barang terbaca. ${r.inserted} baru ditambahkan, ${r.updated} diperbarui.${keptNote(r.cogsFromPurchases)}`,
             };
           }}
         />
@@ -405,14 +413,14 @@ export function CatalogPage() {
           onFile={async (file) => {
             const { parseFullCatalog } = await import("../import/parsers");
             const { rows, report } = await parseFullCatalog(file);
-            const r = await api.post<{ inserted: number; updated: number; total: number }>("/catalog/import", {
+            const r = await api.post<{ inserted: number; updated: number; total: number; cogsFromPurchases?: number }>("/catalog/import", {
               rows,
               source: file.name,
               mode: "merge",
             });
             return {
               report,
-              summary: `${r.total} barang dari file: ${r.inserted} ditambahkan, ${r.updated} diperbarui.`,
+              summary: `${r.total} barang dari file: ${r.inserted} ditambahkan, ${r.updated} diperbarui.${keptNote(r.cogsFromPurchases)}`,
             };
           }}
         />
