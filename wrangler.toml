@@ -26,20 +26,31 @@ run_worker_first = true
 #   wrangler secret put ACCURATE_TOKEN_PT
 [triggers]
 # 1) Accurate sync tick. 2) 08:00 WIB "Perlu diperbaiki" email
-#    (server/worker/fixDigest.ts DIGEST_CRON). Free plan: 5 cron triggers per account.
-crons = ["*/5 * * * *", "0 1 * * *"]
+#    (server/worker/fixDigest.ts DIGEST_CRON). 3) Accurate goods receipts for
+#    COGS = harga pembelian terakhir (server/worker/accurate/receipts.ts
+#    RECEIPTS_CRON, a no-op until ACCURATE_RECEIPTS_ENABLED = "true").
+#    Workers Paid: 250 cron triggers per account (Free: 5).
+crons = ["*/5 * * * *", "0 1 * * *", "2,7,12,17,22,27,32,37,42,47,52,57 * * * *"]
 
 [vars]
 NODE_ENV = "production"
 APP_URL = "https://pricing.salvator.co.id"
 ACCURATE_PAGE_SIZE = "100"
-# Workers Free plan: 50 subrequests per invocation, D1 queries included
-# (accurate.test.ts checks every tick stays under it). Raise after upgrading.
-ACCURATE_CALLS_PER_TICK = "5"
+# Workers Paid (since 2026-10): 10,000 subrequests and 1,000 D1 queries per
+# invocation (accurate.test.ts and receipts.test.ts check every tick stays
+# under them). What binds is Accurate's 8 calls/second per token and the 25 s
+# tick deadline: 60 calls at the client's 130 ms spacing take about 10-20 s.
+ACCURATE_CALLS_PER_TICK = "60"
 # Only this Data Usaha is applied to the catalog (Ryoma, 2026-10-06); the
 # other is synced, if it has a token, for the cross-entity checks only.
 ACCURATE_CATALOG_ENTITY = "PT"
 ACCURATE_SYNC_EVERY_HOURS = "6"
+# Goods receipts → COGS = harga pembelian terakhir. Verified on PT
+# 2026-10-15 with GET /api/accurate/probe: RI.2026.05.00210 gives 101311 at
+# 11.005.000 (= Mutasi), and the lastUpdate filter narrows 7.469 receipts to
+# the ~50 changed in a day. First pass reads receipts dated on/after
+# ACCURATE_RECEIPTS_SINCE (default one year back). Set "false" to stop.
+ACCURATE_RECEIPTS_ENABLED = "true"
 
 # Brute-force protection: Workers isolates have no shared in-memory counter,
 # so login/password attempts and the AI assistant are throttled through

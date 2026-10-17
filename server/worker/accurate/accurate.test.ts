@@ -8,7 +8,7 @@ import { AccurateClient, signTimestamp } from "./client";
 import { mapItem, mapStock } from "./mapping";
 import { syncConfig, syncStep, type EntityKey, type SyncConfig } from "./sync";
 import { accurateRouter } from "../routes/accurate";
-import { countQueries, fakeAccurate } from "./testing";
+import { PAID_PLAN, countQueries, fakeAccurate } from "./testing";
 import type { Env } from "../env";
 
 describe("signTimestamp", () => {
@@ -357,14 +357,14 @@ describe("AccurateClient only sends credentials to Accurate", () => {
   });
 });
 
-describe("Workers Free plan budget (Ryoma, 2026-10-06)", () => {
-  // Free plan: 50 subrequests per invocation, and D1 queries count as
-  // subrequests (developers.cloudflare.com/workers/platform/limits). The
-  // deployed tick size in wrangler.toml must keep every tick under that.
+describe("Workers plan budget (Free 2026-10-06, Paid since 2026-10-15)", () => {
+  // Workers Paid: 10,000 subrequests and 1,000 D1 queries per invocation
+  // (developers.cloudflare.com/workers/platform/limits, /d1/platform/limits).
+  // The deployed tick size in wrangler.toml must keep every tick under both.
   const toml = readFileSync(new URL("../../../wrangler.toml", import.meta.url), "utf8");
   const v = (k: string) => toml.match(new RegExp(`^${k}\\s*=\\s*"([^"]*)"`, "m"))?.[1];
 
-  it("every sync tick with the deployed settings stays within 50 subrequests (Accurate + D1)", async () => {
+  it("every sync tick with the deployed settings stays within the plan's subrequests and D1 queries", async () => {
     const { db: raw } = freshDb();
     const { db, queries, reset } = countQueries(raw);
     const items = Array.from({ length: 1234 }, (_, i) => ({ id: i + 1, no: `C${i}`, name: `Item ${i}`, unitPrice: 1000, unit1Name: "Pcs" }));
@@ -377,16 +377,19 @@ describe("Workers Free plan budget (Ryoma, 2026-10-06)", () => {
     let finished = false;
     let ticks = 0;
     let worst = 0;
+    let worstQueries = 0;
     for (; ticks < 200 && !finished; ticks++) {
       calls = 0;
       reset();
       const r = await syncStep(db, "PT", creds, deployed, { deadline: Date.now() + 10_000, fetchImpl: counted, gapMs: 0 });
       if (r.outcome === "error") throw new Error(r.error);
       worst = Math.max(worst, calls + queries());
+      worstQueries = Math.max(worstQueries, queries());
       finished = r.outcome === "finished";
     }
     expect(finished).toBe(true);
-    expect(worst).toBeLessThanOrEqual(50);
+    expect(worst).toBeLessThanOrEqual(PAID_PLAN.subrequests);
+    expect(worstQueries).toBeLessThanOrEqual(PAID_PLAN.d1Queries);
   });
 
   it("the catalog takes Accurate data from PT", () => {
