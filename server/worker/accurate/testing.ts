@@ -63,6 +63,8 @@ export function fakeAccurate(opts: {
   stock: Record<number, Record<string, unknown>[]>;
   moveHost?: boolean;
   receipts?: FakeReceipt[];
+  /** Sales invoices; left out, the sales-invoice endpoints answer like a token without that scope. */
+  salesInvoices?: (Omit<FakeReceipt, "status"> & { customer: Record<string, unknown> })[];
 }) {
   const log: string[] = [];
   let moved = false;
@@ -103,6 +105,16 @@ export function fakeAccurate(opts: {
       const id = Number(url.searchParams.get("id"));
       const r = (opts.receipts ?? []).find((x) => x.id === id || x.number === url.searchParams.get("number"));
       return r ? json({ s: true, d: r }) : json({ s: false, d: ["Data tidak ditemukan"] }, 404);
+    }
+    if (url.pathname.includes("/sales-invoice/")) {
+      if (!opts.salesInvoices) return json({ s: false, d: ["Anda tidak memiliki akses: sales_invoice_view"] }, 403);
+      if (url.pathname.endsWith("/list.do")) {
+        const since = url.searchParams.get("filter.lastUpdate.val");
+        return page(opts.salesInvoices.filter((x) => !since || sortKey(x.lastUpdate) >= sortKey(since)), url);
+      }
+      const id = Number(url.searchParams.get("id"));
+      const inv = opts.salesInvoices.find((x) => x.id === id || x.number === url.searchParams.get("number"));
+      return inv ? json({ s: true, d: inv }) : json({ s: false, d: ["Data tidak ditemukan"] }, 404);
     }
     if (url.pathname.endsWith("/item/list-stock.do")) return page(opts.stock[Number(url.searchParams.get("warehouseId"))] ?? [], url);
     return json({ s: false, d: ["not found"] }, 404);
