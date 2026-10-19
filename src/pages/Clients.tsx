@@ -4,6 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { Icon } from "../components/Icon";
 import { Modal, ConfirmModal } from "../components/Modal";
+import { NEW_CLIENT_REQUIRED, missingNewClientFields, missingNewClientMessage } from "@shared/clients";
 import type { Client } from "@shared/types";
 
 const EMPTY = {
@@ -12,11 +13,23 @@ const EMPTY = {
   delivery_terms: "Franco Jakarta, jadwal mingguan",
 };
 
+/** Labels, and which of them a *new* client cannot go without (shared/clients.ts). */
+const FIELDS: [keyof typeof EMPTY, string][] = [
+  ["name", "Nama perusahaan"],
+  ["contact_name", "Nama PIC"],
+  ["contact_phone", "No. HP"],
+  ["contact_email", "Email"],
+  ["code", "Kode klien"],
+  ["payment_terms", "Termin pembayaran"],
+  ["delivery_terms", "Ketentuan pengiriman"],
+];
+
 export function ClientsPage() {
   const toast = useToast();
   const { can } = useAuth();
   const [clients, setClients] = useState<(Client & { quote_count?: number })[]>([]);
   const [editing, setEditing] = useState<(typeof EMPTY & { id?: number }) | null>(null);
+  const [attempted, setAttempted] = useState(false);
   const [deleting, setDeleting] = useState<Client | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -31,8 +44,21 @@ export function ClientsPage() {
 
   useEffect(load, [load]);
 
+  const open = (client: typeof EMPTY & { id?: number }) => {
+    setAttempted(false);
+    setEditing(client);
+  };
+
   const save = async () => {
     if (!editing) return;
+    // Only a new client must carry a PIC, phone and email; an older record
+    // someone is just fixing up is left alone (shared/clients.ts).
+    const missing = editing.id ? [] : missingNewClientFields(editing);
+    if (missing.length) {
+      setAttempted(true);
+      toast(`Wajib diisi: ${missingNewClientMessage(missing)}.`, "error");
+      return;
+    }
     try {
       const body = { ...EMPTY, ...editing };
       if (editing.id) await api.put(`/clients/${editing.id}`, body);
@@ -45,6 +71,8 @@ export function ClientsPage() {
     }
   };
 
+  const missingNow = editing && !editing.id ? missingNewClientFields(editing) : [];
+
   return (
     <main className="hk-main">
       <div className="hk-page-head">
@@ -52,7 +80,7 @@ export function ClientsPage() {
           <h1>Klien</h1>
           <p>Data klien mengisi otomatis termin dan alamat di setiap quotation baru.</p>
         </div>
-        <button className="btn primary" onClick={() => setEditing({ ...EMPTY })}>
+        <button className="btn primary" onClick={() => open({ ...EMPTY })}>
           <Icon name="plus" size={16} /> Klien baru
         </button>
       </div>
@@ -95,7 +123,7 @@ export function ClientsPage() {
                     <td className="num">{c.quote_count ?? 0}</td>
                     <td>
                       <div className="row" style={{ justifyContent: "flex-end" }}>
-                        <button className="btn small ghost" onClick={() => setEditing({ ...c })}>
+                        <button className="btn small ghost" onClick={() => open({ ...c })}>
                           Ubah
                         </button>
                         {can("delete_clients") && (
@@ -127,25 +155,27 @@ export function ClientsPage() {
           }
         >
           <div className="field-grid">
-            {([
-              ["name", "Nama perusahaan"],
-              ["code", "Kode klien"],
-              ["contact_name", "Nama kontak"],
-              ["contact_email", "Email kontak"],
-              ["contact_phone", "Telepon"],
-              ["payment_terms", "Termin pembayaran"],
-              ["delivery_terms", "Ketentuan pengiriman"],
-            ] as const).map(([key, label]) => (
-              <label className="field" key={key}>
-                <span>{label}</span>
-                <input
-                  className="input"
-                  value={(editing as unknown as Record<string, string>)[key] ?? ""}
-                  onChange={(e) => setEditing({ ...editing, [key]: e.target.value })}
-                />
-              </label>
-            ))}
+            {FIELDS.map(([key, label]) => {
+              const starred = !editing.id && NEW_CLIENT_REQUIRED.some(([f]) => f === key);
+              const wrong = attempted && (missingNow as string[]).includes(key);
+              return (
+                <label className="field" key={key}>
+                  <span>{label}{starred ? " *" : ""}</span>
+                  <input
+                    className={`input${wrong ? " invalid" : ""}`}
+                    aria-invalid={wrong}
+                    value={(editing as unknown as Record<string, string>)[key] ?? ""}
+                    onChange={(e) => setEditing({ ...editing, [key]: e.target.value })}
+                  />
+                </label>
+              );
+            })}
           </div>
+          {missingNow.length > 0 && (
+            <p className="muted small" style={{ margin: "10px 0 0" }}>
+              Wajib diisi: {missingNewClientMessage(missingNow)}.
+            </p>
+          )}
           <label className="field" style={{ marginTop: 12 }}>
             <span>Alamat</span>
             <textarea
