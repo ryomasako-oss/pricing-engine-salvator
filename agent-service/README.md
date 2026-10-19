@@ -109,6 +109,8 @@ npm run recommend "PT Agrinesia"
 | GET | /industries/:clientId | Deteksi industri untuk klien |
 | POST | /silvy/ask | Tanya Silvy tentang satu quotation. Hanya dari app pricing (x-silvy-secret); app yang mengautentikasi user, menolak staff, membatasi laju, dan mencatat audit |
 | POST | /silvy/document | Dokumen: briefing, faq, risk, negotiation. Syarat sama dengan /silvy/ask |
+| POST | /silvy/report | Narasi singkat rekap Accurate pagi (body: { recap }). Satu panggilan per hari dari cron app; kalau gagal, app tetap mengirim email tanpa narasi |
+| POST | /silvy/familiarity-suggest | Saran pencocokan baris "Adjustment" Data Feed (body: { client_name?, unresolved_rows ≤30, catalog_candidates ≤300 }) → { suggestions: [{ row_id, suggested_item_id \| null, confidence, reasoning }] }. Hanya id dari kandidat yang dikembalikan |
 | POST | /webhook/gmail | Webhook incoming Gmail push notification |
 
 ## Struktur

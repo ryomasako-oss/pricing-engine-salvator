@@ -113,3 +113,19 @@ test("a model that rejects the thinking level is retried once without it, other 
   });
   assert.equal(calls, 1, "an unrelated 400 is not retried");
 });
+
+test("responseSchema goes into generationConfig and switches on JSON output", async () => {
+  const bodies: any[] = [];
+  const schema = { type: "OBJECT", properties: { a: { type: "STRING", nullable: true } } };
+  await withFetch((async (_u: any, init: any) => {
+    bodies.push(JSON.parse(init.body));
+    return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: "{}" }] } }] }), { status: 200 });
+  }) as typeof fetch, async () => {
+    await new GeminiClient("k").chat("s", [], { responseSchema: schema });
+    await new GeminiClient("k").chat("s", []);
+  });
+  assert.equal(bodies[0].generationConfig.responseMimeType, "application/json");
+  assert.deepEqual(bodies[0].generationConfig.responseSchema, schema);
+  assert.equal(bodies[1].generationConfig.responseSchema, undefined);
+  assert.equal(bodies[1].generationConfig.responseMimeType, undefined);
+});
