@@ -22,7 +22,8 @@ export const familiarityRouter = Router();
 familiarityRouter.use(requireAuth);
 
 let schemaReady = false;
-function ensureSchema() {
+/** Also called by /catalog/match, which reads familiarity_rules. */
+export function ensureSchema() {
   if (schemaReady) return;
   db.exec(FAMILIARITY_SCHEMA);
   schemaReady = true;

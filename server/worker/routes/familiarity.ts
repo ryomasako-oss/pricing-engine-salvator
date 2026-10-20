@@ -24,7 +24,8 @@ familiarityRouter.use(requireAuth);
 
 let schemaReady = false;
 
-async function ensureSchema(db: D1Database): Promise<void> {
+/** Also called by /catalog/match, which reads familiarity_rules. */
+export async function ensureSchema(db: D1Database): Promise<void> {
   if (schemaReady) return;
   await batch(db, FAMILIARITY_SCHEMA_STATEMENTS.map((sql) => stmt(db, sql)));
   schemaReady = true;

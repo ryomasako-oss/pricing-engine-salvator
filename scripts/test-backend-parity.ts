@@ -3125,6 +3125,93 @@ scenario("familiarity: only a manager may make a resolution global; a rep's defa
   return { denied: denied.status, allowed: famSummary(allowed.json), other: famSummary(other.json) };
 });
 
+/** Settles a fed row through the resolve route; fails the scenario if refused. */
+async function famResolve(d: Driver, session: Session, feed: any, body: Record<string, unknown>) {
+  const r = await d.api("PATCH", `/api/familiarity/sessions/${feed.json.session_id}/resolve`, {
+    body: { row_id: feed.json.rows[0].id, ...body },
+    session,
+  });
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  return r;
+}
+
+const famItemId = async (d: Driver, session: Session, code: string) =>
+  String((await d.api("GET", `/api/catalog?q=${code}`, { session })).json.items.find((i: any) => i.code === code).id);
+
+scenario("familiarity → Dari list klien: a client's training decision makes the next list match that wording exactly", async (d) => {
+  await seedFamiliarityCatalog(d);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const a = await famClient(d, rep, "PT Latih Ke Quote A");
+  const b = await famClient(d, rep, "PT Latih Ke Quote B");
+  // CGV's case: their own code collides with our 100591 (a sealant), and the name says salt.
+  const line = { code: "100591", text: "CAFE_GARAM HALUS 1 KG" };
+  const feed = await famFeed(d, rep, { client_id: a, raw_lines: [line] });
+  await famResolve(d, rep, feed, { action: "verify_item", item_id: await famItemId(d, rep, "FAM-PAPER") });
+
+  // The list the quotation builder sends: the same code and name, as parseRequestList splits them.
+  const lines = [{ code: line.code, name: line.text, qty: 2 }];
+  const forA = await d.api("POST", "/api/catalog/match", { body: { client_id: a, lines }, session: rep });
+  const forB = await d.api("POST", "/api/catalog/match", { body: { client_id: b, lines }, session: rep });
+  const none = await d.api("POST", "/api/catalog/match", { body: { lines }, session: rep });
+  assert.deepEqual(codesOf(forA.json)[0], { status: "exact", via: "alias", best: "FAM-PAPER" });
+  // Another client, or no client, does not inherit A's decision.
+  assert.notEqual(codesOf(forB.json)[0].via, "alias");
+  assert.notEqual(codesOf(none.json)[0].via, "alias");
+  return { a: codesOf(forA.json), b: codesOf(forB.json), none: codesOf(none.json) };
+});
+
+scenario("familiarity → Dari list klien: a rep's training without a client stays in its session; a manager's applies to everyone", async (d) => {
+  await seedFamiliarityCatalog(d);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const c = await famClient(d, rep, "PT Latih Tanpa Klien");
+  const pen = await famItemId(d, rep, "FAM-PEN");
+
+  const repFeed = await famFeed(d, rep, { raw_lines: [{ text: "bolpoin rapat direksi" }] });
+  await famResolve(d, rep, repFeed, { action: "verify_item", item_id: pen });
+  const lines = [{ name: "bolpoin rapat direksi" }];
+  const afterRep = await d.api("POST", "/api/catalog/match", { body: { client_id: c, lines }, session: rep });
+  assert.notEqual(codesOf(afterRep.json)[0].via, "alias");
+
+  const mgrFeed = await famFeed(d, manager, { raw_lines: [{ text: "bolpoin rapat direksi" }] });
+  await famResolve(d, manager, mgrFeed, { action: "verify_item", item_id: pen, apply_to_client_only: false });
+  const afterManager = await d.api("POST", "/api/catalog/match", { body: { client_id: c, lines }, session: rep });
+  assert.deepEqual(codesOf(afterManager.json)[0], { status: "exact", via: "alias", best: "FAM-PEN" });
+  return { afterRep: codesOf(afterRep.json), afterManager: codesOf(afterManager.json) };
+});
+
+scenario("familiarity → Dari list klien: for one wording the newest decision wins, between training and the quote review", async (d) => {
+  await seedFamiliarityCatalog(d);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const c = await famClient(d, rep, "PT Latih Terbaru");
+  const text = "stabilo kuning terang";
+  const lines = [{ name: text }];
+  const match = async () => codesOf((await d.api("POST", "/api/catalog/match", { body: { client_id: c, lines }, session: rep })).json)[0];
+
+  // 1. Saved while reviewing a quote.
+  await d.api("POST", "/api/catalog/aliases", { body: { client_id: c, pairs: [{ text, code: "FAM-HL-OR" }] }, session: rep });
+  const fromReview = await match();
+  // 2. Trained afterwards to another item: training wins.
+  const feed = await famFeed(d, rep, { client_id: c, raw_lines: [{ text }] });
+  await famResolve(d, rep, feed, { action: "verify_item", item_id: await famItemId(d, rep, "FAM-HL-GR") });
+  const fromTraining = await match();
+  // 3. Reviewed again later (timestamps are per second): the review wins back.
+  await new Promise((r) => setTimeout(r, 1100));
+  await d.api("POST", "/api/catalog/aliases", { body: { client_id: c, pairs: [{ text, code: "FAM-HL-OR" }] }, session: rep });
+  const reviewedAgain = await match();
+  // 4. Trained as "not an item": no pairing any more, the line is matched by name.
+  await new Promise((r) => setTimeout(r, 1100));
+  const again = await famFeed(d, rep, { client_id: c, raw_lines: [{ text }] });
+  await famResolve(d, rep, again, { action: "ignore_row" });
+  const ignored = await match();
+
+  assert.deepEqual(fromReview, { status: "exact", via: "alias", best: "FAM-HL-OR" });
+  assert.deepEqual(fromTraining, { status: "exact", via: "alias", best: "FAM-HL-GR" });
+  assert.deepEqual(reviewedAgain, { status: "exact", via: "alias", best: "FAM-HL-OR" });
+  assert.notEqual(ignored.via, "alias");
+  return { fromReview, fromTraining, reviewedAgain, ignored };
+});
+
 async function main() {
   const express = await makeExpressDriver();
   const worker = await makeWorkerDriver();

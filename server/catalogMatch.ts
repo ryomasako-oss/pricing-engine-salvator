@@ -63,6 +63,23 @@ export interface AliasRow {
   code: string;
 }
 
+/**
+ * Every wording a person already settled, for one request: pairings saved while
+ * reviewing a client's list (catalog_aliases) and decisions made in "Latih
+ * pencocokan" (familiarity_rules, server/familiarity.ts). Oldest first, so the
+ * newest decision for a wording wins (aliasMaps keeps the last); on a tie the
+ * training decision wins. A training decision that the wording is a barang baru
+ * or not an item carries no code: it overrides an older pairing, and the line
+ * is matched by name. Session-only rules (a rep training without a client) are
+ * left out. Params: client id (0 = none), twice.
+ */
+export const MATCH_ALIASES_SQL = `
+  SELECT alias, client_id, code, updated_at, 0 AS src FROM catalog_aliases WHERE client_id IN (0, ?)
+  UNION ALL
+  SELECT normalized_raw_text, client_id, CASE WHEN action = 'verify_item' THEN item_code ELSE '' END, updated_at, 1
+    FROM familiarity_rules WHERE session_id = 0 AND client_id IN (0, ?)
+  ORDER BY updated_at, src`;
+
 export function aliasMaps(rows: AliasRow[], clientId: number | null | undefined): AliasMaps {
   const maps: AliasMaps = { client: new Map(), global: new Map() };
   for (const r of rows) {
