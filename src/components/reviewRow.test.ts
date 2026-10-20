@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { STATUS_LABEL, reviewRowBadge, type RowState } from "./reviewRow";
+import { STATUS_LABEL, reviewRowBadge, reviewSummary, type RowState } from "./reviewRow";
 
 const row = (over: Partial<RowState> = {}): RowState => ({
   status: "match",
@@ -57,5 +57,42 @@ describe("reviewRowBadge", () => {
     expect(Object.keys(STATUS_LABEL).sort()).toEqual(["exact", "match", "none", "review"]);
     expect(Object.values(STATUS_LABEL).filter((l) => l.cls === "blue")).toEqual([STATUS_LABEL.none]);
     expect(STATUS_LABEL.none.text).toBe("Adjustment");
+  });
+});
+
+describe("reviewSummary: the header counts what the rows say now, not what the matcher said first", () => {
+  const sum = (...rows: Partial<RowState>[]) => reviewSummary(rows.map(row));
+
+  it("a fresh list counts the matcher's verdicts", () => {
+    expect(
+      sum(
+        { status: "exact" },
+        { status: "match" },
+        { status: "review", confirmed: false },
+        { status: "none", chosen: false, confirmed: false },
+      ),
+    ).toEqual({ sure: 2, review: 1, none: 1 });
+  });
+
+  it("an adjustment the rep settled with an item stops counting as one — the bug", () => {
+    // Was "1 adjustment" forever: the count read result.status, which never changes.
+    expect(sum({ status: "none", chosen: true, confirmed: true })).toEqual({ sure: 1, review: 0, none: 0 });
+  });
+
+  it("an adjustment turned into a barang baru is held, not owed and not sure", () => {
+    expect(sum({ status: "none", chosen: true, confirmed: true, pending: true })).toEqual({ sure: 0, review: 0, none: 0 });
+  });
+
+  it("a 'perlu dicek' row the rep accepted is sure; one left out is neither", () => {
+    expect(sum({ status: "review", confirmed: true })).toEqual({ sure: 1, review: 0, none: 0 });
+    expect(sum({ status: "review", chosen: false, confirmed: true })).toEqual({ sure: 0, review: 0, none: 0 });
+  });
+
+  it("an adjustment left out on purpose is no longer owed", () => {
+    expect(sum({ status: "none", chosen: false, confirmed: true })).toEqual({ sure: 0, review: 0, none: 0 });
+  });
+
+  it("a held line is not counted as sure: the header counts it under 'ditahan'", () => {
+    expect(sum({ status: "exact", held: true })).toEqual({ sure: 0, review: 0, none: 0 });
   });
 });

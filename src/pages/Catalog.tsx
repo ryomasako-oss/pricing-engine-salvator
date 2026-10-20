@@ -6,7 +6,6 @@ import { Icon } from "../components/Icon";
 import { Modal } from "../components/Modal";
 import { ImportDialog } from "../components/ImportDialog";
 import { AccuratePanel } from "../components/AccuratePanel";
-import { MatchLearningPanel } from "../components/MatchLearningPanel";
 import { PendingItemsPanel } from "../components/PendingItemsPanel";
 import { fmtDateTime, grp } from "@shared/format";
 import type { CatalogItem, UnitFactor } from "@shared/types";
@@ -195,7 +194,6 @@ export function CatalogPage() {
 
       {can("import_catalog") && <AccuratePanel onApplied={load} />}
 
-      {can("import_catalog") && <MatchLearningPanel />}
 
       {stats && stats.total > 0 && stats.priced / stats.total < 0.6 && (
         <p className="notice warn" style={{ marginBottom: 12 }}>

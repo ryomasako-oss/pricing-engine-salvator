@@ -10,3 +10,6 @@ data/*.db-shm
 .wrangler
 .dev.vars
 .dev.vars.*
+test-results
+playwright-report
+e2e/.auth

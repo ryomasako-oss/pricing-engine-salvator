@@ -55,3 +55,25 @@ export function reviewRowBadge(r: RowState): RowBadge {
   if (r.status === "review" || r.status === "none") return { kind: "badge", text: "Sudah dicek", cls: "green" };
   return { kind: "badge", ...label };
 }
+
+export interface ReviewSummary {
+  sure: number;
+  review: number;
+  none: number;
+}
+
+/**
+ * The header badges, counted from what each row's status column says now
+ * (reviewRowBadge), so a row the rep settles leaves its count at once. Held
+ * and "barang baru" rows are counted by the header's own "ditahan" badge, and
+ * a row left out is in neither.
+ */
+export function reviewSummary(rows: RowState[]): ReviewSummary {
+  const out: ReviewSummary = { sure: 0, review: 0, none: 0 };
+  for (const b of rows.map(reviewRowBadge)) {
+    if (b.kind === "confirm") out.review++;
+    else if (b.text === STATUS_LABEL.none.text) out.none++;
+    else if (b.cls === "green") out.sure++;
+  }
+  return out;
+}

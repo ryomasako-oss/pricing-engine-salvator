@@ -29,6 +29,9 @@
   --s1-bg: #E8F1FD;
   --s2-bg: #E3F3F5;
   --s3-bg: #F2EAF7;
+  /* Badge text is 10.5px: it needs 4.5:1 on its own tint, which --s1 and --muted miss (4.1 and 4.4). */
+  --badge-blue: #0066CC;
+  --badge-grey: #5E5E63;
 
   --danger: #D70015;
   --danger-bg: #FDEEEE;
@@ -73,6 +76,8 @@
   --s1-bg: rgba(64, 156, 255, 0.16);
   --s2-bg: rgba(69, 196, 217, 0.16);
   --s3-bg: rgba(197, 123, 224, 0.16);
+  --badge-blue: #7CB8FF;
+  --badge-grey: #AEAEB2;
 
   --danger: #FF6961;
   --danger-bg: rgba(255, 69, 58, 0.16);
@@ -120,6 +125,8 @@
     --s1-bg: rgba(64, 156, 255, 0.16);
     --s2-bg: rgba(69, 196, 217, 0.16);
     --s3-bg: rgba(197, 123, 224, 0.16);
+    --badge-blue: #7CB8FF;
+    --badge-grey: #AEAEB2;
 
     --danger: #FF6961;
     --danger-bg: rgba(255, 69, 58, 0.16);
@@ -291,8 +298,8 @@ a { color: var(--navy); }
 .badge.amber { background: var(--warn-bg); color: var(--warn); }
 .badge.red { background: var(--danger-bg); color: var(--danger); }
 .badge.green { background: var(--ok-bg); color: var(--ok); }
-.badge.blue { background: var(--s1-bg); color: var(--s1); }
-.badge.grey { background: var(--soft); color: var(--muted); }
+.badge.blue { background: var(--s1-bg); color: var(--badge-blue); }
+.badge.grey { background: var(--soft); color: var(--badge-grey); }
 .badge.purple { background: var(--s3-bg); color: var(--s3); }
 
 .pill { font-size: 12px; padding: 3px 10px; border-radius: 999px; background: var(--field); border: 1px solid var(--rule); }

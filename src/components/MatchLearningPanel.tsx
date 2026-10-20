@@ -131,8 +131,8 @@ export function MatchLearningPanel() {
 
         {judged === 0 && (
           <p className="notice info small" style={{ marginTop: 12 }}>
-            <Icon name="alert" size={13} /> Angka terisi sendiri setiap kali quotation dibuat lewat <strong>Quotation → Dari list klien</strong>.
-            Quotation yang dibuat langsung di editor tidak ikut terhitung.
+            <Icon name="alert" size={13} /> Angka terisi sendiri setiap kali baris dibereskan di atas, atau quotation dibuat lewat{" "}
+            <strong>Quotation → Dari list klien</strong>. Quotation yang dibuat langsung di editor tidak ikut terhitung.
           </p>
         )}
       </div>
