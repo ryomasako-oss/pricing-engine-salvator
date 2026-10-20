@@ -1,5 +1,6 @@
 /* ============================================================
-   Silvy: /silvy/ask, /silvy/document, dan /silvy/report.
+   Silvy: /silvy/ask, /silvy/document, dan /silvy/report
+   (/silvy/familiarity-suggest ada di familiarity.ts).
 
    Pure functions (tanpa HTTP) supaya bisa dites. Aplikasi pricing
    adalah gerbangnya: ia yang mengautentikasi user, menolak role
@@ -24,7 +25,7 @@ export interface Result {
   body: Record<string, unknown>;
 }
 
-const fail = (status: number, error: string): Result => ({ status, body: { error } });
+export const fail = (status: number, error: string): Result => ({ status, body: { error } });
 
 /** Bandingkan rahasia bersama tanpa membocorkan panjang atau isi lewat waktu. */
 export function secretMatches(provided: string | undefined, expected: string): boolean {
@@ -45,7 +46,7 @@ export function authorize(path: string, provided: string | undefined, secret: st
   return secretMatches(provided, secret) ? "ok" : "unauthorized";
 }
 
-const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+export const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const str = (v: unknown, max: number, fallback = ""): string => (typeof v === "string" ? v.slice(0, max) : fallback);
 
 interface Parsed {
@@ -100,7 +101,7 @@ function contextOrError(body: Record<string, unknown>): { ctx: string } | Result
   }
 }
 
-function llmError(err: unknown): Result {
+export function llmError(err: unknown): Result {
   if (err instanceof GeminiError) return fail(err.status === 429 ? 429 : err.status === 503 ? 503 : 502, err.message);
   return fail(500, "Silvy gagal menjawab karena kesalahan tak terduga.");
 }
