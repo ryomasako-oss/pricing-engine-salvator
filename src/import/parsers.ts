@@ -383,42 +383,60 @@ export interface ParsedItems {
 const CITY =
   /jakarta|bogor|bandung|surabaya|medan|semarang|makassar|palembang|pekanbaru|lampung|jambi|riau|kalimantan|sumatera|bekasi|tangerang|depok|solo|yogya|malang|denpasar|balikpapan/;
 
+/** The client list's main sheet: a named one if there is one, else the first. */
+const pickClientSheet = (wb: XLSX.WorkBook) =>
+  wb.SheetNames.find((n) => /base_economics/i.test(n)) ||
+  wb.SheetNames.find((n) => /item|kebutuhan|atk|penawaran|request|rfq/i.test(n)) ||
+  wb.SheetNames[0];
+
+/**
+ * Header words that name the item itself, tried before anything else. "ITEM CODE" also starts
+ * with "item": CGV's list (NO | ITEM CODE | Gambar | DES | ...) was read with the code as the
+ * name and its "DES" column ignored (2026-10-17).
+ */
+const NAME_HEADER = /^(nama barang|nama item|item name|item description|deskripsi|description|desc|des|uraian|urain|barang)\b/;
+const CODE_HEADER = /kode|code|sku/;
+
 /**
  * Finds the client list's sheet, header row and columns. Shared by both
  * client-list readers; a bare request list may have only "Nama | Qty".
  */
 async function readClientSheet(file: File, minHeaderCells: number) {
   const wb = await readWorkbook(file);
-  const sheetName =
-    wb.SheetNames.find((n) => /base_economics/i.test(n)) ||
-    wb.SheetNames.find((n) => /item|kebutuhan|atk|penawaran|request|rfq/i.test(n)) ||
-    wb.SheetNames[0];
+  const found = readClientColumns(wb, pickClientSheet(wb), minHeaderCells);
+  if ("error" in found) throw new Error(found.error);
+  return found;
+}
+
+/** Header row and columns of one sheet, or why it has none. */
+function readClientColumns(wb: XLSX.WorkBook, sheetName: string, minHeaderCells: number) {
   const rows = sheetGrid(wb, sheetName);
 
   const hi = findHeader(
     rows,
     (c) =>
-      c.some((x) => /item|nama barang|nama|deskripsi|description|barang/.test(x)) &&
+      c.some((x) => /item|nama barang|nama|deskripsi|description|barang|^des$/.test(x)) &&
       c.filter(Boolean).length >= minHeaderCells,
     30,
   );
   if (hi < 0) {
-    throw new Error(`Sheet "${sheetName}" tidak punya baris judul dengan kolom nama item.`);
+    return { error: `Sheet "${sheetName}" tidak punya baris judul dengan kolom nama item.` };
   }
 
   const header = rows[hi].map(lower);
   const find = (re: RegExp) => header.findIndex((h) => re.test(h));
   const col = {
-    name: find(/^(item|nama barang|nama item|nama|deskripsi|description|barang)/),
-    code: find(/kode|code|sku/),
+    name: find(NAME_HEADER),
+    code: find(CODE_HEADER),
     uom: find(/uom|satuan|unit/),
     qty: find(/qty|kuantitas|jumlah|quantity|kebutuhan|kts/),
     cogs: find(/cogs|hpp|harga beli|modal|supplier/),
     rrp: find(/rrp|ceiling|plafon|harga maks|het|harga kontrak|budget/),
     role: find(/role|peran/),
   };
-  if (col.name < 0) col.name = find(/item|nama|barang/);
-  if (col.name < 0) throw new Error("Kolom nama item tidak ditemukan di baris judul.");
+  if (col.name < 0) col.name = header.findIndex((h) => /^(item|nama)/.test(h) && !CODE_HEADER.test(h));
+  if (col.name < 0) col.name = header.findIndex((h) => /item|nama|barang/.test(h) && !CODE_HEADER.test(h));
+  if (col.name < 0) return { error: "Kolom nama item tidak ditemukan di baris judul." };
 
   const cityCols = header.map((h, i) => (CITY.test(h) ? i : -1)).filter((i) => i >= 0);
   return { sheetName, rows, hi, col, cityCols };
@@ -432,11 +450,42 @@ const isTotalRow = (name: string) => /^(total|subtotal|jumlah|grand total)/i.tes
  * price: COGS and the default ceiling come from the catalog item it matches.
  */
 export async function parseRequestList(file: File): Promise<{ lines: RequestLine[]; report: ImportReport }> {
-  const { sheetName, rows, hi, col, cityCols } = await readClientSheet(file, 2);
+  // Every sheet with an item header, main sheet first: CGV split one list into ATK, HOUSEHOLD and
+  // Sheet1, and only the first was read (2026-10-17). The main sheet's error is the one shown.
+  const wb = await readWorkbook(file);
+  const main = pickClientSheet(wb);
+  const found = [main, ...wb.SheetNames.filter((n) => n !== main)].map((n) => readClientColumns(wb, n, 2));
+  if ("error" in found[0]) throw new Error(found[0].error);
+  const sheets = found.filter((s) => !("error" in s)) as Exclude<(typeof found)[number], { error: string }>[];
+
   const lines: RequestLine[] = [];
   let fromRegion = 0;
   let noQty = 0;
-  for (const row of rows.slice(hi + 1)) {
+  for (const { rows, hi, col, cityCols } of sheets) {
+    const read = requestLinesOf(rows.slice(hi + 1), col, cityCols);
+    lines.push(...read.lines);
+    fromRegion += read.fromRegion;
+    noQty += read.noQty;
+  }
+  if (!lines.length) throw new Error("Tidak ada baris item yang terbaca. Pastikan ada kolom nama item.");
+  const notes = [
+    sheets.length > 1 ? `Dibaca ${sheets.length} sheet: ${sheets.map((s) => s.sheetName).join(", ")}.` : "",
+    sheets.every((s) => s.col.qty < 0)
+      ? "Kolom qty tidak ditemukan: semua item dihitung 1 per satuan terkecil."
+      : noQty
+        ? `${noQty} baris tanpa qty: dihitung 1 per satuan terkecil.`
+        : "",
+    fromRegion ? `${fromRegion} item memakai plafon terendah dari kolom kota.` : "",
+  ].filter(Boolean);
+  return { lines, report: { sheetName: sheets.map((s) => s.sheetName).join(", "), count: lines.length, skipped: 0, notes } };
+}
+
+/** One sheet's rows as request lines (column positions from readClientColumns, -1 when absent). */
+function requestLinesOf(body: Grid, col: Record<"name" | "code" | "uom" | "qty" | "rrp", number>, cityCols: number[]) {
+  const lines: RequestLine[] = [];
+  let fromRegion = 0;
+  let noQty = 0;
+  for (const row of body) {
     const name = text(row[col.name]);
     if (!name || isTotalRow(name)) continue;
     let rrp = col.rrp >= 0 ? toNum(row[col.rrp]) : NaN;
@@ -464,16 +513,7 @@ export async function parseRequestList(file: File): Promise<{ lines: RequestLine
       ...(hasQty ? {} : { noQty: true }),
     });
   }
-  if (!lines.length) throw new Error("Tidak ada baris item yang terbaca. Pastikan ada kolom nama item.");
-  const notes = [
-    col.qty < 0
-      ? "Kolom qty tidak ditemukan: semua item dihitung 1 per satuan terkecil."
-      : noQty
-        ? `${noQty} baris tanpa qty: dihitung 1 per satuan terkecil.`
-        : "",
-    fromRegion ? `${fromRegion} item memakai plafon terendah dari kolom kota.` : "",
-  ].filter(Boolean);
-  return { lines, report: { sheetName, count: lines.length, skipped: 0, notes } };
+  return { lines, fromRegion, noQty };
 }
 
 export async function parseClientList(file: File): Promise<ParsedItems> {

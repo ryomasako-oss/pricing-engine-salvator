@@ -4,7 +4,12 @@
    A client sends "Kertas A4 Sinar Dunia 70gsm — 50 rim"; the catalog has
    "KERTAS HVS SIDU A4 70GR". Each requested line is matched in this order:
 
-   1. Code: the request carries a catalog code (case/space-insensitive).
+   1. Code: the request carries a catalog code (case/space-insensitive) and
+      its name agrees with that item (CODE_NAME_AGREES), or names nothing
+      but the code. A client's own item codes share our 6-digit range: CGV's
+      100591 "CAFE_GARAM 1 KG" is our 100591 DOWSIL sealant (2026-10-17, 71
+      of 104 lines of their list were "exact" to the wrong item). A code
+      whose name disagrees is ignored and the line is matched by name.
    2. Alias: a sales rep confirmed this exact wording earlier. A mapping
       saved for the quote's client wins over a global one, because one
       client's "pulpen hitam" can be a different pen from another's.
