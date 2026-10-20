@@ -72,7 +72,8 @@ export function FamiliarityWorkbench() {
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState("");
   const [paste, setPaste] = useState("");
-  const [file, setFile] = useState<{ name: string; lines: RequestLine[] } | null>(null);
+  const [file, setFile] = useState<{ name: string; lines: RequestLine[]; notes: string[] } | null>(null);
+  const [reading, setReading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [drag, setDrag] = useState(false);
@@ -105,13 +106,20 @@ export function FamiliarityWorkbench() {
   const readFile = async (f: File | undefined) => {
     if (!f) return;
     setError("");
+    setReading(true);
     try {
-      // The same parser as "Dari list klien": the wording a rule is stored under
-      // here is the wording that list will look it up by.
-      const { lines } = await parseRequestList(f);
-      setFile({ name: f.name, lines });
+      // The same readers as "Dari list klien": PDF and photos (an old quotation, a
+      // scanned PO) through the server's OCR, spreadsheets parsed here. The wording
+      // a rule is stored under here is then the wording that list looks it up by.
+      const { ocrMimeFor, ocrRequestList } = await import("../import/ocr");
+      const mime = ocrMimeFor(f);
+      const { lines, notes } = mime ? await ocrRequestList(f, mime) : { lines: (await parseRequestList(f)).lines, notes: [] };
+      if (!lines.length) throw new Error("Tidak ada baris barang yang terbaca dari file ini.");
+      setFile({ name: f.name, lines, notes });
     } catch (e) {
       setError(e instanceof Error ? e.message : "File tidak terbaca.");
+    } finally {
+      setReading(false);
     }
   };
 
@@ -242,7 +250,9 @@ export function FamiliarityWorkbench() {
           >
             <Icon name="upload" size={20} />
             <div className="row-wrap" style={{ gap: 8, alignItems: "center" }}>
-              {file ? (
+              {reading ? (
+                <span className="muted small" role="status">Membaca file… (PDF dan foto dibaca AI, bisa sampai satu menit)</span>
+              ) : file ? (
                 <>
                   <span className="badge grey">{file.name}</span>
                   <span className="muted small">{file.lines.length} baris</span>
@@ -250,18 +260,32 @@ export function FamiliarityWorkbench() {
                 </>
               ) : (
                 <>
-                  <span className="muted small">Atau tarik file Excel/CSV daftar klien ke sini</span>
+                  <span className="muted small">Atau tarik file ke sini: Excel/CSV, PDF (mis. quotation lama), atau foto</span>
                   <label className="btn small">
                     Pilih file
-                    <input type="file" accept=".xlsx,.xls,.csv" hidden onChange={(e) => void readFile(e.target.files?.[0])} />
+                    <input
+                      type="file"
+                      accept=".xlsx,.xls,.csv,.pdf,.png,.jpg,.jpeg,.webp,.heic,.heif,application/pdf,image/*"
+                      hidden
+                      onChange={(e) => {
+                        void readFile(e.target.files?.[0]);
+                        // The same file picked again after "Pakai teks tempelan" must read again.
+                        e.target.value = "";
+                      }}
+                    />
                   </label>
                 </>
               )}
             </div>
           </div>
+          {file?.notes.map((n) => (
+            <p key={n} className="muted small" style={{ margin: 0 }}>
+              {n}
+            </p>
+          ))}
           {error && <p className="notice error">{error}</p>}
           <div className="row" style={{ gap: 8 }}>
-            <button className="btn primary" onClick={feed} disabled={busy || !lines.length}>
+            <button className="btn primary" onClick={feed} disabled={busy || reading || !lines.length}>
               {busy ? "Mencocokkan…" : "Cocokkan"}
             </button>
             {lines.length > 0 && <span className="muted small">{lines.length} baris</span>}
