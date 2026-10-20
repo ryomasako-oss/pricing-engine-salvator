@@ -298,6 +298,19 @@ a { color: var(--navy); }
 .pill { font-size: 12px; padding: 3px 10px; border-radius: 999px; background: var(--field); border: 1px solid var(--rule); }
 .pill.warn { background: var(--warn-bg); border-color: var(--warn-rule); color: var(--warn); }
 
+/* Per-week bars in the matching-learning panel. The plot has its own fixed
+   height and a baseline, and the labels sit *below* that rule, so a full-height
+   bar cannot ride up over the caption above it. Bars are capped in width and
+   centred, so two weeks read as two bars rather than two blocks. */
+.spark-bars { display: flex; align-items: flex-end; gap: 10px; height: 64px; border-bottom: 1px solid var(--rule); }
+.spark-col { display: flex; align-items: flex-end; justify-content: center; flex: 1 1 0; min-width: 0; height: 100%; }
+.spark-bar { display: flex; flex-direction: column; justify-content: flex-end; width: 100%; max-width: 44px; border-radius: 4px 4px 0 0; overflow: hidden; }
+.spark-bar .good { background: var(--ok); }
+.spark-bar .bad { background: var(--warn); }
+.spark-labels { display: flex; gap: 10px; margin-top: 5px; }
+.spark-labels span { flex: 1 1 0; min-width: 0; text-align: center; font-size: 10px; color: var(--muted); white-space: nowrap; }
+.spark-key { flex: 0 0 auto; width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+
 .notice { border-radius: 12px; padding: 10px 13px; font-size: 12.5px; margin: 0; }
 .notice.warn { background: var(--warn-bg); color: var(--warn); border: 1px solid var(--warn-rule); }
 .notice.error { background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger-rule); }
