@@ -433,7 +433,40 @@ accurateRouter.get("/probe", requirePermission("manage_company"), async (c) => {
           ? await client.raw("receive-item/detail.do", { id: firstId })
           : null;
     }
-    return c.json({ host: info.host, alias: info.alias, items, warehouses, stock, receipts, receiptFilterCheck, receiptDetail });
+    // Sales invoices (2026-10-17): what the sales team actually sold, per customer, under the
+    // item code and the name typed on the invoice — the history product familiarity would learn
+    // from. Read only on ?sales=1 or ?invoice=<nomor>. Each call reports its own error: the
+    // token may not carry the sales-invoice scope, and that answer is itself what this checks.
+    let sales: unknown = null;
+    if (c.req.query("sales") === "1" || c.req.query("invoice")) {
+      const attempt = async (f: () => Promise<unknown>) => {
+        try {
+          return await f();
+        } catch (err) {
+          return { error: (err as Error).message };
+        }
+      };
+      const rowCount = (b: unknown) => (b as { sp?: { rowCount?: number } }).sp?.rowCount ?? null;
+      const list = await attempt(() =>
+        client.raw("sales-invoice/list.do", { fields: "id,number,transDate,customer,lastUpdate", "sp.page": 1, "sp.pageSize": 1, "sp.sort": "id|desc" }),
+      );
+      const yesterday = wibTimestamp(new Date(Date.now() - 86_400_000));
+      const recent = await attempt(() =>
+        client.raw("sales-invoice/list.do", {
+          fields: "id", "sp.page": 1, "sp.pageSize": 1,
+          "filter.lastUpdate.op": "GREATER_EQUAL_THAN", "filter.lastUpdate.val": yesterday,
+        }),
+      );
+      const number = c.req.query("invoice");
+      const firstId = ((list as { d?: { id?: number }[] }).d ?? [])[0]?.id;
+      const detail = number
+        ? await attempt(() => client.raw("sales-invoice/detail.do", { number }))
+        : firstId
+          ? await attempt(() => client.raw("sales-invoice/detail.do", { id: firstId }))
+          : null;
+      sales = { list, filterCheck: { all: rowCount(list), updatedSince: yesterday, updatedRecently: rowCount(recent) }, detail };
+    }
+    return c.json({ host: info.host, alias: info.alias, items, warehouses, stock, receipts, receiptFilterCheck, receiptDetail, sales });
   } catch (err) {
     return c.json({ error: (err as Error).message }, 502);
   }
