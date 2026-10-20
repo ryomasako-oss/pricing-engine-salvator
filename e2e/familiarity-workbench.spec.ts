@@ -184,28 +184,46 @@ for (const theme of THEMES) {
   });
 }
 
-test("a manager training without a client stores the rule for every client", async ({ page, errors }) => {
+test("a manager's rule for every client is opt-in: unticked it stays in the session, ticked it reaches any client", async ({ page, errors }) => {
   void errors;
+  // Clients the screen must already list (it loads them once).
+  const others = [await newClient(page, "Klien lain 1"), await newClient(page, "Klien lain 2")];
   const calls = familiarityCalls(page);
   await page.goto("/catalog");
   const wb = await openWorkbench(page);
-  await expect(wb.getByText(/Tanpa klien, pilihan Anda disimpan untuk semua klien/)).toBeVisible();
-  await expectReadable(wb.getByText(/Tanpa klien, pilihan Anda disimpan/));
-  // Not a line the sales test uses: this rule answers for every client from now on.
+  await expect(wb.getByText(/kecuali Anda mencentang "semua klien"/)).toBeVisible();
+  await expectReadable(wb.getByText(/kecuali Anda mencentang/));
+  const anotherClientSees = async () => {
+    await wb.getByRole("button", { name: "Feed baru" }).click();
+    await wb.getByRole("combobox", { name: "Klien" }).selectOption(String(others.shift()));
+    await wb.getByRole("button", { name: "Cocokkan" }).click();
+    const row = wb.getByRole("row", { name: /Lakban bening/ });
+    await expect(row.locator(".badge")).not.toHaveText("");
+    const text = await row.locator(".badge").innerText();
+    await wb.getByRole("button", { name: "Feed baru" }).click();
+    await wb.getByRole("combobox", { name: "Klien" }).selectOption("");
+    return text;
+  };
+
+  // Not a line the sales test uses: once ticked, this rule answers for every client.
   await wb.getByLabel("Tempel daftar barang").fill("Lakban bening");
   await wb.getByRole("button", { name: "Cocokkan" }).click();
-  await wb.getByRole("button", { name: "Benar" }).click();
-  expect(calls.resolve.at(-1)).toMatchObject({ action: "verify_item", item_id: await itemId(page, "LKB-48"), apply_to_client_only: false });
+  const everyone = wb.getByRole("checkbox", { name: /semua klien/ });
+  await expect(everyone).not.toBeChecked();
+  await expect(wb.getByText(/Latihan tanpa klien/)).toBeVisible();
 
-  // Any client's list now knows it.
-  const other = await newClient(page, "Klien lain");
-  await wb.getByRole("button", { name: "Feed baru" }).click();
-  await page.reload();
-  const again = await openWorkbench(page);
-  await again.getByRole("combobox", { name: "Klien" }).selectOption(String(other));
-  await again.getByLabel("Tempel daftar barang").fill("Lakban bening");
-  await again.getByRole("button", { name: "Cocokkan" }).click();
-  await expect(again.getByRole("row", { name: /Lakban bening/ })).toContainText("Sudah dibereskan");
+  // Unticked: kept for this session only, so another client's list does not know it.
+  await wb.getByRole("button", { name: "Benar" }).click();
+  expect(calls.resolve.at(-1)).toMatchObject({ action: "verify_item", item_id: await itemId(page, "LKB-48"), apply_to_client_only: true });
+  expect(await anotherClientSees()).toBe("Cocok");
+
+  // Ticked: every client.
+  await wb.getByRole("button", { name: "Cocokkan" }).click();
+  await everyone.check();
+  await expect(wb.getByText(/Latihan tanpa klien/)).toHaveCount(0);
+  await wb.getByRole("button", { name: "Benar" }).click();
+  expect(calls.resolve.at(-1)).toMatchObject({ action: "verify_item", apply_to_client_only: false });
+  expect(await anotherClientSees()).toBe("Sudah dibereskan");
 });
 
 test("while the report loads nothing half-built is offered, so nothing typed is lost when it arrives", async ({ page, errors }) => {

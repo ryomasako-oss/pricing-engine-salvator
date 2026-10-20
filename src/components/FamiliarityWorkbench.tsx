@@ -151,8 +151,9 @@ export function FamiliarityWorkbench() {
       const res = await familiarityApi.feed({ client_id: chosen, title: title.trim(), raw_lines: feedLines(lines) });
       setSession({ id: res.session_id, clientId: chosen, title: title.trim() });
       setRows(res.rows);
-      // Without a client a rep's decision lasts only this session; a manager's goes to every client.
-      setEveryone(chosen == null && mayGoGlobal);
+      // A rule for every client matches as "Pasti" in every client's Dari list klien, unreviewed:
+      // never the default, a manager ticks it.
+      setEveryone(false);
       setRowError(new Map());
       setEditing(new Set());
       setFilter("all");
@@ -242,7 +243,7 @@ export function FamiliarityWorkbench() {
             // Not .notice.info: that one is 4.4:1 in both themes (styles.css defines it twice).
             <p className="muted small" style={{ margin: 0 }}>
               {mayGoGlobal
-                ? "Tanpa klien, pilihan Anda disimpan untuk semua klien. Pilih klien bila istilahnya khusus klien itu."
+                ? "Pilih klien supaya sistem belajar. Tanpa klien, pilihan hanya berlaku di latihan ini, kecuali Anda mencentang \"semua klien\" setelah Cocokkan."
                 : "Pilih klien supaya sistem belajar. Tanpa klien, pilihan Anda hanya berlaku di latihan ini dan tidak diingat."}
             </p>
           )}
@@ -307,10 +308,12 @@ export function FamiliarityWorkbench() {
             <span className="grow" />
             <button className="btn small ghost" onClick={() => setSession(null)}>Feed baru</button>
           </div>
-          {mayGoGlobal && !noClient && (
+          {mayGoGlobal && (
             <label className="row" style={{ gap: 6, alignItems: "center" }}>
               <input type="checkbox" checked={everyone} onChange={(e) => setEveryone(e.target.checked)} />
-              <span className="small">Simpan pilihan untuk semua klien, bukan hanya klien ini</span>
+              <span className="small">
+                Simpan pilihan untuk semua klien{noClient ? "" : ", bukan hanya klien ini"} (langsung Pasti di list semua klien)
+              </span>
             </label>
           )}
           {sessionOnly && (
