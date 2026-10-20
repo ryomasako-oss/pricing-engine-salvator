@@ -1,4 +1,4 @@
-/* Katalog → Pembelajaran pencocokan → "Latih Pencocokan (Data Feed)".
+/* Pencocokan (top menu, /pencocokan): the workbench, open on arrival.
 
    Everything is the real app on the real Express server and a throwaway
    database (e2e/serve.ts), /api/familiarity/* included. The bodies the screen
@@ -51,7 +51,6 @@ async function itemId(page: Page, code: string): Promise<string> {
 }
 
 async function openWorkbench(page: Page) {
-  await page.getByRole("button", { name: "Latih Pencocokan (Data Feed)" }).click();
   return page.getByRole("region", { name: "Latih Pencocokan" });
 }
 
@@ -65,7 +64,7 @@ for (const theme of THEMES) {
       void errors;
       const clientId = await newClient(page, `Latihan ${theme}`);
       const calls = familiarityCalls(page);
-      await page.goto("/catalog");
+      await page.goto("/pencocokan");
       await expectTheme(page, theme);
       const wb = await openWorkbench(page);
 
@@ -151,7 +150,7 @@ for (const theme of THEMES) {
       void errors;
       const clientId = await newClient(page, `Koreksi ${theme}`);
       const calls = familiarityCalls(page);
-      await page.goto("/catalog");
+      await page.goto("/pencocokan");
       const wb = await openWorkbench(page);
       await wb.getByRole("combobox", { name: "Klien" }).selectOption(String(clientId));
       await wb.getByLabel("Tempel daftar barang").fill(PASTE);
@@ -189,7 +188,7 @@ test("a manager's rule for every client is opt-in: unticked it stays in the sess
   // Clients the screen must already list (it loads them once).
   const others = [await newClient(page, "Klien lain 1"), await newClient(page, "Klien lain 2")];
   const calls = familiarityCalls(page);
-  await page.goto("/catalog");
+  await page.goto("/pencocokan");
   const wb = await openWorkbench(page);
   await expect(wb.getByText(/kecuali Anda mencentang "semua klien"/)).toBeVisible();
   await expectReadable(wb.getByText(/kecuali Anda mencentang/));
@@ -226,25 +225,21 @@ test("a manager's rule for every client is opt-in: unticked it stays in the sess
   expect(await anotherClientSees()).toBe("Sudah dibereskan");
 });
 
-test("while the report loads nothing half-built is offered, so nothing typed is lost when it arrives", async ({ page, errors }) => {
+test("Pencocokan is its own item in the top menu, and the workbench is open without a toggle", async ({ page, errors }) => {
   void errors;
-  let release!: () => void;
-  const held = new Promise<void>((r) => (release = r));
-  await page.route("**/api/catalog/match-learning", async (route) => {
-    await held;
-    await route.continue();
-  });
-  await page.goto("/catalog");
-  const toggle = page.getByRole("button", { name: "Latih Pencocokan (Data Feed)" });
-  await expect(page.locator("main").first()).toBeVisible();
-  await page.waitForTimeout(500);
-  // A toggle shown now would sit in a placeholder card that is replaced, with all it holds, when the report arrives.
-  await expect(toggle).toHaveCount(0);
-  release();
-  await toggle.click();
-  const wb = page.getByRole("region", { name: "Latih Pencocokan" });
-  await wb.getByLabel("Judul feed").fill("Masih di sini");
-  await expect(wb.getByLabel("Judul feed")).toHaveValue("Masih di sini");
+  await page.goto("/quotes");
+  const nav = page.getByRole("navigation", { name: "Navigasi utama" });
+  await nav.getByRole("link", { name: "Pencocokan" }).click();
+  await expect(page).toHaveURL(/\/pencocokan$/);
+  await expect(nav.getByRole("link", { name: "Pencocokan" })).toHaveClass(/active/);
+  await expect(page.getByRole("heading", { name: "Pencocokan barang" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Latih Pencocokan" }).getByLabel("Tempel daftar barang")).toBeVisible();
+  // Managers see how the matcher is doing, under the workbench.
+  await expect(page.getByRole("heading", { name: "Pembelajaran pencocokan" })).toBeVisible();
+  // Katalog is the catalog again.
+  await nav.getByRole("link", { name: "Katalog" }).click();
+  await expect(page.getByRole("heading", { name: "Pembelajaran pencocokan" })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Latih Pencocokan" })).toHaveCount(0);
 });
 
 test.describe("report unavailable", () => {
@@ -253,7 +248,7 @@ test.describe("report unavailable", () => {
   test("a failed report does not take the workbench with it", async ({ page, errors }) => {
     void errors;
     await page.route("**/api/catalog/match-learning", (route) => route.fulfill({ status: 500, json: { error: "x" } }));
-    await page.goto("/catalog");
+    await page.goto("/pencocokan");
     await openWorkbench(page);
     await expect(page.getByRole("region", { name: "Latih Pencocokan" }).getByLabel("Tempel daftar barang")).toBeVisible();
   });
@@ -262,7 +257,7 @@ test.describe("report unavailable", () => {
 test("a client's file is fed with the codes, quantities and units the parser read", async ({ page, errors }) => {
   void errors;
   const calls = familiarityCalls(page);
-  await page.goto("/catalog");
+  await page.goto("/pencocokan");
   const wb = await openWorkbench(page);
   await wb.locator('input[type="file"]').setInputFiles(
     csvFile("list-cgv.csv", [
@@ -290,7 +285,7 @@ test("a client's file is fed with the codes, quantities and units the parser rea
 
 test("a file dropped on the drop area is read, not opened by the browser", async ({ page, errors }) => {
   void errors;
-  await page.goto("/catalog");
+  await page.goto("/pencocokan");
   const wb = await openWorkbench(page);
   await wb.getByLabel("Judul feed").fill("Tetap ada");
   const data = await page.evaluateHandle(() => {
@@ -302,7 +297,7 @@ test("a file dropped on the drop area is read, not opened by the browser", async
   await zone.dispatchEvent("dragover", { dataTransfer: data });
   await zone.dispatchEvent("drop", { dataTransfer: data });
   await expect(wb.getByText("drop.csv")).toBeVisible();
-  await expect(page).toHaveURL(/\/catalog$/);
+  await expect(page).toHaveURL(/\/pencocokan$/);
   await expect(wb.getByLabel("Judul feed")).toHaveValue("Tetap ada");
 });
 
@@ -311,7 +306,7 @@ test.describe("sales", () => {
 
   test("a sales rep trains with a client and it sticks; without one it lasts only the session", async ({ page, errors }) => {
     void errors;
-    await page.goto("/catalog");
+    await page.goto("/pencocokan");
     await expect(page.getByText("Sales", { exact: true })).toBeVisible();
     // The learning report stays with managers.
     await expect(page.getByText(/dipakai apa adanya/)).toHaveCount(0);

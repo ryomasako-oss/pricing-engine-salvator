@@ -106,7 +106,7 @@ export function weekOf(iso: string): string {
 
 /** What the panel says about the figure, in one line. */
 export function accuracyNote(r: LearningReport): string {
-  if (r.accuracy === null) return "Belum ada baris yang dinilai. Angka muncul setelah quotation dibuat dari list klien.";
+  if (r.accuracy === null) return "Belum ada baris yang dinilai. Angka muncul setelah baris dibereskan di Pencocokan atau quotation dibuat dari list klien.";
   const pct = (r.accuracy * 100).toFixed(0);
   if (r.rows < 50) return `${pct}% tebakan teratas dipakai apa adanya, dari ${r.rows} baris. Masih sedikit, jadi angkanya belum stabil.`;
   return `${pct}% tebakan teratas dipakai apa adanya, dari ${r.rows} baris.`;

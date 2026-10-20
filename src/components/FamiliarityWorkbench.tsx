@@ -1,4 +1,4 @@
-/* "Latih Pencocokan (Data Feed)": teach the matcher a client's wording without
+/* The Pencocokan page's workbench: teach the matcher a client's wording without
    making a fake quotation (the CGV case, 2026-10-17). A list is fed, every row
    comes back with what the matcher thinks, and a person settles the rows that
    need one with a click. Each decision is a rule for that wording, so every
@@ -36,34 +36,6 @@ import {
 } from "./familiarityRows";
 
 const NEW_CLIENT = "__new";
-
-/** The workbench on its own card: for whoever may not see the learning report (sales), or when it failed to load. */
-export function FamiliarityCard() {
-  return (
-    <div className="card" style={{ marginBottom: 16 }}>
-      <div className="card-head">
-        <h3>Latih pencocokan</h3>
-        <span className="muted small">Ajari sistem istilah klien tanpa membuat quotation.</span>
-      </div>
-      <div className="card-body">
-        <FamiliarityTraining />
-      </div>
-    </div>
-  );
-}
-
-/** The toggle and the workbench behind it. */
-export function FamiliarityTraining() {
-  const [open, setOpen] = useState(false);
-  return (
-    <div style={{ marginTop: 14 }}>
-      <button className={`btn small ${open ? "" : "primary"}`} onClick={() => setOpen(!open)} aria-expanded={open}>
-        <Icon name="upload" size={14} /> Latih Pencocokan (Data Feed)
-      </button>
-      {open && <FamiliarityWorkbench />}
-    </div>
-  );
-}
 
 interface Session {
   id: number;
@@ -194,13 +166,9 @@ export function FamiliarityWorkbench() {
   const sessionOnly = noClient && !everyone;
 
   return (
-    <section aria-label="Latih Pencocokan" className="col" style={{ gap: 12, marginTop: 12 }}>
+    <section aria-label="Latih Pencocokan" className="col" style={{ gap: 12 }}>
       {!session ? (
         <>
-          <p className="muted small" style={{ margin: 0 }}>
-            Tempel atau unggah daftar barang klien. Setiap baris dicocokkan ke katalog; baris yang Anda bereskan di sini diingat untuk
-            daftar klien itu berikutnya, termasuk di <strong>Dari list klien</strong>, tanpa membuat quotation.
-          </p>
           {adding ? (
             <ClientQuickAdd
               clients={clients}

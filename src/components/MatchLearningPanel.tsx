@@ -8,7 +8,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 import { Icon } from "./Icon";
-import { FamiliarityCard, FamiliarityTraining } from "./FamiliarityWorkbench";
 import { grp } from "@shared/format";
 import { accuracyNote, type LearningReport } from "@shared/matchLearning";
 
@@ -17,23 +16,13 @@ const pct = (x: number) => `${Math.round(x * 100)}%`;
 export function MatchLearningPanel() {
   const [r, setReport] = useState<LearningReport | null>(null);
   const [open, setOpen] = useState(false);
-  const [failed, setFailed] = useState(false);
 
   const load = useCallback(() => {
-    api
-      .get<LearningReport>("/catalog/match-learning")
-      .then(setReport)
-      .catch(() => {
-        setReport(null);
-        setFailed(true);
-      });
+    api.get<LearningReport>("/catalog/match-learning").then(setReport).catch(() => setReport(null));
   }, []);
   useEffect(load, [load]);
 
-  // Training does not need the report: a failed report must not take the workbench with it.
-  // Only on failure, not while loading, or the workbench would remount when the report arrives.
-  if (!r && !failed) return null;
-  if (!r) return <FamiliarityCard />;
+  if (!r) return null;
   const judged = r.accepted + r.corrected;
   const weeks = r.weeks.filter((w) => w.accepted + w.corrected > 0);
   const peak = Math.max(1, ...weeks.map((w) => w.accepted + w.corrected));
@@ -142,12 +131,10 @@ export function MatchLearningPanel() {
 
         {judged === 0 && (
           <p className="notice info small" style={{ marginTop: 12 }}>
-            <Icon name="alert" size={13} /> Angka terisi sendiri setiap kali quotation dibuat lewat <strong>Quotation → Dari list klien</strong>.
-            Quotation yang dibuat langsung di editor tidak ikut terhitung.
+            <Icon name="alert" size={13} /> Angka terisi sendiri setiap kali baris dibereskan di atas, atau quotation dibuat lewat{" "}
+            <strong>Quotation → Dari list klien</strong>. Quotation yang dibuat langsung di editor tidak ikut terhitung.
           </p>
         )}
-
-        <FamiliarityTraining />
       </div>
     </div>
   );

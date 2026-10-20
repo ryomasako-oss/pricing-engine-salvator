@@ -16,6 +16,7 @@ import { SettingsPage } from "./pages/Settings";
 import { ChatProvider } from "./context/ChatContext";
 import { ChatDock } from "./components/ChatDock";
 import { FixTasksPage } from "./pages/FixTasks";
+import { MatchingPage } from "./pages/Matching";
 import type { Approval } from "@shared/types";
 import type { Permission } from "@shared/permissions";
 
@@ -63,6 +64,10 @@ function TopBar() {
         <NavLink to="/quotes" className={({ isActive }) => (isActive ? "active" : "")} onClick={guardedClick}>
           <Icon name="quote" size={16} />
           <span className="label">Quotation</span>
+        </NavLink>
+        <NavLink to="/pencocokan" className={({ isActive }) => (isActive ? "active" : "")} onClick={guardedClick}>
+          <Icon name="search" size={16} />
+          <span className="label">Pencocokan</span>
         </NavLink>
         {can("decide_quotes") && (
           <NavLink to="/approvals" className={({ isActive }) => (isActive ? "active" : "")} onClick={guardedClick}>
@@ -171,6 +176,7 @@ export function App() {
           }
         />
         <Route path="/perbaikan" element={<FixTasksPage />} />
+        <Route path="/pencocokan" element={<MatchingPage />} />
         <Route path="/catalog" element={<CatalogPage />} />
         <Route path="/clients" element={<ClientsPage />} />
         <Route path="/settings" element={<SettingsPage />} />
