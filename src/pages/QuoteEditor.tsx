@@ -32,6 +32,7 @@ import { TermsBox } from "../components/TermsBox";
 import { SalesReviewBanner, SalesReviewImport, salesImportMessage, type SalesReviewRecord } from "../components/SalesReview";
 import { ImportDialog } from "../components/ImportDialog";
 import { DuplicateAddModal, DuplicateBanner } from "../components/Duplicates";
+import { ClientQuickAdd } from "../components/ClientQuickAdd";
 import { AssistantPanel, applyActions, type AssistantAction } from "../components/AssistantPanel";
 import { missingTerms, missingTermsMessage } from "@shared/terms";
 import {
@@ -77,6 +78,8 @@ interface AssignableUser {
   role: string;
 }
 
+const NEW_CLIENT_OPTION = "__new__";
+
 const ACTION_LABEL: Record<string, string> = {
   created: "Dibuat",
   edited: "Diedit",
@@ -115,6 +118,8 @@ export function QuoteEditorPage() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"items" | "breakdown" | "assumptions" | "delivery" | "document" | "history">("items");
   const [modal, setModal] = useState<null | { kind: string; payload?: unknown }>(null);
+  // The "Klien baru" panel, shown inline over the client picker (Dokumen tab).
+  const [addingClient, setAddingClient] = useState(false);
   const [assignableUsers, setAssignableUsers] = useState<AssignableUser[]>([]);
   const [uomOptions, setUomOptions] = useState<string[]>([]);
   // Per-code base unit + ratios from the catalog, fetched for every coded line
@@ -232,6 +237,31 @@ export function QuoteEditorPage() {
   );
 
   const readOnly = !detail?.canEdit;
+
+  // Picking a client saves the quote's client straight away (the picker has no
+  // Save of its own), and a client just created in the panel arrives here too.
+  const changeClient = useCallback(
+    async (value: number | null) => {
+      if (!snapshot || !detail) return;
+      setDetail({ ...detail, quote: { ...detail.quote, client_id: value } });
+      try {
+        await api.put(`/quotes/${quoteId}`, {
+          snapshot,
+          client_id: value,
+          expected_version: detail.quote.version,
+        });
+        await load();
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 409) {
+          toast("Quotation ini sudah diubah pengguna lain. Memuat ulang…", "error");
+          await load();
+        } else {
+          toast(err instanceof Error ? err.message : "Gagal mengubah klien.", "error");
+        }
+      }
+    },
+    [snapshot, detail, quoteId, toast, load],
+  );
 
   const save = useCallback(async () => {
     if (!snapshot || !detail) return;
@@ -681,27 +711,18 @@ export function QuoteEditorPage() {
                         className="select"
                         disabled={readOnly}
                         value={quote.client_id ?? ""}
-                        onChange={async (e) => {
-                          const value = e.target.value === "" ? null : Number(e.target.value);
-                          setDetail({ ...detail, quote: { ...quote, client_id: value } });
-                          try {
-                            await api.put(`/quotes/${quoteId}`, {
-                              snapshot,
-                              client_id: value,
-                              expected_version: quote.version,
-                            });
-                            await load();
-                          } catch (err) {
-                            if (err instanceof ApiError && err.status === 409) {
-                              toast("Quotation ini sudah diubah pengguna lain. Memuat ulang…", "error");
-                              await load();
-                            } else {
-                              toast(err instanceof Error ? err.message : "Gagal mengubah klien.", "error");
-                            }
+                        onChange={(e) => {
+                          // "+ Klien baru…" is an action, not a choice: leave the
+                          // client untouched and open the panel underneath.
+                          if (e.target.value === NEW_CLIENT_OPTION) {
+                            setAddingClient(true);
+                            return;
                           }
+                          void changeClient(e.target.value === "" ? null : Number(e.target.value));
                         }}
                       >
                         <option value="">Tanpa klien</option>
+                        <option value={NEW_CLIENT_OPTION}>+ Klien baru…</option>
                         {clients.map((c) => (
                           <option key={c.id} value={c.id}>{c.name}</option>
                         ))}
@@ -734,6 +755,24 @@ export function QuoteEditorPage() {
                       />
                     </label>
                   </div>
+                  {addingClient && !readOnly && (
+                    <div className="no-print">
+                      <ClientQuickAdd
+                        clients={clients}
+                        onCancel={() => setAddingClient(false)}
+                        onDone={(client, isNew) => {
+                          setAddingClient(false);
+                          if (isNew) {
+                            // Show it in the picker right away, in the same
+                            // order the server returns (by name).
+                            setClients((list) => [...list, client].sort((a, b) => a.name.localeCompare(b.name)));
+                            toast(`Klien "${client.name}" ditambahkan.`, "success");
+                          }
+                          void changeClient(client.id);
+                        }}
+                      />
+                    </div>
+                  )}
                   <TermsBox
                     meta={snapshot.meta}
                     targetMargin={snapshot.assumptions.targetMargin}

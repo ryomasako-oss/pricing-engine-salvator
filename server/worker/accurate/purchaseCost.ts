@@ -9,9 +9,14 @@
    holds quote lines whose COGS jumped far from that reference until a
    manager confirms ("COGS ini benar"). So a large change still needs a
    manager; a small one lands like a spreadsheet import did.
+
+   A change purchaseCostHold rejects (3x the selling price or more, or more than
+   double / less than half the current COGS) is not written at all: it is
+   reported as `held`, so a pack recorded as one PCS in an RI can't land in
+   the catalog and become an empty item's reference (audit 16 Okt).
    ============================================================ */
 
-import { lastPurchaseCost, type PurchaseCost } from "../../../shared/lastPurchaseCost";
+import { lastPurchaseCost, purchaseCostHold, type PurchaseCost } from "../../../shared/lastPurchaseCost";
 import type { UnitFactor } from "../../../shared/types";
 import { all, get, run } from "../../db.d1";
 import type { EntityKey } from "./sync";
@@ -21,6 +26,7 @@ interface LatestRow {
   name: string;
   catalog_uom: string;
   catalog_cogs: number;
+  list_price: number;
   accurate_uom: string;
   units: string;
   receipt_id: number;
@@ -41,6 +47,11 @@ export interface PurchaseCostChange {
   transDate: string;
 }
 
+export interface PurchaseCostHold extends PurchaseCostChange {
+  listPrice: number;
+  reason: string;
+}
+
 export interface PurchaseCostSkip {
   code: string;
   name: string;
@@ -54,6 +65,8 @@ export interface PurchaseCostResult {
   /** Catalog items with at least one priced receipt line. */
   withReceipt: number;
   changed: PurchaseCostChange[];
+  /** Changes too far off to apply automatically (purchaseCostHold); the catalog keeps its COGS. */
+  held: PurchaseCostHold[];
   unchanged: number;
   skipped: PurchaseCostSkip[];
   /** Catalog items with no priced receipt in the stored history; their COGS is left as it is. */
@@ -67,7 +80,7 @@ const LATEST_SQL = `
              PARTITION BY l.item_code ORDER BY l.trans_date DESC, l.receipt_id DESC, l.line_id DESC) AS rn
       FROM accurate_receipt_lines l
      WHERE l.entity = ?1 AND l.unit_price > 0 AND l.quantity > 0)
-  SELECT c.code, c.name, c.uom AS catalog_uom, c.cogs AS catalog_cogs,
+  SELECT c.code, c.name, c.uom AS catalog_uom, c.cogs AS catalog_cogs, c.list_price,
          COALESCE(NULLIF(i.uom, ''), 'Pcs') AS accurate_uom, i.units,
          r.receipt_id, r.line_id, r.receipt_no, r.trans_date, r.unit, r.quantity, r.unit_price
     FROM ranked r
@@ -93,6 +106,7 @@ function describeSkip(code: string, r: Exclude<PurchaseCost, { ok: true } | { re
 export async function applyPurchaseCosts(db: D1Database, entity: EntityKey, opts: { dryRun: boolean }): Promise<PurchaseCostResult> {
   const rows = (await all<LatestRow>(db, LATEST_SQL, entity)).sort((a, b) => a.code.localeCompare(b.code));
   const changed: PurchaseCostChange[] = [];
+  const held: PurchaseCostHold[] = [];
   const skipped: PurchaseCostSkip[] = [];
   let unchanged = 0;
   for (const row of rows) {
@@ -103,7 +117,12 @@ export async function applyPurchaseCosts(db: D1Database, entity: EntityKey, opts
     );
     if (r.ok) {
       if (Math.abs(r.cost - row.catalog_cogs) < 0.005) unchanged++;
-      else changed.push({ code: row.code, name: row.name, from: row.catalog_cogs, to: r.cost, receiptNo: r.receiptNo, transDate: r.transDate });
+      else {
+        const change = { code: row.code, name: row.name, from: row.catalog_cogs, to: r.cost, receiptNo: r.receiptNo, transDate: r.transDate };
+        const reason = purchaseCostHold(row.catalog_cogs, r.cost, row.list_price);
+        if (reason) held.push({ ...change, listPrice: row.list_price, reason });
+        else changed.push(change);
+      }
     } else if (r.reason !== "no_receipt") {
       skipped.push(describeSkip(row.code, r, row));
     }
@@ -127,6 +146,7 @@ export async function applyPurchaseCosts(db: D1Database, entity: EntityKey, opts
     dryRun: opts.dryRun,
     withReceipt: rows.length,
     changed,
+    held,
     unchanged,
     skipped,
     noReceipt: Math.max(0, (total?.n ?? 0) - rows.length),

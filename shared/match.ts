@@ -101,7 +101,7 @@ const SYNONYMS: Record<string, string> = {
 
 /** Words that say nothing about which product is meant. */
 // "atk" (alat tulis kantor) is a category a client prefixes to every line ("ATK_LAKBAN ..."), never part
-// of an item name (0 of 7.123 catalog names, 2026-10-17); as a word the item "lacks" it blocked every auto-match.
+// of an item name; as a word the item "lacks" it blocked every auto-match.
 const STOP = new Set(["dan", "untuk", "isi", "merk", "merek", "warna", "ukuran", "uk", "type", "tipe", "jenis", "per", "the", "x", "atk"]);
 
 /** Lowercase, unify units glued to numbers ("70 gsm" -> "70g"), strip punctuation. */

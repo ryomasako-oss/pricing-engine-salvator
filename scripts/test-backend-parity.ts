@@ -88,7 +88,7 @@ interface Driver {
   setSilvy(mode: "on" | "off" | "down" | "iam" | "iam-badkey"): void;
   /** Set the Silvy spend caps (null = back to the defaults). */
   setQuota(limits: { monthly?: number; perUserDay?: number } | null): void;
-  api(method: string, routePath: string, opts?: { body?: unknown; session?: Session }): Promise<ApiResult>;
+  api(method: string, routePath: string, opts?: { body?: unknown; session?: Session; form?: FormData }): Promise<ApiResult>;
   login(email: string, password: string): Promise<Session>;
   seedUser(email: string, name: string, role: "rep" | "manager" | "admin", password: string): Promise<void>;
   teardown(): Promise<void>;
@@ -117,6 +117,7 @@ async function makeExpressDriver(): Promise<Driver> {
   const { chatRouter } = await import("../server/routes/chat.js");
   const { fixTasksRouter } = await import("../server/routes/fixTasks.js");
   const { pendingItemsRouter } = await import("../server/routes/pendingItems.js");
+  const { familiarityRouter } = await import("../server/routes/familiarity.js");
   const { run } = await import("../server/db.js");
 
   const app = express();
@@ -134,6 +135,7 @@ async function makeExpressDriver(): Promise<Driver> {
   app.use("/api/chat", chatRouter);
   app.use("/api/fix-tasks", fixTasksRouter);
   app.use("/api/pending-items", pendingItemsRouter);
+  app.use("/api/familiarity", familiarityRouter);
 
   let server: Server;
   await new Promise<void>((resolve) => {
@@ -172,10 +174,10 @@ async function makeExpressDriver(): Promise<Driver> {
       const res = await fetch(`${baseUrl}${routePath}`, {
         method,
         headers: {
-          "content-type": "application/json",
+          ...(opts.body !== undefined ? { "content-type": "application/json" } : {}),
           ...(opts.session ? { cookie: opts.session.cookie } : {}),
         },
-        body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+        body: opts.form ?? (opts.body !== undefined ? JSON.stringify(opts.body) : undefined),
       });
       const setCookie = res.headers.get("set-cookie");
       const cookie = setCookie ? setCookie.split(";")[0] : undefined;
@@ -229,6 +231,7 @@ async function makeWorkerDriver(): Promise<Driver> {
   const { chatRouter } = await import("../server/worker/routes/chat.js");
   const { fixTasksRouter } = await import("../server/worker/routes/fixTasks.js");
   const { pendingItemsRouter } = await import("../server/worker/routes/pendingItems.js");
+  const { familiarityRouter } = await import("../server/worker/routes/familiarity.js");
   const { run } = await import("../server/db.d1.js");
 
   const app = new Hono();
@@ -244,6 +247,7 @@ async function makeWorkerDriver(): Promise<Driver> {
   app.route("/api/chat", chatRouter);
   app.route("/api/fix-tasks", fixTasksRouter);
   app.route("/api/pending-items", pendingItemsRouter);
+  app.route("/api/familiarity", familiarityRouter);
 
   const agent = await makeFakeAgent();
   const env: Record<string, unknown> = {
@@ -294,10 +298,10 @@ async function makeWorkerDriver(): Promise<Driver> {
         {
           method,
           headers: {
-            "content-type": "application/json",
+            ...(opts.body !== undefined ? { "content-type": "application/json" } : {}),
             ...(opts.session ? { cookie: opts.session.cookie } : {}),
           },
-          body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+          body: opts.form ?? (opts.body !== undefined ? JSON.stringify(opts.body) : undefined),
         },
         env,
         executionCtx,
@@ -2805,6 +2809,320 @@ scenario("Silvy: status lists the documents Silvy can write", async (d) => {
   const manager = await loginCached(d, "manager@test.local", "password123");
   const status = await d.api("GET", "/api/assistant/status", { session: manager });
   return { enabled: status.json.enabled, model: status.json.model, docs: Object.keys(status.json.docs).sort() };
+});
+
+// ---------------------------------------------------------------
+// Interactive familiarity (Track 2): a client's list becomes a session
+// of rows, a human resolves one wording and every identical row learns it.
+// ---------------------------------------------------------------
+
+const FAM_CATALOG = [
+  { code: "FAM-PEN", name: "PULPEN GEL HITAM 0.5MM", uom: "Pcs", cogs: 2500, list_price: 4000 },
+  { code: "FAM-PAPER", name: "KERTAS HVS A4 70GR", uom: "Rim", cogs: 42000, list_price: 55000 },
+  { code: "FAM-HANSA", name: "HANSAPLAST PLESTER", uom: "Pcs", cogs: 8000, list_price: 12000 },
+  { code: "FAM-HL-OR", name: "STABILO BOSS HIGHLIGHTER ORANGE", uom: "Pcs", cogs: 9000, list_price: 12500 },
+  { code: "FAM-HL-GR", name: "STABILO BOSS HIGHLIGHTER GREEN", uom: "Pcs", cogs: 9000, list_price: 12500 },
+];
+
+async function seedFamiliarityCatalog(d: Driver) {
+  await importRows(d, FAM_CATALOG);
+  await importRows(d, [{ code: "100591", name: "DOWSIL SEALANT SILIKON BENING", uom: "Pcs", cogs: 60000, list_price: 80000 }]);
+}
+
+async function famClient(d: Driver, rep: Session, name: string): Promise<number> {
+  const r = await d.api("POST", "/api/clients", { body: { name }, session: rep });
+  assert.equal(r.status, 201, JSON.stringify(r.json));
+  return r.json.client.id as number;
+}
+
+const famFeed = (d: Driver, session: Session, body: Record<string, unknown>) =>
+  d.api("POST", "/api/familiarity/feed", { body, session });
+
+const famSummary = (json: any) => json.summary;
+
+const famRows = (json: any) =>
+  (json.rows as any[]).map((r) => ({
+    text: r.raw_text,
+    status: r.status,
+    action: r.resolved?.action ?? null,
+    code: r.resolved?.code ?? null,
+    pending: r.resolved?.pending_item_id ?? null,
+    via: r.match?.via ?? null,
+    match: r.match?.status ?? null,
+  }));
+
+function famCandidateCode(row: any, source: "catalog" | "pending") {
+  return (row.candidates as any[]).filter((c) => c.source === source).map((c) => c.code);
+}
+
+scenario("familiarity: a JSON list is fed, matched against the catalog and pending items, and creates no quote", async (d) => {
+  await seedFamiliarityCatalog(d);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const client = await famClient(d, rep, "PT Familiarity Feed");
+  const before = (await d.api("GET", "/api/quotes", { session: rep })).json.quotes.length;
+  const pending = await requestItem(d, rep, { name: "MAP PLASTIK BENING", uom: "Pcs", proposed_price: 6000 });
+  assert.equal(pending.status, 201, JSON.stringify(pending.json));
+
+  const r = await famFeed(d, rep, {
+    client_id: String(client),
+    title: "List ATK",
+    raw_lines: [
+      { text: "FAM-PEN", qty: 2, unit: "Pcs" },
+      { text: "Kertas A4 70gsm Sinar Dunia", qty: 5, unit: "Rim" },
+      { text: "Galon air mineral 19 liter", qty: 2 },
+      { text: "Kertas A4 70gsm Sinar Dunia", qty: 5, unit: "Rim" },
+      { text: "map plastik bening", qty: 10 },
+    ],
+  });
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  assert.ok(r.json.session_id > 0);
+  assert.deepEqual(famSummary(r.json), { total: 5, pasti: 2, mirip: 2, adjustment: 1, resolved: 0 });
+  const rows = famRows(r.json);
+  assert.deepEqual(rows.map((x) => x.status), ["pasti", "mirip", "adjustment", "mirip", "pasti"]);
+  const mapRow = (r.json.rows as any[])[4];
+  assert.deepEqual(famCandidateCode(mapRow, "pending"), [pending.json.item.code]);
+  const after = (await d.api("GET", "/api/quotes", { session: rep })).json.quotes.length;
+  assert.equal(after, before, "a familiarity feed must never create a quotation");
+
+  return { status: r.status, summary: famSummary(r.json), rows, pendingCandidates: famCandidateCode(mapRow, "pending"), quotes: after - before };
+});
+
+scenario("familiarity: raw text is cleaned like the client list (list numbers, spacing) before matching", async (d) => {
+  await seedFamiliarityCatalog(d);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const client = await famClient(d, rep, "PT Familiarity Cleaner");
+  const pending = await requestItem(d, rep, { name: "PAPAN TULIS PUTIH 90X120", uom: "Pcs", proposed_price: 350000 });
+  assert.equal(pending.status, 201, JSON.stringify(pending.json));
+
+  const r = await famFeed(d, rep, {
+    client_id: String(client),
+    raw_lines: [
+      { text: "  1.   Kertas   HVS   A4   70 gram  ", qty: 2, unit: "  Rim " },
+      { text: "2)   papan    tulis   putih   90x120", qty: 1 },
+      { text: "  FAM-PEN  " },
+    ],
+  });
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  const rows = r.json.rows as any[];
+  assert.deepEqual(rows.map((x) => x.raw_text), ["Kertas HVS A4 70 gram", "papan tulis putih 90x120", "FAM-PEN"]);
+  assert.equal(rows[0].qty, 2);
+  assert.equal(rows[0].unit, "Rim");
+  assert.deepEqual(rows.map((x) => x.status), ["pasti", "pasti", "pasti"]);
+  assert.deepEqual(famCandidateCode(rows[1], "pending"), [pending.json.item.code]);
+  assert.equal(rows[2].match.via, "code");
+
+  return { rows: famRows(r.json), pendingCandidates: famCandidateCode(rows[1], "pending") };
+});
+
+scenario("familiarity: verifying one row resolves every identical row and becomes a client rule", async (d) => {
+  await seedFamiliarityCatalog(d);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const a = await famClient(d, rep, "PT Familiarity Cascade A");
+  const b = await famClient(d, rep, "PT Familiarity Cascade B");
+  const item = (await d.api("GET", "/api/catalog?q=FAM-PAPER", { session: rep })).json.items[0];
+
+  const feed = await famFeed(d, rep, {
+    client_id: String(a),
+    raw_lines: [
+      { text: "Kertas HVS A4 70 gram", qty: 2, unit: "Rim" },
+      { text: "Kertas HVS A4 70 gram", qty: 4, unit: "Rim" },
+      { text: "Galon air mineral 19 liter", qty: 1 },
+    ],
+  });
+  assert.equal(feed.status, 200, JSON.stringify(feed.json));
+  const rowId = feed.json.rows[0].id;
+  const resolved = await d.api("PATCH", `/api/familiarity/sessions/${feed.json.session_id}/resolve`, {
+    body: { row_id: rowId, action: "verify_item", item_id: String(item.id) },
+    session: rep,
+  });
+  assert.equal(resolved.status, 200, JSON.stringify(resolved.json));
+  assert.deepEqual(resolved.json.rows.map((r: any) => r.id).sort(), feed.json.rows.slice(0, 2).map((r: any) => r.id).sort());
+  assert.deepEqual(
+    resolved.json.rows.map((r: any) => [r.status, r.resolved.action, r.resolved.code]),
+    [
+      ["resolved", "verify_item", "FAM-PAPER"],
+      ["resolved", "verify_item", "FAM-PAPER"],
+    ],
+  );
+  assert.deepEqual(famSummary(resolved.json), { total: 3, pasti: 0, mirip: 0, adjustment: 1, resolved: 2 });
+
+  const again = await famFeed(d, rep, { client_id: String(a), raw_lines: [{ text: "Kertas HVS A4 70 gram", qty: 1, unit: "Rim" }] });
+  assert.deepEqual(famRows(again.json), [{ text: "Kertas HVS A4 70 gram", status: "resolved", action: "verify_item", code: "FAM-PAPER", pending: null, via: again.json.rows[0].match.via, match: again.json.rows[0].match.status }]);
+  const other = await famFeed(d, rep, { client_id: String(b), raw_lines: [{ text: "Kertas HVS A4 70 gram", qty: 1, unit: "Rim" }] });
+  assert.equal(other.json.summary.resolved, 0, "a client's rule must not resolve another client's list");
+
+  return {
+    resolve: { status: resolved.status, updated: famRows(resolved.json), summary: famSummary(resolved.json) },
+    again: { summary: famSummary(again.json), rows: famRows(again.json) },
+    other: famSummary(other.json),
+  };
+});
+
+scenario("familiarity: create_new_item reuses a similar pending item instead of asking twice", async (d) => {
+  await seedFamiliarityCatalog(d);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const client = await famClient(d, rep, "PT Familiarity New Item");
+  const payload = { name: "Stapler Besar Khusus", uom: "Pcs", proposed_price: 45000, note: "warna biru" };
+
+  const first = await famFeed(d, rep, { client_id: String(client), raw_lines: [{ text: "Stapler besar khusus", qty: 1 }] });
+  assert.equal(first.status, 200, JSON.stringify(first.json));
+  const one = await d.api("PATCH", `/api/familiarity/sessions/${first.json.session_id}/resolve`, {
+    body: { row_id: first.json.rows[0].id, action: "create_new_item", new_item_payload: payload },
+    session: rep,
+  });
+  assert.equal(one.status, 200, JSON.stringify(one.json));
+  const created = one.json.rows[0].resolved;
+  assert.equal(created.action, "create_new_item");
+  assert.match(created.code, /^BARU-\d{4}$/);
+  assert.ok(created.pending_item_id > 0);
+
+  const second = await famFeed(d, rep, { client_id: String(client), raw_lines: [{ text: "STAPLER BESAR KHUSUS", qty: 3 }] });
+  const two = await d.api("PATCH", `/api/familiarity/sessions/${second.json.session_id}/resolve`, {
+    body: { row_id: second.json.rows[0].id, action: "create_new_item", new_item_payload: payload },
+    session: rep,
+  });
+  assert.equal(two.status, 200, JSON.stringify(two.json));
+  assert.equal(two.json.rows[0].resolved.pending_item_id, created.pending_item_id);
+
+  return { created, summary: famSummary(one.json), reused: two.json.rows[0].resolved.pending_item_id };
+});
+
+scenario("familiarity: ignoring a row resolves its identical twin and teaches the ignore", async (d) => {
+  await seedFamiliarityCatalog(d);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const client = await famClient(d, rep, "PT Familiarity Ignore");
+  const feed = await famFeed(d, rep, {
+    client_id: String(client),
+    raw_lines: [
+      { text: "Lem tembak mini", qty: 1 },
+      { text: "Lem tembak mini", qty: 2 },
+    ],
+  });
+  const r = await d.api("PATCH", `/api/familiarity/sessions/${feed.json.session_id}/resolve`, {
+    body: { row_id: feed.json.rows[0].id, action: "ignore_row" },
+    session: rep,
+  });
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  assert.deepEqual(r.json.rows.map((x: any) => [x.status, x.resolved.action, x.resolved.code]), [
+    ["resolved", "ignore_row", null],
+    ["resolved", "ignore_row", null],
+  ]);
+  const again = await famFeed(d, rep, { client_id: String(client), raw_lines: [{ text: "lem tembak mini", qty: 1 }] });
+  assert.deepEqual(famRows(again.json), [{ text: "lem tembak mini", status: "resolved", action: "ignore_row", code: null, pending: null, via: again.json.rows[0].match.via, match: again.json.rows[0].match.status }]);
+  return { summary: famSummary(r.json), again: famSummary(again.json) };
+});
+
+scenario("familiarity: rejecting the top candidate demotes it now and on the next feed", async (d) => {
+  await seedFamiliarityCatalog(d);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const client = await famClient(d, rep, "PT Familiarity Reject");
+  const orange = (await d.api("GET", "/api/catalog?q=FAM-HL-OR", { session: rep })).json.items[0];
+  const first = await famFeed(d, rep, { client_id: String(client), raw_lines: [{ text: "stabilo boss highlighter orange", qty: 1 }] });
+  assert.equal(first.status, 200, JSON.stringify(first.json));
+  assert.equal(first.json.rows[0].status, "pasti");
+  assert.ok(famCandidateCode(first.json.rows[0], "catalog").includes("FAM-HL-OR"));
+
+  const rejected = await d.api("PATCH", `/api/familiarity/sessions/${first.json.session_id}/resolve`, {
+    body: { row_id: first.json.rows[0].id, action: "reject_candidate", item_id: String(orange.id) },
+    session: rep,
+  });
+  assert.equal(rejected.status, 200, JSON.stringify(rejected.json));
+  assert.equal(rejected.json.rows[0].status, "mirip");
+  assert.ok(!famCandidateCode(rejected.json.rows[0], "catalog").includes("FAM-HL-OR"), "the rejected candidate is gone from the row");
+  assert.equal(rejected.json.summary.resolved, 0);
+
+  const again = await famFeed(d, rep, { client_id: String(client), raw_lines: [{ text: "stabilo boss highlighter orange", qty: 1 }] });
+  assert.notEqual(again.json.rows[0].status, "pasti", "a rejected pairing must not return as a certainty");
+  return { first: famRows(first.json), rejected: famRows(rejected.json), rejectedSummary: famSummary(rejected.json), again: famRows(again.json) };
+});
+
+scenario("familiarity: GET returns the session's rows and candidates; unknown sessions and anonymous calls are refused", async (d) => {
+  await seedFamiliarityCatalog(d);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const client = await famClient(d, rep, "PT Familiarity Read");
+  const feed = await famFeed(d, rep, {
+    client_id: String(client),
+    raw_lines: [
+      { text: "Kertas HVS A4 70 gram", qty: 1, unit: "Rim" },
+      { text: "Kertas HVS A4 70 gram", qty: 2, unit: "Rim" },
+    ],
+  });
+  const got = await d.api("GET", `/api/familiarity/sessions/${feed.json.session_id}`, { session: rep });
+  assert.equal(got.status, 200, JSON.stringify(got.json));
+  assert.equal(got.json.session_id, feed.json.session_id);
+  assert.deepEqual(famSummary(got.json), famSummary(feed.json));
+  assert.equal(got.json.rows.length, 2);
+  assert.ok((got.json.rows[0].candidates as any[]).some((c) => c.source === "catalog" && c.code === "FAM-PAPER"));
+
+  const missing = await d.api("GET", "/api/familiarity/sessions/999999", { session: rep });
+  const anonymous = await d.api("GET", `/api/familiarity/sessions/${feed.json.session_id}`);
+  const anonymousFeed = await d.api("POST", "/api/familiarity/feed", { body: { raw_lines: [{ text: "x" }] } });
+  assert.equal(missing.status, 404);
+  assert.equal(anonymous.status, 401);
+  assert.equal(anonymousFeed.status, 401);
+  return { status: got.status, summary: famSummary(got.json), rows: got.json.rows.length, missing: missing.status, anonymous: anonymous.status, anonymousFeed: anonymousFeed.status };
+});
+
+scenario("familiarity: an Excel file is read from DES on every sheet, and a client's colliding code is not trusted", async (d) => {
+  await seedFamiliarityCatalog(d);
+  const XLSX = await import("xlsx");
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const client = await famClient(d, rep, "PT Familiarity CGV");
+  const wb = XLSX.utils.book_new();
+  const sheet = (name: string, grid: unknown[][]) =>
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(grid), name);
+  sheet("ATK", [
+    ["NO", "ITEM CODE", "Gambar", "DES", "QTY", "Satuan", "Harga"],
+    [1, 100591, null, "CAFE_GARAM 1 KG", 2, "Pcs", 5000],
+    [2, "FAM-PEN", null, "ATK_PULPEN GEL HITAM 0.5MM", 1, "Pcs", 4000],
+  ]);
+  sheet("HOUSEHOLD", [
+    ["NO", "ITEM CODE", "DES", "DETAIL", "Satuan", "Sell Price", "Link", "Modal"],
+    [1, 100613, "ATK_HANSAPLAST", null, "1 PACK ISI 10 PCS", 21600, "https://x", 17000],
+  ]);
+  sheet("Catatan", [["Harga exclude PPN"]]);
+  const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
+  const form = new FormData();
+  form.set("client_id", String(client));
+  form.set("title", "ED - CGV - ATK & HOUSEHOLD");
+  form.set("file", new File([buf], "ED - CGV - ATK & HOUSEHOLD.xlsx"));
+  const r = await d.api("POST", "/api/familiarity/feed", { form, session: rep });
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  assert.deepEqual((r.json.rows as any[]).map((x) => x.raw_text), [
+    "CAFE_GARAM 1 KG",
+    "ATK_PULPEN GEL HITAM 0.5MM",
+    "ATK_HANSAPLAST",
+  ]);
+  const rows = famRows(r.json);
+  assert.equal(rows[0].status, "adjustment", "CGV's 100591 code must not become our DOWSIL sealant");
+  assert.notEqual(rows[0].via, "code");
+  assert.equal(rows[1].status, "pasti");
+  assert.ok(famCandidateCode(r.json.rows[1], "catalog").includes("FAM-PEN"));
+  assert.equal(rows[2].status, "pasti");
+  return { status: r.status, summary: famSummary(r.json), rows };
+});
+
+scenario("familiarity: only a manager may make a resolution global; a rep's default is client-only", async (d) => {
+  await seedFamiliarityCatalog(d);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const a = await famClient(d, rep, "PT Familiarity Scope A");
+  const b = await famClient(d, rep, "PT Familiarity Scope B");
+  const item = (await d.api("GET", "/api/catalog?q=FAM-PEN", { session: rep })).json.items[0];
+  const feed = await famFeed(d, rep, { client_id: String(a), raw_lines: [{ text: "pulpen khusus global", qty: 1 }] });
+  const denied = await d.api("PATCH", `/api/familiarity/sessions/${feed.json.session_id}/resolve`, {
+    body: { row_id: feed.json.rows[0].id, action: "verify_item", item_id: String(item.id), apply_to_client_only: false },
+    session: rep,
+  });
+  assert.equal(denied.status, 403);
+  const allowed = await d.api("PATCH", `/api/familiarity/sessions/${feed.json.session_id}/resolve`, {
+    body: { row_id: feed.json.rows[0].id, action: "verify_item", item_id: String(item.id), apply_to_client_only: false },
+    session: manager,
+  });
+  assert.equal(allowed.status, 200, JSON.stringify(allowed.json));
+  const other = await famFeed(d, rep, { client_id: String(b), raw_lines: [{ text: "pulpen khusus global", qty: 1 }] });
+  assert.equal(other.json.summary.resolved, 1);
+  return { denied: denied.status, allowed: famSummary(allowed.json), other: famSummary(other.json) };
 });
 
 async function main() {

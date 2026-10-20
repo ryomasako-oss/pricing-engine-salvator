@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { lastPurchaseCost, type ReceiptLine } from "./lastPurchaseCost";
+import { lastPurchaseCost, purchaseCostHold, type ReceiptLine } from "./lastPurchaseCost";
 
 const line = (over: Partial<ReceiptLine>): ReceiptLine => ({
   receiptId: 1,
@@ -89,5 +89,31 @@ describe("lastPurchaseCost", () => {
 
   it("refuses when the catalog keeps a different base unit than Accurate (its COGS is per another unit)", () => {
     expect(lastPurchaseCost([line({})], pcs, "Box")).toEqual({ ok: false, reason: "uom_mismatch" });
+  });
+});
+
+describe("purchaseCostHold (guard for Terapkan, 2026-10-17)", () => {
+  it("holds a purchase price 3x the selling price or more, even from an empty COGS (078328 tissue)", () => {
+    expect(purchaseCostHold(0, 74_750, 7_500)).toBe("Harga beli Rp 74.750 3x lipat atau lebih dari harga jual katalog Rp 7.500");
+    expect(purchaseCostHold(0, 22_500, 7_500)).not.toBeNull();
+  });
+
+  it("lets a real cost above a stale selling price through: cogsCheck blocks the quote line instead (101311 keset)", () => {
+    expect(purchaseCostHold(10_831_300, 11_005_000, 8_250_000)).toBeNull();
+    expect(purchaseCostHold(0, 22_499, 7_500)).toBeNull();
+  });
+
+  it("holds more than double or less than half the current COGS (102373 piston, 103026 scrapper)", () => {
+    expect(purchaseCostHold(71_000, 2_192_847, 0)).toMatch(/lebih dari dua kali COGS sekarang Rp 71.000/);
+    expect(purchaseCostHold(29_029.88, 8_448.33, 0)).toMatch(/kurang dari separuh COGS sekarang/);
+  });
+
+  it("lets ordinary changes through, including exactly double, exactly half and at list price", () => {
+    expect(purchaseCostHold(10_831_300, 11_005_000, 12_000_000)).toBeNull();
+    expect(purchaseCostHold(1000, 2000, 0)).toBeNull();
+    expect(purchaseCostHold(1000, 500, 0)).toBeNull();
+    expect(purchaseCostHold(1000, 1500, 1500)).toBeNull();
+    // A first COGS with no selling price to compare against has nothing to be checked with.
+    expect(purchaseCostHold(0, 50_000, 0)).toBeNull();
   });
 });

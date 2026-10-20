@@ -53,3 +53,34 @@ export function sameClient<T extends NamedClient>(name: string, clients: T[], ex
   const key = clientKey(name);
   return key ? clients.find((c) => c.id !== exceptId && clientKey(c.name) === key) : undefined;
 }
+
+/* ============================================================
+   What a new client must carry (Ryoma, 2026-10-19): the company
+   name, the PIC, and a way to reach them — phone and email. Without
+   them a quotation is issued to a company nobody can follow up.
+   Only new clients are gated: a record saved before this rule (or
+   seeded straight into the database) can still be edited and
+   completed gradually, instead of becoming unsaveable. Both the
+   "Klien baru" panels read this, so they ask for the same thing.
+   ============================================================ */
+
+export const NEW_CLIENT_REQUIRED = [
+  ["name", "Nama perusahaan"],
+  ["contact_name", "Nama PIC"],
+  ["contact_phone", "No. HP"],
+  ["contact_email", "Email"],
+] as const;
+
+export type NewClientField = (typeof NEW_CLIENT_REQUIRED)[number][0];
+
+/** The required fields still empty in this draft, in the order shown on the form. */
+export function missingNewClientFields(draft: Partial<Record<NewClientField, string>>): NewClientField[] {
+  return NEW_CLIENT_REQUIRED.filter(([field]) => !(draft[field] ?? "").trim()).map(([field]) => field);
+}
+
+/** "Nama PIC, No. HP dan Email" — for the one-line warning under the form. */
+export function missingNewClientMessage(missing: NewClientField[]): string {
+  const labels = missing.map((f) => NEW_CLIENT_REQUIRED.find(([field]) => field === f)![1]);
+  if (labels.length <= 1) return labels[0] ?? "";
+  return `${labels.slice(0, -1).join(", ")} dan ${labels.at(-1)}`;
+}

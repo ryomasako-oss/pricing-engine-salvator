@@ -34,6 +34,11 @@ export interface GeminiOptions {
   maxOutputTokens?: number;
   /** Paksa keluaran JSON valid (responseMimeType). */
   json?: boolean;
+  /**
+   * Bentuk JSON yang wajib diikuti (generationConfig.responseSchema, subset OpenAPI:
+   * tipe huruf besar, `nullable`). Mengisi ini otomatis menyalakan `json`.
+   */
+  responseSchema?: Record<string, unknown>;
 }
 
 /** Galat Gemini dengan pesan yang bisa dibaca orang kantor. */
@@ -92,7 +97,8 @@ export class GeminiClient {
       generationConfig: {
         temperature: opts.temperature ?? 0.3,
         maxOutputTokens: opts.maxOutputTokens ?? 2000,
-        ...(opts.json ? { responseMimeType: "application/json" } : {}),
+        ...(opts.json || opts.responseSchema ? { responseMimeType: "application/json" } : {}),
+        ...(opts.responseSchema ? { responseSchema: opts.responseSchema } : {}),
         ...(withThinking && this.thinkingLevel ? { thinkingConfig: { thinkingLevel: this.thinkingLevel } } : {}),
       },
     });

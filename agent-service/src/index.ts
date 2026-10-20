@@ -21,6 +21,7 @@ import { generateRecommendation, findSimilarQuotes } from "./recommend.js";
 import { GeminiClient, thinkingLevelFrom } from "./gemini.js";
 import { GmailClient } from "./email.js";
 import { silvyAsk, silvyDocument, authorize, silvyReport } from "./silvy/handlers.js";
+import { silvyFamiliaritySuggest } from "./silvy/familiarity.js";
 import { IndustryTag } from "./types.js";
 
 // ---- env ----
@@ -38,6 +39,7 @@ const GOOGLE_SA_EMAIL = envOr("GOOGLE_SERVICE_ACCOUNT_EMAIL");
 const GOOGLE_PRIVATE_KEY = envOr("GOOGLE_PRIVATE_KEY");
 const GOOGLE_SEND_AS = envOr("GOOGLE_SEND_AS_EMAIL");
 const SILVY_SHARED_SECRET = envOr("SILVY_SHARED_SECRET");
+const SILVY_ROUTES = new Set(["/silvy/ask", "/silvy/document", "/silvy/report", "/silvy/familiarity-suggest"]);
 const PORT = Number(envOr("AGENT_PORT", "8888")) || 8888;
 
 // ---- dependencies ----
@@ -260,7 +262,7 @@ const server = createServer(async (req, res) => {
     }
 
     // ---- silvy (hanya dari gerbang aplikasi pricing) ----
-    if ((path === "/silvy/ask" || path === "/silvy/document" || path === "/silvy/report") && method === "POST") {
+    if (SILVY_ROUTES.has(path) && method === "POST") {
       if (!gemini) {
         sendError(res, 503, "Silvy belum aktif: GEMINI_API_KEY belum diisi.");
         return;
@@ -282,7 +284,9 @@ const server = createServer(async (req, res) => {
           ? await silvyAsk(gemini, body)
           : path === "/silvy/document"
             ? await silvyDocument(gemini, body)
-            : await silvyReport(gemini, body);
+            : path === "/silvy/report"
+              ? await silvyReport(gemini, body)
+              : await silvyFamiliaritySuggest(gemini, body);
       sendJSON(res, out.status, out.body);
       return;
     }

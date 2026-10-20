@@ -52,22 +52,41 @@ export function MatchLearningPanel() {
 
         {weeks.length > 1 && (
           <div style={{ marginTop: 14 }}>
-            <div className="muted small" style={{ marginBottom: 6 }}>Per minggu (hijau = dipakai apa adanya)</div>
-            <div className="row" style={{ gap: 6, alignItems: "flex-end", height: 72 }}>
+            <div className="spread" style={{ gap: 10, marginBottom: 8 }}>
+              <span className="muted small">Per minggu</span>
+              <span className="row-wrap" style={{ gap: 12 }}>
+                <span className="row muted small" style={{ gap: 5 }}>
+                  <i className="spark-key" style={{ background: "var(--ok)" }} /> dipakai apa adanya
+                </span>
+                <span className="row muted small" style={{ gap: 5 }}>
+                  <i className="spark-key" style={{ background: "var(--warn)" }} /> dibetulkan
+                </span>
+              </span>
+            </div>
+            <div className="spark-bars">
               {weeks.map((w) => {
                 const total = w.accepted + w.corrected;
-                const h = Math.round((total / peak) * 64) + 4;
-                const good = Math.round((w.accepted / total) * h);
+                const good = Math.round((w.accepted / total) * 100);
                 return (
-                  <div key={w.week} style={{ flex: "1 1 0", minWidth: 0, textAlign: "center" }} title={`${w.week}: ${w.accepted} dipakai, ${w.corrected} dibetulkan`}>
-                    <div style={{ height: h, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
-                      <div style={{ height: h - good, background: "var(--warn, #e0a33e)", borderRadius: "3px 3px 0 0" }} />
-                      <div style={{ height: good, background: "var(--ok, #3a9d5d)", borderRadius: good === h ? "3px 3px 0 0" : 0 }} />
+                  <div
+                    className="spark-col"
+                    key={w.week}
+                    title={`${w.week}: ${w.accepted} dipakai apa adanya, ${w.corrected} dibetulkan`}
+                  >
+                    {/* Height is a share of the busiest week, never of the box, so the
+                        tallest bar ends exactly on the rule. */}
+                    <div className="spark-bar" style={{ height: `${Math.max(6, Math.round((total / peak) * 100))}%` }}>
+                      <span className="bad" style={{ height: `${100 - good}%` }} />
+                      <span className="good" style={{ height: `${good}%` }} />
                     </div>
-                    <div className="muted" style={{ fontSize: 10, marginTop: 4 }}>{w.week.slice(5)}</div>
                   </div>
                 );
               })}
+            </div>
+            <div className="spark-labels">
+              {weeks.map((w) => (
+                <span key={w.week}>{w.week.slice(5)}</span>
+              ))}
             </div>
           </div>
         )}

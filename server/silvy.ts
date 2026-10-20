@@ -68,8 +68,11 @@ export const documentSchema = z.object({
   kind: z.enum(["briefing", "faq", "risk", "negotiation"]),
 });
 
-/** "report" = the morning Accurate recap (shared/accurateRecap.ts), sent by the app's cron, not by a user. */
-export type SilvyPath = "ask" | "document" | "report";
+/**
+ * "report" = the morning Accurate recap (shared/accurateRecap.ts), sent by the app's cron, not by a user.
+ * "familiarity-suggest" = up to 30 Data Feed "Adjustment" rows + catalog candidates (item_id/name/category only).
+ */
+export type SilvyPath = "ask" | "document" | "report" | "familiarity-suggest";
 
 export interface SilvyReply {
   status: number;

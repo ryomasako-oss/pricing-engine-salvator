@@ -282,6 +282,41 @@ describe("POST /api/accurate/apply-cogs", () => {
     expect(again.unchanged).toBe(2);
   });
 
+  it("holds back a change too far off instead of writing it (audit 16 Okt: a pack recorded as 1 PCS)", async () => {
+    const { sqlite, post, cogs } = setup();
+    sqlite.exec(`INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock) VALUES
+      ('078328', 'Tissue roll', 'Roll', 0, 7500, 0),
+      ('102373', 'Piston', 'Pcs', 71000, 0, 0)`);
+    sqlite.exec(`INSERT INTO accurate_items(entity, accurate_id, code, name, uom, units, run_id) VALUES
+      ('PT', 6, '078328', 'Tissue roll', 'Roll', '[]', 'r'),
+      ('PT', 7, '102373', 'Piston', 'Pcs', '[]', 'r')`);
+    sqlite.exec(`INSERT INTO accurate_receipt_lines(entity, receipt_id, line_id, receipt_no, trans_date, item_code, unit, quantity, unit_price) VALUES
+      ('PT', 506, 1, 'RI.2025.12.00214', '2025-12-30', '078328', 'Roll', 1, 74750),
+      ('PT', 507, 1, 'RI.2026.09.00300', '2026-09-21', '102373', 'Pcs', 1, 2192847)`);
+    sqlite.exec("INSERT INTO accurate_receipt_state(entity, last_pass_at, since_update) VALUES ('PT', '2026-10-17T00:00:00Z', '17/10/2026 08:00:00')");
+    const before = cogs();
+
+    const preview = (await (await post({})).json()) as any;
+    expect(preview.held.map((h: any) => [h.code, h.from, h.to, h.listPrice])).toEqual([
+      ["078328", 0, 74_750, 7_500],
+      ["102373", 71_000, 2_192_847, 0],
+    ]);
+    expect(preview.held[0].reason).toMatch(/3x lipat atau lebih dari harga jual katalog Rp 7.500/);
+    expect(preview.changed.map((c: any) => c.code)).toEqual(["101311", "A1"]);
+
+    await post({ dryRun: false });
+    expect(cogs()).toEqual({ ...before, "101311": 11_005_000, A1: 10_000 });
+    // The empty item doesn't take the wrong price as its reference either.
+    expect(sqlite.prepare("SELECT cogs FROM catalog_cogs_baseline WHERE code = '078328'").get()).toBeUndefined();
+    expect(JSON.parse((sqlite.prepare("SELECT detail FROM audit_log WHERE action = 'cogs_from_purchases'").get() as any).detail)).toMatchObject({ changed: 2, held: 2 });
+
+    // Still held the next time: nothing writes it until the RI or the COGS is fixed.
+    const again = (await (await post({ dryRun: false })).json()) as any;
+    expect(again.changed).toEqual([]);
+    expect(again.held).toHaveLength(2);
+    expect(cogs()["078328"]).toBe(0);
+  });
+
   it("is closed to sales reps (purchase prices are cost data)", async () => {
     const { post, get } = setup("rep");
     expect((await post({})).status).toBe(403);

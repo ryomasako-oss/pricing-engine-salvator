@@ -6,11 +6,15 @@
    While the name is typed it lists saved clients that look the same, so
    "BAHTERA ADI JAYA PT" picks the existing "PT Bahtera Adi Jaya" instead of
    making a second copy. The server refuses an exact duplicate anyway (409,
-   with the existing client), which covers a list that is out of date. */
+   with the existing client), which covers a list that is out of date.
+
+   Required, per Ryoma 2026-10-19: company name, PIC, phone and email
+   (shared/clients.ts holds the rule). Only new clients are gated — an
+   existing record without them can still be edited elsewhere. */
 
 import { useMemo, useState } from "react";
 import { ApiError, api } from "../api";
-import { similarClients } from "@shared/clients";
+import { missingNewClientFields, missingNewClientMessage, similarClients, type NewClientField } from "@shared/clients";
 import type { Client } from "@shared/types";
 
 const EMPTY = {
@@ -26,11 +30,16 @@ const EMPTY = {
 
 type Field = keyof typeof EMPTY;
 
-const MAIN: [Field, string, string][] = [
+/** The four a new client cannot go without. */
+const REQUIRED: [NewClientField, string, string, string][] = [
+  ["contact_name", "Nama PIC", "Nama penanggung jawab", "text"],
+  ["contact_phone", "No. HP", "08xx xxxx xxxx", "tel"],
+  ["contact_email", "Email", "nama@perusahaan.co.id", "email"],
+];
+
+/** The rest: worth having, never a reason to leave the quote. */
+const OPTIONAL: [Field, string, string][] = [
   ["code", "Kode klien", ""],
-  ["contact_name", "Nama kontak", ""],
-  ["contact_phone", "Telepon", ""],
-  ["contact_email", "Email kontak", ""],
   ["payment_terms", "Termin pembayaran", "30 hari setelah invoice"],
 ];
 
@@ -48,9 +57,14 @@ export function ClientQuickAdd({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [existing, setExisting] = useState<Client | null>(null);
+  // A required field only turns red once the user has passed through it, so an
+  // untouched form does not open looking like four mistakes.
+  const [touched, setTouched] = useState<Set<Field>>(new Set());
 
   const similar = useMemo(() => similarClients(form.name, clients), [form.name, clients]);
   const same = similar.find((s) => s.score === 1)?.client ?? existing;
+  const missing = missingNewClientFields(form);
+
   const set = (k: Field, v: string) => {
     setForm({ ...form, [k]: v });
     if (k === "name") {
@@ -58,8 +72,15 @@ export function ClientQuickAdd({
       setError("");
     }
   };
+  const touch = (k: Field) => setTouched((t) => (t.has(k) ? t : new Set(t).add(k)));
+  const looksWrong = (k: Field) => missing.includes(k as NewClientField) && touched.has(k);
 
   const save = async () => {
+    if (missing.length) {
+      setTouched(new Set(missing));
+      setError(`Wajib diisi: ${missingNewClientMessage(missing)}.`);
+      return;
+    }
     setBusy(true);
     setError("");
     try {
@@ -86,11 +107,13 @@ export function ClientQuickAdd({
       <label className="field">
         <span>Nama perusahaan *</span>
         <input
-          className="input"
+          className={`input${missing.includes("name") && touched.has("name") ? " invalid" : ""}`}
           autoFocus
           placeholder="PT Contoh Sejahtera"
           value={form.name}
+          aria-invalid={missing.includes("name") && touched.has("name")}
           onChange={(e) => set("name", e.target.value)}
+          onBlur={() => touch("name")}
         />
       </label>
 
@@ -121,7 +144,21 @@ export function ClientQuickAdd({
       )}
 
       <div className="field-grid">
-        {MAIN.map(([key, label, placeholder]) => (
+        {REQUIRED.map(([key, label, placeholder, type]) => (
+          <label className="field" key={key}>
+            <span>{label} *</span>
+            <input
+              className={`input${looksWrong(key) ? " invalid" : ""}`}
+              type={type}
+              placeholder={placeholder}
+              value={form[key]}
+              aria-invalid={looksWrong(key)}
+              onChange={(e) => set(key, e.target.value)}
+              onBlur={() => touch(key)}
+            />
+          </label>
+        ))}
+        {OPTIONAL.map(([key, label, placeholder]) => (
           <label className="field" key={key}>
             <span>{label}</span>
             <input
@@ -151,10 +188,16 @@ export function ClientQuickAdd({
         </div>
       </details>
 
+      {missing.length > 0 && !error && (
+        <p className="muted small" style={{ margin: 0 }}>
+          Wajib diisi: {missingNewClientMessage(missing)}.
+        </p>
+      )}
+
       {error && <p className="notice error">{error}</p>}
 
       <div className="row" style={{ justifyContent: "flex-end" }}>
-        <button className="btn primary" onClick={save} disabled={busy || !form.name.trim() || !!same}>
+        <button className="btn primary" onClick={save} disabled={busy || !!same}>
           {busy ? "Menyimpan…" : "Simpan klien"}
         </button>
       </div>
