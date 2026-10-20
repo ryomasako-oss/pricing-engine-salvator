@@ -22,7 +22,7 @@ import { Icon } from "./Icon";
 import { ClientQuickAdd } from "./ClientQuickAdd";
 import { Modal } from "./Modal";
 import { NewItemForm } from "./NewItemForm";
-import { reviewRowBadge } from "./reviewRow";
+import { reviewRowBadge, reviewSummary, type RowState } from "./reviewRow";
 import { WaitingLine } from "./WaitingLine";
 
 const MAX_LINES = 500;
@@ -285,11 +285,16 @@ export function ListToQuote({
     }
   };
 
-  const summary = rows && {
-    sure: rows.filter((r) => r.result.status === "exact" || r.result.status === "match").length,
-    review: rows.filter((r) => r.result.status === "review").length,
-    none: rows.filter((r) => r.result.status === "none").length,
-  };
+  // What each row's status column says now; the header counts the same thing, so it cannot
+  // keep "1 adjustment" after the rep has settled that row.
+  const rowState = (row: Row): RowState => ({
+    status: row.result.status,
+    chosen: row.chosen != null,
+    confirmed: row.confirmed,
+    pending: isPending(row),
+    held: !!blockedOf(row),
+  });
+  const summary = rows && reviewSummary(rows.map(rowState));
 
   return (
     <Modal
@@ -438,13 +443,7 @@ export function ListToQuote({
               <tbody>
                 {rows.map((row, i) => {
                   const line = lines[i];
-                  const badge = reviewRowBadge({
-                    status: row.result.status,
-                    chosen: row.chosen != null,
-                    confirmed: row.confirmed,
-                    pending: isPending(row),
-                    held: !!blockedOf(row),
-                  });
+                  const badge = reviewRowBadge(rowState(row));
                   const options = [...row.result.candidates.map((c) => c.id), ...row.extra.filter((id) => !row.result.candidates.some((c) => c.id === id))];
                   const scoreOf = new Map(row.result.candidates.map((c) => [c.id, c.score]));
                   const warn = line ? uomWarning(line) : null;
