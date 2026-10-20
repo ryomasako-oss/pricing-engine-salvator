@@ -14,7 +14,9 @@ import {
   matchResponse,
   mayStoreAlias,
   runMatch,
+  MATCH_ALIASES_SQL,
 } from "../../catalogMatch";
+import { ensureSchema as ensureFamiliaritySchema } from "./familiarity";
 import { VERIFY_COGS_SQL, cogsCheckInput, withProblems } from "../../cogsCheck";
 import {
   COUNTS_SQL, INSERT_FEEDBACK_SQL, MISSED_SQL, REJECTED_SQL, TOP_MISSED, WEEKS_SQL,
@@ -144,11 +146,8 @@ catalogRouter.post("/match", async (c) => {
   const parsed = matchInput.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
   const catalog = await all<CatalogItem>(c.env.DB, `SELECT ${MATCH_COLUMNS} FROM catalog_items`);
-  const aliases = await all<AliasRow>(
-    c.env.DB,
-    "SELECT alias, client_id, code FROM catalog_aliases WHERE client_id IN (0, ?)",
-    parsed.data.client_id ?? 0,
-  );
+  await ensureFamiliaritySchema(c.env.DB);
+  const aliases = await all<AliasRow>(c.env.DB, MATCH_ALIASES_SQL, parsed.data.client_id ?? 0, parsed.data.client_id ?? 0);
   // Pairings the reps already corrected away never come back as a certainty
   // (shared/matchLearning.ts). Read across clients: a bad guess is usually bad for all.
   const rejected = rejectedMap(await all<{ text: string; suggested: string }>(c.env.DB, REJECTED_SQL));

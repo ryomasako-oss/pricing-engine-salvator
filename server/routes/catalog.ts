@@ -14,6 +14,7 @@ import {
   matchResponse,
   mayStoreAlias,
   runMatch,
+  MATCH_ALIASES_SQL,
 } from "../catalogMatch.js";
 import {
   COUNTS_SQL, INSERT_FEEDBACK_SQL, MISSED_SQL, REJECTED_SQL, TOP_MISSED, WEEKS_SQL,
@@ -22,6 +23,7 @@ import {
 import { VERIFY_COGS_SQL, cogsCheckInput, withProblems } from "../cogsCheck.js";
 import { cogsProblemsFor } from "../quoteService.js";
 import { sweepPending } from "./pendingItems.js";
+import { ensureSchema as ensureFamiliaritySchema } from "./familiarity.js";
 import { canSeeCosts, catalogItemsForViewer, problemsForViewer } from "../staffView.js";
 import { cleanUnits, type ItemUnits } from "../../shared/uom.js";
 import type { CatalogItem, UnitFactor } from "../../shared/types.js";
@@ -132,10 +134,8 @@ catalogRouter.post("/match", (req, res) => {
     return;
   }
   const catalog = all<CatalogItem>(`SELECT ${MATCH_COLUMNS} FROM catalog_items`);
-  const aliases = all<AliasRow>(
-    "SELECT alias, client_id, code FROM catalog_aliases WHERE client_id IN (0, ?)",
-    parsed.data.client_id ?? 0,
-  );
+  ensureFamiliaritySchema();
+  const aliases = all<AliasRow>(MATCH_ALIASES_SQL, parsed.data.client_id ?? 0, parsed.data.client_id ?? 0);
   // Pairings the reps already corrected away never come back as a certainty.
   const rejected = rejectedMap(all<{ text: string; suggested: string }>(REJECTED_SQL));
   const { results, referenced } = runMatch(parsed.data, catalog, aliases, rejected);
