@@ -7,6 +7,7 @@ import { Modal } from "../components/Modal";
 import { ImportDialog } from "../components/ImportDialog";
 import { AccuratePanel } from "../components/AccuratePanel";
 import { MatchLearningPanel } from "../components/MatchLearningPanel";
+import { FamiliarityCard } from "../components/FamiliarityWorkbench";
 import { PendingItemsPanel } from "../components/PendingItemsPanel";
 import { fmtDateTime, grp } from "@shared/format";
 import type { CatalogItem, UnitFactor } from "@shared/types";
@@ -195,7 +196,8 @@ export function CatalogPage() {
 
       {can("import_catalog") && <AccuratePanel onApplied={load} />}
 
-      {can("import_catalog") && <MatchLearningPanel />}
+      {/* The report is for managers; teaching the matcher a client's wording is for sales too. */}
+      {can("import_catalog") ? <MatchLearningPanel /> : <FamiliarityCard />}
 
       {stats && stats.total > 0 && stats.priced / stats.total < 0.6 && (
         <p className="notice warn" style={{ marginBottom: 12 }}>
