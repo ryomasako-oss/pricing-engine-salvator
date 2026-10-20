@@ -283,6 +283,61 @@ test("a client's file is fed with the codes, quantities and units the parser rea
   ]);
 });
 
+test.describe("PDF", () => {
+  test.use({ expectedConsole: [/\/api\/ocr\/extract/] });
+
+  test("a past quotation as PDF is read through the OCR and fed like any list", async ({ page, errors }) => {
+    void errors;
+    // Gemini is the one outside service: only the OCR answer is canned, the rest is the real server.
+    const sent: { mime: string | null; base64: string }[] = [];
+    let refuse = true;
+    await page.route("**/api/ocr/extract", async (route) => {
+      const req = route.request();
+      sent.push({ mime: req.headers()["x-file-mime"] ?? null, base64: req.postData() ?? "" });
+      if (refuse) {
+        refuse = false;
+        return route.fulfill({ status: 503, json: { error: "Pembacaan PDF belum aktif." } });
+      }
+      return route.fulfill({
+        json: {
+          lines: [
+            { name: "Kertas HVS Sinar Dunia A4 70gr", qty: 5, uom: "Rim", code: "K-SD70" },
+            { name: "Gunting kecil biru", qty: 2, uom: "Pcs" },
+          ],
+        },
+      });
+    });
+    await page.goto("/pencocokan");
+    const wb = await openWorkbench(page);
+    const pdf = { name: "quotation-lama.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\n%e2e\n") };
+    const input = wb.locator('input[type="file"]');
+    await expect(input).toHaveAttribute("accept", /\.pdf/);
+
+    // A refusal is shown and leaves nothing half-read.
+    await input.setInputFiles(pdf);
+    await expect(wb.getByText("Pembacaan PDF belum aktif.")).toBeVisible();
+    await expect(wb.getByRole("button", { name: "Cocokkan" })).toBeDisabled();
+
+    // The same file picked again is read again.
+    await input.setInputFiles(pdf);
+    await expect(wb.getByText("quotation-lama.pdf")).toBeVisible();
+    await expect(wb.getByText(/2 baris dibaca otomatis dari file/)).toBeVisible();
+    expect(sent.map((s) => s.mime)).toEqual(["application/pdf", "application/pdf"]);
+    expect(Buffer.from(sent[1].base64, "base64").toString()).toBe("%PDF-1.4\n%e2e\n");
+
+    const calls = familiarityCalls(page);
+    await wb.getByRole("button", { name: "Cocokkan" }).click();
+    await expect(wb.locator("tbody tr")).toHaveCount(2);
+    expect(calls.feed[0]).toMatchObject({
+      raw_lines: [
+        { text: "Kertas HVS Sinar Dunia A4 70gr", qty: 5, unit: "Rim", code: "K-SD70" },
+        { text: "Gunting kecil biru", qty: 2, unit: "Pcs" },
+      ],
+    });
+    await expect(wb.getByRole("row", { name: /Gunting kecil biru/ })).toContainText("Perlu dicek");
+  });
+});
+
 test("a file dropped on the drop area is read, not opened by the browser", async ({ page, errors }) => {
   void errors;
   await page.goto("/pencocokan");
