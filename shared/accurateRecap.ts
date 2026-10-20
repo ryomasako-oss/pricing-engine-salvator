@@ -32,6 +32,11 @@ export interface RecapChange {
   transDate: string;
 }
 
+/** A change "Terapkan" won't write (purchaseCostHold), with the reason. */
+export interface RecapHold extends RecapChange {
+  reason: string;
+}
+
 export interface RecapSkip {
   code: string;
   name: string;
@@ -51,11 +56,14 @@ export interface AccurateRecap {
     /** Changes of more than BIG_JUMP either way, or from an empty COGS. */
     bigJumps: number;
     unchanged: number;
+    /** Held back by the guard: the catalog keeps its COGS until the RI or the COGS is fixed. */
+    held: number;
     skipped: number;
     noReceipt: number;
     /** Largest relative changes first, at most TOP_N. */
     topChanges: RecapChange[];
     topSkipped: RecapSkip[];
+    topHeld: RecapHold[];
   };
   checks: { key: CheckKey; label: string; count: number; notify: boolean }[];
 }
@@ -66,7 +74,7 @@ export function buildRecap(input: {
   now: Date;
   entity: string;
   receipts: AccurateRecap["receipts"];
-  preview: { withReceipt: number; changed: RecapChange[]; unchanged: number; skipped: RecapSkip[]; noReceipt: number } | null;
+  preview: { withReceipt: number; changed: RecapChange[]; held?: RecapHold[]; unchanged: number; skipped: RecapSkip[]; noReceipt: number } | null;
   counts: ReconcileCounts | null;
 }): AccurateRecap {
   const p = input.preview;
@@ -83,10 +91,12 @@ export function buildRecap(input: {
       down: changed.filter((c) => c.to < c.from).length,
       bigJumps: changed.filter((c) => Math.abs(jump(c)) > BIG_JUMP).length,
       unchanged: p?.unchanged ?? 0,
+      held: p?.held?.length ?? 0,
       skipped: p?.skipped.length ?? 0,
       noReceipt: p?.noReceipt ?? 0,
       topChanges: byJump.slice(0, TOP_N).map(({ code, name, from, to, receiptNo, transDate }) => ({ code, name, from, to, receiptNo, transDate })),
       topSkipped: (p?.skipped ?? []).slice(0, TOP_N).map(({ code, name, detail }) => ({ code, name, detail })),
+      topHeld: (p?.held ?? []).slice(0, TOP_N).map(({ code, name, from, to, receiptNo, transDate, reason }) => ({ code, name, from, to, receiptNo, transDate, reason })),
     },
     checks: input.counts
       ? CHECK_KEYS.map((key) => ({ key, label: CHECKS[key].label, count: input.counts![key], notify: CHECKS[key].notify }))
@@ -96,7 +106,7 @@ export function buildRecap(input: {
 
 /** Nothing for a manager to act on: no email that day. */
 export const recapIsEmpty = (r: AccurateRecap) =>
-  r.cogs.changed === 0 && r.cogs.skipped === 0 && !r.checks.some((c) => c.notify && c.count > 0) && !r.receipts.inProgress;
+  r.cogs.changed === 0 && r.cogs.held === 0 && r.cogs.skipped === 0 && !r.checks.some((c) => c.notify && c.count > 0) && !r.receipts.inProgress;
 
 const grp = (n: number) => Math.round(Number(n) || 0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 const rp = (n: number) => `Rp ${grp(n)}`;
@@ -122,6 +132,7 @@ export function recapPrompt(r: AccurateRecap): string {
     `Barang dengan RI berharga: ${grp(r.cogs.withReceipt)}`,
     `COGS akan berubah jika diterapkan: ${grp(r.cogs.changed)} (naik ${grp(r.cogs.up)}, turun ${grp(r.cogs.down)}, berubah lebih dari 50%: ${grp(r.cogs.bigJumps)})`,
     `COGS sudah sama dengan pembelian terakhir: ${grp(r.cogs.unchanged)}`,
+    `Ditahan, tidak ikut diterapkan (harga beli 3x harga jual atau lebih, atau lebih dari 2x / kurang dari separuh COGS; RI perlu dicek): ${grp(r.cogs.held ?? 0)}`,
     `Dilewati karena satuan: ${grp(r.cogs.skipped)}`,
     `Tanpa RI (COGS tetap): ${grp(r.cogs.noReceipt)}`,
   ];
@@ -129,6 +140,12 @@ export function recapPrompt(r: AccurateRecap): string {
     lines.push("Perubahan COGS terbesar:");
     for (const c of r.cogs.topChanges.slice(0, PROMPT_CHANGES))
       lines.push(`- ${c.code} ${c.name}: ${c.from > 0 ? rp(c.from) : "kosong"} -> ${rp(c.to)} (${pctText(c)}), ${c.receiptNo} ${c.transDate}`);
+  }
+  // An app older than the agent sends no held fields (agent-service renders this prompt from the app's recap).
+  const topHeld = r.cogs.topHeld ?? [];
+  if (topHeld.length) {
+    lines.push("Ditahan:");
+    for (const h of topHeld.slice(0, PROMPT_SKIPS)) lines.push(`- ${h.code} ${h.name}: ${h.reason}, ${h.receiptNo} ${h.transDate}`);
   }
   if (r.cogs.topSkipped.length) {
     lines.push("Dilewati karena satuan:");
@@ -183,6 +200,7 @@ export function recapEmail(
   const subject =
     `Rekap Accurate ${r.date}: ${grp(r.cogs.changed)} COGS berubah` +
     (r.cogs.bigJumps ? `, ${grp(r.cogs.bigJumps)} lonjakan >50%` : "") +
+    (r.cogs.held ? `, ${grp(r.cogs.held)} ditahan` : "") +
     (r.cogs.skipped ? `, ${grp(r.cogs.skipped)} dilewati` : "");
   const parts: string[] = [];
   parts.push(
@@ -197,6 +215,7 @@ export function recapEmail(
     `<h3>COGS dari harga pembelian terakhir</h3><ul>` +
       `<li>${grp(r.cogs.changed)} akan berubah jika diterapkan (naik ${grp(r.cogs.up)}, turun ${grp(r.cogs.down)}; ${grp(r.cogs.bigJumps)} berubah lebih dari 50%)</li>` +
       `<li>${grp(r.cogs.unchanged)} sudah sama</li>` +
+      (r.cogs.held ? `<li>${grp(r.cogs.held)} ditahan, tidak ikut diterapkan (lihat di bawah)</li>` : "") +
       `<li>${grp(r.cogs.skipped)} dilewati karena satuan</li>` +
       `<li>${grp(r.cogs.noReceipt)} tanpa penerimaan barang, COGS tetap</li></ul>`,
   );
@@ -213,6 +232,14 @@ export function recapEmail(
           })
           .join("") +
         `</table>`,
+    );
+  }
+  if (r.cogs.topHeld.length) {
+    parts.push(
+      `<h3>Ditahan, tidak ikut diterapkan (${grp(r.cogs.held)})</h3>` +
+        `<p><small>Biasanya satu pak/box tercatat sebagai 1 PCS di RI. Betulkan RI di Accurate, atau isi COGS manual di Katalog.</small></p><ul>` +
+        r.cogs.topHeld.map((h) => `<li><strong>${esc(h.code)}</strong> ${esc(h.name)}<br><small>${esc(h.reason)} · ${esc(h.receiptNo)} · ${esc(h.transDate)}</small></li>`).join("") +
+        `</ul>`,
     );
   }
   if (r.cogs.topSkipped.length) {
