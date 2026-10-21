@@ -21,14 +21,17 @@ function setup(role: string) {
   sqlite.exec(`INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock) VALUES
     ('101311', 'Keset', 'Pcs', 10657600, 12000000, 0),
     ('A1', 'Kertas 100%', 'Pcs', 9000, 15000, 0),
-    ('N1', 'Belum pernah dibeli', 'Pcs', 0, 1000, 0)`);
+    ('N1', 'Belum pernah dibeli', 'Pcs', 0, 1000, 0),
+    ('H1', 'Lonjakan harga', 'Pcs', 4500, 60000, 0)`);
   sqlite.exec(`INSERT INTO accurate_items(entity, accurate_id, code, name, uom, units, run_id) VALUES
     ('PT', 1, '101311', 'Keset', 'Pcs', '[]', 'r'),
-    ('PT', 2, 'A1', 'Kertas 100%', 'Pcs', '[]', 'r')`);
+    ('PT', 2, 'A1', 'Kertas 100%', 'Pcs', '[]', 'r'),
+    ('PT', 3, 'H1', 'Lonjakan harga', 'Pcs', '[]', 'r')`);
   sqlite.exec(`INSERT INTO accurate_receipt_lines(entity, receipt_id, line_id, receipt_no, trans_date, item_code, unit, quantity, unit_price) VALUES
     ('PT', 501, 1, 'RI.2026.05.00021', '2026-05-21', '101311', 'Pcs', 1, 10657600),
     ('PT', 502, 1, 'RI.2026.05.00022', '2026-05-22', '101311', 'Pcs', 1, 11005000),
-    ('PT', 503, 1, 'RI.2026.06.00001', '2026-06-02', 'A1', 'Pcs', 1, 9000)`);
+    ('PT', 503, 1, 'RI.2026.06.00001', '2026-06-02', 'A1', 'Pcs', 1, 9000),
+    ('PT', 504, 1, 'RI.2026.10.00044', '2026-10-20', 'H1', 'Pcs', 1, 9800)`);
   // A COGS replacement is recorded by the 0010 trigger.
   sqlite.exec("UPDATE catalog_items SET cogs = 10657600 WHERE code = '101311'");
   sqlite.exec("UPDATE catalog_items SET cogs = 9500 WHERE code = 'A1'");
@@ -54,7 +57,7 @@ describe("GET /api/accurate/cogs-history", () => {
   it("lists items with receipts newest first and earlier COGS values", async () => {
     const { json } = setup("manager");
     const body = await json();
-    expect(body.total).toBe(2); // N1 has no COGS and no receipt
+    expect(body.total).toBe(3); // N1 has no COGS and no receipt
     const keset = body.cards.find((c) => c.code === "101311")!;
     expect(keset.receipts.map((r) => r.receiptNo)).toEqual(["RI.2026.05.00022", "RI.2026.05.00021"]);
     expect(keset.pending).toBeNull();
@@ -65,8 +68,10 @@ describe("GET /api/accurate/cogs-history", () => {
   it("flags and filters items whose latest receipt differs from the catalog COGS", async () => {
     const { json } = setup("admin");
     const body = await json("?pending=1");
-    expect(body.cards.map((c) => c.code)).toEqual(["101311"]);
-    expect(body.cards[0].pending).toMatchObject({ to: 11005000, receiptNo: "RI.2026.05.00022" });
+    expect(body.cards.map((c) => c.code)).toEqual(["101311", "H1"]);
+    expect(body.cards[0].pending).toMatchObject({ to: 11005000, receiptNo: "RI.2026.05.00022", held: null });
+    // A jump apply-cogs holds back is still shown, with the reason.
+    expect(body.cards[1].pending).toMatchObject({ to: 9800, held: expect.stringContaining("COGS sekarang") });
   });
 
   it("searches code and name, treating % and _ as plain text", async () => {

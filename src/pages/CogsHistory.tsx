@@ -13,7 +13,7 @@ interface Card {
   name: string;
   uom: string;
   cogs: number;
-  pending: { to: number; receiptNo: string; transDate: string } | null;
+  pending: { to: number; receiptNo: string; transDate: string; held: string | null } | null;
   receipts: { receiptNo: string; transDate: string; unit: string; quantity: number; unitPrice: number }[];
   changes: { cogs: number; at: string }[];
 }
@@ -117,8 +117,8 @@ export function CogsHistoryPage() {
                       <div style={{ textAlign: "right" }}>
                         <div>COGS katalog: <strong>{c.cogs > 0 ? rp(c.cogs) : "kosong"}</strong></div>
                         {c.pending && (
-                          <span className="badge amber">
-                            RI terakhir {rp(c.pending.to)} · belum diterapkan
+                          <span className={`badge ${c.pending.held ? "red" : "amber"}`} title={c.pending.held ?? undefined}>
+                            RI terakhir {rp(c.pending.to)} · {c.pending.held ? "ditahan, perlu dicek" : "belum diterapkan"}
                           </span>
                         )}
                       </div>

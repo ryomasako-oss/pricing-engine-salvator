@@ -26,8 +26,8 @@ export interface HistoryCard {
   name: string;
   uom: string;
   cogs: number;
-  /** Set when the latest receipt would change the catalog COGS (what /apply-cogs would write). */
-  pending: { to: number; receiptNo: string; transDate: string } | null;
+  /** Set when the latest receipt differs from the catalog COGS; `held` says why apply-cogs would not write it by itself. */
+  pending: { to: number; receiptNo: string; transDate: string; held: string | null } | null;
   receipts: HistoryReceipt[];
   /** Earlier COGS values, newest first; `at` is when that value was replaced. */
   changes: { cogs: number; at: string }[];
@@ -47,9 +47,9 @@ export async function cogsHistory(
 ): Promise<HistoryPage> {
   const pending = new Map<string, HistoryCard["pending"]>();
   if (opts.onlyPending) {
-    for (const c of (await applyPurchaseCosts(db, entity, { dryRun: true })).changed) {
-      pending.set(c.code, { to: c.to, receiptNo: c.receiptNo, transDate: c.transDate });
-    }
+    const r = await applyPurchaseCosts(db, entity, { dryRun: true });
+    for (const c of r.changed) pending.set(c.code, { to: c.to, receiptNo: c.receiptNo, transDate: c.transDate, held: null });
+    for (const c of r.held) pending.set(c.code, { to: c.to, receiptNo: c.receiptNo, transDate: c.transDate, held: c.reason });
   }
   const like = `%${opts.q.replace(/[\\%_]/g, "\\$&")}%`;
   const where = `(c.cogs > 0 OR c.code IN (SELECT item_code FROM accurate_receipt_lines WHERE entity = ?1))
