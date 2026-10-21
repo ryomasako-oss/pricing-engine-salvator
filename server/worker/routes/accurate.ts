@@ -14,6 +14,7 @@ import { hasPermission } from "../../../shared/permissions";
 import { zodMessage } from "../../validate";
 import { AccurateClient } from "../accurate/client";
 import { ITEM_FIELDS, RECEIPT_LIST_FIELDS } from "../accurate/mapping";
+import { cogsHistory } from "../accurate/cogsHistory";
 import { applyHeldCosts, applyPurchaseCosts } from "../accurate/purchaseCost";
 import { loadReceiptState, receiptsEnabled, wibTimestamp } from "../accurate/receipts";
 import { sweepPending } from "./pendingItems";
@@ -319,6 +320,18 @@ accurateRouter.get("/receipts", requirePermission("import_catalog"), requirePerm
     lastError: st.last_error,
     lastErrorAt: st.last_error_at,
   });
+});
+
+/** Riwayat COGS per barang (read-only). Purchase prices are cost data, hence view_costs. */
+accurateRouter.get("/cogs-history", requirePermission("view_costs"), async (c) => {
+  const page = Number(c.req.query("page"));
+  return c.json(
+    await cogsHistory(c.env.DB, catalogEntity(c.env), {
+      q: (c.req.query("q") ?? "").trim().slice(0, 100),
+      onlyPending: c.req.query("pending") === "1",
+      page: Number.isInteger(page) && page > 0 ? page : 1,
+    }),
+  );
 });
 
 /**

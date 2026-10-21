@@ -112,6 +112,10 @@ Alurnya:
   (`ACCURATE_CATALOG_ENTITY`); data CV, bila tokennya dipasang, hanya dipakai
   untuk pengecekan silang. COGS tidak disentuh; tetap dari laporan Nilai
   Persediaan.
+- **Riwayat COGS** (`/cogs-history`, `GET /api/accurate/cogs-history`, hanya
+  manajer dan admin karena `view_costs`): satu kartu per barang berisi harga
+  beli dari RI terakhir dan COGS katalog yang pernah diganti. Hanya membaca;
+  COGS tetap diubah lewat `apply-cogs`.
 - **Paket Workers gratis**: batas 50 subrequest per eksekusi (query D1 ikut
   dihitung), jadi `ACCURATE_CALLS_PER_TICK = 5`; satu putaran ~30.000 barang
   makan sekitar 5 jam. Naikkan setelah pindah ke paket berbayar
