@@ -242,8 +242,10 @@ describe("POST /api/accurate/apply-cogs", () => {
     const post = (body: unknown) =>
       app.request("/api/accurate/apply-cogs", { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" } }, env);
     const get = (p: string) => app.request(p, {}, env);
+    const postHeld = (body: unknown) =>
+      app.request("/api/accurate/apply-held-cogs", { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" } }, env);
     const cogs = () => Object.fromEntries((sqlite.prepare("SELECT code, cogs FROM catalog_items").all() as { code: string; cogs: number }[]).map((r) => [r.code, r.cogs]));
-    return { sqlite, post, get, cogs };
+    return { sqlite, post, postHeld, get, cogs };
   }
 
   it("waits for a complete receipts pass", async () => {
@@ -317,9 +319,97 @@ describe("POST /api/accurate/apply-cogs", () => {
     expect(cogs()["078328"]).toBe(0);
   });
 
+  /** 103044 P3K as it was on 21 Okt: COGS 387.065 from an RI since corrected to 103.992, four earlier RIs at 106-113rb. */
+  function p3k(sqlite: DatabaseSync) {
+    sqlite.exec(`INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock) VALUES ('103044', 'Kotak P3K', 'SET', 387065.12, 0, 0)`);
+    sqlite.exec(`INSERT INTO accurate_items(entity, accurate_id, code, name, uom, units, run_id) VALUES ('PT', 8, '103044', 'Kotak P3K', 'SET', '[]', 'r')`);
+    sqlite.exec(`INSERT INTO accurate_receipt_lines(entity, receipt_id, line_id, receipt_no, trans_date, item_code, unit, quantity, unit_price) VALUES
+      ('PT', 100360, 111980, 'RI.2026.09.00123', '2026-09-09', '103044', 'SET', 1, 113279),
+      ('PT', 102151, 114006, 'RI.2026.09.00343', '2026-09-23', '103044', 'SET', 1, 109285),
+      ('PT', 102611, 114613, 'RI.2026.09.00427', '2026-09-28', '103044', 'SET', 3, 106726),
+      ('PT', 103002, 115052, 'RI.2026.10.00056', '2026-10-02', '103044', 'SET', 3, 113031.666667),
+      ('PT', 103961, 116022, 'RI.2026.10.00245', '2026-10-12', '103044', 'SET', 1, 103992),
+      ('PT', 103961, 116023, 'RI.2026.10.00245', '2026-10-12', '103044', 'SET', 1, 103992),
+      ('PT', 103961, 116024, 'RI.2026.10.00245', '2026-10-12', '103044', 'SET', 1, 103992)`);
+    sqlite.exec("INSERT INTO accurate_receipt_state(entity, last_pass_at, since_update) VALUES ('PT', '2026-10-21T00:00:00Z', '21/10/2026 08:00:00')");
+  }
+
+  it("applies a correction the earlier receipts agree with, though it is under half the current COGS (103044)", async () => {
+    const { sqlite, post, cogs } = setup();
+    p3k(sqlite);
+    const preview = (await (await post({})).json()) as any;
+    expect(preview.held.map((h: any) => h.code)).not.toContain("103044");
+    expect(preview.changed.find((c: any) => c.code === "103044")).toEqual({
+      code: "103044", name: "Kotak P3K", from: 387_065.12, to: 103_992, receiptNo: "RI.2026.10.00245", transDate: "2026-10-12",
+    });
+    await post({ dryRun: false });
+    expect(cogs()["103044"]).toBe(103_992);
+    // As for any big change, the reference stays until a manager confirms it.
+    expect(sqlite.prepare("SELECT cogs FROM catalog_cogs_baseline WHERE code = '103044'").get()).toEqual({ cogs: 387_065.12 });
+  });
+
+  it("holds an empty item's price that its earlier receipts don't match, so it can't become the reference", async () => {
+    const { sqlite, post, cogs } = setup();
+    p3k(sqlite);
+    sqlite.exec("UPDATE catalog_items SET cogs = 0 WHERE code = '103044'");
+    sqlite.exec("DELETE FROM catalog_cogs_baseline WHERE code = '103044'");
+    sqlite.exec("UPDATE accurate_receipt_lines SET unit_price = 387065.122461 WHERE receipt_id = 103961");
+    const preview = (await (await post({})).json()) as any;
+    expect(preview.held.find((h: any) => h.code === "103044")?.reason).toBe(
+      "Harga beli Rp 387.065 lebih dari dua kali harga beli sebelumnya Rp 111.158 (median 4 RI)",
+    );
+    await post({ dryRun: false });
+    expect(cogs()["103044"]).toBe(0);
+    expect(sqlite.prepare("SELECT cogs FROM catalog_cogs_baseline WHERE code = '103044'").get()).toBeUndefined();
+  });
+
+  it("applies a held change a manager checked, as the COGS and its reference, at the price they saw", async () => {
+    const { sqlite, post, postHeld, cogs } = setup();
+    sqlite.exec(`INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock) VALUES ('102373', 'Piston', 'Pcs', 71000, 0, 0)`);
+    sqlite.exec(`INSERT INTO accurate_items(entity, accurate_id, code, name, uom, units, run_id) VALUES ('PT', 7, '102373', 'Piston', 'Pcs', '[]', 'r')`);
+    sqlite.exec(`INSERT INTO accurate_receipt_lines(entity, receipt_id, line_id, receipt_no, trans_date, item_code, unit, quantity, unit_price) VALUES
+      ('PT', 507, 1, 'RI.2026.09.00300', '2026-09-21', '102373', 'Pcs', 1, 2192847)`);
+    sqlite.exec("INSERT INTO accurate_receipt_state(entity, last_pass_at, since_update) VALUES ('PT', '2026-10-21T00:00:00Z', '21/10/2026 08:00:00')");
+    const preview = (await (await post({})).json()) as any;
+    expect(preview.held.map((h: any) => [h.code, h.to])).toEqual([["102373", 2_192_847]]);
+    const before = cogs();
+
+    // A price the manager didn't see (the RI was edited after the preview) is not applied.
+    const stale = (await (await postHeld({ items: [{ code: "102373", to: 2_000_000 }, { code: "A1", to: 10_000 }] })).json()) as any;
+    expect(stale).toEqual({ applied: [], stale: [{ code: "102373", to: 2_000_000 }, { code: "A1", to: 10_000 }] });
+    expect(cogs()).toEqual(before);
+
+    const res = await postHeld({ items: [{ code: "102373", to: 2_192_847 }] });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as any;
+    expect(body.applied.map((h: any) => [h.code, h.from, h.to])).toEqual([["102373", 71_000, 2_192_847]]);
+    expect(body.stale).toEqual([]);
+    expect(cogs()).toEqual({ ...before, "102373": 2_192_847 });
+    expect(sqlite.prepare("SELECT cogs FROM catalog_cogs_baseline WHERE code = '102373'").get()).toEqual({ cogs: 2_192_847 });
+    expect(sqlite.prepare("SELECT cogs FROM catalog_cogs_history WHERE code = '102373'").all()).toEqual([{ cogs: 71_000 }]);
+    const audit = sqlite.prepare("SELECT actor_id, entity_id, detail FROM audit_log WHERE action = 'cogs_held_applied'").all() as any[];
+    expect(audit).toHaveLength(1);
+    expect(audit[0].entity_id).toBe((sqlite.prepare("SELECT id FROM catalog_items WHERE code = '102373'").get() as any).id);
+    expect(JSON.parse(audit[0].detail)).toMatchObject({ code: "102373", from: 71_000, to: 2_192_847, receiptNo: "RI.2026.09.00300", entity: "PT" });
+
+    // Applied once: no longer held, so a second click changes nothing.
+    expect(((await (await post({})).json()) as any).held).toEqual([]);
+    expect(((await (await postHeld({ items: [{ code: "102373", to: 2_192_847 }] })).json()) as any).applied).toEqual([]);
+  });
+
+  it("apply-held-cogs validates its input and waits for a complete receipts pass", async () => {
+    const { sqlite, postHeld } = setup();
+    expect((await postHeld({ items: [{ code: "A1", to: 1 }] })).status).toBe(409);
+    sqlite.exec("UPDATE accurate_receipt_state SET last_pass_at = '2026-10-21T00:00:00Z'");
+    expect((await postHeld({ items: [] })).status).toBe(400);
+    expect((await postHeld({ items: [{ code: "A1", to: -5 }] })).status).toBe(400);
+    expect((await postHeld({})).status).toBe(400);
+  });
+
   it("is closed to sales reps (purchase prices are cost data)", async () => {
     const { post, get } = setup("rep");
     expect((await post({})).status).toBe(403);
+    expect((await setup("rep").postHeld({ items: [{ code: "A1", to: 1 }] })).status).toBe(403);
     expect((await get("/api/accurate/receipts")).status).toBe(403);
   });
 

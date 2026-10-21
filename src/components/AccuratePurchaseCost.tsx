@@ -3,7 +3,9 @@
    the catalog, then applies it. Nothing changes until "Terapkan". A big jump
    still holds quote lines until the manager confirms it ("COGS ini benar").
    A change too far off (purchaseCostHold) is never applied: it is listed as
-   "ditahan" so the manager fixes the RI in Accurate or sets the COGS by hand. */
+   "ditahan" so the manager fixes the RI in Accurate or sets the COGS by hand,
+   or, after checking it, ticks it and applies it as the COGS and its
+   reference (POST /accurate/apply-held-cogs, at the price shown). */
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
@@ -41,6 +43,11 @@ interface Skip {
   detail: string;
 }
 
+interface HeldApplied {
+  applied: Held[];
+  stale: { code: string; to: number }[];
+}
+
 interface Preview {
   withReceipt: number;
   changed: Change[];
@@ -64,7 +71,8 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [showSkipped, setShowSkipped] = useState(false);
   const [showHeld, setShowHeld] = useState(true);
-  const [busy, setBusy] = useState<"preview" | "apply" | null>(null);
+  const [busy, setBusy] = useState<"preview" | "apply" | "held" | null>(null);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
 
   const loadStatus = useCallback(() => {
     api.get<ReceiptStatus>("/accurate/receipts").then(setStatus).catch(() => setStatus(null));
@@ -88,6 +96,7 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
       const r = await api.post<Preview>("/accurate/apply-cogs", { dryRun: true });
       r.changed.sort((a, b) => Math.abs(jump(b)) - Math.abs(jump(a)) || a.code.localeCompare(b.code));
       setPreview(r);
+      setPicked(new Set());
     } catch (e) {
       toast((e as Error).message, "error");
     } finally {
@@ -116,6 +125,40 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
     } finally {
       setBusy(null);
       loadStatus();
+    }
+  };
+
+  const togglePick = (code: string) =>
+    setPicked((p) => {
+      const n = new Set(p);
+      if (n.has(code)) n.delete(code);
+      else n.add(code);
+      return n;
+    });
+
+  const applyHeld = async () => {
+    if (!preview) return;
+    const items = preview.held.filter((h) => picked.has(h.code));
+    if (!items.length) return;
+    const ok = window.confirm(
+      `Terapkan harga pembelian terakhir untuk ${grp(items.length)} barang yang ditahan?\n\n` +
+        "COGS dan COGS acuannya ikut diubah, sama seperti menekan \"COGS ini benar\". Pastikan RI-nya sudah dicek.",
+    );
+    if (!ok) return;
+    setBusy("held");
+    try {
+      const r = await api.post<HeldApplied>("/accurate/apply-held-cogs", { items: items.map((h) => ({ code: h.code, to: h.to })) });
+      toast(
+        `COGS ${grp(r.applied.length)} barang yang ditahan diterapkan.` +
+          (r.stale.length ? ` ${grp(r.stale.length)} dilewati karena harganya sudah berubah; pratinjau dimuat ulang.` : ""),
+        r.stale.length ? "error" : undefined,
+      );
+      onApplied();
+      setBusy(null);
+      await runPreview();
+    } catch (e) {
+      toast((e as Error).message, "error");
+      setBusy(null);
     }
   };
 
@@ -182,13 +225,28 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
           {showHeld && preview.held.length > 0 && (
             <>
               <div className="muted" style={{ marginTop: 8 }}>
-                Tidak ikut diterapkan: harga beli 3x harga jual atau lebih, atau lebih dari dua kali / kurang dari separuh COGS sekarang. Biasanya
-                satu pak/box tercatat 1 PCS di RI. Betulkan RI di Accurate, atau isi COGS manual di katalog.
+                Tidak ikut diterapkan: harga beli 3x harga jual atau lebih, atau jauh (lebih dari dua kali / kurang dari separuh) dari COGS sekarang
+                dan dari harga beli di RI sebelumnya. Biasanya satu pak/box tercatat 1 PCS di RI. Betulkan RI di Accurate, isi COGS manual di
+                katalog, atau kalau harganya memang benar, centang lalu terapkan.
+              </div>
+              <div className="row-wrap" style={{ marginTop: 4 }}>
+                <button className="btn small" disabled={!!busy || picked.size === 0} onClick={applyHeld}>
+                  <Icon name="check" size={13} />{" "}
+                  {busy === "held" ? "Menerapkan…" : picked.size ? `Terapkan ${grp(picked.size)} yang dicentang` : "Centang barang yang harganya benar"}
+                </button>
               </div>
               <div className="table-wrap" style={{ marginTop: 4 }}>
                 <table className="table">
                   <thead>
                     <tr>
+                      <th className="l">
+                        <input
+                          type="checkbox"
+                          aria-label="Centang semua yang ditampilkan"
+                          checked={preview.held.slice(0, SHOWN).every((h) => picked.has(h.code))}
+                          onChange={(e) => setPicked(e.target.checked ? new Set(preview.held.slice(0, SHOWN).map((h) => h.code)) : new Set())}
+                        />
+                      </th>
                       <th className="l">Kode</th>
                       <th className="l">Nama</th>
                       <th>COGS sekarang</th>
@@ -200,6 +258,9 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
                   <tbody>
                     {preview.held.slice(0, SHOWN).map((h) => (
                       <tr key={h.code}>
+                        <td className="l">
+                          <input type="checkbox" aria-label={`Centang ${h.code}`} checked={picked.has(h.code)} onChange={() => togglePick(h.code)} />
+                        </td>
                         <td className="l">{h.code}</td>
                         <td className="l">{h.name}</td>
                         <td>{h.from > 0 ? rp(h.from) : "kosong"}</td>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { lastPurchaseCost, purchaseCostHold, type ReceiptLine } from "./lastPurchaseCost";
+import { lastPurchaseCost, purchaseCostHold, purchaseHistory, type ReceiptLine } from "./lastPurchaseCost";
 
 const line = (over: Partial<ReceiptLine>): ReceiptLine => ({
   receiptId: 1,
@@ -115,5 +115,74 @@ describe("purchaseCostHold (guard for Terapkan, 2026-10-17)", () => {
     expect(purchaseCostHold(1000, 1500, 1500)).toBeNull();
     // A first COGS with no selling price to compare against has nothing to be checked with.
     expect(purchaseCostHold(0, 50_000, 0)).toBeNull();
+  });
+});
+
+/** 103044 P3K in Accurate PT: four RIs at 106-113rb, then RI.2026.10.00245 on three lines. */
+const P3K = [
+  line({ receiptId: 100360, receiptNo: "RI.2026.09.00123", transDate: "2026-09-09", unit: "SET", unitPrice: 113_279 }),
+  line({ receiptId: 102151, receiptNo: "RI.2026.09.00343", transDate: "2026-09-23", unit: "SET", unitPrice: 109_285 }),
+  line({ receiptId: 102611, receiptNo: "RI.2026.09.00427", transDate: "2026-09-28", unit: "SET", quantity: 3, unitPrice: 106_726 }),
+  line({ receiptId: 103002, receiptNo: "RI.2026.10.00056", transDate: "2026-10-02", unit: "SET", quantity: 3, unitPrice: 113_031.666667 }),
+  ...[116022, 116023, 116024].map((lineId) =>
+    line({ receiptId: 103961, lineId, receiptNo: "RI.2026.10.00245", transDate: "2026-10-12", unit: "SET", unitPrice: 103_992 }),
+  ),
+];
+const set = { baseUom: "SET", units: [] };
+
+describe("purchaseHistory", () => {
+  it("is the receipts before the latest, newest first, one per receipt", () => {
+    expect(purchaseHistory(P3K, set)).toEqual([113_031.67, 106_726, 109_285, 113_279]);
+  });
+
+  it("leaves out the latest receipt however many lines it has, so a wrong RI can't vouch for itself", () => {
+    expect(purchaseHistory(P3K.slice(4), set)).toEqual([]);
+  });
+
+  it("converts to the base unit, skips a unit with no ratio and unpriced lines, and keeps at most five", () => {
+    const box = { baseUom: "Pcs", units: [{ uom: "Box", factor: 50 }] };
+    const lines = [
+      line({ receiptId: 9, transDate: "2026-10-01", unitPrice: 700 }),
+      line({ receiptId: 8, transDate: "2026-09-01", unit: "Box", unitPrice: 32_850 }),
+      line({ receiptId: 7, transDate: "2026-08-01", unit: "Lusin", unitPrice: 9_000 }),
+      line({ receiptId: 6, transDate: "2026-07-01", unitPrice: 0 }),
+      ...[5, 4, 3, 2, 1].map((receiptId) => line({ receiptId, transDate: `2026-0${receiptId}-01`, unitPrice: 600 + receiptId })),
+    ];
+    expect(purchaseHistory(lines, box)).toEqual([657, 605, 604, 603, 602]);
+  });
+});
+
+describe("purchaseCostHold with earlier receipts (2026-10-21)", () => {
+  const history = purchaseHistory(P3K, set);
+
+  it("lets a correction through when the current COGS is the wrong one (103044: 387.065 from an RI edited in Accurate)", () => {
+    expect(purchaseCostHold(387_065.12, 103_992, 0)).toMatch(/kurang dari separuh COGS sekarang Rp 387.065/);
+    expect(purchaseCostHold(387_065.12, 103_992, 0, history)).toBeNull();
+  });
+
+  it("still holds a price that matches neither the current COGS nor the earlier receipts (100115 staples)", () => {
+    expect(purchaseCostHold(22_895, 901, 0, [12_000, 12_040, 11_900, 13_000])).toBe(
+      "Harga beli Rp 901 kurang dari separuh COGS sekarang Rp 22.895, dan kurang dari separuh harga beli sebelumnya Rp 12.020 (median 4 RI)",
+    );
+  });
+
+  it("holds an empty item whose new price is far from its earlier receipts: the 16 Okt case, before it becomes the reference", () => {
+    expect(purchaseCostHold(0, 387_065.12, 0, history)).toBe(
+      "Harga beli Rp 387.065 lebih dari dua kali harga beli sebelumnya Rp 111.158 (median 4 RI)",
+    );
+    expect(purchaseCostHold(0, 103_992, 0, history)).toBeNull();
+  });
+
+  it("needs two earlier receipts to count as history", () => {
+    expect(purchaseCostHold(387_065.12, 103_992, 0, [106_726])).not.toBeNull();
+    expect(purchaseCostHold(0, 387_065.12, 0, [106_726])).toBeNull();
+  });
+
+  it("never relaxes the selling-price check: an item whose every RI records a pack as one PCS still holds", () => {
+    expect(purchaseCostHold(0, 74_750, 7_500, [74_750, 74_000, 75_000])).toMatch(/3x lipat atau lebih dari harga jual/);
+  });
+
+  it("follows the current COGS when it agrees, whatever the old receipts say", () => {
+    expect(purchaseCostHold(100_000, 110_000, 0, [10_000, 10_000])).toBeNull();
   });
 });

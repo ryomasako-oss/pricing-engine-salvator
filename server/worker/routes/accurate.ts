@@ -13,7 +13,7 @@ import { requireAuth, requirePermission } from "../auth";
 import { zodMessage } from "../../validate";
 import { AccurateClient } from "../accurate/client";
 import { ITEM_FIELDS, RECEIPT_LIST_FIELDS } from "../accurate/mapping";
-import { applyPurchaseCosts } from "../accurate/purchaseCost";
+import { applyHeldCosts, applyPurchaseCosts } from "../accurate/purchaseCost";
 import { loadReceiptState, receiptsEnabled, wibTimestamp } from "../accurate/receipts";
 import { sweepPending } from "./pendingItems";
 import { reconcileCounts, reconcileExamples, runReconcile } from "../accurate/reconcile";
@@ -343,6 +343,30 @@ accurateRouter.post("/apply-cogs", requirePermission("import_catalog"), requireP
   }
   return c.json({ ...result, receipts: { lastPassAt: st.last_pass_at, through: st.since_update, inProgress: !!st.pass_started_at } });
 });
+
+/**
+ * Applies changes apply-cogs held back, for the codes a manager checked, at the price they saw.
+ * It moves the COGS reference too, so it takes what verify-cogs takes (edit_catalog) on top of
+ * what apply-cogs takes.
+ */
+accurateRouter.post(
+  "/apply-held-cogs",
+  requirePermission("import_catalog"),
+  requirePermission("view_costs"),
+  requirePermission("edit_catalog"),
+  async (c) => {
+    const parsed = z
+      .object({ items: z.array(z.object({ code: z.string().min(1), to: z.number().positive() })).min(1).max(500) })
+      .safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
+    const entity = catalogEntity(c.env);
+    const st = await loadReceiptState(c.env.DB, entity);
+    if (!st.last_pass_at) {
+      return c.json({ error: `Riwayat penerimaan barang Accurate ${entity} belum lengkap. Tunggu satu putaran sinkron penerimaan selesai.` }, 409);
+    }
+    return c.json(await applyHeldCosts(c.env.DB, entity, c.get("user")!.id, parsed.data.items));
+  },
+);
 
 /** Where the catalog's Accurate cross-check stands: the staged data of the catalog entity must be a completed run. */
 async function reconcileState(db: D1Database, entity: EntityKey) {
