@@ -120,7 +120,8 @@ export function mergeStaffItems(
       const units = cat ? { baseUom: cat.uom || "Pcs", units: cat.units ?? [] } : undefined;
       const rrp = inLineUnits(line.rrp, line.valuesUom, next, units, !unitChanged);
       const price = inLineUnits(line.price, line.valuesUom, next, units, !unitChanged);
-      if (rrp != null) next = { ...next, rrp: Math.round(rrp) };
+      // Same rule as a new line: a rep can't clear the ceiling (rrp 0 prices the line at Rp 0).
+      if (rrp != null && rrp > 0) next = { ...next, rrp: Math.round(rrp) };
       if (price != null) next = withManualPrice(next, scenario, price);
     } else {
       const rows = catalog.get(normalizeCode(line.code)) ?? [];

@@ -190,6 +190,15 @@ describe("manual overrides", () => {
     expect(e.rows[0].prices[0]).toBe(1500);
   });
 
+  it("treats a costed line left at Rp 0 (no ceiling, no manual price) as below cost", () => {
+    const e = computeEngine(A(), [item({ cogs: 1000, rrp: 0 })], []);
+    expect(e.rows[0].prices).toEqual([0, 0, 0]);
+    expect(e.rows[0].margins).toEqual([-1, -1, -1]);
+    const b = evaluatePolicy(e, 0, DEFAULT_POLICY).find((x) => x.code === "BELOW_COST");
+    expect(b?.severity).toBe("block");
+    expect(b?.lines).toEqual([1]);
+  });
+
   it("ignores zero and non-numeric overrides", () => {
     const e = computeEngine(A(), [
       item({ cogs: 1000, rrp: 5000, manualPrice: [0, null, NaN] }),
