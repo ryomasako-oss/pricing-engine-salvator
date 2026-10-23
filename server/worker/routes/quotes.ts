@@ -985,7 +985,9 @@ quotesRouter.delete("/:id", async (c) => {
   const quote = await findQuote(c.env.DB, id);
   if (!quote) return c.json({ error: "Quotation tidak ditemukan." }, 404);
 
-  const isOwnDraft = quote.created_by === user.id && quote.status === "draft";
+  // rev_no 1 = never decided: reopen and a full sales rejection bump it, so a
+  // reopened won/approved quote isn't "own draft" and its history needs admin.
+  const isOwnDraft = quote.created_by === user.id && quote.status === "draft" && quote.rev_no === 1;
   if (!isOwnDraft && !hasPermission(user.role, "delete_quotes")) {
     return c.json({ error: "Hanya draft milik sendiri yang bisa dihapus. Selain itu perlu admin." }, 403);
   }
