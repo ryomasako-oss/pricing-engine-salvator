@@ -1,5 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
+import { ATTACH_QUOTE_SQL, DraftError, REOPEN_DRAFT_SQL, claimForQuote } from "../../listDrafts";
+import { draftStore } from "./listDrafts";
 import { all, get, run, stmt, batch } from "../../db.d1";
 import { audit, auditFor } from "../audit";
 import { requireAuth, requirePermission } from "../auth";
@@ -202,6 +204,8 @@ quotesRouter.post("/", async (c) => {
       snapshot: z.unknown().optional(),
       // Rows of a client's list with no catalog item ("Dari list klien"): kept as tasks.
       unmatched: unmatchedSchema.optional(),
+      // A saved "Dari list klien" draft this quote finishes: closed by this create (server/listDrafts.ts).
+      draft_id: z.number().int().positive().optional(),
     })
     .safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
@@ -226,6 +230,18 @@ quotesRouter.post("/", async (c) => {
   const client = parsed.data.client_id
     ? await get<Client>(c.env.DB, "SELECT * FROM clients WHERE id = ?", parsed.data.client_id)
     : undefined;
+
+  // The draft is closed before the quote is written, so of two creates from
+  // one draft only the first gets a quote; the second gets 409.
+  const draftId = parsed.data.draft_id;
+  if (draftId) {
+    try {
+      await claimForQuote(draftStore(c.env.DB), user, draftId);
+    } catch (err) {
+      if (err instanceof DraftError) return c.json({ error: err.message }, err.status as 409);
+      throw err;
+    }
+  }
 
   // nextQuoteNumber() reads then this insert writes, with an await in between —
   // two concurrent requests can read the same number before either inserts.
@@ -270,7 +286,10 @@ quotesRouter.post("/", async (c) => {
       break;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (attempt === 4 || !message.includes("UNIQUE constraint failed: quotes.number")) throw err;
+      if (attempt === 4 || !message.includes("UNIQUE constraint failed: quotes.number")) {
+        if (draftId) await run(c.env.DB, REOPEN_DRAFT_SQL, draftId);
+        throw err;
+      }
       number = await nextQuoteNumber(c.env.DB);
     }
   }
@@ -284,9 +303,11 @@ quotesRouter.post("/", async (c) => {
       id!, 1, JSON.stringify(snapshot!), "Dibuat", user.id,
     ),
     ...taskStmts(c.env.DB, tasksFromUnmatched(id!, parsed.data.unmatched ?? []), user.id),
+    ...(draftId ? [stmt(c.env.DB, ATTACH_QUOTE_SQL, id!, draftId)] : []),
   ]);
 
-  await audit(c.env.DB, user.id, "quote", id!, "created", { number, title: parsed.data.title });
+  await audit(c.env.DB, user.id, "quote", id!, "created", { number, title: parsed.data.title, ...(draftId ? { draft_id: draftId } : {}) });
+  if (draftId) await audit(c.env.DB, user.id, "list_draft", draftId, "draft_done", { quote_id: id! });
   return c.json({ quote: view(user.role, await findQuote(c.env.DB, id!)) }, 201);
 });
 

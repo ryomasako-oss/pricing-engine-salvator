@@ -8,7 +8,11 @@
 
    Pairings the rep confirmed or corrected are saved as aliases for the
    chosen client, so that client's next list matches by itself. With no
-   client chosen nothing is saved (see create()). */
+   client chosen nothing is saved (see create()).
+
+   The review can be saved as a draft and sent to a PIC who finishes it
+   (shared/listDrafts.ts): a draft keeps the read lines and the picks by
+   code, and opening it matches the lines again so prices are today's. */
 
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
@@ -16,6 +20,7 @@ import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { grp } from "@shared/format";
 import { lineFromCatalog, type MatchResult, type RequestLine } from "@shared/match";
+import { choicesFromRows, codesToFetch, restoreRows, type Draft } from "@shared/listDrafts";
 import type { CatalogItem, Client, QuoteItem } from "@shared/types";
 import { uomWarning } from "@shared/uom";
 import { Icon } from "./Icon";
@@ -67,6 +72,8 @@ export function ListToQuote({
   onCreated,
   onClientAdded,
   initial,
+  draftId,
+  onDraftChanged,
 }: {
   clients: Client[];
   onClose: () => void;
@@ -74,6 +81,10 @@ export function ListToQuote({
   onClientAdded?: (client: Client) => void;
   /** A list that is already read (from chat): skips the file step and goes straight to review. */
   initial?: { lines: RequestLine[]; clientId: number | ""; title: string };
+  /** A saved draft to reopen where it was left: skips the file step. */
+  draftId?: number;
+  /** A draft was saved or sent, so a list showing drafts can refresh. */
+  onDraftChanged?: () => void;
 }) {
   const toast = useToast();
   // Staff see the price the server will charge instead of COGS (PE-1).
@@ -103,6 +114,11 @@ export function ListToQuote({
   /** Row whose "Barang baru" form is open (catatan 24/25: a row with no match can still become an item). */
   const [newItemRow, setNewItemRow] = useState<number | null>(null);
   const [uomOptions, setUomOptions] = useState<string[]>([]);
+  /** The saved draft this review is (null until the first save). */
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const [saving, setSaving] = useState(false);
+  /** The "Kirim ke PIC" form is open. */
+  const [sending, setSending] = useState(false);
 
   useEffect(() => {
     api
@@ -144,6 +160,85 @@ export function ListToQuote({
     // Once, on open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // A saved draft: match its lines again as whoever opens it, then lay the saved picks over the result.
+  useEffect(() => {
+    if (!draftId) return;
+    setBusy(true);
+    (async () => {
+      const { draft: d } = await api.get<{ draft: Draft }>(`/list-drafts/${draftId}`);
+      if (d.status === "done") throw new Error("Draft ini sudah dijadikan quotation.");
+      if (d.status !== "open") throw new Error("Draft ini sudah dibatalkan.");
+      const res = await api.post<MatchResponse>("/catalog/match", { client_id: d.client_id, lines: d.lines });
+      // Items picked by hand aren't in the match: fetch them by code, through the same viewer filter.
+      const found = await Promise.all(
+        codesToFetch(d.choices, res.items).map((code) =>
+          api
+            .get<{ items: CatalogItem[] }>(`/catalog?${new URLSearchParams({ q: code, limit: "5" })}`)
+            .then((r) => r.items.find((i) => i.code.toLowerCase() === code.toLowerCase()))
+            .catch(() => undefined),
+        ),
+      );
+      const known = new Map([...res.items, ...found.filter((i): i is CatalogItem => !!i)].map((i) => [i.id, i]));
+      const restored = restoreRows(d.lines, res.results, d.choices, known);
+      for (const p of restored.extraItems) known.set(p.id, p);
+      setItems(known);
+      setRows(restored.rows);
+      setNotes(restored.lost ? [...d.notes, `${restored.lost} pilihan di draft ini sudah tidak ada di katalog. Pilih ulang baris yang kosong.`] : d.notes);
+      setFileName(d.file_name || "Draft");
+      setTitle(d.title);
+      setClientId(d.client_id ?? "");
+      setDraft(d);
+    })()
+      .catch((e) => setError(e instanceof Error ? e.message : "Draft tidak bisa dibuka."))
+      .finally(() => setBusy(false));
+    // Once, on open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** Saves the review as a draft (new, or over the version it read). Returns the saved draft. */
+  const saveDraft = async (quiet = false): Promise<Draft | null> => {
+    if (!rows) return null;
+    setSaving(true);
+    try {
+      const body = {
+        title: title.trim(),
+        client_id: clientId === "" ? null : clientId,
+        file_name: fileName,
+        // The note about lost picks is about this opening, not part of the draft.
+        notes: notes.filter((n) => !n.includes("sudah tidak ada di katalog")),
+        lines: rows.map((r) => r.request),
+        choices: choicesFromRows(rows, items),
+      };
+      const r = draft
+        ? await api.put<{ draft: Draft }>(`/list-drafts/${draft.id}`, { ...body, version: draft.version })
+        : await api.post<{ draft: Draft }>("/list-drafts", body);
+      setDraft(r.draft);
+      onDraftChanged?.();
+      if (!quiet) toast("Draft disimpan. Lanjutkan kapan saja dari daftar List klien tersimpan.");
+      return r.draft;
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Draft gagal disimpan.", "error");
+      return null;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const sendDraft = async (assignedTo: number, note: string, name: string) => {
+    const saved = await saveDraft(true);
+    if (!saved) return;
+    setSaving(true);
+    try {
+      await api.post(`/list-drafts/${saved.id}/send`, { assigned_to: assignedTo, note });
+      onDraftChanged?.();
+      toast(`Dikirim ke ${name}. Ia mendapat email dengan tautan ke list ini.`);
+      onClose();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Draft gagal dikirim.", "error");
+      setSaving(false);
+    }
+  };
 
   const read = async (file?: File | null) => {
     if (!file) return;
@@ -243,6 +338,7 @@ export function ListToQuote({
         client_id: clientId === "" ? null : clientId,
         snapshot: { items: quoteItems },
         unmatched,
+        ...(draft ? { draft_id: draft.id } : {}),
       });
       // Learn the pairings a person actually looked at: the ones that needed a
       // check or were changed. Code matches need no alias; untouched automatic
@@ -278,6 +374,7 @@ export function ListToQuote({
           .post("/catalog/aliases", { client_id: clientId === "" ? null : clientId, pairs, feedback })
           .catch(() => toast("Quotation dibuat, tetapi pasangan nama-katalog gagal disimpan untuk lain kali.", "error"));
       }
+      if (draft) onDraftChanged?.();
       onCreated(r.quote.id);
     } catch (e) {
       toast(e instanceof Error ? e.message : "Gagal membuat quotation.", "error");
@@ -299,7 +396,7 @@ export function ListToQuote({
   return (
     <Modal
       title="Quotation dari list klien"
-      sub={initial ? "Daftar dari chat. Setiap baris dicocokkan ke katalog; harga diambil dari database." : "Upload daftar kebutuhan klien. Setiap baris dicocokkan ke katalog; harga dan COGS diambil dari database."}
+      sub={draftId ? "Draft tersimpan. Setiap baris dicocokkan ulang ke katalog hari ini; pilihan Anda sebelumnya dipulihkan." : initial ? "Daftar dari chat. Setiap baris dicocokkan ke katalog; harga diambil dari database." : "Upload daftar kebutuhan klien. Setiap baris dicocokkan ke katalog; harga dan COGS diambil dari database."}
       size={rows ? "full" : "normal"}
       onClose={onClose}
       footer={
@@ -310,8 +407,18 @@ export function ListToQuote({
               {pending ? ` · ${pending} perlu dicek dulu` : ""}
               {heldCount ? ` · ${heldCount} ditahan (COGS dicek manajer)` : ""}
             </span>
-            <button className="btn ghost" onClick={() => (initial ? onClose() : setRows(null))} disabled={busy}>{initial ? "Kembali ke chat" : "Ganti file"}</button>
-            <button className="btn primary" onClick={create} disabled={busy || !used || pending > 0 || !title.trim()}>
+            {initial ? (
+              <button className="btn ghost" onClick={onClose} disabled={busy}>Kembali ke chat</button>
+            ) : (
+              !draft && <button className="btn ghost" onClick={() => setRows(null)} disabled={busy}>Ganti file</button>
+            )}
+            <button className="btn" onClick={() => void saveDraft()} disabled={busy || saving}>
+              <Icon name="check" size={14} /> {saving ? "Menyimpan…" : "Simpan"}
+            </button>
+            <button className="btn" onClick={() => setSending(true)} disabled={busy || saving || sending}>
+              <Icon name="send" size={14} /> Kirim ke PIC…
+            </button>
+            <button className="btn primary" onClick={create} disabled={busy || saving || !used || pending > 0 || !title.trim()}>
               {busy ? "Membuat…" : `Buat quotation (${used} item)`}
             </button>
           </>
@@ -320,8 +427,8 @@ export function ListToQuote({
         )
       }
     >
-      {!rows && initial ? (
-        // A list from chat has no file step: just the wait for matching, or why it failed.
+      {!rows && (initial || draftId) ? (
+        // A list from chat or a saved draft has no file step: just the wait for matching, or why it failed.
         <div className="col" style={{ gap: 12 }}>
           {busy && <WaitingLine lines={WAITING.match} />}
           {error && <p className="notice error">{error}</p>}
@@ -404,6 +511,21 @@ export function ListToQuote({
               {heldCount > 0 && <span className="badge amber">{heldCount} ditahan</span>}
             </div>
           </div>
+          {draft?.assigned_to != null && (
+            <p className="notice info">
+              Draft dari {draft.created_by_name}
+              {draft.assigned_to_name ? `, PIC: ${draft.assigned_to_name}` : ""}
+              {draft.assign_note ? `. Catatan: ${draft.assign_note}` : ""}
+            </p>
+          )}
+          {sending && (
+            <SendToPic
+              busy={saving}
+              current={draft?.assigned_to ?? null}
+              onCancel={() => setSending(false)}
+              onSend={(id, note, name) => void sendDraft(id, note, name)}
+            />
+          )}
           {notes.map((n) => (
             <p key={n} className="notice info">{n}</p>
           ))}
@@ -608,6 +730,59 @@ function CatalogSearch({
           </span>
         </button>
       ))}
+    </div>
+  );
+}
+
+/** Picks the PIC a draft goes to, with an optional note for them. */
+function SendToPic({
+  busy,
+  current,
+  onCancel,
+  onSend,
+}: {
+  busy: boolean;
+  current: number | null;
+  onCancel: () => void;
+  onSend: (userId: number, note: string, name: string) => void;
+}) {
+  const { user } = useAuth();
+  const [users, setUsers] = useState<{ id: number; name: string; role: string }[]>([]);
+  const [to, setTo] = useState<number | "">(current ?? "");
+  const [note, setNote] = useState("");
+  useEffect(() => {
+    api
+      .get<{ users: { id: number; name: string; role: string }[] }>("/list-drafts/users")
+      .then((r) => setUsers(r.users.filter((u) => u.id !== user?.id)))
+      .catch(() => setUsers([]));
+  }, [user?.id]);
+  const target = users.find((u) => u.id === to);
+  return (
+    <div className="card" style={{ padding: 12 }}>
+      <div className="row-wrap" style={{ gap: 12, alignItems: "end" }}>
+        <label className="field" style={{ flex: "1 1 200px" }}>
+          <span>Kirim ke PIC</span>
+          <select className="select" value={to} onChange={(e) => setTo(e.target.value === "" ? "" : Number(e.target.value))}>
+            <option value="">— pilih orang —</option>
+            {users.map((u) => (
+              <option key={u.id} value={u.id}>{u.name}</option>
+            ))}
+          </select>
+        </label>
+        <label className="field" style={{ flex: "2 1 260px" }}>
+          <span>Catatan untuk PIC (opsional)</span>
+          <input className="input" value={note} maxLength={500} onChange={(e) => setNote(e.target.value)} placeholder="Misal: tolong selesaikan hari ini" />
+        </label>
+        <div className="row" style={{ gap: 6 }}>
+          <button className="btn ghost" onClick={onCancel} disabled={busy}>Batal</button>
+          <button className="btn primary" disabled={busy || !target} onClick={() => target && onSend(target.id, note.trim(), target.name)}>
+            <Icon name="send" size={14} /> {busy ? "Mengirim…" : "Simpan & kirim"}
+          </button>
+        </div>
+      </div>
+      <p className="muted small" style={{ margin: "8px 0 0" }}>
+        List disimpan dulu, lalu PIC mendapat email berisi tautan. Ia membuka list ini persis seperti sekarang dan bisa langsung membuat quotation.
+      </p>
     </div>
   );
 }

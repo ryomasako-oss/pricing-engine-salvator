@@ -277,6 +277,29 @@ CREATE TABLE IF NOT EXISTS pending_items (
 CREATE UNIQUE INDEX IF NOT EXISTS ux_pending_items_live_code
   ON pending_items(lower(trim(code))) WHERE status IN ('draft', 'submitted');
 CREATE INDEX IF NOT EXISTS idx_pending_items_status ON pending_items(status, created_at);
+
+-- Mirrors migrations/0020_list_drafts.sql.
+CREATE TABLE IF NOT EXISTS list_drafts (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  title       TEXT NOT NULL DEFAULT '',
+  client_id   INTEGER REFERENCES clients(id),
+  file_name   TEXT NOT NULL DEFAULT '',
+  notes       TEXT NOT NULL DEFAULT '[]',  -- JSON string[]: reader notes shown above the review
+  lines       TEXT NOT NULL DEFAULT '[]',  -- JSON RequestLine[]
+  choices     TEXT NOT NULL DEFAULT '[]',  -- JSON DraftChoice[], one per line (shared/listDrafts.ts)
+  status      TEXT NOT NULL DEFAULT 'open', -- open | done | cancelled
+  created_by  INTEGER NOT NULL REFERENCES users(id),
+  assigned_to INTEGER REFERENCES users(id), -- the PIC it was sent to; NULL = with its creator
+  assigned_by INTEGER REFERENCES users(id),
+  assigned_at TEXT,
+  assign_note TEXT NOT NULL DEFAULT '',
+  quote_id    INTEGER REFERENCES quotes(id), -- set when "Buat quotation" closed it
+  version     INTEGER NOT NULL DEFAULT 1,    -- a save carries the version it read: two editors get a 409, not a silent overwrite
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_list_drafts_assignee ON list_drafts(status, assigned_to);
+CREATE INDEX IF NOT EXISTS idx_list_drafts_creator ON list_drafts(status, created_by);
 `);
 
 // Mirrors migrations/0010_cogs_reference_by_manager.sql: the reference COGS

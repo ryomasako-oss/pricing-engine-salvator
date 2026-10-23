@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Response } from "express";
 import { z } from "zod";
 import { all, get, run, tx } from "../db.js";
 import { audit, auditFor } from "../audit.js";
@@ -14,6 +14,8 @@ import {
 } from "../../shared/salesReview.js";
 import { tasksFromItems, tasksFromSalesRejection, tasksFromUnmatched, type NewFixTask } from "../../shared/fixTasks.js";
 import { INSERT_TASKS_SQL, insertTasksParams } from "../fixTasks.js";
+import { ATTACH_QUOTE_SQL, DraftError, REOPEN_DRAFT_SQL, claimForQuote } from "../listDrafts.js";
+import { draftStore } from "./listDrafts.js";
 import {
   EDITABLE_STATUSES,
   STATUS_FLOW,
@@ -201,7 +203,11 @@ quotesRouter.get("/:id", (req: AuthedRequest, res) => {
   });
 });
 
-quotesRouter.post("/", (req: AuthedRequest, res) => {
+quotesRouter.post("/", (req, res, next) => {
+  createQuote(req as AuthedRequest, res).catch(next);
+});
+
+async function createQuote(req: AuthedRequest, res: Response): Promise<void> {
   const parsed = z
     .object({
       title: z.string().min(1).max(200),
@@ -209,6 +215,8 @@ quotesRouter.post("/", (req: AuthedRequest, res) => {
       snapshot: z.unknown().optional(),
       // Rows of a client's list with no catalog item ("Dari list klien"): kept as tasks.
       unmatched: unmatchedSchema.optional(),
+      // A saved "Dari list klien" draft this quote finishes: closed by this create (server/listDrafts.ts).
+      draft_id: z.number().int().positive().optional(),
     })
     .safeParse(req.body);
   if (!parsed.success) {
@@ -244,6 +252,19 @@ quotesRouter.post("/", (req: AuthedRequest, res) => {
   const client = parsed.data.client_id
     ? get<Client>("SELECT * FROM clients WHERE id = ?", parsed.data.client_id)
     : undefined;
+
+  // The draft is closed before the quote is written, so of two creates from
+  // one draft only the first gets a quote; the second gets 409.
+  const draftId = parsed.data.draft_id;
+  if (draftId) {
+    try {
+      await claimForQuote(draftStore, req.user!, draftId);
+    } catch (err) {
+      if (!(err instanceof DraftError)) throw err;
+      res.status(err.status).json({ error: err.message });
+      return;
+    }
+  }
 
   // nextQuoteNumber() reads then this insert writes, not atomically — two
   // concurrent requests can read the same number before either inserts.
@@ -287,19 +308,24 @@ quotesRouter.post("/", (req: AuthedRequest, res) => {
         const newId = Number(info.lastInsertRowid);
         saveRevision(newId, 1, snapshot!, req.user!.id, "Dibuat");
         recordTasks(tasksFromUnmatched(newId, parsed.data.unmatched ?? []), req.user!.id);
+        if (draftId) run(ATTACH_QUOTE_SQL, newId, draftId);
         return newId;
       });
       break;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (attempt === 4 || !message.includes("UNIQUE constraint failed: quotes.number")) throw err;
+      if (attempt === 4 || !message.includes("UNIQUE constraint failed: quotes.number")) {
+        if (draftId) run(REOPEN_DRAFT_SQL, draftId);
+        throw err;
+      }
       number = nextQuoteNumber();
     }
   }
 
-  audit(req.user!.id, "quote", id!, "created", { number, title: parsed.data.title });
+  audit(req.user!.id, "quote", id!, "created", { number, title: parsed.data.title, ...(draftId ? { draft_id: draftId } : {}) });
+  if (draftId) audit(req.user!.id, "list_draft", draftId, "draft_done", { quote_id: id! });
   res.status(201).json({ quote: view(req, findQuote(id!)) });
-});
+}
 
 quotesRouter.put("/:id", (req: AuthedRequest, res) => {
   const id = Number(req.params.id);
