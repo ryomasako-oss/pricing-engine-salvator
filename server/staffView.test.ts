@@ -30,6 +30,11 @@ describe("mergeStaffItems", () => {
     expect(r).toEqual({ items: [{ ...stored, qty: 4, rrp: 2800, notes: "n" }] });
   });
 
+  it("keeps the stored ceiling when a rep sends rrp 0 for an existing line", () => {
+    const r = mergeStaffItems([stored], [{ id: "a", code: "PEN", name: "x", qty: 4, rrp: 0 }], catalog);
+    expect("items" in r && r.items[0].rrp).toBe(3000);
+  });
+
   it("converts a unit change with the item's ratio; without valuesUom (an older screen) a ceiling and price sent with it are ignored", () => {
     const r = mergeStaffItems([stored], [{ id: "a", code: "PEN", name: "x", qty: 2, uom: "box", rrp: 1, price: 999 }], catalog, 0);
     expect("items" in r && r.items[0]).toMatchObject({ uom: "Box", qty: 2, cogs: 24000, rrp: 36000, role: "LEADER", manualPrice: [30000, null, null] });

@@ -148,7 +148,9 @@ export function computeEngine(
       return finite(manual);
     });
 
-    const margins = prices.map((p) => (p > 0 ? (p - landed) / p : 0));
+    // A price of 0 on a line that costs something (no ceiling, no manual price) is
+    // a give-away, not a 0% margin: -100% so BELOW_COST holds it for a price.
+    const margins = prices.map((p) => (p > 0 ? (p - landed) / p : landed > 0 ? -1 : 0));
 
     const status: LineStatus[] = [
       margins[0] < 0
