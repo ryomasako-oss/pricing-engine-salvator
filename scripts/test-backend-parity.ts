@@ -118,6 +118,7 @@ async function makeExpressDriver(): Promise<Driver> {
   const { fixTasksRouter } = await import("../server/routes/fixTasks.js");
   const { pendingItemsRouter } = await import("../server/routes/pendingItems.js");
   const { familiarityRouter } = await import("../server/routes/familiarity.js");
+  const { listDraftsRouter } = await import("../server/routes/listDrafts.js");
   const { run } = await import("../server/db.js");
 
   const app = express();
@@ -136,6 +137,7 @@ async function makeExpressDriver(): Promise<Driver> {
   app.use("/api/fix-tasks", fixTasksRouter);
   app.use("/api/pending-items", pendingItemsRouter);
   app.use("/api/familiarity", familiarityRouter);
+  app.use("/api/list-drafts", listDraftsRouter);
 
   let server: Server;
   await new Promise<void>((resolve) => {
@@ -232,6 +234,7 @@ async function makeWorkerDriver(): Promise<Driver> {
   const { fixTasksRouter } = await import("../server/worker/routes/fixTasks.js");
   const { pendingItemsRouter } = await import("../server/worker/routes/pendingItems.js");
   const { familiarityRouter } = await import("../server/worker/routes/familiarity.js");
+  const { listDraftsRouter } = await import("../server/worker/routes/listDrafts.js");
   const { run } = await import("../server/db.d1.js");
 
   const app = new Hono();
@@ -248,6 +251,7 @@ async function makeWorkerDriver(): Promise<Driver> {
   app.route("/api/fix-tasks", fixTasksRouter);
   app.route("/api/pending-items", pendingItemsRouter);
   app.route("/api/familiarity", familiarityRouter);
+  app.route("/api/list-drafts", listDraftsRouter);
 
   const agent = await makeFakeAgent();
   const env: Record<string, unknown> = {
@@ -3210,6 +3214,149 @@ scenario("familiarity → Dari list klien: for one wording the newest decision w
   assert.deepEqual(reviewedAgain, { status: "exact", via: "alias", best: "FAM-HL-OR" });
   assert.notEqual(ignored.via, "alias");
   return { fromReview, fromTraining, reviewedAgain, ignored };
+});
+
+/* ---------- Draft "Dari list klien" (2026-10-23): save, send to a PIC, finish into a quote ---------- */
+
+const DRAFT_LINES = [{ name: "pulpen hitam", qty: 2, uom: "Pcs" }, { name: "barang tak dikenal", qty: 1 }];
+const draftBody = (over: Record<string, unknown> = {}) => ({
+  title: "List PT Draft",
+  file_name: "list.xlsx",
+  notes: ["Kolom qty terbaca"],
+  lines: DRAFT_LINES,
+  choices: [
+    { chosen: { kind: "catalog", code: "FAM-PEN-BK" }, confirmed: true, extra: [] },
+    { chosen: null, confirmed: false, extra: [] },
+  ],
+  ...over,
+});
+const draftShape = (d: any) => ({
+  title: d.title,
+  file_name: d.file_name,
+  rows: d.rows,
+  status: d.status,
+  created_by_name: d.created_by_name,
+  assigned_to_name: d.assigned_to_name,
+  assign_note: d.assign_note,
+  version: d.version,
+  has_quote: d.quote_id != null,
+});
+
+scenario("list draft: a rep saves, sends it to a PIC who finishes it into a quote; a third user can't read or write it", async (d) => {
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const rep2 = await loginCached(d, "rep2@test.local", "password123");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const users = (await d.api("GET", "/api/list-drafts/users", { session: rep })).json.users as any[];
+  // Any signed-in user may pick a PIC: names and roles only.
+  assert.deepEqual(Object.keys(users[0]).sort(), ["id", "name", "role"]);
+  const rep2Id = (await d.api("GET", "/api/auth/me", { session: rep2 })).json.user.id as number;
+
+  const saved = await d.api("POST", "/api/list-drafts", { body: draftBody(), session: rep });
+  assert.equal(saved.status, 201, JSON.stringify(saved.json));
+  const id = saved.json.draft.id as number;
+  const stranger = await d.api("GET", `/api/list-drafts/${id}`, { session: rep2 });
+  const strangerPut = await d.api("PUT", `/api/list-drafts/${id}`, { body: draftBody({ version: 1 }), session: rep2 });
+  const strangerSend = await d.api("POST", `/api/list-drafts/${id}/send`, { body: { assigned_to: rep2Id }, session: rep2 });
+  const strangerQuote = await d.api("POST", "/api/quotes", { body: { title: "x", draft_id: id }, session: rep2 });
+  const strangerList = (await d.api("GET", "/api/list-drafts", { session: rep2 })).json.drafts.length;
+
+  const sent = await d.api("POST", `/api/list-drafts/${id}/send`, { body: { assigned_to: rep2Id, note: "Tolong selesaikan" }, session: rep });
+  assert.equal(sent.status, 200, JSON.stringify(sent.json));
+  const picList = (await d.api("GET", "/api/list-drafts", { session: rep2 })).json.drafts.map(draftShape);
+  const picRead = await d.api("GET", `/api/list-drafts/${id}`, { session: rep2 });
+  const managerRead = (await d.api("GET", `/api/list-drafts/${id}`, { session: manager })).status;
+
+  // The PIC works on it: one save, then a save from the stale version (the creator's tab) is refused.
+  const picSave = await d.api("PUT", `/api/list-drafts/${id}`, { body: draftBody({ title: "List PT Draft (PIC)", version: picRead.json.draft.version }), session: rep2 });
+  const stale = await d.api("PUT", `/api/list-drafts/${id}`, { body: draftBody({ version: picRead.json.draft.version }), session: rep });
+
+  const quote = await d.api("POST", "/api/quotes", { body: { title: "Penawaran dari draft", draft_id: id }, session: rep2 });
+  assert.equal(quote.status, 201, JSON.stringify(quote.json));
+  const again = await d.api("POST", "/api/quotes", { body: { title: "Dua kali", draft_id: id }, session: rep2 });
+  const afterDone = await d.api("GET", `/api/list-drafts/${id}`, { session: rep2 });
+  const doneList = (await d.api("GET", "/api/list-drafts", { session: rep2 })).json.drafts.length;
+  const saveDone = (await d.api("PUT", `/api/list-drafts/${id}`, { body: draftBody({ version: afterDone.json.draft.version }), session: rep2 })).status;
+
+  // Only creator, PIC, or a manager: the stranger is refused on every route, and the list hides it.
+  assert.deepEqual([stranger.status, strangerPut.status, strangerSend.status, strangerQuote.status, strangerList], [403, 403, 403, 403, 0]);
+  assert.equal(managerRead, 200);
+  assert.equal(picRead.status, 200);
+  assert.equal(picSave.status, 200);
+  assert.equal(stale.status, 409);
+  assert.equal(again.status, 409);
+  assert.equal(afterDone.json.draft.status, "done");
+  assert.equal(afterDone.json.draft.quote_id, quote.json.quote.id);
+  assert.equal(doneList, 0);
+  assert.equal(saveDone, 409);
+  return {
+    saved: draftShape(saved.json.draft),
+    stranger: [stranger.status, strangerPut.status, strangerSend.status, strangerQuote.status, strangerList],
+    sent: draftShape(sent.json.draft),
+    picList,
+    picRead: { lines: picRead.json.draft.lines, choices: picRead.json.draft.choices, notes: picRead.json.draft.notes },
+    managerRead,
+    picSave: [picSave.status, picSave.json.draft?.version],
+    stale: [stale.status, stale.json.error],
+    again: [again.status, again.json.error],
+    afterDone: { ...draftShape(afterDone.json.draft), quote_matches: afterDone.json.draft.quote_id === quote.json.quote.id },
+    doneList,
+    saveDone,
+  };
+});
+
+scenario("list draft: input is checked, only an active PIC, only the creator or a manager cancels", async (d) => {
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const rep2 = await loginCached(d, "rep2@test.local", "password123");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const rep2Id = (await d.api("GET", "/api/auth/me", { session: rep2 })).json.user.id as number;
+  const mismatch = await d.api("POST", "/api/list-drafts", { body: draftBody({ choices: [] }), session: rep });
+  const empty = await d.api("POST", "/api/list-drafts", { body: draftBody({ lines: [], choices: [] }), session: rep });
+  const badClient = await d.api("POST", "/api/list-drafts", { body: draftBody({ client_id: 999999 }), session: rep });
+  const badPick = await d.api("POST", "/api/list-drafts", {
+    body: draftBody({ choices: [{ chosen: { kind: "catalog", code: "" }, confirmed: true, extra: [] }, { chosen: null, confirmed: false, extra: [] }] }),
+    session: rep,
+  });
+  const noVersion = await d.api("PUT", "/api/list-drafts/1", { body: draftBody(), session: rep });
+
+  const id = (await d.api("POST", "/api/list-drafts", { body: draftBody({ title: "Batal" }), session: rep })).json.draft.id as number;
+  const ghost = await d.api("POST", `/api/list-drafts/${id}/send`, { body: { assigned_to: 999999 }, session: rep });
+  await d.api("POST", `/api/list-drafts/${id}/send`, { body: { assigned_to: rep2Id }, session: rep });
+  const picCancel = await d.api("DELETE", `/api/list-drafts/${id}`, { session: rep2 });
+  const managerCancel = await d.api("DELETE", `/api/list-drafts/${id}`, { session: manager });
+  const twice = await d.api("DELETE", `/api/list-drafts/${id}`, { session: rep });
+  const quoteFromCancelled = await d.api("POST", "/api/quotes", { body: { title: "x", draft_id: id }, session: rep });
+  const missing = await d.api("GET", "/api/list-drafts/999999", { session: manager });
+  assert.deepEqual([mismatch.status, empty.status, badClient.status, badPick.status, noVersion.status], [400, 400, 400, 400, 400]);
+  assert.deepEqual([ghost.status, picCancel.status, managerCancel.status, twice.status, quoteFromCancelled.status, missing.status], [400, 403, 200, 409, 409, 404]);
+  return {
+    invalid: [mismatch.status, empty.status, badClient.status, badPick.status, noVersion.status],
+    ghost: [ghost.status, ghost.json.error],
+    picCancel: [picCancel.status, picCancel.json.error],
+    managerCancel: managerCancel.status,
+    twice: [twice.status, twice.json.error],
+    quoteFromCancelled: quoteFromCancelled.status,
+    missing: missing.status,
+  };
+});
+
+scenario("list draft: a draft stores picks, never catalog numbers, so a rep handed a manager's draft sees no COGS", async (d) => {
+  await seedFamiliarityCatalog(d);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const repId = (await d.api("GET", "/api/auth/me", { session: rep })).json.user.id as number;
+  const id = (await d.api("POST", "/api/list-drafts", { body: draftBody({ title: "Dari manajer" }), session: manager })).json.draft.id as number;
+  await d.api("POST", `/api/list-drafts/${id}/send`, { body: { assigned_to: repId }, session: manager });
+  const read = await d.api("GET", `/api/list-drafts/${id}`, { session: rep });
+  // Opening it re-matches the lines as the rep: the same viewer filter as any match.
+  const match = await d.api("POST", "/api/catalog/match", { body: { lines: read.json.draft.lines }, session: rep });
+  assert.equal(read.status, 200);
+  assert.deepEqual(leaksIn(read.json), []);
+  assert.deepEqual(leaksIn(match.json), []);
+  return {
+    leaksInDraft: leaksIn(read.json),
+    leaksInMatch: leaksIn(match.json),
+    picks: read.json.draft.choices.map((c: any) => c.chosen?.code ?? null),
+  };
 });
 
 async function main() {

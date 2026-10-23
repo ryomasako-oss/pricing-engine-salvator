@@ -20,6 +20,7 @@ import { accurateRouter } from "./routes/accurate";
 import { fixTasksRouter } from "./routes/fixTasks";
 import { pendingItemsRouter } from "./routes/pendingItems";
 import { familiarityRouter } from "./routes/familiarity";
+import { listDraftsRouter } from "./routes/listDrafts";
 import { DIGEST_CRON, runFixDigest } from "./fixDigest";
 import { appLink, notifyEmail } from "./notify";
 import { runAccurateRecap } from "./accurateRecap";
@@ -69,6 +70,7 @@ app.route("/api/chat", chatRouter);
 app.route("/api/fix-tasks", fixTasksRouter);
 app.route("/api/pending-items", pendingItemsRouter);
 app.route("/api/familiarity", familiarityRouter);
+app.route("/api/list-drafts", listDraftsRouter);
 app.route("/api/settings", settingsRouter);
 app.route("/api/accurate", accurateRouter);
 

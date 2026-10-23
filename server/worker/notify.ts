@@ -197,3 +197,24 @@ export async function notifyQuoteReassigned(
     notifyWhatsApp(env, params.recipient.phone, wa),
   ]);
 }
+
+/** A "Dari list klien" draft was sent to a PIC to finish (server/listDrafts.ts). */
+export async function notifyDraftAssigned(
+  env: Bindings,
+  params: { recipient: Recipient; draftId: number; draftTitle: string; rows: number; sentBy: string; note: string },
+): Promise<void> {
+  const link = `${appUrl(env)}/?draft=${params.draftId}`;
+  const title = escapeHtml(params.draftTitle || "Tanpa judul");
+  const by = escapeHtml(params.sentBy);
+  const note = escapeHtml(params.note);
+  const subject = `List klien untuk Anda kerjakan: ${params.draftTitle || "Tanpa judul"}`;
+  const html =
+    `<p>${by} mengirim list klien <strong>${title}</strong> (${params.rows} baris) untuk Anda cocokkan dan jadikan quotation.</p>` +
+    (note ? `<p>Catatan: ${note}</p>` : "") +
+    `<p><a href="${link}">Buka list</a></p>`;
+  const wa =
+    `${params.sentBy} mengirim list klien "${params.draftTitle || "Tanpa judul"}" (${params.rows} baris) untuk Anda kerjakan.` +
+    (params.note ? ` Catatan: ${params.note}` : "") +
+    `\n${link}`;
+  await Promise.all([notifyEmail(env, params.recipient.email, subject, html), notifyWhatsApp(env, params.recipient.phone, wa)]);
+}

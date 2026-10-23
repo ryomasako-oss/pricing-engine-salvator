@@ -6,11 +6,13 @@ import { useToast } from "../context/ToastContext";
 import { ClientQuickAdd } from "../components/ClientQuickAdd";
 import { Icon } from "../components/Icon";
 import { ListToQuote } from "../components/ListToQuote";
+import { ListDrafts } from "../components/ListDrafts";
 import { ChatHome } from "../components/ChatHome";
 import { Modal } from "../components/Modal";
 import { StatusChip } from "../components/pricing";
 import { fmtDateTime, pct, rp } from "@shared/format";
 import type { Client, QuoteStatus } from "@shared/types";
+import type { DraftSummary } from "@shared/listDrafts";
 
 interface QuoteRow {
   id: number;
@@ -54,6 +56,25 @@ export function DashboardPage() {
   const [fromList, setFromList] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const userIdFilter = searchParams.get("user_id");
+  // ?draft=12 (the link in the PIC's email) opens that saved list.
+  const draftParam = Number(searchParams.get("draft")) || null;
+  const [openDraft, setOpenDraft] = useState<number | null>(draftParam);
+  const [drafts, setDrafts] = useState<DraftSummary[]>([]);
+  const loadDrafts = useCallback(() => {
+    api
+      .get<{ drafts: DraftSummary[] }>("/list-drafts")
+      .then((r) => setDrafts(r.drafts))
+      .catch(() => setDrafts([]));
+  }, []);
+  useEffect(loadDrafts, [loadDrafts]);
+  const closeDraft = () => {
+    setOpenDraft(null);
+    if (searchParams.has("draft")) {
+      const next = new URLSearchParams(searchParams);
+      next.delete("draft");
+      setSearchParams(next, { replace: true });
+    }
+  };
   const userNameFilter = searchParams.get("user_name");
 
   const clearUserFilter = () => {
@@ -133,6 +154,8 @@ export function DashboardPage() {
       </div>
 
       <ChatHome />
+
+      <ListDrafts drafts={drafts} onOpen={setOpenDraft} onChanged={loadDrafts} />
 
       <div className="kpi-grid" style={{ marginBottom: 16 }}>
         <div className="kpi">
@@ -269,6 +292,20 @@ export function DashboardPage() {
           onClose={() => setFromList(false)}
           onClientAdded={(c) => setClients((l) => [...l, c].sort((a, b) => a.name.localeCompare(b.name)))}
           onCreated={(id) => navigate(`/quotes/${id}`)}
+          onDraftChanged={loadDrafts}
+        />
+      )}
+
+      {openDraft != null && (
+        <ListToQuote
+          // A new key per draft: the review state belongs to the draft it was opened for.
+          key={openDraft}
+          clients={clients}
+          draftId={openDraft}
+          onClose={closeDraft}
+          onClientAdded={(c) => setClients((l) => [...l, c].sort((a, b) => a.name.localeCompare(b.name)))}
+          onCreated={(id) => navigate(`/quotes/${id}`)}
+          onDraftChanged={loadDrafts}
         />
       )}
 
