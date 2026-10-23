@@ -71,7 +71,7 @@ export interface AccurateRecap {
    * day. They start with COGS 0: one with a receipt gets it through "Terapkan COGS", one
    * without needs it by hand. Absent from an app older than this field.
    */
-  newItems?: { added: number; withReceipt: number; top: RecapNewItem[] };
+  newItems?: { added: number; withReceipt: number; held: number; top: RecapNewItem[] };
 }
 
 export interface RecapNewItem {
@@ -79,7 +79,12 @@ export interface RecapNewItem {
   name: string;
   /** Latest purchase price waiting in the preview (0: no receipt, COGS by hand). */
   cost: number;
+  /** The guard holds that price back (receipts disagree): a manager ticks it in "Ditahan". */
+  held: boolean;
 }
+
+/** Order of the new-items table: what needs a person first (by hand, then held), then what Terapkan will price. */
+const rank = (i: RecapNewItem) => (i.cost <= 0 ? 0 : i.held ? 1 : 2);
 
 const jump = (c: { from: number; to: number }) => (c.from > 0 ? (c.to - c.from) / c.from : Infinity);
 
@@ -93,8 +98,14 @@ export function buildRecap(input: {
 }): AccurateRecap {
   const p = input.preview;
   const changed = p?.changed ?? [];
-  const cost = new Map([...changed, ...(p?.held ?? [])].map((c) => [c.code, c.to]));
-  const fresh = (input.newItems ?? []).map((i) => ({ code: i.code, name: i.name, cost: cost.get(i.code) ?? 0 }));
+  const cost = new Map(changed.map((c) => [c.code, c.to]));
+  const heldCost = new Map((p?.held ?? []).map((c) => [c.code, c.to]));
+  const fresh = (input.newItems ?? []).map((i) => ({
+    code: i.code,
+    name: i.name,
+    cost: cost.get(i.code) ?? heldCost.get(i.code) ?? 0,
+    held: !cost.has(i.code) && heldCost.has(i.code),
+  }));
   const byJump = [...changed].sort((a, b) => Math.abs(jump(b)) - Math.abs(jump(a)) || a.code.localeCompare(b.code));
   return {
     date: new Date(input.now.getTime() + 7 * 3_600_000).toISOString().slice(0, 10),
@@ -119,9 +130,10 @@ export function buildRecap(input: {
       : [],
     newItems: {
       added: fresh.length,
-      withReceipt: fresh.filter((i) => i.cost > 0).length,
+      withReceipt: fresh.filter((i) => i.cost > 0 && !i.held).length,
+      held: fresh.filter((i) => i.held).length,
       // Those still needing a COGS by hand first: they are the ones nothing else will fix.
-      top: [...fresh].sort((a, b) => Number(a.cost > 0) - Number(b.cost > 0) || a.code.localeCompare(b.code)).slice(0, TOP_N),
+      top: [...fresh].sort((a, b) => rank(a) - rank(b) || a.code.localeCompare(b.code)).slice(0, TOP_N),
     },
   };
 }
@@ -175,7 +187,8 @@ export function recapPrompt(r: AccurateRecap): string {
   }
   if (r.newItems?.added) {
     const n = r.newItems;
-    lines.push(`Barang baru dari Accurate masuk katalog (24 jam terakhir, COGS masih kosong): ${grp(n.added)}; punya RI (ikut Terapkan COGS): ${grp(n.withReceipt)}; tanpa RI (isi COGS manual): ${grp(n.added - n.withReceipt)}`);
+    const held = n.held ?? 0;
+    lines.push(`Barang baru dari Accurate masuk katalog (24 jam terakhir, COGS masih kosong): ${grp(n.added)}; punya RI (ikut Terapkan COGS): ${grp(n.withReceipt)}; ditahan (RI tidak sepakat): ${grp(held)}; tanpa RI (isi COGS manual): ${grp(n.added - n.withReceipt - held)}`);
   }
   const checks = r.checks.filter((c) => c.count > 0);
   if (checks.length) {
@@ -278,15 +291,18 @@ export function recapEmail(
   }
   if (r.newItems?.added) {
     const n = r.newItems;
-    const manual = n.added - n.withReceipt;
+    const manual = n.added - n.withReceipt - n.held;
     parts.push(
       `<h3>Barang baru dari Accurate (${grp(n.added)})</h3>` +
         `<p><small>Masuk katalog otomatis dalam 24 jam terakhir dengan COGS kosong, jadi masih ditahan di quotation. ` +
         `${grp(n.withReceipt)} punya penerimaan barang: COGS-nya ikut saat Terapkan COGS. ` +
+        (n.held ? `${grp(n.held)} ditahan karena harga di RI-nya tidak sepakat: cek lalu centang di tabel Ditahan. ` : "") +
         `${grp(manual)} belum punya: isi COGS manual di Katalog.</small></p>` +
         `<table style="border-collapse:collapse;font-size:13px">` +
         `<tr>${th("Kode")}${th("Nama")}${th("Pembelian terakhir", true)}</tr>` +
-        n.top.map((i) => `<tr>${td(esc(i.code))}${td(esc(i.name))}${td(i.cost > 0 ? esc(rp(i.cost)) : "<strong>isi manual</strong>", true)}</tr>`).join("") +
+        n.top
+          .map((i) => `<tr>${td(esc(i.code))}${td(esc(i.name))}${td(i.cost > 0 ? esc(rp(i.cost)) + (i.held ? " <small>(ditahan)</small>" : "") : "<strong>isi manual</strong>", true)}</tr>`)
+          .join("") +
         `</table>` +
         (n.added > n.top.length ? `<p><small>${n.top.length} dari ${grp(n.added)} ditampilkan.</small></p>` : ""),
     );

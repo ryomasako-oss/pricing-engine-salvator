@@ -133,10 +133,13 @@ describe("runAccurateRecap (rekap Accurate pagi, Silvy)", () => {
     const silvy = fakeSilvy({ status: 200, body: { content: "ok" } });
     const sent: { subject: string; html: string }[] = [];
     await runAccurateRecap(env(db), { now: NOW, link: "x", fetchImpl: silvy.impl, send: async (_to, subject, html) => void sent.push({ subject, html }) });
+    // One receipt and no COGS yet: nothing for the guard to compare with, so Terapkan COGS writes it.
+    expect(silvy.calls[0].body.recap.cogs.topHeld).toEqual([]);
     expect(silvy.calls[0].body.recap.newItems).toEqual({
       added: 2,
       withReceipt: 1,
-      top: [{ code: "103300", name: "Map baru", cost: 0 }, { code: "103279", name: "JOYKO MECHANICAL PENCIL MP-52", cost: 2083.33 }],
+      held: 0,
+      top: [{ code: "103300", name: "Map baru", cost: 0, held: false }, { code: "103279", name: "JOYKO MECHANICAL PENCIL MP-52", cost: 2083.33, held: false }],
     });
     expect(sent[0].subject).toContain("2 barang baru");
     expect(sent[0].html).not.toContain("OLDNEW");
