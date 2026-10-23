@@ -45,6 +45,10 @@ ACCURATE_CALLS_PER_TICK = "60"
 # other is synced, if it has a token, for the cross-entity checks only.
 ACCURATE_CATALOG_ENTITY = "PT"
 ACCURATE_SYNC_EVERY_HOURS = "6"
+# Items new in Accurate are added to the catalog after each completed run
+# (COGS 0, so held on quotes until a manager applies one). Existing items
+# still change only through "Terapkan". Set "false" to stop.
+ACCURATE_AUTO_NEW_ITEMS = "true"
 # Goods receipts → COGS = harga pembelian terakhir. Verified on PT
 # 2026-10-15 with GET /api/accurate/probe: RI.2026.05.00210 gives 101311 at
 # 11.005.000 (= Mutasi), and the lastUpdate filter narrows 7.469 receipts to

@@ -119,4 +119,26 @@ describe("runAccurateRecap (rekap Accurate pagi, Silvy)", () => {
     expect(queries()).toBeLessThan(25);
     expect(queries()).toBeLessThan(PAID_PLAN.d1Queries);
   });
+
+  it("lists the items the cron added in the last day, with the purchase price waiting for them", async () => {
+    const { sqlite, db } = freshDb();
+    seed(sqlite);
+    sqlite.exec(`INSERT INTO catalog_items(code, name, uom, cogs, list_price) VALUES ('103279', 'JOYKO MECHANICAL PENCIL MP-52', 'PCS', 0, 0), ('103300', 'Map baru', 'Pcs', 0, 0), ('OLDNEW', 'Kemarin lusa', 'Pcs', 0, 0)`);
+    sqlite.exec(`INSERT INTO accurate_items(entity, accurate_id, code, name, uom, unit_price, units, run_id) VALUES ('PT', 64601, '103279', 'JOYKO MECHANICAL PENCIL MP-52', 'PCS', 0, '[]', 'r')`);
+    sqlite.exec(`INSERT INTO accurate_receipt_lines(entity, receipt_id, line_id, receipt_no, trans_date, item_code, unit, quantity, unit_price) VALUES
+      ('PT', 104308, 116382, 'RI.2026.10.00309', '2026-10-16', '103279', 'PCS', 12, 2083.333333)`);
+    sqlite.exec(`INSERT INTO audit_log(actor_id, entity, entity_id, action, detail, created_at) VALUES
+      (NULL, 'catalog', 0, 'accurate_new_items', '{"entity":"PT","added":2,"codes":["103279","103300"]}', '2026-10-15 20:00:00'),
+      (NULL, 'catalog', 0, 'accurate_new_items', '{"entity":"PT","added":1,"codes":["OLDNEW"]}', '2026-10-14 20:00:00')`);
+    const silvy = fakeSilvy({ status: 200, body: { content: "ok" } });
+    const sent: { subject: string; html: string }[] = [];
+    await runAccurateRecap(env(db), { now: NOW, link: "x", fetchImpl: silvy.impl, send: async (_to, subject, html) => void sent.push({ subject, html }) });
+    expect(silvy.calls[0].body.recap.newItems).toEqual({
+      added: 2,
+      withReceipt: 1,
+      top: [{ code: "103300", name: "Map baru", cost: 0 }, { code: "103279", name: "JOYKO MECHANICAL PENCIL MP-52", cost: 2083.33 }],
+    });
+    expect(sent[0].subject).toContain("2 barang baru");
+    expect(sent[0].html).not.toContain("OLDNEW");
+  });
 });
