@@ -105,3 +105,45 @@ describe("held changes (guard for Terapkan, 2026-10-17)", () => {
   });
 });
 
+
+describe("barang baru dari Accurate (2026-10-23)", () => {
+  const quiet = { preview: { withReceipt: 1, changed: [change("103279", 0, 2083.33)], unchanged: 0, skipped: [], noReceipt: 0 }, counts: zeroCounts };
+  const fresh = [{ code: "103279", name: "JOYKO MECHANICAL PENCIL MP-52" }, { code: "103300", name: "Map <baru>" }];
+
+  it("splits new items into those a receipt will price and those needing a COGS by hand, the latter first", () => {
+    const r = recap({ ...quiet, newItems: fresh });
+    expect(r.newItems).toEqual({
+      added: 2,
+      withReceipt: 1,
+      held: 0,
+      top: [{ code: "103300", name: "Map <baru>", cost: 0, held: false }, { code: "103279", name: "JOYKO MECHANICAL PENCIL MP-52", cost: 2083.33, held: false }],
+    });
+    const mail = recapEmail(r, null, "https://x");
+    expect(mail.subject).toContain("2 barang baru");
+    expect(mail.html).toContain("Barang baru dari Accurate (2)");
+    expect(mail.html).toContain("Map &lt;baru&gt;");
+    expect(mail.html).toContain("<strong>isi manual</strong>");
+    expect(mail.html).toContain("Rp 2.083");
+    expect(recapPrompt(r)).toContain("tanpa RI (isi COGS manual): 1");
+  });
+
+  it("a new item whose receipts disagree is held, not promised to Terapkan COGS", () => {
+    const held = [{ code: "103300", name: "Map <baru>", from: 0, to: 90_000, receiptNo: "RI.2", transDate: "2026-10-20", reason: "Harga beli Rp 90.000 lebih dari dua kali harga beli sebelumnya" }];
+    const r = recap({ ...quiet, preview: { ...quiet.preview, held }, newItems: fresh });
+    expect(r.newItems).toMatchObject({ added: 2, withReceipt: 1, held: 1 });
+    expect(r.newItems!.top.map((i) => [i.code, i.held])).toEqual([["103300", true], ["103279", false]]);
+    const mail = recapEmail(r, null, "https://x");
+    expect(mail.html).toContain("1 ditahan karena harga di RI-nya tidak sepakat");
+    expect(mail.html).toContain("Rp 90.000 <small>(ditahan)</small>");
+    expect(recapPrompt(r)).toContain("ditahan (RI tidak sepakat): 1; tanpa RI (isi COGS manual): 0");
+  });
+
+  it("new items alone are worth an email; none and an app without the field are not", () => {
+    const nothing = { preview: { withReceipt: 0, changed: [], unchanged: 0, skipped: [], noReceipt: 0 }, counts: zeroCounts };
+    expect(recapIsEmpty(recap({ ...nothing, newItems: fresh.slice(1) }))).toBe(false);
+    expect(recapIsEmpty(recap({ ...nothing, newItems: [] }))).toBe(true);
+    const old = { ...recap(nothing), newItems: undefined };
+    expect(recapIsEmpty(old)).toBe(true);
+    expect(recapPrompt(old)).not.toContain("Barang baru");
+  });
+});

@@ -38,6 +38,8 @@ export interface Bindings {
   ACCURATE_CALLS_PER_TICK?: string;
   ACCURATE_SYNC_EVERY_HOURS?: string;
   ACCURATE_SYNC_ENABLED?: string;
+  /** Items new in Accurate join the catalog after each completed run (accurate/newItems.ts). On unless "false". */
+  ACCURATE_AUTO_NEW_ITEMS?: string;
   /** Goods receipts → COGS = harga pembelian terakhir (accurate/receipts.ts). Off unless "true". */
   ACCURATE_RECEIPTS_ENABLED?: string;
   /** First pass only: receipts dated on or after this day, YYYY-MM-DD (default: one year back). */

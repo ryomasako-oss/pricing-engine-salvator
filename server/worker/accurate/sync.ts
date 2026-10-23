@@ -12,6 +12,7 @@
    Rows not seen by the finishing run (deleted in Accurate) are pruned.
    ============================================================ */
 
+import { addNewItems } from "./newItems";
 import { reconcileDue, runReconcile } from "./reconcile";
 import { all, batch, get, run, stmt } from "../../db.d1";
 import { AccurateClient, AccurateError, type AccurateCreds } from "./client";
@@ -302,7 +303,10 @@ export async function syncTick(env: Bindings, opts: { deadlineMs: number }): Pro
   // token failing on every tick meant PT was never checked). Its step plus
   // the check stays within 50 (accurate/reconcile.test.ts).
   const mine = catalogEntity(env);
+  // The same once-per-run moment adds the items new in Accurate first, so the
+  // check already sees them in the catalog.
   if (out.find((r) => r.entity === mine)?.outcome === "idle" && (await reconcileDue(env.DB, mine))) {
+    if (env.ACCURATE_AUTO_NEW_ITEMS !== "false") await addNewItems(env.DB, mine);
     await runReconcile(env.DB, mine);
   }
   return out;

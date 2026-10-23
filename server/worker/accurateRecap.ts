@@ -41,12 +41,22 @@ export async function runAccurateRecap(
   const preview = st.last_pass_at ? await applyPurchaseCosts(db, entity, { dryRun: true }) : null;
   const staged = await get<{ n: number }>(db, "SELECT COUNT(*) AS n FROM accurate_items WHERE entity = ?", entity);
   const counts = staged?.n ? await reconcileCounts(db, entity) : null;
+  // Items the cron added on their own since yesterday's recap (accurate/newItems.ts).
+  const newItems = await all<{ code: string; name: string }>(
+    db,
+    `SELECT c.code, c.name FROM catalog_items c
+      WHERE c.code IN (SELECT j.value FROM audit_log a, json_each(a.detail, '$.codes') j
+                        WHERE a.action = 'accurate_new_items' AND a.created_at >= datetime(?, '-1 day'))
+      ORDER BY c.code`,
+    opts.now.toISOString().slice(0, 19).replace("T", " "),
+  );
   const recap = buildRecap({
     now: opts.now,
     entity,
     receipts: { lastPassAt: st.last_pass_at, inProgress: !!st.pass_started_at, receiptsSeen: st.receipts_seen },
     preview,
     counts,
+    newItems,
   });
 
   // Marked before Silvy and the send, like the fix digest: a missed email beats a double one.
@@ -74,6 +84,7 @@ export async function runAccurateRecap(
     date: today,
     recipients: recipients.length,
     changed: recap.cogs.changed,
+    newItems: recap.newItems?.added ?? 0,
     silvy: narrative ? "ok" : "failed",
     ...(error ? { error: error.slice(0, 200) } : {}),
   });
