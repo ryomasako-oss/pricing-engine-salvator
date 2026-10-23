@@ -6,7 +6,7 @@
    service URL and whose service account holds roles/run.invoker.
 
    Pure WebCrypto + fetch, like gmail.ts, so it runs unmodified in
-   the Express backend and the Cloudflare Worker. Tokens are cached
+   the Cloudflare Worker and under Node in tests. Tokens are cached
    in memory per audience until shortly before they expire.
    ============================================================ */
 

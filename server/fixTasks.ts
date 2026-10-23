@@ -1,5 +1,5 @@
-/* SQL for "Perlu diperbaiki" (shared/fixTasks.ts), used by both backends
-   so Express and the Worker store, scope and show tasks the same way. */
+/* SQL for "Perlu diperbaiki" (shared/fixTasks.ts): how the Worker stores,
+   scopes and shows tasks. */
 
 import { dedupeKey, type NewFixTask, type FixKind } from "../shared/fixTasks.js";
 import type { Role } from "../shared/types.js";

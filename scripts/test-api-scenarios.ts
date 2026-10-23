@@ -1,24 +1,21 @@
 /* ============================================================
-   Parity test: Express/node:sqlite backend vs. Worker/D1 backend.
+   API scenarios against the Worker app (server/worker) on a D1 shim.
 
-   The project note for this codebase flags that these two backends
-   duplicate the same route/service logic (server/routes/quotes.ts vs
-   server/worker/routes/quotes.ts) and "had already drifted once
-   before". This script runs the *same* sequence of real HTTP-shaped
-   requests against both real route files and diffs the meaningful
-   parts of every response — so a future edit that touches one side
-   but not its twin gets caught automatically instead of by manual
-   review.
+   Each scenario drives the real routes over HTTP-shaped requests and
+   returns the parts of the answers that matter. Until 2026-10-23 these
+   ran against two backends (Express and the Worker) and the two answers
+   were diffed: that diff was what checked the many scenarios that return
+   values without asserting them. Express is retired, so the answers both
+   backends agreed on that day are kept in api-scenarios.golden.json and
+   every run is compared with them instead. A change in an answer is
+   either a regression or an intended change: for the latter, check the
+   diff and rewrite the file with UPDATE_GOLDEN=1.
 
-   The Worker side runs against a D1Database shim backed by
-   node:sqlite (see d1-sqlite-shim.ts) rather than a full `wrangler
-   dev`/workerd instance: D1 is SQLite underneath, so statement
-   semantics line up, and this stays fast and dependency-free. It is
-   not a substitute for occasionally smoke-testing the real Worker
-   with `wrangler dev` — it only proves the two route/service files
-   make the same decisions given the same inputs.
+   The D1 shim (d1-sqlite-shim.ts) is node:sqlite behind D1's API: the
+   same statements, without workerd. e2e runs the app in real workerd.
 
-   Run: npx tsx scripts/test-backend-parity.ts
+   Run: npx tsx scripts/test-api-scenarios.ts
+        UPDATE_GOLDEN=1 npx tsx scripts/test-api-scenarios.ts
    ============================================================ */
 
 import { DatabaseSync } from "node:sqlite";
@@ -94,122 +91,6 @@ interface Driver {
   teardown(): Promise<void>;
 }
 
-// ---------------------------------------------------------------
-// Express driver — real app.listen(), real node:sqlite.
-// ---------------------------------------------------------------
-async function makeExpressDriver(): Promise<Driver> {
-  const dbDir = mkdtempSync(path.join(tmpdir(), "hk-parity-express-"));
-  process.env.DATABASE_PATH = path.join(dbDir, "test.db");
-  process.env.JWT_SECRET = "test-only-secret-not-for-production-0000000000";
-  process.env.NODE_ENV = "test";
-
-  const express = (await import("express")).default;
-  const cookieParser = (await import("cookie-parser")).default;
-  const { loadUser, hashPassword } = await import("../server/auth.js");
-  const { authRouter } = await import("../server/routes/auth.js");
-  const { quotesRouter } = await import("../server/routes/quotes.js");
-  const { approvalsRouter } = await import("../server/routes/approvals.js");
-  const { catalogRouter } = await import("../server/routes/catalog.js");
-  const { clientsRouter } = await import("../server/routes/clients.js");
-  const { settingsRouter } = await import("../server/routes/settings.js");
-  const { assistantRouter } = await import("../server/routes/assistant.js");
-  const { ocrRouter } = await import("../server/routes/ocr.js");
-  const { chatRouter } = await import("../server/routes/chat.js");
-  const { fixTasksRouter } = await import("../server/routes/fixTasks.js");
-  const { pendingItemsRouter } = await import("../server/routes/pendingItems.js");
-  const { familiarityRouter } = await import("../server/routes/familiarity.js");
-  const { listDraftsRouter } = await import("../server/routes/listDrafts.js");
-  const { run } = await import("../server/db.js");
-
-  const app = express();
-  app.use(express.json());
-  app.use(cookieParser());
-  app.use(loadUser);
-  app.use("/api/auth", authRouter);
-  app.use("/api/quotes", quotesRouter);
-  app.use("/api/approvals", approvalsRouter);
-  app.use("/api/catalog", catalogRouter);
-  app.use("/api/clients", clientsRouter);
-  app.use("/api/settings", settingsRouter);
-  app.use("/api/assistant", assistantRouter);
-  app.use("/api/ocr", ocrRouter);
-  app.use("/api/chat", chatRouter);
-  app.use("/api/fix-tasks", fixTasksRouter);
-  app.use("/api/pending-items", pendingItemsRouter);
-  app.use("/api/familiarity", familiarityRouter);
-  app.use("/api/list-drafts", listDraftsRouter);
-
-  let server: Server;
-  await new Promise<void>((resolve) => {
-    server = app.listen(0, resolve);
-  });
-  const address = server!.address();
-  const port = typeof address === "object" && address ? address.port : 0;
-  const baseUrl = `http://127.0.0.1:${port}`;
-
-  const agent = await makeFakeAgent();
-  return {
-    name: "express",
-    agent,
-    setQuota(l) {
-      for (const k of ["SILVY_MONTHLY_LIMIT", "SILVY_USER_DAILY_LIMIT"]) delete process.env[k];
-      if (l?.monthly) process.env.SILVY_MONTHLY_LIMIT = String(l.monthly);
-      if (l?.perUserDay) process.env.SILVY_USER_DAILY_LIMIT = String(l.perUserDay);
-    },
-    setSilvy(mode) {
-      for (const k of ["SILVY_IAM_AUTH", "SILVY_TOKEN_URL", "GOOGLE_SERVICE_ACCOUNT_EMAIL", "GOOGLE_PRIVATE_KEY"]) delete process.env[k];
-      if (mode === "off") {
-        delete process.env.SILVY_URL;
-        delete process.env.SILVY_SHARED_SECRET;
-      } else {
-        process.env.SILVY_URL = mode === "down" ? "http://127.0.0.1:1" : agent.url;
-        process.env.SILVY_SHARED_SECRET = AGENT_SECRET;
-        if (mode === "iam" || mode === "iam-badkey") {
-          process.env.SILVY_IAM_AUTH = "true";
-          process.env.SILVY_TOKEN_URL = `${agent.url}/token`;
-          process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL = IAM_EMAIL;
-          process.env.GOOGLE_PRIVATE_KEY = mode === "iam" ? IAM_KEYS.privateKey : "not a key";
-        }
-      }
-    },
-    async api(method, routePath, opts = {}) {
-      const res = await fetch(`${baseUrl}${routePath}`, {
-        method,
-        headers: {
-          ...(opts.body !== undefined ? { "content-type": "application/json" } : {}),
-          ...(opts.session ? { cookie: opts.session.cookie } : {}),
-        },
-        body: opts.form ?? (opts.body !== undefined ? JSON.stringify(opts.body) : undefined),
-      });
-      const setCookie = res.headers.get("set-cookie");
-      const cookie = setCookie ? setCookie.split(";")[0] : undefined;
-      const json = res.status === 204 ? null : await res.json().catch(() => null);
-      return { status: res.status, json: cookie ? { ...json, __cookie: cookie } : json };
-    },
-    async login(email, password) {
-      const r = await this.api("POST", "/api/auth/login", { body: { email, password } });
-      if (r.status !== 200 || !r.json?.__cookie) throw new Error(`express login failed: ${r.status}`);
-      return { cookie: r.json.__cookie };
-    },
-    async seedUser(email, name, role, password) {
-      run(
-        `INSERT INTO users(email, name, password_hash, role) VALUES(?, ?, ?, ?)`,
-        email,
-        name,
-        hashPassword(password),
-        role,
-      );
-    },
-    async teardown() {
-      await agent.close();
-      await new Promise((resolve) => server!.close(resolve));
-      rmSync(dbDir, { recursive: true, force: true });
-    },
-  };
-}
-
-// ---------------------------------------------------------------
-// Worker driver — real Hono app.request(), D1 shim over node:sqlite.
 // ---------------------------------------------------------------
 async function makeWorkerDriver(): Promise<Driver> {
   const sqlite = new DatabaseSync(":memory:");
@@ -3359,33 +3240,32 @@ scenario("list draft: a draft stores picks, never catalog numbers, so a rep hand
   };
 });
 
+const GOLDEN = new URL("./api-scenarios.golden.json", import.meta.url);
+
 async function main() {
-  const express = await makeExpressDriver();
+  const { readFileSync, writeFileSync } = await import("node:fs");
+  const update = process.env.UPDATE_GOLDEN === "1";
+  const golden: Record<string, unknown> = update ? {} : JSON.parse(readFileSync(GOLDEN, "utf8"));
   const worker = await makeWorkerDriver();
-  for (const d of [express, worker]) {
-    await d.seedUser("rep@test.local", "Rep One", "rep", "password123");
-    await d.seedUser("manager@test.local", "Manager One", "manager", "password123");
-    await d.seedUser("rep2@test.local", "Rep Two", "rep", "password123");
-    await d.seedUser("admin@test.local", "Admin One", "admin", "password123");
-  }
+  await worker.seedUser("rep@test.local", "Rep One", "rep", "password123");
+  await worker.seedUser("manager@test.local", "Manager One", "manager", "password123");
+  await worker.seedUser("rep2@test.local", "Rep Two", "rep", "password123");
+  await worker.seedUser("admin@test.local", "Admin One", "admin", "password123");
 
   let passed = 0;
   const failures: { name: string; error: unknown }[] = [];
+  const names = new Set<string>();
 
   for (const s of scenarios) {
+    names.add(s.name);
     try {
-      // allSettled, not all: if one backend fails, the other's run must still
-      // finish before the next scenario starts, or its leftover writes leak
-      // into that scenario and one failure shows up as several.
-      const [e, w] = await Promise.allSettled([s.run(express), s.run(worker)]);
-      if (e.status === "rejected") throw e.reason;
-      if (w.status === "rejected") throw w.reason;
-      const [expressResult, workerResult] = [e.value, w.value];
-      assert.deepEqual(
-        workerResult,
-        expressResult,
-        `parity mismatch\n  express: ${JSON.stringify(expressResult)}\n  worker:  ${JSON.stringify(workerResult)}`,
-      );
+      // Through JSON, as stored: undefined fields drop out the same way on both sides.
+      const result = JSON.parse(JSON.stringify((await s.run(worker)) ?? null));
+      if (update) golden[s.name] = result;
+      else {
+        if (!(s.name in golden)) throw new Error("no golden answer yet: run with UPDATE_GOLDEN=1 and review the diff");
+        assert.deepEqual(result, golden[s.name], `answer changed\n  golden: ${JSON.stringify(golden[s.name])}\n  now:    ${JSON.stringify(result)}`);
+      }
       console.log(`  ok  ${s.name}`);
       passed++;
     } catch (error) {
@@ -3393,11 +3273,14 @@ async function main() {
       failures.push({ name: s.name, error });
     }
   }
+  // A scenario renamed or deleted leaves its answer behind; say so instead of keeping it silently.
+  const stale = update ? [] : Object.keys(golden).filter((n) => !names.has(n));
+  for (const n of stale) failures.push({ name: n, error: new Error("in the golden file but no longer a scenario: run with UPDATE_GOLDEN=1") });
 
-  await express.teardown();
+  if (update) writeFileSync(GOLDEN, JSON.stringify(golden, null, 1) + "\n");
   await worker.teardown();
 
-  console.log(`\n${passed}/${scenarios.length} passed.`);
+  console.log(`\n${passed}/${scenarios.length} passed.${update ? " Golden answers rewritten." : ""}`);
   if (failures.length) {
     console.log("\nFailures:\n");
     for (const f of failures) {

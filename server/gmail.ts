@@ -2,8 +2,8 @@
    Send email via the Gmail API, authenticated as a Workspace
    service account with domain-wide delegation (JWT Bearer flow —
    RFC 7523). Pure WebCrypto + fetch, no Node-only APIs and no SDK,
-   so this one file runs unmodified from both the Express backend
-   (server/notify.ts) and the Cloudflare Worker (server/worker/notify.ts).
+   so it runs in the Cloudflare Worker (server/worker/notify.ts) and
+   under Node in tests alike.
    ============================================================ */
 
 export interface ServiceAccountCredentials {

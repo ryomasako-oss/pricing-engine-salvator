@@ -66,7 +66,7 @@ ACCURATE_RECEIPTS_ENABLED = "true"
 
 # Brute-force protection: Workers isolates have no shared in-memory counter,
 # so login/password attempts and the AI assistant are throttled through
-# Cloudflare's edge-native Rate Limiting binding instead of express-rate-limit.
+# Cloudflare's edge-native Rate Limiting binding.
 [[ratelimits]]
 name = "AUTH_LIMITER"
 namespace_id = "1001"
@@ -77,8 +77,7 @@ name = "ASSISTANT_LIMITER"
 namespace_id = "1002"
 simple = { limit = 20, period = 60 }
 
-# Blanket throttle for the whole /api/* surface, keyed per client IP — mirrors
-# the Express dev backend's global express-rate-limit(600/min) so an
+# Blanket throttle for the whole /api/* surface, keyed per client IP, so an
 # authenticated-but-abusive or compromised account can't hammer D1 unchecked.
 [[ratelimits]]
 name = "API_LIMITER"

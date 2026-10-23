@@ -1,12 +1,13 @@
 /* ============================================================
-   A minimal D1Database shim backed by node:sqlite, used only by
-   scripts/test-backend-parity.ts.
+   A minimal D1Database shim backed by node:sqlite, for the tests that
+   run the Worker's routes in Node (scripts/test-api-scenarios.ts,
+   scripts/test-approval-workflow.ts, vitest).
 
    This is not a Workers runtime emulator (no isolates, no real HTTP
    edge) — it exists purely so the *actual* server/worker/*.ts route
    and service files can run against a real SQLite engine outside of
-   `wrangler dev`, for a fast, deterministic parity check against the
-   Express/node:sqlite backend. D1 is itself SQLite under the hood, so
+   `wrangler dev`, for fast, deterministic tests (e2e runs the real
+   workerd). D1 is itself SQLite under the hood, so
    statement semantics (placeholders, UNIQUE errors, last_row_id,
    changes) line up directly.
    ============================================================ */
@@ -84,7 +85,7 @@ export class D1DatabaseShim implements Partial<D1Database> {
   }
 }
 
-/** Always-allow rate limiter — parity here is about business logic, not edge throttling. */
+/** Always-allow rate limiter — these tests are about business logic, not edge throttling. */
 export class AlwaysAllowRateLimit implements Partial<RateLimit> {
   async limit(): Promise<RateLimitOutcome> {
     return { success: true } as RateLimitOutcome;

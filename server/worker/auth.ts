@@ -16,7 +16,7 @@
    assumes a runtime without this cap).
 
    Sessions are a JWT (via `jose`, Workers-compatible) in an httpOnly
-   cookie, same shape as the Express version.
+   cookie.
    ============================================================ */
 
 import bcrypt from "bcryptjs";

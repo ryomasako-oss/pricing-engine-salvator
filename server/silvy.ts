@@ -1,6 +1,5 @@
 /* ============================================================
-   Gerbang ke Silvy (agent-service). Dipakai bersama oleh backend
-   Express dan Worker supaya keduanya membuat keputusan yang sama.
+   Gerbang ke Silvy (agent-service), dipakai oleh route Worker.
 
    App tetap yang mengautentikasi user, menolak staff, membatasi
    laju, dan mencatat audit. Berkas ini hanya: memvalidasi masukan,

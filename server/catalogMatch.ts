@@ -1,7 +1,6 @@
 /* ============================================================
-   Request/response shape for "build a quote from a client's list",
-   shared by the Express and Worker catalog routes so the two backends
-   only differ in how they load rows, never in what they decide.
+   Request/response shape for "build a quote from a client's list": what
+   the Worker's catalog routes decide, apart from loading the rows.
 
    POST /api/catalog/match   — match request lines to catalog items
    POST /api/catalog/aliases — remember a rep's confirmed pairings

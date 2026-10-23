@@ -1,12 +1,12 @@
 /* ============================================================
-   Interactive familiarity — the logic both backends run.
+   Interactive familiarity — the logic the Worker routes run.
 
    POST   /api/familiarity/feed
    GET    /api/familiarity/sessions/:sessionId
    PATCH  /api/familiarity/sessions/:sessionId/resolve
 
-   The two route files only translate HTTP (Express vs Hono) and call the
-   functions here, so the decisions cannot drift. The D1 budget rules are
+   The route file only translates HTTP (Hono) and calls the functions
+   here. The D1 budget rules are
    part of the design:
 
    - a feed loads the catalog once and keeps a candidate snapshot per row;
@@ -49,7 +49,7 @@ import { INSERT_PENDING_SQL, pendingItemSchema } from "./pendingItems.js";
 
 export type FamiliarityParam = string | number | null;
 
-/** What both backends provide: async so D1 and node:sqlite look the same here. */
+/** The database calls the service needs: async, as D1 (and the node:sqlite shim in tests) provide them. */
 export interface FamiliarityStore {
   all<T = Record<string, unknown>>(sql: string, ...params: FamiliarityParam[]): Promise<T[]>;
   get<T = Record<string, unknown>>(sql: string, ...params: FamiliarityParam[]): Promise<T | undefined>;

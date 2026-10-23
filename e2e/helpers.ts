@@ -9,13 +9,6 @@ export const THEMES: Theme[] = ["light", "dark"];
  * (src/context/ThemeContext.tsx, "hk-theme"), because a stored choice wins
  * over the OS setting and two "themed" runs could otherwise both be light.
  */
-/**
- * The Express twin has no Accurate routes (they live in the Worker only), so the
- * Catalog page's Accurate panel gets a 404 from it on every load. Matched by the
- * failing resource's URL, so any other 404 still fails the test.
- */
-const EXPRESS_HAS_NO_ACCURATE = /\/api\/accurate\/(status|flags)\b/;
-
 export const test = base.extend<{ theme: Theme; errors: string[]; expectedConsole: RegExp[] }>({
   theme: ["light", { option: true }],
   /** Console errors a test causes on purpose (the browser logs every 4xx response), by text or resource URL. */
@@ -25,7 +18,6 @@ export const test = base.extend<{ theme: Theme; errors: string[]; expectedConsol
     page.on("console", (m) => {
       if (m.type() !== "error") return;
       const where = m.location().url;
-      if (EXPRESS_HAS_NO_ACCURATE.test(where)) return;
       if (expectedConsole.some((re) => re.test(m.text()) || re.test(where))) return;
       errors.push(`${m.text()} (${where})`);
     });

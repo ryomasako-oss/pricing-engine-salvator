@@ -1,5 +1,5 @@
 /* ============================================================
-   Interactive familiarity — the shape both backends return.
+   Interactive familiarity — the shape the Worker returns.
 
    A "feed" turns a client's request list into a session of rows. The
    matcher guesses, a human resolves one row, and every row in the same

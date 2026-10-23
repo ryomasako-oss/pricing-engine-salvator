@@ -48,7 +48,6 @@ assistantRouter.get("/status", (c) => c.json({ enabled: assistantEnabled(c.env),
 assistantRouter.post("/ask", async (c) => {
   const user = c.get("user")!;
   if (!assistantEnabled(c.env)) return c.json({ error: SILVY_OFF_MESSAGE }, 503);
-  // Pembatas laju yang sama dengan express-rate-limit di server Express.
   const { success } = await c.env.ASSISTANT_LIMITER.limit({ key: clientIp(c) });
   if (!success) return c.json({ error: SILVY_BUSY_MESSAGE }, 429);
 

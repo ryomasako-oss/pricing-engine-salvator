@@ -15,8 +15,7 @@
      lines are built from the catalog by code, and a line that isn't in the
      catalog is refused.
 
-   Pure functions shared by the Express and Worker backends; each backend
-   only loads the rows. Managers and admins get everything unchanged.
+   Pure functions; the Worker routes only load the rows. Managers and admins get everything unchanged.
    ============================================================ */
 
 import { z } from "zod";

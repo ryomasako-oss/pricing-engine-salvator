@@ -38,11 +38,10 @@ describe("cogsProblem", () => {
 
 describe("reference triggers (migration 0010)", () => {
   // Since 0010 only a manager's confirmation (verify-cogs) moves the reference:
-  // no trigger may update catalog_cogs_baseline, in the migration or in the
-  // Express copy. A trigger that moved it within COGS_JUMP let small steps
+  // no trigger may update catalog_cogs_baseline. A trigger that moved it within COGS_JUMP let small steps
   // carry COGS +106% from its start without a flag.
-  it("no trigger updates the reference, in the migration or its Express copy", () => {
-    for (const file of ["../migrations/0010_cogs_reference_by_manager.sql", "../server/db.ts"]) {
+  it("no trigger updates the reference", () => {
+    for (const file of ["../migrations/0010_cogs_reference_by_manager.sql"]) {
       const sql = readFileSync(new URL(file, import.meta.url), "utf8");
       const triggers = [...sql.matchAll(/CREATE TRIGGER[\s\S]*?\bEND;/g)].map((m) => m[0]);
       const replaced = triggers.filter((t) => /trg_cogs_(update|insert)/.test(t) && !/IF NOT EXISTS/.test(t));
