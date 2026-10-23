@@ -1,9 +1,9 @@
 /* Numbered placeholders (?1, ?2, ...) rewritten to plain "?" with the
    parameters reordered to match. D1 and newer node:sqlite accept ?N, but
    node:sqlite before Node 22.15 treats ?N as a named parameter and refuses
-   positional values for it ("column index out of range"). Express and the
-   D1 shim both pass their SQL through here, so SQL shared with the Worker
-   may use ?N on every supported Node (package.json: >=22.5). */
+   positional values for it ("column index out of range"). The D1 shim
+   (scripts/d1-sqlite-shim.ts) passes its SQL through here, so the
+   Worker's SQL may use ?N in tests on every supported Node (>=22.5). */
 
 export type SqlParam = string | number | null | bigint | Uint8Array;
 

@@ -1,40 +1,35 @@
 /* ============================================================
    Integration test for the submit -> approval decision workflow.
-
-   Spins up a real Express app (auth + quotes routers, real SQLite via
-   node:sqlite) against a throwaway database file, and drives it over
-   HTTP with the platform fetch — so this exercises the exact
-   route/service/db code path production uses, not a mock.
+   Drives the Worker app (server/worker: auth + quotes + approvals
+   routers, the same code production runs) over HTTP-shaped requests,
+   on a D1 shim over node:sqlite with every migration applied, not a
+   mock.
 
    Runs as a plain tsx script (not under Vitest): Vitest's bundled Vite
    doesn't recognize "node:sqlite" as a builtin (it strips the "node:"
    prefix and checks isBuiltin("sqlite"), which is false for this
    module), so it tries to resolve "sqlite" as a package and fails.
-   node:sqlite works fine under plain Node/tsx — verified separately —
-   so this test runs there instead of forcing a workaround into
-   production db.ts just to satisfy the test tool.
 
    Run: npx tsx scripts/test-approval-workflow.ts
    ============================================================ */
 
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import assert from "node:assert/strict";
-import type { Server } from "node:http";
+import { DatabaseSync } from "node:sqlite";
+import { AlwaysAllowRateLimit, D1DatabaseShim } from "./d1-sqlite-shim.js";
 
 type Session = { cookie: string };
 
-let baseUrl: string;
-let server: Server;
-let dbDir: string;
+/** The app's own request entry, bound to its bindings (set in setup()). */
+let request: (routePath: string, init: RequestInit) => Promise<Response>;
 
 async function api(
   method: string,
   routePath: string,
   opts: { body?: unknown; session?: Session } = {},
 ) {
-  const res = await fetch(`${baseUrl}${routePath}`, {
+  const res = await request(routePath, {
     method,
     headers: {
       "content-type": "application/json",
@@ -128,29 +123,40 @@ let managerSession: Session;
 let rep2Session: Session;
 
 async function setup() {
-  dbDir = mkdtempSync(path.join(tmpdir(), "hk-quotes-test-"));
-  process.env.DATABASE_PATH = path.join(dbDir, "test.db");
-  process.env.JWT_SECRET = "test-only-secret-not-for-production-0000000000";
-  process.env.NODE_ENV = "test";
+  const sqlite = new DatabaseSync(":memory:");
+  const dir = path.resolve(import.meta.dirname, "../migrations");
+  for (const f of readdirSync(dir).filter((x) => x.endsWith(".sql")).sort()) sqlite.exec(readFileSync(path.join(dir, f), "utf8"));
+  const db = new D1DatabaseShim(sqlite) as unknown as D1Database;
 
-  const express = (await import("express")).default;
-  const cookieParser = (await import("cookie-parser")).default;
-  const { loadUser, hashPassword } = await import("../server/auth.js");
-  const { authRouter } = await import("../server/routes/auth.js");
-  const { quotesRouter } = await import("../server/routes/quotes.js");
-  const { approvalsRouter } = await import("../server/routes/approvals.js");
-  const { run } = await import("../server/db.js");
+  const { Hono } = await import("hono");
+  const { loadUser, hashPassword } = await import("../server/worker/auth.js");
+  const { authRouter } = await import("../server/worker/routes/auth.js");
+  const { quotesRouter } = await import("../server/worker/routes/quotes.js");
+  const { approvalsRouter } = await import("../server/worker/routes/approvals.js");
+  const { run } = await import("../server/db.d1.js");
 
-  const app = express();
-  app.use(express.json());
-  app.use(cookieParser());
+  const app = new Hono();
   app.use(loadUser);
-  app.use("/api/auth", authRouter);
-  app.use("/api/quotes", quotesRouter);
-  app.use("/api/approvals", approvalsRouter);
+  app.route("/api/auth", authRouter);
+  app.route("/api/quotes", quotesRouter);
+  app.route("/api/approvals", approvalsRouter);
+  const env = {
+    DB: db,
+    JWT_SECRET: "test-only-secret-not-for-production-0000000000",
+    NODE_ENV: "test",
+    AUTH_LIMITER: new AlwaysAllowRateLimit(),
+    ASSISTANT_LIMITER: new AlwaysAllowRateLimit(),
+  };
+  // Notifications are fire-and-forget through waitUntil; nothing is configured to receive them.
+  const executionCtx = {
+    waitUntil: (p: Promise<unknown>) => void p.catch(() => undefined),
+    passThroughOnException: () => undefined,
+  } as unknown as ExecutionContext;
+  request = async (routePath, init) => app.request(routePath, init, env, executionCtx);
 
   // The catalog row staff quote ATK-001 from: same cost and ceiling as cleanItem().
-  run(
+  await run(
+    db,
     "INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock, category, source) VALUES(?, ?, ?, ?, ?, 0, '', 'test')",
     "ATK-001",
     "Kertas A4 80gsm",
@@ -158,43 +164,21 @@ async function setup() {
     38000,
     55000,
   );
-  run(
-    "INSERT INTO users(email, name, password_hash, role) VALUES(?, ?, ?, 'rep')",
-    "rep@test.local",
-    "Rep One",
-    hashPassword("password123"),
-  );
-  run(
-    "INSERT INTO users(email, name, password_hash, role) VALUES(?, ?, ?, 'manager')",
-    "manager@test.local",
-    "Manager One",
-    hashPassword("password123"),
-  );
-  run(
-    "INSERT INTO users(email, name, password_hash, role) VALUES(?, ?, ?, 'rep')",
-    "rep2@test.local",
-    "Rep Two",
-    hashPassword("password123"),
-  );
+  for (const [email, name, role] of [
+    ["rep@test.local", "Rep One", "rep"],
+    ["manager@test.local", "Manager One", "manager"],
+    ["rep2@test.local", "Rep Two", "rep"],
+  ]) {
+    await run(db, "INSERT INTO users(email, name, password_hash, role) VALUES(?, ?, ?, ?)", email, name, await hashPassword("password123"), role);
+  }
 
-  await new Promise<void>((resolve) => {
-    server = app.listen(0, resolve);
-  });
-  const address = server.address();
-  const port = typeof address === "object" && address ? address.port : 0;
-  baseUrl = `http://127.0.0.1:${port}`;
-
-  // Login once per role and reuse the session — the real login endpoint is
-  // rate-limited (20/15min), and every test logging in fresh would trip it.
+  // Login once per role and reuse the session, as a browser would.
   repSession = await login("rep@test.local", "password123");
   managerSession = await login("manager@test.local", "password123");
   rep2Session = await login("rep2@test.local", "password123");
 }
 
-async function teardown() {
-  await new Promise((resolve) => server.close(resolve));
-  rmSync(dbDir, { recursive: true, force: true });
-}
+async function teardown() {}
 
 // ---------------------------------------------------------------
 // Tests

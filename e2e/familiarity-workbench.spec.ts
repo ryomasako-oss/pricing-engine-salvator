@@ -1,6 +1,6 @@
 /* Pencocokan (top menu, /pencocokan): the workbench, open on arrival.
 
-   Everything is the real app on the real Express server and a throwaway
+   Everything is the real app on the real Worker (wrangler dev) and a throwaway
    database (e2e/serve.ts), /api/familiarity/* included. The bodies the screen
    sends are read off the wire and checked against the route's contract
    (src/familiarityApi.ts). Rules persist in that database across tests, so a

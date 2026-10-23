@@ -1,6 +1,5 @@
-/* Server-side rules for a sales "Cek harga" import (PE-2). Both backends
-   call checkSalesReview, so Express and the Worker refuse the same files
-   with the same messages.
+/* Server-side rules for a sales "Cek harga" import (PE-2): the Worker
+   calls checkSalesReview to refuse a file, with these messages.
 
    What sales send back is only {id, decision, reason} per line, plus the
    revision and version the file was made from. Prices are not part of it,

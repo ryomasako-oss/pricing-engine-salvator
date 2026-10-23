@@ -1,7 +1,7 @@
 /* ============================================================
-   Server side of the COGS sanity check (shared/cogsCheck.ts), shared by the
-   Express and Worker backends: the SQL they run and what they decide from
-   the rows. Each backend only supplies the database call.
+   Server side of the COGS sanity check (shared/cogsCheck.ts): the SQL the
+   Worker runs and what it decides from the rows. The routes only supply
+   the database call.
    ============================================================ */
 
 import { z } from "zod";

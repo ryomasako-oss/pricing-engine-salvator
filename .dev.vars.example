@@ -1,5 +1,6 @@
-# Copy to .env and fill in. Never commit .env.
-PORT=8787
+# Local development secrets for `wrangler dev` (npm run dev). Copy to .dev.vars
+# and fill in; `npm run d1:seed:local` writes one with a random JWT_SECRET if
+# there is none. Never commit .dev.vars. Production uses `wrangler secret put`.
 NODE_ENV=development
 
 # Signs login cookies. Generate with: openssl rand -hex 32
@@ -24,10 +25,8 @@ SILVY_USER_DAILY_LIMIT=
 GEMINI_API_KEY=
 GEMINI_MODEL=
 
-# Seed administrator (created once on first run)
-ADMIN_EMAIL=admin@salvator.co.id
-ADMIN_PASSWORD=
-ADMIN_NAME=Administrator
+# The first local admin is not set here: pass ADMIN_EMAIL / ADMIN_PASSWORD /
+# ADMIN_NAME to `npm run d1:seed:local` (a password is generated if omitted).
 
 # SQLite location
 DATABASE_PATH=./data/halokantor.db

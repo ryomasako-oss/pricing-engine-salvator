@@ -19,8 +19,8 @@ import {
 } from "../../listDrafts";
 import type { Env } from "../env";
 
-/* Drafts of "Dari list klien" on D1: the twin of server/routes/listDrafts.ts.
-   The service (server/listDrafts.ts) decides; this file only adapts Hono/HTTP. */
+/* Drafts of "Dari list klien" on D1. The service (server/listDrafts.ts)
+   decides; this file only adapts Hono/HTTP. */
 
 export const listDraftsRouter = new Hono<Env>();
 listDraftsRouter.use(requireAuth);

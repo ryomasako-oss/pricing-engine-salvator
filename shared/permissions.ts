@@ -1,8 +1,7 @@
 /* ============================================================
    Named permissions — the single source of truth for what each role
-   may do, imported by both auth implementations (server/auth.ts for
-   Express, server/worker/auth.ts for the Cloudflare Worker) and by
-   the web client's AuthContext, so all three agree on access.
+   may do, imported by the Worker's auth (server/worker/auth.ts) and by
+   the web client's AuthContext, so both agree on access.
    ============================================================ */
 
 import type { Role } from "./types.js";

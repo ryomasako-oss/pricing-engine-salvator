@@ -1,5 +1,5 @@
-/* The SQL both backends run for "Barang baru" (shared/pendingItems.ts); each
-   backend only supplies the database call. */
+/* The SQL the Worker runs for "Barang baru" (shared/pendingItems.ts); the
+   route only supplies the database call. */
 
 import { z } from "zod";
 import { normalizeCode } from "../shared/duplicates.js";

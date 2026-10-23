@@ -321,7 +321,7 @@ catalogRouter.post("/import", requirePermission("import_catalog"), async (c) => 
 
   const codes = [...new Set(rows.map((r) => r.code.trim()).filter(Boolean))];
   // code -> current base unit, so units can be cleaned against it when a
-  // row doesn't send its own uom (same as the Express twin).
+  // row doesn't send its own uom.
   const existing = new Map<string, string>();
   if (mode === "merge") {
     for (const chunk of chunks(codes, CHUNK)) {

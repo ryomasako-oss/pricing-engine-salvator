@@ -9,10 +9,9 @@
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true,
-    "outDir": "dist",
-    "rootDir": ".",
+    "noEmit": true,
     "types": ["node"]
   },
   "include": ["server", "shared"],
-  "exclude": ["server/worker", "server/db.d1.ts", "server/d1-smoke-worker.ts"]
+  "exclude": ["server/worker", "server/db.d1.ts"]
 }

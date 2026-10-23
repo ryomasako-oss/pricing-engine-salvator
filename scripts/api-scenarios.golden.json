@@ -1,0 +1,1491 @@
+{
+ "rep submits a clean quote -> pending, not auto-approved": {
+  "status": 200,
+  "autoApproved": false,
+  "quoteStatus": "submitted",
+  "breachCodes": []
+ },
+ "manager submits a clean quote -> auto-approved": {
+  "status": 200,
+  "autoApproved": true,
+  "quoteStatus": "approved",
+  "approvedByIsSet": true
+ },
+ "rep submits a policy-breaching quote -> pending with breach codes": {
+  "status": 200,
+  "autoApproved": false,
+  "quoteStatus": "submitted",
+  "breachCodes": [
+   "NEEDS_REVIEW"
+  ]
+ },
+ "manager submits a breaching quote -> NOT auto-approved despite permission": {
+  "status": 200,
+  "autoApproved": false,
+  "quoteStatus": "submitted"
+ },
+ "submitting an already-submitted quote -> 409": {
+  "status": 409
+ },
+ "rep cannot decide (403)": {
+  "status": 403
+ },
+ "manager approves a pending quote": {
+  "status": 200,
+  "quoteStatus": "approved",
+  "decisionNote": "Dispensasi khusus"
+ },
+ "rejecting without a note -> 400": {
+  "status": 400
+ },
+ "manager rejects with a note": {
+  "status": 200,
+  "quoteStatus": "rejected"
+ },
+ "deciding a draft (not pending) -> 409": {
+  "status": 409
+ },
+ "stale expected_version -> 409, does not overwrite": {
+  "firstStatus": 200,
+  "firstVersion": 2,
+  "secondStatus": 409,
+  "winningQty": 200
+ },
+ "correct expected_version -> succeeds, bumps version": {
+  "status": 200,
+  "version": 2,
+  "qty": 500
+ },
+ "a locked (submitted) quote cannot be edited": {
+  "status": 409
+ },
+ "a different rep cannot submit someone else's draft (403)": {
+  "status": 403
+ },
+ "a manager CAN submit another rep's draft (edit_all_quotes)": {
+  "status": 200,
+  "quoteStatus": "approved"
+ },
+ "a rep cannot read the company-wide approval queue (403)": {
+  "status": 403
+ },
+ "a manager CAN read the approval queue": {
+  "status": 200,
+  "isArray": true
+ },
+ "a user can set and clear their own WhatsApp number": {
+  "setStatus": 200,
+  "setPhone": "+6281234567890",
+  "clearedPhone": ""
+ },
+ "an invalid WhatsApp number is rejected with 400": {
+  "status": 400
+ },
+ "rep cannot reassign a quote (403)": {
+  "status": 403
+ },
+ "reassigning to an unknown user -> 400": {
+  "status": 400
+ },
+ "manager reassigns a draft, the new assignee can then edit it": {
+  "reassignStatus": 200,
+  "assignedToIsSet": true,
+  "editStatus": 200,
+  "editedQty": 250
+ },
+ "reassigning a quote records a history entry naming the new owner": {
+  "hasHandoffEntry": true
+ },
+ "unassigning a quote records a distinct history entry": {
+  "hasUnassignEntry": true
+ },
+ "reassigning to the already-current assignee is a no-op (no duplicate history entry)": {
+  "repeatStatus": 200,
+  "revisionCountUnchanged": true
+ },
+ "won -> completed is an allowed manual status move": {
+  "status": 200,
+  "quoteStatus": "completed"
+ },
+ "sent -> completed is rejected (must pass through won first) -> 409": {
+  "status": 409
+ },
+ "owner can reopen their own submitted quote directly, no manager decision needed": {
+  "status": 200,
+  "quoteStatus": "draft"
+ },
+ "a different rep still cannot reopen someone else's submitted quote (403)": {
+  "status": 403
+ },
+ "reopening a submitted quote clears it from the manager's pending-approval queue": {
+  "wasQueuedBefore": true,
+  "stillQueuedAfter": false
+ },
+ "rejecting a quote records who rejected it, visible on the quote itself": {
+  "approvedByIsSet": true,
+  "approvedByName": "Manager One"
+ },
+ "editing a quote (e.g. fixing it after a rejection) is recorded in the audit trail": {
+  "hasEditAuditEntry": true,
+  "editedByManager": true
+ },
+ "UOM list is seeded and includes Pcs/Lusin": {
+  "status": 200,
+  "hasPcs": true,
+  "hasLusin": true
+ },
+ "a rep cannot add a new UOM (403)": {
+  "status": 403
+ },
+ "a manager can add a new UOM, and it then appears in the list": {
+  "addStatus": 201,
+  "nowInList": true
+ },
+ "adding a duplicate UOM name is rejected -> 409": {
+  "status": 409
+ },
+ "import stores per-item units, cleaned (base dropped, case-insensitive dedup)": {
+  "status": 200,
+  "listed": {
+   "U-PEN": [],
+   "U-SMB": [
+    {
+     "uom": "BOX",
+     "factor": 24
+    }
+   ]
+  },
+  "lookup": {
+   "U-PEN": {
+    "baseUom": "Pcs",
+    "units": []
+   },
+   "U-SMB": {
+    "baseUom": "BTL",
+    "units": [
+     {
+      "uom": "BOX",
+      "factor": 24
+     }
+    ]
+   }
+  }
+ },
+ "a rep can look up units but not import them": {
+  "importStatus": 403,
+  "lookupStatus": 200
+ },
+ "import without units leaves existing units alone; an empty list clears them": {
+  "afterNoUnits": {
+   "U-KEEP": {
+    "baseUom": "Pcs",
+    "units": [
+     {
+      "uom": "Lusin",
+      "factor": 12
+     }
+    ]
+   }
+  },
+  "afterEmpty": {
+   "U-KEEP": {
+    "baseUom": "Pcs",
+    "units": []
+   }
+  }
+ },
+ "a units entry equal to the existing base is dropped even when the row sends no uom": {
+  "units": {
+   "U-BASE": {
+    "baseUom": "Rim",
+    "units": [
+     {
+      "uom": "Box",
+      "factor": 5
+     }
+    ]
+   }
+  }
+ },
+ "editing an item replaces its units; bad ratios are rejected (400)": {
+  "okStatus": 200,
+  "returnedUnits": [
+   {
+    "uom": "Lusin",
+    "factor": 12
+   },
+   {
+    "uom": "Box",
+    "factor": 24
+   }
+  ],
+  "badStatus": 400,
+  "repStatus": 403,
+  "stored": {
+   "U-PEN": {
+    "baseUom": "Pcs",
+    "units": [
+     {
+      "uom": "Lusin",
+      "factor": 12
+     },
+     {
+      "uom": "Box",
+      "factor": 24
+     }
+    ]
+   }
+  }
+ },
+ "a quote line's priceUom survives save and reload": {
+  "priceUom": "rim",
+  "uom": "Box"
+ },
+ "replace-mode import clears every item's units": {
+  "units": {
+   "U-NEW": {
+    "baseUom": "Pcs",
+    "units": []
+   }
+  }
+ },
+ "\"mine\" filter includes quotes reassigned to the viewer, not just ones they created": {
+  "status": 200,
+  "includesReassignedQuote": true
+ },
+ "restoring a revision tags it restore-<client>-<n> and keeps the prior state": {
+  "restoreStatus": 200,
+  "restoredQty": 100,
+  "restoreCount": 1,
+  "hasTaggedRevision": true,
+  "hasPreRestoreSnapshot": true
+ },
+ "creator can save a revision on own draft -> 201 and history records it": {
+  "status": 201,
+  "hasRevision": true,
+  "hasAudit": true
+ },
+ "a different rep cannot save a revision to another user's draft (403) and creates no revision/audit": {
+  "status": 403,
+  "revUnchanged": true,
+  "auditUnchanged": true
+ },
+ "assignee CAN save a revision after being reassigned": {
+  "status": 201,
+  "hasRevision": true
+ },
+ "a manager (edit_all_quotes) CAN save a revision to another user's draft": {
+  "status": 201,
+  "hasRevision": true
+ },
+ "saving a revision on a submitted quote -> 409, no side effects": {
+  "status": 409,
+  "revUnchanged": true,
+  "auditUnchanged": true
+ },
+ "saving a revision on an approved quote -> 409 even for a manager (locked)": {
+  "status": 409,
+  "quoteStatus": "approved",
+  "revUnchanged": true
+ },
+ "saving a revision on a rejected quote is allowed (draft/rejected are editable)": {
+  "decideStatus": 200,
+  "saveStatus": 201,
+  "hasRevision": true
+ },
+ "a different rep still cannot save a revision on a rejected quote they do not own (403)": {
+  "status": 403,
+  "revUnchanged": true
+ },
+ "match: code, name similarity, brand mismatch and nothing-found, with catalog prices and units": {
+  "status": 200,
+  "results": [
+   {
+    "status": "exact",
+    "via": "code",
+    "best": "M-PEN"
+   },
+   {
+    "status": "match",
+    "via": "name",
+    "best": "M-STB-OR"
+   },
+   {
+    "status": "review",
+    "via": "name",
+    "best": "M-BD70"
+   },
+   {
+    "status": "none",
+    "via": null,
+    "best": null
+   }
+  ],
+  "summary": {
+   "exact": 1,
+   "match": 1,
+   "review": 1,
+   "none": 1
+  },
+  "pen": {
+   "cogs": 2000,
+   "units": [
+    {
+     "uom": "Box",
+     "factor": 12
+    }
+   ]
+  }
+ },
+ "a confirmed alias is used for that client's next list, and not for another client's": {
+  "save": {
+   "saved": 1,
+   "recorded": 0
+  },
+  "forA": [
+   {
+    "status": "exact",
+    "via": "alias",
+    "best": "M-BD70"
+   }
+  ],
+  "forB": null,
+  "forA2": [
+   {
+    "status": "exact",
+    "via": "alias",
+    "best": "M-BD70"
+   }
+  ],
+  "forB2": [
+   {
+    "status": "exact",
+    "via": "alias",
+    "best": "M-STB-GR"
+   }
+  ]
+ },
+ "only a manager may save an alias for every client; a rep must pick a client": {
+  "repGlobal": 403,
+  "repClient": 200,
+  "mgrGlobal": 200,
+  "afterMgr": {
+   "status": "exact",
+   "via": "alias",
+   "best": "M-PEN"
+  }
+ },
+ "an alias to a code not in the catalog, or for an unknown client, is rejected (400) and not stored": {
+  "badCode": 400,
+  "badClient": 400,
+  "via": "name"
+ },
+ "match rejects an empty list, an over-long list, and requires login": {
+  "empty": 400,
+  "tooMany": 400,
+  "anon": 401,
+  "anonAlias": 401
+ },
+ "submitting without term of payment / warranty -> 400 naming both, quote stays draft": {
+  "status": 400,
+  "missing": [
+   "Term of payment (hari)",
+   "Garansi (tahun)"
+  ],
+  "after": "draft"
+ },
+ "warranty 0 (none) and payment 0 (cash) count as filled in": {
+  "status": 200,
+  "quoteStatus": "approved"
+ },
+ "a new quote takes payment days from the client's terms; warranty starts empty": {
+  "paymentDays": 45,
+  "payment": "setelah invoice diterima",
+  "warrantyYears": null
+ },
+ "warranty must be a whole or half year, payment days 0-365 -> else 400": {
+  "quarterYear": 400,
+  "negativeDays": 400,
+  "tooManyDays": 400,
+  "halfYear": 201
+ },
+ "COGS reference: imports never move it; a manager's confirmation does": {
+  "small": null,
+  "jumped": "COGS Rp 2.500 berubah 150% dari COGS acuan Rp 1.000; perlu dicek manajer",
+  "repVerify": 403,
+  "mgrVerify": {
+   "code": "C-JMP",
+   "reference": 2500,
+   "cogs_problem": null
+  },
+  "afterVerify": null,
+  "smallAfterVerify": null,
+  "jumpedAgain": "COGS Rp 5.000 berubah 100% dari COGS acuan Rp 2.500; perlu dicek manajer"
+ },
+ "small steps can't walk COGS away from its reference without a flag": {
+  "first": null,
+  "second": "COGS Rp 103.000 berubah 106% dari COGS acuan Rp 50.000; perlu dicek manajer"
+ },
+ "a flagged jump stays flagged when the same file is replace-imported again": {
+  "once": "COGS Rp 2.000 berubah 100% dari COGS acuan Rp 1.000; perlu dicek manajer",
+  "twice": "COGS Rp 2.000 berubah 100% dari COGS acuan Rp 1.000; perlu dicek manajer"
+ },
+ "a flagged jump stays flagged after a further small change": {
+  "problem": "COGS Rp 2.100 berubah 110% dari COGS acuan Rp 1.000; perlu dicek manajer"
+ },
+ "a bad-COGS line is held, not offered; the rest submits; holds freeze at submit and lift on reopen": {
+  "draft": [
+   [
+    "h1",
+    false
+   ],
+   [
+    "h2",
+    true
+   ]
+  ],
+  "submit": 200,
+  "frozen": [
+   [
+    "h1",
+    false
+   ],
+   [
+    "h2",
+    true
+   ]
+  ],
+  "released": [
+   [
+    "h1",
+    false
+   ],
+   [
+    "h2",
+    false
+   ]
+  ],
+  "subtotals": [
+   14500,
+   36100
+  ]
+ },
+ "a quote whose every line is held can't be submitted (400)": {
+  "status": 400,
+  "error": "Semua item sedang ditahan (COGS perlu dicek manajer, atau barangnya masih menunggu dibuat di Accurate), jadi belum ada yang bisa diajukan.",
+  "quoteStatus": "draft"
+ },
+ "a bad-COGS line is held whatever the case or spacing of its code": {
+  "held": [
+   [
+    "c1",
+    true
+   ],
+   [
+    "c2",
+    true
+   ],
+   [
+    "c3",
+    false
+   ]
+  ],
+  "check": [
+   "c-case"
+  ]
+ },
+ "cogs-check reports only problem codes; empty COGS is a problem": {
+  "problems": {
+   "C-ZERO": "COGS item ini perlu dicek manajer"
+  }
+ },
+ "PE-1: a rep receives no COGS, landed cost or margin from any endpoint": {
+  "exposure": {},
+  "assistant": 403
+ },
+ "PE-1: a manager still sees cost data (the leak probe is not vacuous)": {
+  "sees": [
+   true,
+   true,
+   true
+  ]
+ },
+ "PE-1: COGS, role and manual price a rep sends are ignored; the catalog's COGS is kept": {
+  "cogs": 31337,
+  "role": "CORE",
+  "manual": null,
+  "qty": 4
+ },
+ "PE-1: preview prices exactly what a save would, without saving": {
+  "prices": [
+   45150,
+   45150
+  ],
+  "total": 400932.00000000006,
+  "outside": 400
+ },
+ "A rep can type a price: past the ceiling, or where there is no ceiling; policy asks a manager, nothing cost-derived goes back": {
+  "prices": [
+   120000,
+   5000
+  ],
+  "repBreaches": [
+   {
+    "code": "NEEDS_REVIEW",
+    "severity": "block",
+    "message": "Penawaran ini perlu persetujuan manajer."
+   }
+  ],
+  "afterClear": [
+   [
+    true,
+    false
+   ],
+   [
+    true,
+    true
+   ]
+  ]
+ },
+ "A rep cannot probe for cost: every blocking price looks the same, safe prices show nothing": {
+  "belowCost": {
+   "repBreaches": [
+    {
+     "code": "NEEDS_REVIEW",
+     "severity": "block",
+     "message": "Penawaran ini perlu persetujuan manajer."
+    }
+   ],
+   "managerCodes": [
+    "BASKET_DISCOUNT",
+    "BELOW_COST",
+    "NET_MARGIN"
+   ]
+  },
+  "thin": {
+   "repBreaches": [
+    {
+     "code": "NEEDS_REVIEW",
+     "severity": "block",
+     "message": "Penawaran ini perlu persetujuan manajer."
+    }
+   ],
+   "managerCodes": [
+    "BASKET_DISCOUNT",
+    "BELOW_COST",
+    "NET_MARGIN"
+   ]
+  },
+  "aboveCeiling": {
+   "repBreaches": [
+    {
+     "code": "NEEDS_REVIEW",
+     "severity": "block",
+     "message": "Penawaran ini perlu persetujuan manajer."
+    }
+   ],
+   "managerCodes": [
+    "ABOVE_CEILING"
+   ]
+  },
+  "comfortable": {
+   "repBreaches": [],
+   "managerCodes": []
+  }
+ },
+ "A rep cannot read which policy rule tripped from the quote's history either": {
+  "submitted": "submitted"
+ },
+ "OCR endpoint: login required, and off (503) until a Gemini key is set": {
+  "anon": 401,
+  "off": 503,
+  "error": "OCR belum aktif. Isi GEMINI_API_KEY di server."
+ },
+ "a rep's ceiling and price typed after a unit change are kept, in the new unit": {
+  "uom": "Box",
+  "cogs": 2400,
+  "rrp": 5000,
+  "typed": [
+   4000
+  ]
+ },
+ "Chat endpoint: login required, off (503) without a key, bad input is 400 for staff too": {
+  "anon": 401,
+  "off": 503,
+  "error": "Chat belum aktif. Isi GEMINI_API_KEY di server."
+ },
+ "PE-1: sorting the catalog by COGS is ignored for staff (the order would rank costs)": {
+  "rep": [
+   "SRT-A",
+   "SRT-B",
+   "SRT-C"
+  ],
+  "manager": [
+   "SRT-B",
+   "SRT-C",
+   "SRT-A"
+  ]
+ },
+ "creating a client that already exists under another spelling -> 409 with the existing one": {
+  "rename": 409,
+  "keep": 200,
+  "first": 201,
+  "again": 409,
+  "sameId": true,
+  "existingName": "PT Dupli Kat Jaya",
+  "other": 201,
+  "legalOnly": 400
+ },
+ "PE-2: office Excel password: admin sets it, managers read it, reps never see it": {
+  "byManager": 403,
+  "tooShort": 400,
+  "set": 200,
+  "managerSees": "Kantor-2026",
+  "repKeys": [
+   "company"
+  ]
+ },
+ "PE-2: sales ACC every line -> quote stays approved, review recorded": {
+  "status": 200,
+  "quoteStatus": "approved",
+  "rev": 0,
+  "rejected": 0,
+  "latest": {
+   "rev": 0,
+   "by": "Rep One",
+   "lines": [
+    {
+     "id": "s1",
+     "lineNo": 1,
+     "name": "Pulpen",
+     "decision": "acc",
+     "reason": ""
+    },
+    {
+     "id": "s2",
+     "lineNo": 2,
+     "name": "Kertas",
+     "decision": "acc",
+     "reason": ""
+    }
+   ]
+  }
+ },
+ "PE-2/fix: a partial Tolak keeps the quote approved; the line follows later and becomes a task": {
+  "quoteStatus": "approved",
+  "versionUp": 1,
+  "tasks": 1,
+  "again": 409
+ },
+ "PE-2/fix: a partial Tolak that leaves the offer outside policy goes back to the manager as pending": {
+  "status": "submitted",
+  "pendingListed": true
+ },
+ "PE-2/fix: Tolak on every line reopens the quote as a draft for the manager": {
+  "status": "draft",
+  "tasks": 2
+ },
+ "PE-2/fix: after a sales Tolak, auto-approval stays off through further reopens until a manager approves": {
+  "first": false,
+  "second": false,
+  "afterDecision": true
+ },
+ "PE-2/fix: two sales-check imports of the same file version at once: one wins, the other is refused (409)": {
+  "statuses": [
+   200,
+   409
+  ],
+  "held": 1
+ },
+ "PE-2/fix: the revision opened after a sales Tolak is not auto-approved, even for a manager inside policy": {
+  "reopenedRev": 1,
+  "submitted": "submitted",
+  "auto": false,
+  "decided": 200,
+  "laterRev": 2,
+  "laterAuto": true
+ },
+ "PE-2: refused imports: stale file, missing line, Tolak without reason, not approved, someone else's quote": {
+  "stale": [
+   409,
+   "File ini dibuat dari versi lama quotation (revisi 1). Quotation sudah berubah; unduh ulang file cek harga dan kirim lagi ke sales."
+  ],
+  "missing": [
+   400,
+   "Baris 2 belum diisi ACC atau Tolak."
+  ],
+  "blank": 400,
+  "noReason": [
+   400,
+   "Baris 2 ditolak tanpa alasan. Isi kolom Alasan."
+  ],
+  "other": 403,
+  "notApproved": 409,
+  "stillApproved": "approved"
+ },
+ "fix tasks: submit records held-COGS and unit lines once, even after reopen and resubmit": {
+  "submit": 200,
+  "first": [
+   "cogs_held:f1",
+   "unit_unknown:f2"
+  ],
+  "second": [
+   "cogs_held:f1",
+   "unit_unknown:f2"
+  ]
+ },
+ "fix tasks: rows of a client's list with no catalog item become tasks; staff see only their own": {
+  "mine": 2,
+  "others": 0,
+  "all": 2,
+  "tooMany": 400,
+  "badKind": 400
+ },
+ "fix tasks: staff cannot resolve; a manager resolves with a note and the open count drops": {
+  "statuses": [
+   403,
+   400,
+   200,
+   409
+  ],
+  "drop": 1
+ },
+ "PE-1 on fix tasks: a held-COGS task never shows staff the COGS figure": {
+  "repSeesTask": true,
+  "repSeesDone": true
+ },
+ "a line released from a hold takes the catalog's COGS (in its unit), not the 0 it was made with": {
+  "before": {
+   "held": true,
+   "cogs": 0,
+   "estCogs": true
+  },
+  "afterPcs": {
+   "held": false,
+   "cogs": 1000,
+   "estCogs": false
+  },
+  "afterBox": {
+   "held": false,
+   "cogs": 12000,
+   "estCogs": false
+  },
+  "status": "submitted"
+ },
+ "a draft line copied from the catalog follows a corrected catalog COGS; one without that record stays held": {
+  "before": {
+   "held": true,
+   "cogs": 100
+  },
+  "copied": {
+   "held": false,
+   "cogs": 1000
+  },
+  "unrecorded": {
+   "held": true,
+   "cogs": 100
+  },
+  "status": "submitted"
+ },
+ "a catalog-copied line whose unit lost its ratio stays held instead of being released unchecked": {
+  "before": true,
+  "after": true,
+  "submit": 400
+ },
+ "a line follows the catalog row with its exact code, not a code that differs only in case": {
+  "cogs": 1000,
+  "held": false,
+  "problems": [
+   "k-case"
+  ]
+ },
+ "a rep's new line is built from the catalog row with its exact code; a code matching only case-variants is refused": {
+  "exact": {
+   "code": "S-CASE",
+   "cogs": 1000
+  },
+  "unclear": 400
+ },
+ "barang baru: a rep requests it, its line is held as 'new_item' and staff see no cost data": {
+  "held": [
+   [
+    "n1",
+    true,
+    "new_item"
+   ],
+   [
+    "n2",
+    false,
+    null
+   ]
+  ],
+  "subtotalMatches": true,
+  "problem": "Barang baru, menunggu dibuat di Accurate",
+  "status": "draft",
+  "submit": 200
+ },
+ "barang baru: bad input, a taken code and a twin of a catalog item are refused": {
+  "statuses": [
+   400,
+   400,
+   409,
+   409,
+   409
+  ],
+  "twin": "NB-TAKEN"
+ },
+ "barang baru: only a manager hands it to Accurate, which opens one task staff never see; cancelling closes it": {
+  "byRep": 403,
+  "submit": 200,
+  "twice": 409,
+  "tasks": [
+   1,
+   0
+  ],
+  "repBadge": 10,
+  "cancel": 200,
+  "after": 0
+ },
+ "barang baru: once the catalog has the code the line is released, the request linked and its task closed": {
+  "before": [
+   true,
+   "new_item"
+  ],
+  "afterHeld": false,
+  "cogsAfter": 700000,
+  "linked": "linked"
+ },
+ "barang baru: staff list only their own requests, a manager sees all": {
+  "rep1HasOwn": true,
+  "rep1HasOther": false,
+  "managerSeesBoth": true,
+  "anon": 401
+ },
+ "barang baru: cancelling keeps its lines held, so a zero-cost line is never offered or approved": {
+  "held": [
+   true,
+   "new_item_cancelled"
+  ],
+  "subtotalMatches": true,
+  "status": "approved",
+  "heldAfter": true
+ },
+ "barang baru: automatic BARU numbers skip the catalog's, and a typed BARU code is refused": {
+  "typed": 400,
+  "auto": "BARU-0951",
+  "next": "BARU-0952"
+ },
+ "barang baru: a code typed with double spaces is stored as the lookups spell it": {
+  "code": "WS PB-01",
+  "hold": "new_item"
+ },
+ "barang baru: a catalog import that brings the code closes its task right away": {
+  "open": 0
+ },
+ "barang baru: another rep adding the line gets the item, not the requester's estimated price": {
+  "otherName": "Meja Rapat Lipat Baru",
+  "otherHasEstimate": false,
+  "ownHasEstimate": true
+ },
+ "Silvy: a rep is refused before the agent is ever called": {
+  "ask": 403,
+  "doc": 403,
+  "status": 200,
+  "enabled": true,
+  "calls": 0
+ },
+ "Silvy: unauthenticated requests are 401 and never reach the agent": {
+  "status": 401
+ },
+ "Silvy: a manager's ask is forwarded with the secret and the server-side policy": {
+  "status": 200,
+  "answer": "ok",
+  "path": "/silvy/ask",
+  "messages": [
+   {
+    "role": "user",
+    "content": "halo"
+   }
+  ],
+  "policyKeys": [
+   "allowBelowCost",
+   "approvalValueThreshold",
+   "maxBasketDiscount",
+   "minLineMargin",
+   "minNetMargin"
+  ]
+ },
+ "Silvy: a browser-supplied policy is ignored in favour of the server's": {
+  "minNetMargin": 0.15,
+  "allowBelowCost": false
+ },
+ "Silvy: documents are forwarded and unknown kinds are 400 without a call": {
+  "ok": {
+   "content": "## Briefing"
+  },
+  "bad": 400,
+  "path": "/silvy/document"
+ },
+ "Silvy: malformed asks are 400 and never reach the agent": {
+  "statuses": [
+   400,
+   400,
+   400
+  ]
+ },
+ "Silvy: not configured -> 503 and status says disabled": {
+  "ask": 503,
+  "error": "Silvy belum aktif. Isi SILVY_URL dan SILVY_SHARED_SECRET di server.",
+  "enabled": false
+ },
+ "Silvy: agent unreachable -> 503 with a readable message": {
+  "status": 503,
+  "error": "Tidak bisa menghubungi Silvy. Coba lagi nanti."
+ },
+ "Silvy: agent rejecting the secret is reported as a config problem (502), not a user error": {
+  "status": 502,
+  "error": "Silvy menolak koneksi dari app. Periksa SILVY_SHARED_SECRET."
+ },
+ "Silvy IAM: a private agent gets an ID token for its own URL plus the secret": {
+  "status": 200,
+  "answer": "ok",
+  "bearer": true,
+  "secretSent": true,
+  "audienceIsAgent": true,
+  "iss": "notify@parity.iam.gserviceaccount.com",
+  "sub": "notify@parity.iam.gserviceaccount.com",
+  "hasScope": false,
+  "grant": "urn:ietf:params:oauth:grant-type:jwt-bearer"
+ },
+ "Silvy IAM: without the flag no authorization header is sent": {
+  "status": 200,
+  "authorization": null
+ },
+ "Silvy IAM: a key that cannot sign is a 502 and the agent is never called": {
+  "status": 502,
+  "error": "Silvy tidak bisa dihubungi: token akses ke layanannya gagal dibuat. Periksa GOOGLE_SERVICE_ACCOUNT_* di server."
+ },
+ "Silvy IAM: Cloud Run's 403 (no run.invoker) is reported as a permission problem": {
+  "status": 502,
+  "error": "Silvy menolak akses dari app. Periksa izin run.invoker untuk akun layanan app."
+ },
+ "Silvy quota: a per-user daily cap blocks before the agent is called, and only that user": {
+  "first": 200,
+  "second": 429,
+  "doc": 429,
+  "error": "Anda sudah memakai kuota harian Silvy (1 pertanyaan). Coba lagi besok.",
+  "calls": 1
+ },
+ "Silvy quota: the monthly cap blocks everyone before the agent is called": {
+  "status": 429,
+  "error": "Kuota Silvy bulan ini sudah habis (1 pertanyaan). Hubungi admin untuk menaikkan batas."
+ },
+ "Silvy quota: back under the cap, questions work again": {
+  "status": 200
+ },
+ "Silvy: status lists the documents Silvy can write": {
+  "enabled": true,
+  "model": "Silvy",
+  "docs": [
+   "briefing",
+   "faq",
+   "negotiation",
+   "risk"
+  ]
+ },
+ "familiarity: a JSON list is fed, matched against the catalog and pending items, and creates no quote": {
+  "status": 200,
+  "summary": {
+   "total": 5,
+   "pasti": 2,
+   "mirip": 2,
+   "adjustment": 1,
+   "resolved": 0
+  },
+  "rows": [
+   {
+    "text": "FAM-PEN",
+    "status": "pasti",
+    "action": null,
+    "code": null,
+    "pending": null,
+    "via": "code",
+    "match": "exact"
+   },
+   {
+    "text": "Kertas A4 70gsm Sinar Dunia",
+    "status": "mirip",
+    "action": null,
+    "code": null,
+    "pending": null,
+    "via": "name",
+    "match": "review"
+   },
+   {
+    "text": "Galon air mineral 19 liter",
+    "status": "adjustment",
+    "action": null,
+    "code": null,
+    "pending": null,
+    "via": null,
+    "match": "none"
+   },
+   {
+    "text": "Kertas A4 70gsm Sinar Dunia",
+    "status": "mirip",
+    "action": null,
+    "code": null,
+    "pending": null,
+    "via": "name",
+    "match": "review"
+   },
+   {
+    "text": "map plastik bening",
+    "status": "pasti",
+    "action": null,
+    "code": null,
+    "pending": null,
+    "via": "name",
+    "match": "match"
+   }
+  ],
+  "pendingCandidates": [
+   "BARU-0955"
+  ],
+  "quotes": 0
+ },
+ "familiarity: raw text is cleaned like the client list (list numbers, spacing) before matching": {
+  "rows": [
+   {
+    "text": "Kertas HVS A4 70 gram",
+    "status": "pasti",
+    "action": null,
+    "code": null,
+    "pending": null,
+    "via": "name",
+    "match": "match"
+   },
+   {
+    "text": "papan tulis putih 90x120",
+    "status": "pasti",
+    "action": null,
+    "code": null,
+    "pending": null,
+    "via": "name",
+    "match": "match"
+   },
+   {
+    "text": "FAM-PEN",
+    "status": "pasti",
+    "action": null,
+    "code": null,
+    "pending": null,
+    "via": "code",
+    "match": "exact"
+   }
+  ],
+  "pendingCandidates": [
+   "BARU-0956"
+  ]
+ },
+ "familiarity: verifying one row resolves every identical row and becomes a client rule": {
+  "resolve": {
+   "status": 200,
+   "updated": [
+    {
+     "text": "Kertas HVS A4 70 gram",
+     "status": "resolved",
+     "action": "verify_item",
+     "code": "FAM-PAPER",
+     "pending": null,
+     "via": "name",
+     "match": "match"
+    },
+    {
+     "text": "Kertas HVS A4 70 gram",
+     "status": "resolved",
+     "action": "verify_item",
+     "code": "FAM-PAPER",
+     "pending": null,
+     "via": "name",
+     "match": "match"
+    }
+   ],
+   "summary": {
+    "total": 3,
+    "pasti": 0,
+    "mirip": 0,
+    "adjustment": 1,
+    "resolved": 2
+   }
+  },
+  "again": {
+   "summary": {
+    "total": 1,
+    "pasti": 0,
+    "mirip": 0,
+    "adjustment": 0,
+    "resolved": 1
+   },
+   "rows": [
+    {
+     "text": "Kertas HVS A4 70 gram",
+     "status": "resolved",
+     "action": "verify_item",
+     "code": "FAM-PAPER",
+     "pending": null,
+     "via": "name",
+     "match": "match"
+    }
+   ]
+  },
+  "other": {
+   "total": 1,
+   "pasti": 1,
+   "mirip": 0,
+   "adjustment": 0,
+   "resolved": 0
+  }
+ },
+ "familiarity: create_new_item reuses a similar pending item instead of asking twice": {
+  "created": {
+   "action": "create_new_item",
+   "item_id": null,
+   "pending_item_id": 15,
+   "code": "BARU-0957",
+   "name": "Stapler Besar Khusus",
+   "normalized_raw_text": "stapler besar khusus"
+  },
+  "summary": {
+   "total": 1,
+   "pasti": 0,
+   "mirip": 0,
+   "adjustment": 0,
+   "resolved": 1
+  },
+  "reused": 15
+ },
+ "familiarity: ignoring a row resolves its identical twin and teaches the ignore": {
+  "summary": {
+   "total": 2,
+   "pasti": 0,
+   "mirip": 0,
+   "adjustment": 0,
+   "resolved": 2
+  },
+  "again": {
+   "total": 1,
+   "pasti": 0,
+   "mirip": 0,
+   "adjustment": 0,
+   "resolved": 1
+  }
+ },
+ "familiarity: rejecting the top candidate demotes it now and on the next feed": {
+  "first": [
+   {
+    "text": "stabilo boss highlighter orange",
+    "status": "pasti",
+    "action": null,
+    "code": null,
+    "pending": null,
+    "via": "name",
+    "match": "match"
+   }
+  ],
+  "rejected": [
+   {
+    "text": "stabilo boss highlighter orange",
+    "status": "mirip",
+    "action": null,
+    "code": null,
+    "pending": null,
+    "via": "name",
+    "match": "review"
+   }
+  ],
+  "rejectedSummary": {
+   "total": 1,
+   "pasti": 0,
+   "mirip": 1,
+   "adjustment": 0,
+   "resolved": 0
+  },
+  "again": [
+   {
+    "text": "stabilo boss highlighter orange",
+    "status": "mirip",
+    "action": null,
+    "code": null,
+    "pending": null,
+    "via": "name",
+    "match": "review"
+   }
+  ]
+ },
+ "familiarity: GET returns the session's rows and candidates; unknown sessions and anonymous calls are refused": {
+  "status": 200,
+  "summary": {
+   "total": 2,
+   "pasti": 2,
+   "mirip": 0,
+   "adjustment": 0,
+   "resolved": 0
+  },
+  "rows": 2,
+  "missing": 404,
+  "anonymous": 401,
+  "anonymousFeed": 401
+ },
+ "familiarity: an Excel file is read from DES on every sheet, and a client's colliding code is not trusted": {
+  "status": 200,
+  "summary": {
+   "total": 3,
+   "pasti": 2,
+   "mirip": 0,
+   "adjustment": 1,
+   "resolved": 0
+  },
+  "rows": [
+   {
+    "text": "CAFE_GARAM 1 KG",
+    "status": "adjustment",
+    "action": null,
+    "code": null,
+    "pending": null,
+    "via": null,
+    "match": "none"
+   },
+   {
+    "text": "ATK_PULPEN GEL HITAM 0.5MM",
+    "status": "pasti",
+    "action": null,
+    "code": null,
+    "pending": null,
+    "via": "code",
+    "match": "exact"
+   },
+   {
+    "text": "ATK_HANSAPLAST",
+    "status": "pasti",
+    "action": null,
+    "code": null,
+    "pending": null,
+    "via": "name",
+    "match": "match"
+   }
+  ]
+ },
+ "familiarity: only a manager may make a resolution global; a rep's default is client-only": {
+  "denied": 403,
+  "allowed": {
+   "total": 1,
+   "pasti": 0,
+   "mirip": 0,
+   "adjustment": 0,
+   "resolved": 1
+  },
+  "other": {
+   "total": 1,
+   "pasti": 0,
+   "mirip": 0,
+   "adjustment": 0,
+   "resolved": 1
+  }
+ },
+ "familiarity → Dari list klien: a client's training decision makes the next list match that wording exactly": {
+  "a": [
+   {
+    "status": "exact",
+    "via": "alias",
+    "best": "FAM-PAPER"
+   }
+  ],
+  "b": [
+   {
+    "status": "none",
+    "via": null,
+    "best": null
+   }
+  ],
+  "none": [
+   {
+    "status": "none",
+    "via": null,
+    "best": null
+   }
+  ]
+ },
+ "familiarity → Dari list klien: a rep's training without a client stays in its session; a manager's applies to everyone": {
+  "afterRep": [
+   {
+    "status": "none",
+    "via": null,
+    "best": "FAM-PEN"
+   }
+  ],
+  "afterManager": [
+   {
+    "status": "exact",
+    "via": "alias",
+    "best": "FAM-PEN"
+   }
+  ]
+ },
+ "familiarity → Dari list klien: for one wording the newest decision wins, between training and the quote review": {
+  "fromReview": {
+   "status": "exact",
+   "via": "alias",
+   "best": "FAM-HL-OR"
+  },
+  "fromTraining": {
+   "status": "exact",
+   "via": "alias",
+   "best": "FAM-HL-GR"
+  },
+  "reviewedAgain": {
+   "status": "exact",
+   "via": "alias",
+   "best": "FAM-HL-OR"
+  },
+  "ignored": {
+   "status": "none",
+   "via": null,
+   "best": "FAM-HL-GR"
+  }
+ },
+ "list draft: a rep saves, sends it to a PIC who finishes it into a quote; a third user can't read or write it": {
+  "saved": {
+   "title": "List PT Draft",
+   "file_name": "list.xlsx",
+   "rows": 2,
+   "status": "open",
+   "created_by_name": "Rep One",
+   "assigned_to_name": null,
+   "assign_note": "",
+   "version": 1,
+   "has_quote": false
+  },
+  "stranger": [
+   403,
+   403,
+   403,
+   403,
+   0
+  ],
+  "sent": {
+   "title": "List PT Draft",
+   "file_name": "list.xlsx",
+   "rows": 2,
+   "status": "open",
+   "created_by_name": "Rep One",
+   "assigned_to_name": "Rep Two",
+   "assign_note": "Tolong selesaikan",
+   "version": 2,
+   "has_quote": false
+  },
+  "picList": [
+   {
+    "title": "List PT Draft",
+    "file_name": "list.xlsx",
+    "rows": 2,
+    "status": "open",
+    "created_by_name": "Rep One",
+    "assigned_to_name": "Rep Two",
+    "assign_note": "Tolong selesaikan",
+    "version": 2,
+    "has_quote": false
+   }
+  ],
+  "picRead": {
+   "lines": [
+    {
+     "name": "pulpen hitam",
+     "uom": "Pcs",
+     "qty": 2
+    },
+    {
+     "name": "barang tak dikenal",
+     "qty": 1
+    }
+   ],
+   "choices": [
+    {
+     "chosen": {
+      "kind": "catalog",
+      "code": "FAM-PEN-BK"
+     },
+     "confirmed": true,
+     "extra": []
+    },
+    {
+     "chosen": null,
+     "confirmed": false,
+     "extra": []
+    }
+   ],
+   "notes": [
+    "Kolom qty terbaca"
+   ]
+  },
+  "managerRead": 200,
+  "picSave": [
+   200,
+   3
+  ],
+  "stale": [
+   409,
+   "Draft ini baru saja diubah orang lain. Buka ulang untuk melihat versi terbaru."
+  ],
+  "again": [
+   409,
+   "Draft ini sudah dijadikan quotation."
+  ],
+  "afterDone": {
+   "title": "List PT Draft (PIC)",
+   "file_name": "list.xlsx",
+   "rows": 2,
+   "status": "done",
+   "created_by_name": "Rep One",
+   "assigned_to_name": "Rep Two",
+   "assign_note": "Tolong selesaikan",
+   "version": 4,
+   "has_quote": true,
+   "quote_matches": true
+  },
+  "doneList": 0,
+  "saveDone": 409
+ },
+ "list draft: input is checked, only an active PIC, only the creator or a manager cancels": {
+  "invalid": [
+   400,
+   400,
+   400,
+   400,
+   400
+  ],
+  "ghost": [
+   400,
+   "PIC tidak ditemukan atau tidak aktif."
+  ],
+  "picCancel": [
+   403,
+   "Hanya pembuat draft atau manajer yang bisa membatalkannya."
+  ],
+  "managerCancel": 200,
+  "twice": [
+   409,
+   "Draft ini sudah dibatalkan."
+  ],
+  "quoteFromCancelled": 409,
+  "missing": 404
+ },
+ "list draft: a draft stores picks, never catalog numbers, so a rep handed a manager's draft sees no COGS": {
+  "leaksInDraft": [],
+  "leaksInMatch": [],
+  "picks": [
+   "FAM-PEN-BK",
+   null
+  ]
+ }
+}

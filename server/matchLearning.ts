@@ -1,5 +1,5 @@
-/* Server side of the matching feedback (shared/matchLearning.ts): the SQL both
-   backends run, so the Worker and the Express twin learn the same way.
+/* Server side of the matching feedback (shared/matchLearning.ts): the SQL the
+   Worker runs.
 
    Recording is an observation, so it happens for every reviewed row, with or
    without a client. Turning a pairing into a RULE still needs a client

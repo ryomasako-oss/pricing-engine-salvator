@@ -44,46 +44,37 @@ per kota.
 
 ## Menjalankan di komputer sendiri
 
-Butuh **Node.js 22.5 atau lebih baru** (memakai SQLite bawaan Node, tidak ada
-kompilasi modul native).
+Butuh **Node.js 22.5 atau lebih baru**. Backend-nya Worker Cloudflare yang sama
+dengan produksi, dijalankan lokal oleh `wrangler dev` (workerd + D1 lokal di
+`.wrangler/state`).
 
 ```bash
 npm install
-cp .env.example .env
-#   isi JWT_SECRET:  openssl rand -hex 32
-#   isi SILVY_URL dan SILVY_SHARED_SECRET bila ingin Silvy aktif (lihat agent-service/README.md)
+npm run d1:seed:local   # migrasi D1 lokal, .dev.vars, admin pertama (sekali saja)
 npm run dev
 ```
 
 - Aplikasi: <http://localhost:5173>
 - API: <http://localhost:8787/api>
 
-Saat pertama kali dijalankan, satu akun administrator dibuat dan kata sandinya
-**dicetak sekali di terminal**. Simpan saat itu juga. Set `ADMIN_EMAIL` dan
-`ADMIN_PASSWORD` di `.env` kalau ingin menentukannya sendiri.
+`d1:seed:local` membuat satu akun administrator dan **mencetak kata sandinya
+sekali di terminal**. Simpan saat itu juga, atau tentukan sendiri:
+`ADMIN_EMAIL=... ADMIN_PASSWORD=... npm run d1:seed:local`. Secret lain (Silvy,
+Gemini) diisi di `.dev.vars`; contohnya di `.dev.vars.example`.
 
-## Menjalankan untuk produksi
+## Produksi
 
-```bash
-npm run build
-NODE_ENV=production npm start        # satu proses, satu port
-```
-
-Satu proses Node menyajikan API sekaligus aplikasi webnya.
-
-### Docker
+Produksi adalah Cloudflare Worker `halokantor-pricing` dengan D1
+`halokantor-pricing` (lihat `wrangler.toml`).
 
 ```bash
-docker build -t pricing-engine-salvator .
-docker run -d -p 8787:8787 \
-  -e JWT_SECRET="$(openssl rand -hex 32)" \
-  -e SILVY_URL=https://silvy.example -e SILVY_SHARED_SECRET=... \
-  -v halokantor-data:/app/data \
-  pricing-engine-salvator
+npm run d1:migrate:remote   # bila ada migrasi baru, sebelum deploy
+npx vite build
+npx wrangler deploy          # tanpa flag tambahan
 ```
 
-Basis data SQLite ada di `/app/data`. **Volume itu wajib dipasang**, kalau tidak
-seluruh quotation hilang saat kontainer dibuat ulang.
+Secret dipasang dengan `wrangler secret put` (JWT_SECRET, Silvy, Gemini, Gmail,
+Twilio, Accurate), tidak pernah di-commit.
 
 ---
 
@@ -127,8 +118,7 @@ Alurnya:
   (`accurate.test.ts` menjaga batasnya). Pasang token PT saja dulu supaya
   jatahnya tidak terbagi dua.
 
-Semua tombolnya ada di halaman Katalog (peran manajer ke atas). Sinkron ini
-hanya ada di backend Workers; server Express lokal tidak memilikinya.
+Semua tombolnya ada di halaman Katalog (peran manajer ke atas).
 
 ---
 
@@ -165,11 +155,13 @@ shared/     Engine harga, kebijakan, tipe, format. Dipakai server dan browser
   policy.ts       Evaluasi kebijakan menjadi daftar pelanggaran
   engine.test.ts  27 pengujian yang mengunci perilaku engine
 
-server/     API Express + SQLite bawaan Node
-  db.ts           Skema dan migrasi
-  auth.ts         bcrypt, JWT di cookie httpOnly, gerbang peran
-  quoteService.ts Penomoran, snapshot, mesin status
-  routes/         auth, clients, catalog, quotes, approvals, assistant, settings
+server/     Logika server yang dipakai Worker (pencocokan, familiarity, draft,
+            cek COGS, Silvy, OCR, Gmail), tanpa I/O HTTP
+  worker/         Worker Cloudflare: index.ts, auth (PBKDF2 + JWT), routes/,
+                  sinkron Accurate (accurate/), cron rekap & digest
+migrations/ Skema D1, diterapkan berurutan (lokal dan produksi)
+scripts/    Tes skenario API, tes integrasi, seed D1 lokal, shim D1 untuk tes
+e2e/        Tes Playwright terhadap wrangler dev (workerd) + D1 lokal
 
 src/        Aplikasi React
   pages/          Dashboard, QuoteEditor, Approvals, Catalog, Clients, Settings
@@ -184,9 +176,17 @@ jadi server tidak pernah menerima berkas biner dari pengguna.
 ## Pengujian
 
 ```bash
-npm test          # 36 pengujian
-npm run typecheck # klien dan server
+npm test                  # vitest: unit + route Worker di atas shim D1
+npm run typecheck         # klien, server, Worker, tes Worker
+npm run test:scenarios    # skenario API terhadap Worker, dibandingkan dengan
+                          # scripts/api-scenarios.golden.json
+npm run test:integration  # alur submit -> persetujuan
+npm run e2e               # Playwright terhadap wrangler dev (workerd)
 ```
+
+Jawaban skenario yang berubah dengan sengaja diperbarui dengan
+`UPDATE_GOLDEN=1 npm run test:scenarios`; periksa diff golden file sebelum
+di-commit.
 
 Pengujian importer berjalan terhadap berkas Accurate asli bila ada di folder
 `~/Downloads`, dan dilewati otomatis bila tidak.
@@ -220,10 +220,13 @@ perbaikan ini tidak membutuhkan migrasi database baru.
 
 ## Catatan keamanan
 
-- Kata sandi di-hash dengan bcrypt (12 putaran); sesi berupa JWT di cookie
-  `httpOnly`, `sameSite=lax`, dan `secure` saat produksi.
+- Kata sandi di-hash dengan PBKDF2-SHA256 (WebCrypto, 100.000 putaran, batas
+  Workers); hash bcrypt lama tetap bisa masuk dan diganti otomatis. Sesi berupa
+  JWT di cookie `httpOnly`, `sameSite=lax`, dan `secure` saat produksi.
 - Semua badan permintaan divalidasi dengan Zod sebelum menyentuh basis data.
 - Semua kueri memakai pernyataan berparameter.
-- Header keamanan dipasang Helmet, termasuk CSP saat produksi.
-- Percobaan masuk dibatasi 20 kali per 15 menit per alamat IP.
+- Header keamanan (CSP, HSTS, X-Frame-Options, X-Content-Type-Options) dipasang
+  oleh Worker untuk setiap respons, termasuk halaman dan aset.
+- Rate limit Cloudflare: masuk/sandi 10 per menit, Silvy 20 per menit, seluruh
+  API 600 per menit per alamat IP.
 - `JWT_SECRET` wajib diisi di produksi; aplikasi menolak berjalan tanpanya.

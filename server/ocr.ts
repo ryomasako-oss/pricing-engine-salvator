@@ -1,8 +1,8 @@
 /* ============================================================
    Request list from a PDF or photo (Gemini).
 
-   Shared by the Express and Worker backends; each only reads the request,
-   checks the user and the rate limit, and calls handleOcr. `fetchFn` is
+   The Worker route only reads the request, checks the user and the rate
+   limit, and calls handleOcr. `fetchFn` is
    injectable so tests never touch the network.
 
    What the model gets: the file and an instruction to copy the table of

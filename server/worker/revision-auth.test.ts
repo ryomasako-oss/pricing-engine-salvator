@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { hasPermission } from "./permissions.js";
-import { EDITABLE_STATUSES } from "../server/quoteService.js";
-import type { User } from "./types.js";
+import { hasPermission } from "../../shared/permissions.js";
+import { EDITABLE_STATUSES } from "./quoteService.js";
+import type { User } from "../../shared/types.js";
 
-// Replicate canEdit logic from server/routes/quotes.ts and server/worker/routes/quotes.ts
+// Replicate canEdit logic from server/worker/routes/quotes.ts
 function canEdit(user: User, createdBy: number, assignedTo: number | null): boolean {
   return user.id === createdBy || user.id === assignedTo || hasPermission(user.role, "edit_all_quotes");
 }

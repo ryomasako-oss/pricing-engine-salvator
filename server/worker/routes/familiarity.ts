@@ -16,7 +16,7 @@ import {
 import { parseFamiliarityFile, type FamiliarityFile, type FamiliarityInputLine } from "../../../shared/familiarityParse";
 import type { Env } from "../env";
 
-/* Interactive familiarity on D1: the twin of server/routes/familiarity.ts.
+/* Interactive familiarity on D1.
    The service does the thinking; this file only adapts Hono/HTTP. */
 
 export const familiarityRouter = new Hono<Env>();

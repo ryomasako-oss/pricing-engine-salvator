@@ -1,5 +1,5 @@
 /* ============================================================
-   Draft "Dari list klien" — the logic both backends run
+   Draft "Dari list klien" — the logic the Worker routes run
    (shared/listDrafts.ts explains what a draft keeps and why).
 
    GET    /api/list-drafts            open drafts I made or was sent; managers: all
