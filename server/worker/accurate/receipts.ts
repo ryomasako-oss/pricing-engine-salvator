@@ -188,10 +188,20 @@ export async function receiptStep(
 
       const pageDone = idx >= receipts.length;
       const lastPage = res.rows.length === 0 || st.page >= res.pageCount;
+      // A pass spans ticks and lists by id, not by lastUpdate. A receipt edited after an
+      // earlier tick read it would stay below maxUpdate (the highest lastUpdate seen), so a
+      // cursor set to maxUpdate alone would never ask for that edit again. Keep a 10-minute
+      // overlap before the pass started; min() still advances past edits older than that.
+      let since = maxUpdate;
+      if (st.pass_started_at && Number.isFinite(Date.parse(st.pass_started_at))) {
+        const floor = wibTimestamp(new Date(Date.parse(st.pass_started_at) - 10 * 60_000));
+        if (!since) since = st.since_update ? floor : null;
+        else if (updateKey(floor) < updateKey(since)) since = floor;
+      }
       const next: Partial<ReceiptState> = !pageDone
         ? { row_idx: idx }
         : lastPage
-          ? { since_update: maxUpdate, max_update: maxUpdate, page: 1, row_idx: 0, pass_started_at: null, last_pass_at: new Date().toISOString() }
+          ? { since_update: since, max_update: maxUpdate, page: 1, row_idx: 0, pass_started_at: null, last_pass_at: new Date().toISOString() }
           : { page: st.page + 1, row_idx: 0 };
       // One statement each (json_each): D1 bills every statement of a batch.
       await batch(db, [
