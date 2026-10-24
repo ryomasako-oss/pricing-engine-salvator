@@ -38,6 +38,10 @@ export interface ReceiptState {
   last_error: string | null;
   last_error_at: string | null;
   locked_until: string | null;
+  passes_since_sweep: number;
+  sweep_page: number;
+  sweep_ids: string | null;
+  last_sweep_at: string | null;
 }
 
 export interface ReceiptConfig {
@@ -85,11 +89,82 @@ export async function loadReceiptState(db: D1Database, entity: EntityKey): Promi
   return (await get<ReceiptState>(db, "SELECT * FROM accurate_receipt_state WHERE entity = ?", entity))!;
 }
 
+/** Completed passes between sweeps. Four passes ≈ one day at the deployed 6-hour cadence. */
+export const RECEIPT_SWEEP_EVERY_PASSES = 4;
+/** Receipts per listing call during a sweep; only ids are asked for, so a page can be large. */
+export const RECEIPT_SWEEP_PAGE_SIZE = 500;
+
 export interface ReceiptStepResult {
   outcome: "locked" | "idle" | "progress" | "finished" | "error";
   calls: number;
   lines: number;
   error?: string;
+}
+
+/**
+ * List every receipt id in Accurate and delete lines whose receipt is gone.
+ *
+ * receive-item/list.do excludes deleted and cancelled receipts, so the normal
+ * lastUpdate pass can never see them again; their old lines would stay and could
+ * still be chosen as an item's "pembelian terakhir". Done once every few passes,
+ * not every tick: the id list is ~15-35 calls and the DELETE reads the whole
+ * line table, which is fine once a day but wasteful on every 5-minute tick.
+ *
+ * The sweep is resumable (sweep_page + sweep_ids) and deletes only when the
+ * collected ids match Accurate's rowCount. A receipt added or removed while
+ * paging shifts the offsets; deleting from such a partial list would drop a
+ * receipt that still exists.
+ */
+async function sweepReceipts(
+  db: D1Database,
+  entity: EntityKey,
+  client: AccurateClient,
+  st: ReceiptState,
+  setSql: (fields: Partial<ReceiptState>) => D1PreparedStatement,
+  budgetLeft: (need: number) => boolean,
+): Promise<"done" | "progress"> {
+  let ids: number[] = [];
+  if (st.sweep_ids) {
+    try {
+      const parsed: unknown = JSON.parse(st.sweep_ids);
+      if (Array.isArray(parsed)) ids = parsed.filter((x): x is number => Number.isInteger(x) && x > 0);
+    } catch {
+      ids = []; // unreadable state: start the list over instead of trusting it
+    }
+  }
+  let page = ids.length ? Math.max(1, st.sweep_page) : 1;
+
+  while (budgetLeft(1)) {
+    const res = await client.list("receive-item/list.do", {
+      fields: "id",
+      "sp.page": page,
+      "sp.pageSize": RECEIPT_SWEEP_PAGE_SIZE,
+      "sp.sort": "id|asc",
+    });
+    for (const row of res.rows) {
+      const id = Number((row as { id?: unknown }).id);
+      if (Number.isInteger(id) && id > 0) ids.push(id);
+    }
+    if (res.rows.length > 0 && page < res.pageCount) {
+      page++;
+      continue;
+    }
+    if (!ids.length || ids.length !== res.rowCount) return "progress"; // incomplete list: retry later, delete nothing
+    await batch(db, [
+      stmt(
+        db,
+        `DELETE FROM accurate_receipt_lines
+          WHERE entity = ?1 AND receipt_id NOT IN (SELECT value FROM json_each(?2))`,
+        entity,
+        JSON.stringify(ids),
+      ),
+      setSql({ passes_since_sweep: 0, sweep_page: 1, sweep_ids: null, last_sweep_at: new Date().toISOString() }),
+    ]);
+    return "done";
+  }
+
+  await batch(db, [setSql({ sweep_page: page, sweep_ids: JSON.stringify(ids) })]);
+  return "progress";
 }
 
 export async function receiptStep(
@@ -123,20 +198,9 @@ export async function receiptStep(
   let client: AccurateClient | null = null;
 
   try {
-    if (!st.pass_started_at) {
-      if (hoursSince(st.last_pass_at) < cfg.everyHours) return { outcome: "idle", calls: 0, lines: 0 };
-      await batch(db, [
-        setSql({
-          pass_started_at: new Date().toISOString(),
-          page: 1,
-          row_idx: 0,
-          receipts_seen: 0,
-          max_update: st.since_update,
-          // Fixed for the whole pass: the default start ("a year back") moves with the clock,
-          // and a backfill spanning days would otherwise drop receipts and shift the pages.
-          backfill_since: st.since_update ? null : cfg.since,
-        }),
-      ]);
+    const sweepDue = !st.pass_started_at && st.passes_since_sweep >= RECEIPT_SWEEP_EVERY_PASSES;
+    if (!st.pass_started_at && !sweepDue && hoursSince(st.last_pass_at) < cfg.everyHours) {
+      return { outcome: "idle", calls: 0, lines: 0 };
     }
 
     // The item sync keeps the database host fresh; reuse it.
@@ -154,6 +218,28 @@ export async function receiptStep(
       );
     }
     const budgetLeft = (need: number) => c.calls + need <= opts.budget && Date.now() < opts.deadline;
+
+    // Sweep before starting a pass, so its listing does not compete with detail calls
+    // that are already near the tick's call budget.
+    if (sweepDue && (await sweepReceipts(db, entity, c, st, setSql, budgetLeft)) === "progress") {
+      return { outcome: "progress", calls: c.calls, lines };
+    }
+
+    if (!st.pass_started_at) {
+      if (hoursSince(st.last_pass_at) < cfg.everyHours) return { outcome: "idle", calls: c.calls, lines };
+      await batch(db, [
+        setSql({
+          pass_started_at: new Date().toISOString(),
+          page: 1,
+          row_idx: 0,
+          receipts_seen: 0,
+          max_update: st.since_update,
+          // Fixed for the whole pass: the default start ("a year back") moves with the clock,
+          // and a backfill spanning days would otherwise drop receipts and shift the pages.
+          backfill_since: st.since_update ? null : cfg.since,
+        }),
+      ]);
+    }
 
     const filter: Record<string, string> = st.since_update
       ? { "filter.lastUpdate.op": "GREATER_EQUAL_THAN", "filter.lastUpdate.val": st.since_update }
@@ -188,10 +274,28 @@ export async function receiptStep(
 
       const pageDone = idx >= receipts.length;
       const lastPage = res.rows.length === 0 || st.page >= res.pageCount;
+      // A pass spans ticks and lists by id, not by lastUpdate. A receipt edited after an
+      // earlier tick read it would stay below maxUpdate (the highest lastUpdate seen), so a
+      // cursor set to maxUpdate alone would never ask for that edit again. Keep a 10-minute
+      // overlap before the pass started; min() still advances past edits older than that.
+      let since = maxUpdate;
+      if (st.pass_started_at && Number.isFinite(Date.parse(st.pass_started_at))) {
+        const floor = wibTimestamp(new Date(Date.parse(st.pass_started_at) - 10 * 60_000));
+        if (!since) since = st.since_update ? floor : null;
+        else if (updateKey(floor) < updateKey(since)) since = floor;
+      }
       const next: Partial<ReceiptState> = !pageDone
         ? { row_idx: idx }
         : lastPage
-          ? { since_update: maxUpdate, max_update: maxUpdate, page: 1, row_idx: 0, pass_started_at: null, last_pass_at: new Date().toISOString() }
+          ? {
+              since_update: since,
+              max_update: maxUpdate,
+              page: 1,
+              row_idx: 0,
+              pass_started_at: null,
+              last_pass_at: new Date().toISOString(),
+              passes_since_sweep: st.passes_since_sweep + 1,
+            }
           : { page: st.page + 1, row_idx: 0 };
       // One statement each (json_each): D1 bills every statement of a batch.
       await batch(db, [
