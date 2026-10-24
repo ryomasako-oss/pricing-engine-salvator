@@ -5,7 +5,15 @@ import { DatabaseSync } from "node:sqlite";
 import { Hono } from "hono";
 import { D1DatabaseShim } from "../../../scripts/d1-sqlite-shim";
 import { isoDate, mapReceipt, mapReceiptLines, updateKey } from "./mapping";
-import { RECEIPTS_CRON, receiptConfig, receiptStep, wibTimestamp, type ReceiptConfig } from "./receipts";
+import {
+  RECEIPTS_CRON,
+  RECEIPT_SWEEP_EVERY_PASSES,
+  RECEIPT_SWEEP_PAGE_SIZE,
+  receiptConfig,
+  receiptStep,
+  wibTimestamp,
+  type ReceiptConfig,
+} from "./receipts";
 import { syncConfig } from "./sync";
 import { accurateRouter } from "../routes/accurate";
 import { catalogRouter } from "../routes/catalog";
@@ -133,6 +141,68 @@ describe("receiptStep", () => {
     sqlite.exec("UPDATE accurate_receipt_state SET last_pass_at = '2000-01-01T00:00:00Z'");
     await runPass(db, fake.impl, 2);
     expect(sqlite.prepare("SELECT unit_price FROM accurate_receipt_lines WHERE receipt_id = 601").get()).toEqual({ unit_price: 999_999 });
+  });
+
+  it("drops the lines of a receipt Accurate no longer lists, and leaves the rest", async () => {
+    const { sqlite, db } = freshDb();
+    const receipts = structuredClone(RECEIPTS);
+    const fake = fakeAccurate({ items: [], stock: {}, receipts });
+    await runPass(db, fake.impl);
+    expect(sqlite.prepare("SELECT COUNT(*) AS n FROM accurate_receipt_lines WHERE receipt_id = 501").get()).toEqual({ n: 1 });
+
+    // Deleted in Accurate: it is absent from every listing from now on, so no
+    // lastUpdate pass can ever replace or remove its lines.
+    receipts.splice(0, 1);
+    sqlite.exec(`UPDATE accurate_receipt_state SET passes_since_sweep = ${RECEIPT_SWEEP_EVERY_PASSES}`);
+    const r = await receiptStep(db, "PT", creds, cfg, { budget: 20, deadline: Date.now() + 10_000, fetchImpl: fake.impl, gapMs: 0 });
+    expect(r.outcome).toBe("idle"); // housekeeping, not a receipt pass
+    expect(sqlite.prepare("SELECT receipt_id FROM accurate_receipt_lines ORDER BY receipt_id, line_id").all()).toEqual([
+      { receipt_id: 502 },
+      { receipt_id: 502 },
+      { receipt_id: 504 },
+    ]);
+    expect(sqlite.prepare("SELECT passes_since_sweep, last_sweep_at IS NOT NULL AS swept FROM accurate_receipt_state").get()).toEqual({
+      passes_since_sweep: 0,
+      swept: 1,
+    });
+  });
+
+  it("never deletes from a half-read id list, and resumes the sweep on the next tick", async () => {
+    const { sqlite, db } = freshDb();
+    // Two listing pages (RECEIPT_SWEEP_PAGE_SIZE); id 550 no longer exists.
+    const receipts: FakeReceipt[] = Array.from({ length: RECEIPT_SWEEP_PAGE_SIZE + 100 }, (_, i) => ({
+      id: i + 1,
+      number: `RI.${i + 1}`,
+      transDate: "01/06/2026",
+      lastUpdate: "01/06/2026 10:00:00",
+      status: "RECEIVED",
+      detailItem: [],
+    })).filter((r) => r.id !== 550);
+    const fake = fakeAccurate({ items: [], stock: {}, receipts });
+    sqlite.exec("INSERT INTO accurate_sync_state(entity, host) VALUES ('PT', 'https://zeus.accurate.id')");
+    sqlite.exec(`INSERT INTO accurate_receipt_lines(entity, receipt_id, line_id, receipt_no, trans_date, item_code, unit, quantity, unit_price) VALUES
+      ('PT', 1, 1, 'RI.1', '2026-01-01', 'A1', 'Pcs', 1, 10),
+      ('PT', 550, 1, 'RI.550', '2026-01-01', 'A1', 'Pcs', 1, 20)`);
+    sqlite.exec(`INSERT INTO accurate_receipt_state(entity, last_pass_at, passes_since_sweep)
+      VALUES ('PT', '${new Date().toISOString()}', ${RECEIPT_SWEEP_EVERY_PASSES})`);
+
+    // One call only: page 1 is saved, but nothing may be deleted yet.
+    const first = await receiptStep(db, "PT", creds, cfg, { budget: 1, deadline: Date.now() + 10_000, fetchImpl: fake.impl, gapMs: 0 });
+    expect(first.outcome).toBe("progress");
+    expect(sqlite.prepare("SELECT COUNT(*) AS n FROM accurate_receipt_lines").get()).toEqual({ n: 2 });
+    expect(sqlite.prepare("SELECT sweep_page, sweep_ids IS NOT NULL AS saved FROM accurate_receipt_state").get()).toEqual({
+      sweep_page: 2,
+      saved: 1,
+    });
+
+    const second = await receiptStep(db, "PT", creds, cfg, { budget: 20, deadline: Date.now() + 10_000, fetchImpl: fake.impl, gapMs: 0 });
+    expect(second.outcome).toBe("idle");
+    expect(sqlite.prepare("SELECT receipt_id FROM accurate_receipt_lines ORDER BY receipt_id").all()).toEqual([{ receipt_id: 1 }]);
+    expect(sqlite.prepare("SELECT passes_since_sweep, sweep_page, sweep_ids FROM accurate_receipt_state").get()).toEqual({
+      passes_since_sweep: 0,
+      sweep_page: 1,
+      sweep_ids: null,
+    });
   });
 
   it("a first pass spanning several days keeps the start date it began with", async () => {
