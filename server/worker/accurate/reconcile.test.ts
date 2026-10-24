@@ -153,6 +153,25 @@ describe("cross-check of the catalog against Accurate", () => {
     expect(openTasks(sqlite).length).toBe(5);
   });
 
+  it("a cross-check that throws is recorded and not retried on every tick (audit 2026-10-23 #8)", async () => {
+    const { sqlite, db } = freshDb();
+    seed(sqlite);
+    sqlite.exec(`UPDATE accurate_sync_state SET last_success_at = '${new Date().toISOString()}'`);
+    sqlite.exec("DROP TABLE fix_tasks"); // any failure inside the step will do
+    const env = { DB: db, ACCURATE_TOKEN_PT: "aat.t", ACCURATE_SIGNATURE_SECRET: "s" } as never;
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const first = await syncTick(env, { deadlineMs: 5_000 });
+    expect(first.map((r) => r.outcome)).toEqual(["idle"]);
+    const st = sqlite.prepare("SELECT reconciled_at, last_error, last_error_at FROM accurate_sync_state WHERE entity = 'PT'").get() as Record<string, string | null>;
+    expect(st.last_error).toMatch(/^Barang baru \/ cek silang gagal: /);
+    expect(st.last_error_at).not.toBeNull();
+    expect(st.reconciled_at).not.toBeNull();
+    // The next tick is back on the cheap idle path instead of reading every table again.
+    expect(await reconcileDue(db, "PT")).toBe(false);
+    spy.mockRestore();
+  });
+
   it("staff never see these tasks or count them: they belong to no quote", async () => {
     const { sqlite, db } = freshDb();
     seed(sqlite);
