@@ -4,7 +4,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Hono } from "hono";
 import { D1DatabaseShim } from "../../../scripts/d1-sqlite-shim";
-import { AccurateClient, signTimestamp } from "./client";
+import { AccurateClient, CALL_TIMEOUT_MS, signTimestamp } from "./client";
 import { mapItem, mapStock } from "./mapping";
 import { syncConfig, syncStep, type EntityKey, type SyncConfig } from "./sync";
 import { accurateRouter } from "../routes/accurate";
@@ -172,6 +172,33 @@ describe("syncStep", () => {
     const fake = fakeAccurate({ items: ITEMS, stock: {} }); // warehouses with no stock: page 1 of 1, no rows
     expect((await runToIdle(db, fake.impl)).at(-1)).toBe("finished");
     expect(sqlite.prepare("SELECT COUNT(*) AS n FROM accurate_stock").get()).toEqual({ n: 0 });
+  });
+
+  it("a tick that outlived its lock neither overwrites the newer tick's cursor nor releases its lock (audit 2026-10-23 #16)", async () => {
+    const { sqlite, db } = freshDb();
+    const fake = fakeAccurate({ items: ITEMS, stock: {} });
+    const state = () => sqlite.prepare("SELECT phase, page, locked_until, last_error FROM accurate_sync_state").get();
+    // Tick A's item call hangs past 5 minutes. Meanwhile its lock expires and tick B takes it
+    // and moves the cursor on (simulated by writing B's lock and cursor directly).
+    const hung: typeof fetch = async (input, init) => {
+      if (String(input).includes("/item/list.do")) {
+        sqlite.exec("UPDATE accurate_sync_state SET locked_until = '2999-01-01 00:00:00', page = 5");
+      }
+      return fake.impl(input, init);
+    };
+    const a = await syncStep(db, "CV", creds, cfg, { deadline: Date.now() + 5000, fetchImpl: hung, gapMs: 0 });
+    expect(a.outcome).toBe("locked");
+    expect(state()).toEqual({ phase: "items", page: 5, locked_until: "2999-01-01 00:00:00", last_error: null });
+  });
+
+  it("bounds every Accurate call with a timeout inside the 5-minute lock", async () => {
+    const signals: (AbortSignal | null | undefined)[] = [];
+    const fake = fakeAccurate({ items: ITEMS, stock: {} });
+    const spy: typeof fetch = async (input, init) => (signals.push(init?.signal), fake.impl(input, init));
+    await new AccurateClient(creds, null, spy, 0).list("item/list.do", { "sp.page": 1 });
+    expect(signals.length).toBe(2); // api-token.do, then the list
+    expect(signals.every((s) => s instanceof AbortSignal)).toBe(true);
+    expect(CALL_TIMEOUT_MS).toBeLessThan(5 * 60_000);
   });
 
   it("records an error without losing the cursor", async () => {

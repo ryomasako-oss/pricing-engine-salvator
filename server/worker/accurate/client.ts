@@ -19,6 +19,7 @@
    ============================================================ */
 
 export const ACCOUNT_BASE = "https://account.accurate.id";
+export const CALL_TIMEOUT_MS = 20_000;
 
 /**
  * Every request carries the Bearer token and a signature, so it may only go
@@ -107,7 +108,13 @@ export class AccurateClient {
       if (this.calls > 0 && this.gapMs > 0) await new Promise((r) => setTimeout(r, this.gapMs));
       assertAccurateUrl(target);
       this.calls++;
-      const res = await this.fetchImpl(target, { method, headers: await this.headers(), redirect: "manual" });
+      // Bounded well inside the sync's 5-minute lock: a hung call used to outlive it.
+      const res = await this.fetchImpl(target, {
+        method,
+        headers: await this.headers(),
+        redirect: "manual",
+        signal: AbortSignal.timeout(CALL_TIMEOUT_MS),
+      });
       if (res.status === 301 || res.status === 302 || res.status === 307 || res.status === 308) {
         const loc = res.headers.get("location");
         if (!loc) throw new AccurateError(`Accurate redirect ${res.status} tanpa Location`, res.status);
