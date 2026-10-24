@@ -306,8 +306,21 @@ export async function syncTick(env: Bindings, opts: { deadlineMs: number }): Pro
   // The same once-per-run moment adds the items new in Accurate first, so the
   // check already sees them in the catalog.
   if (out.find((r) => r.entity === mine)?.outcome === "idle" && (await reconcileDue(env.DB, mine))) {
-    if (env.ACCURATE_AUTO_NEW_ITEMS !== "false") await addNewItems(env.DB, mine);
-    await runReconcile(env.DB, mine);
+    try {
+      if (env.ACCURATE_AUTO_NEW_ITEMS !== "false") await addNewItems(env.DB, mine);
+      await runReconcile(env.DB, mine);
+    } catch (err) {
+      // Marked done anyway: left unmarked, every 5-minute tick retried this step, and each try
+      // reads the whole staging table and catalog (2-8M rows a day, the D1 allowance of 2026-10-10).
+      // The error shows on the panel and in the morning recap; the next run tries again.
+      const now = new Date().toISOString();
+      await run(
+        env.DB,
+        "UPDATE accurate_sync_state SET reconciled_at = ?, last_error = ?, last_error_at = ? WHERE entity = ?",
+        now, `Barang baru / cek silang gagal: ${String((err as Error)?.message ?? err)}`.slice(0, 500), now, mine,
+      );
+      console.error("[accurate] new items / cross-check failed:", err);
+    }
   }
   return out;
 }
