@@ -103,6 +103,38 @@ describe("receiptStep", () => {
     ]);
   });
 
+  it("a receipt edited after an earlier tick is read again even when a later edit raised the cursor", async () => {
+    const { sqlite, db } = freshDb();
+    const receipts: FakeReceipt[] = [
+      { id: 601, number: "RI.A", transDate: "21/05/2026", lastUpdate: "21/05/2026 10:00:00", status: "RECEIVED",
+        detailItem: [{ id: 1, itemNo: "A1", itemUnitName: "Pcs", quantity: 1, unitPrice: 10_000 }] },
+      { id: 602, number: "RI.X", transDate: "22/05/2026", lastUpdate: "22/05/2026 10:00:00", status: "RECEIVED",
+        detailItem: [{ id: 1, itemNo: "X1", itemUnitName: "Pcs", quantity: 1, unitPrice: 20_000 }] },
+      { id: 603, number: "RI.B", transDate: "23/05/2026", lastUpdate: "23/05/2026 10:00:00", status: "RECEIVED",
+        detailItem: [{ id: 1, itemNo: "B1", itemUnitName: "Pcs", quantity: 1, unitPrice: 30_000 }] },
+    ];
+    const fake = fakeAccurate({ items: [], stock: {}, receipts });
+    const opts = { budget: 2, deadline: Date.now() + 10_000, fetchImpl: fake.impl, gapMs: 0 };
+    const tick = () => receiptStep(db, "PT", creds, cfg, opts);
+
+    await tick(); // resolves the database host, which spends this tick's budget
+    await tick(); // reads A
+    const base = Date.now();
+    receipts[0].lastUpdate = wibTimestamp(new Date(base - 120_000));
+    receipts[0].detailItem = [{ id: 1, itemNo: "A1", itemUnitName: "Pcs", quantity: 1, unitPrice: 999_999 }];
+
+    // The pass reads X without changes, then B, whose edit is later than A's:
+    // the highest lastUpdate in this pass is now B's, not A's.
+    await tick();
+    receipts[2].lastUpdate = wibTimestamp(new Date(base - 60_000));
+    expect((await tick()).outcome).toBe("finished");
+
+    // The next pass must still ask for A, though A's edit is older than B's.
+    sqlite.exec("UPDATE accurate_receipt_state SET last_pass_at = '2000-01-01T00:00:00Z'");
+    await runPass(db, fake.impl, 2);
+    expect(sqlite.prepare("SELECT unit_price FROM accurate_receipt_lines WHERE receipt_id = 601").get()).toEqual({ unit_price: 999_999 });
+  });
+
   it("a first pass spanning several days keeps the start date it began with", async () => {
     // The default start is "one year back" from each tick's clock; a backfill takes days,
     // so a later tick's start date moves past receipts on pages the pass hasn't reached.
