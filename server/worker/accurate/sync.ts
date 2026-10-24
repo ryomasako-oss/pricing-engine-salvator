@@ -95,6 +95,17 @@ const HOST_TTL_DAYS = 30; // Accurate asks integrators to re-check the host mont
 const hoursSince = (iso: string | null) =>
   iso ? (Date.now() - Date.parse(iso.replace(" ", "T") + (iso.endsWith("Z") ? "" : "Z"))) / 3_600_000 : Infinity;
 
+/**
+ * Only Accurate's own page count ends a list. An empty page before it used to end the run too,
+ * and the finishing run then pruned every row it had not reached: one odd empty reply on page 30
+ * of 70 deleted ~4k staged items. It now fails the tick, which keeps the cursor and retries.
+ */
+function lastPage(res: { rows: unknown[]; pageCount: number }, page: number, what: string): boolean {
+  if (page >= res.pageCount) return true;
+  if (!res.rows.length) throw new AccurateError(`Halaman ${page} dari ${res.pageCount} (${what}) kosong; dicoba lagi tick berikutnya`, 502);
+  return false;
+}
+
 export interface StepResult {
   entity: EntityKey;
   outcome: "locked" | "idle" | "progress" | "finished" | "error";
@@ -191,7 +202,7 @@ export async function syncStep(
             runId,
           );
         }
-        const done = res.rows.length === 0 || st.page >= res.pageCount;
+        const done = lastPage(res, st.page, "barang");
         await save(
           done
             ? { phase: "warehouses", page: 1, items_seen: st.items_seen + items.length }
@@ -202,7 +213,7 @@ export async function syncStep(
         for (let p = 1; ; p++) {
           const res = await client.list("warehouse/list.do", { fields: "id,name", "sp.page": p, "sp.pageSize": 100 });
           whs.push(...res.rows.map(mapWarehouse).filter((x) => x !== null));
-          if (res.rows.length === 0 || p >= res.pageCount) break;
+          if (lastPage(res, p, "gudang")) break;
         }
         await batch(db, [
           stmt(
@@ -244,7 +255,7 @@ export async function syncStep(
             entity, whId, JSON.stringify(rows), runId,
           );
         }
-        const done = res.rows.length === 0 || st.page >= res.pageCount;
+        const done = lastPage(res, st.page, `stok gudang ${whId}`);
         await save(
           done
             ? { warehouse_idx: st.warehouse_idx + 1, page: 1, stock_rows: st.stock_rows + rows.length }
