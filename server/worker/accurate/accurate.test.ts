@@ -133,6 +133,47 @@ describe("syncStep", () => {
     expect(sqlite.prepare("SELECT last_error FROM accurate_sync_state").get()).toEqual({ last_error: expect.stringContaining("Invalid access token") });
   });
 
+  it("an empty page before the last one fails the tick instead of ending the run and pruning (audit 2026-10-23 #11)", async () => {
+    const { sqlite, db } = freshDb();
+    const fake = fakeAccurate({ items: ITEMS, stock: { 1: [{ no: "A1", quantity: 10 }, { no: "A2", quantity: 2 }, { no: "A3", quantity: 1 }] } });
+    await runToIdle(db, fake.impl);
+    const counts = () => sqlite.prepare("SELECT (SELECT COUNT(*) FROM accurate_items) AS items, (SELECT COUNT(*) FROM accurate_stock) AS stock").get();
+    expect(counts()).toEqual({ items: 3, stock: 3 });
+
+    // Next run: Accurate answers page 1 of 2 (items, then stock) with no rows once each.
+    sqlite.exec("UPDATE accurate_sync_state SET force_restart = 1");
+    const glitched = new Set<string>();
+    const flaky: typeof fetch = async (input, init) => {
+      const url = new URL(String(input));
+      const key = url.pathname.split("/").pop()!;
+      if (/list(-stock)?\.do$/.test(url.pathname) && !url.pathname.includes("warehouse") && url.searchParams.get("sp.page") === "1" && !glitched.has(key)) {
+        glitched.add(key);
+        return new Response(JSON.stringify({ s: true, d: [], sp: { page: 1, pageSize: 2, pageCount: 2, rowCount: 3 } }), { status: 200 });
+      }
+      return fake.impl(input, init);
+    };
+    const outcomes: string[] = [];
+    for (let i = 0; i < 20 && outcomes.at(-1) !== "finished"; i++) {
+      const r = await syncStep(db, "CV", creds, cfg, { deadline: Date.now() + 5000, fetchImpl: flaky, gapMs: 0 });
+      outcomes.push(r.outcome);
+      if (r.outcome === "error") {
+        expect(r.error).toMatch(/Halaman 1 dari 2 .* kosong/);
+        expect((sqlite.prepare("SELECT last_error FROM accurate_sync_state").get() as { last_error: string }).last_error).toMatch(/kosong/);
+      }
+    }
+    expect(outcomes.filter((o) => o === "error")).toHaveLength(2);
+    expect(outcomes.at(-1)).toBe("finished");
+    // The retries read the pages again; nothing was pruned (the old code left 0 items and 0 stock rows).
+    expect(counts()).toEqual({ items: 3, stock: 3 });
+  });
+
+  it("an empty list that Accurate itself calls the last page still ends normally", async () => {
+    const { sqlite, db } = freshDb();
+    const fake = fakeAccurate({ items: ITEMS, stock: {} }); // warehouses with no stock: page 1 of 1, no rows
+    expect((await runToIdle(db, fake.impl)).at(-1)).toBe("finished");
+    expect(sqlite.prepare("SELECT COUNT(*) AS n FROM accurate_stock").get()).toEqual({ n: 0 });
+  });
+
   it("records an error without losing the cursor", async () => {
     const { sqlite, db } = freshDb();
     const broken: typeof fetch = async () => new Response(JSON.stringify({ s: false, d: ["Invalid or Revoked API Token"] }), { status: 401 });

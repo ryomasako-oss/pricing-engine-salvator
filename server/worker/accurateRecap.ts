@@ -50,6 +50,12 @@ export async function runAccurateRecap(
       ORDER BY c.code`,
     opts.now.toISOString().slice(0, 19).replace("T", " "),
   );
+  // One row: whether the 5-minute item/stock sync is stuck (absent: never set up).
+  const sync = await get<{ last_success_at: string | null; last_error: string | null }>(
+    db,
+    "SELECT last_success_at, last_error FROM accurate_sync_state WHERE entity = ?",
+    entity,
+  );
   const recap = buildRecap({
     now: opts.now,
     entity,
@@ -57,6 +63,7 @@ export async function runAccurateRecap(
     preview,
     counts,
     newItems,
+    sync,
   });
 
   // Marked before Silvy and the send, like the fix digest: a missed email beats a double one.

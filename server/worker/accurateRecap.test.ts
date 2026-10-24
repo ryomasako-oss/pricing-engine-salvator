@@ -110,6 +110,33 @@ describe("runAccurateRecap (rekap Accurate pagi, Silvy)", () => {
     expect(sends).toBe(0);
   });
 
+  it("warns when the item/stock sync is stuck, even on a day with nothing else to report (audit 2026-10-23 #8)", async () => {
+    const { sqlite, db } = freshDb();
+    seed(sqlite);
+    sqlite.exec(`UPDATE catalog_items SET cogs = 11005000, list_price = 12000000 WHERE code = '101311';
+      UPDATE accurate_items SET unit_price = 12000000 WHERE code = '101311';
+      DELETE FROM accurate_receipt_lines WHERE item_code = 'B1'`);
+    const silvy = fakeSilvy({ status: 200, body: { content: "x" } });
+    const mails: { subject: string; html: string }[] = [];
+    const send = async (_: string, subject: string, html: string) => void mails.push({ subject, html });
+
+    // Healthy: finished 3 hours ago, no error. Still nothing to report.
+    sqlite.exec("INSERT INTO accurate_sync_state(entity, phase, last_success_at) VALUES ('PT', 'idle', '2026-10-15T22:00:00.000Z')");
+    expect(await runAccurateRecap(env(db), { now: NOW, link: "x", fetchImpl: silvy.impl, send })).toEqual({ skipped: "nothing-to-report" });
+
+    // Failing since: the error alone is worth an email.
+    sqlite.exec("UPDATE accurate_sync_state SET last_error = 'Invalid or Revoked API Token (HTTP 401)'");
+    const day2 = new Date("2026-10-17T01:00:00Z");
+    expect(await runAccurateRecap(env(db), { now: day2, link: "x", fetchImpl: silvy.impl, send })).toMatchObject({ sent: 2 });
+    expect(mails[0].subject).toMatch(/^Sinkron Accurate bermasalah · /);
+    expect(mails[0].html).toContain("Invalid or Revoked API Token (HTTP 401)");
+
+    // No error recorded, but no run has finished for more than a day.
+    sqlite.exec("UPDATE accurate_sync_state SET last_error = NULL");
+    await runAccurateRecap(env(db), { now: new Date("2026-10-18T01:00:00Z"), link: "x", fetchImpl: silvy.impl, send });
+    expect(mails[1].html).toContain("Terakhir selesai 2026-10-15 22:00 UTC.");
+  });
+
   it("stays well inside the plan's D1 queries per invocation", async () => {
     const { sqlite, db: raw } = freshDb();
     seed(sqlite);
