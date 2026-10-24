@@ -72,7 +72,15 @@ export interface AccurateRecap {
    * without needs it by hand. Absent from an app older than this field.
    */
   newItems?: { added: number; withReceipt: number; held: number; top: RecapNewItem[] };
+  /**
+   * The 5-minute item/stock sync, from its one state row. `stuck`: it reports an error, or no run
+   * has finished for SYNC_STUCK_HOURS. Absent when the sync was never set up.
+   */
+  sync?: { lastSuccessAt: string | null; lastError: string | null; stuck: boolean };
 }
+
+/** A run finishes every 6 hours (ACCURATE_SYNC_EVERY_HOURS); a day without one means it is stuck. */
+export const SYNC_STUCK_HOURS = 24;
 
 export interface RecapNewItem {
   code: string;
@@ -95,6 +103,7 @@ export function buildRecap(input: {
   preview: { withReceipt: number; changed: RecapChange[]; held?: RecapHold[]; unchanged: number; skipped: RecapSkip[]; noReceipt: number } | null;
   counts: ReconcileCounts | null;
   newItems?: { code: string; name: string }[];
+  sync?: { last_success_at: string | null; last_error: string | null } | null;
 }): AccurateRecap {
   const p = input.preview;
   const changed = p?.changed ?? [];
@@ -135,12 +144,24 @@ export function buildRecap(input: {
       // Those still needing a COGS by hand first: they are the ones nothing else will fix.
       top: [...fresh].sort((a, b) => rank(a) - rank(b) || a.code.localeCompare(b.code)).slice(0, TOP_N),
     },
+    ...(input.sync
+      ? {
+          sync: {
+            lastSuccessAt: input.sync.last_success_at,
+            lastError: input.sync.last_error,
+            stuck:
+              !!input.sync.last_error ||
+              !input.sync.last_success_at ||
+              input.now.getTime() - Date.parse(input.sync.last_success_at) > SYNC_STUCK_HOURS * 3_600_000,
+          },
+        }
+      : {}),
   };
 }
 
 /** Nothing for a manager to act on: no email that day. */
 export const recapIsEmpty = (r: AccurateRecap) =>
-  r.cogs.changed === 0 && r.cogs.held === 0 && r.cogs.skipped === 0 && !r.newItems?.added && !r.checks.some((c) => c.notify && c.count > 0) && !r.receipts.inProgress;
+  r.cogs.changed === 0 && r.cogs.held === 0 && r.cogs.skipped === 0 && !r.newItems?.added && !r.checks.some((c) => c.notify && c.count > 0) && !r.receipts.inProgress && !r.sync?.stuck;
 
 const grp = (n: number) => Math.round(Number(n) || 0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 const rp = (n: number) => `Rp ${grp(n)}`;
@@ -237,6 +258,7 @@ export function recapEmail(
   link: string,
 ): { subject: string; html: string } {
   const subject =
+    (r.sync?.stuck ? "Sinkron Accurate bermasalah · " : "") +
     `Rekap Accurate ${r.date}: ${grp(r.cogs.changed)} COGS berubah` +
     (r.cogs.bigJumps ? `, ${grp(r.cogs.bigJumps)} lonjakan >50%` : "") +
     (r.cogs.held ? `, ${grp(r.cogs.held)} ditahan` : "") +
@@ -248,6 +270,14 @@ export function recapEmail(
       ? `<div><p><small>Ringkasan singkat dari Silvy</small></p>${narrativeHtml(narrative)}</div>`
       : `<p><small>Silvy tidak bisa dihubungi pagi ini; angka di bawah tetap lengkap.</small></p>`,
   );
+  if (r.sync?.stuck) {
+    parts.push(
+      `<p style="color:#c0392b"><strong>Sinkron barang dan stok Accurate bermasalah.</strong> ` +
+        (r.sync.lastSuccessAt ? `Terakhir selesai ${esc(r.sync.lastSuccessAt.slice(0, 16).replace("T", " "))} UTC.` : "Belum pernah selesai.") +
+        (r.sync.lastError ? ` Error terakhir: ${esc(r.sync.lastError)}` : "") +
+        ` Barang baru, stok dan cek silang tidak diperbarui sampai ini beres. Cek panel Accurate di Katalog.</p>`,
+    );
+  }
   if (r.receipts.inProgress) {
     parts.push(`<p><strong>Riwayat penerimaan barang masih dikumpulkan</strong> (${grp(r.receipts.receiptsSeen)} RI terbaca). Angka COGS belum lengkap.</p>`);
   }

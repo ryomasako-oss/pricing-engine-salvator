@@ -4,7 +4,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Hono } from "hono";
 import { D1DatabaseShim } from "../../../scripts/d1-sqlite-shim";
-import { AccurateClient, signTimestamp } from "./client";
+import { AccurateClient, CALL_TIMEOUT_MS, signTimestamp } from "./client";
 import { mapItem, mapStock } from "./mapping";
 import { syncConfig, syncStep, type EntityKey, type SyncConfig } from "./sync";
 import { accurateRouter } from "../routes/accurate";
@@ -131,6 +131,74 @@ describe("syncStep", () => {
     const broken: typeof fetch = async () => new Response(JSON.stringify({ s: false, d: ["Invalid access token"] }), { status: 401 });
     for (let i = 0; i < 2; i++) await syncStep(db, "CV", creds, cfg, { deadline: Date.now() + 5000, fetchImpl: broken, gapMs: 0 });
     expect(sqlite.prepare("SELECT last_error FROM accurate_sync_state").get()).toEqual({ last_error: expect.stringContaining("Invalid access token") });
+  });
+
+  it("an empty page before the last one fails the tick instead of ending the run and pruning (audit 2026-10-23 #11)", async () => {
+    const { sqlite, db } = freshDb();
+    const fake = fakeAccurate({ items: ITEMS, stock: { 1: [{ no: "A1", quantity: 10 }, { no: "A2", quantity: 2 }, { no: "A3", quantity: 1 }] } });
+    await runToIdle(db, fake.impl);
+    const counts = () => sqlite.prepare("SELECT (SELECT COUNT(*) FROM accurate_items) AS items, (SELECT COUNT(*) FROM accurate_stock) AS stock").get();
+    expect(counts()).toEqual({ items: 3, stock: 3 });
+
+    // Next run: Accurate answers page 1 of 2 (items, then stock) with no rows once each.
+    sqlite.exec("UPDATE accurate_sync_state SET force_restart = 1");
+    const glitched = new Set<string>();
+    const flaky: typeof fetch = async (input, init) => {
+      const url = new URL(String(input));
+      const key = url.pathname.split("/").pop()!;
+      if (/list(-stock)?\.do$/.test(url.pathname) && !url.pathname.includes("warehouse") && url.searchParams.get("sp.page") === "1" && !glitched.has(key)) {
+        glitched.add(key);
+        return new Response(JSON.stringify({ s: true, d: [], sp: { page: 1, pageSize: 2, pageCount: 2, rowCount: 3 } }), { status: 200 });
+      }
+      return fake.impl(input, init);
+    };
+    const outcomes: string[] = [];
+    for (let i = 0; i < 20 && outcomes.at(-1) !== "finished"; i++) {
+      const r = await syncStep(db, "CV", creds, cfg, { deadline: Date.now() + 5000, fetchImpl: flaky, gapMs: 0 });
+      outcomes.push(r.outcome);
+      if (r.outcome === "error") {
+        expect(r.error).toMatch(/Halaman 1 dari 2 .* kosong/);
+        expect((sqlite.prepare("SELECT last_error FROM accurate_sync_state").get() as { last_error: string }).last_error).toMatch(/kosong/);
+      }
+    }
+    expect(outcomes.filter((o) => o === "error")).toHaveLength(2);
+    expect(outcomes.at(-1)).toBe("finished");
+    // The retries read the pages again; nothing was pruned (the old code left 0 items and 0 stock rows).
+    expect(counts()).toEqual({ items: 3, stock: 3 });
+  });
+
+  it("an empty list that Accurate itself calls the last page still ends normally", async () => {
+    const { sqlite, db } = freshDb();
+    const fake = fakeAccurate({ items: ITEMS, stock: {} }); // warehouses with no stock: page 1 of 1, no rows
+    expect((await runToIdle(db, fake.impl)).at(-1)).toBe("finished");
+    expect(sqlite.prepare("SELECT COUNT(*) AS n FROM accurate_stock").get()).toEqual({ n: 0 });
+  });
+
+  it("a tick that outlived its lock neither overwrites the newer tick's cursor nor releases its lock (audit 2026-10-23 #16)", async () => {
+    const { sqlite, db } = freshDb();
+    const fake = fakeAccurate({ items: ITEMS, stock: {} });
+    const state = () => sqlite.prepare("SELECT phase, page, locked_until, last_error FROM accurate_sync_state").get();
+    // Tick A's item call hangs past 5 minutes. Meanwhile its lock expires and tick B takes it
+    // and moves the cursor on (simulated by writing B's lock and cursor directly).
+    const hung: typeof fetch = async (input, init) => {
+      if (String(input).includes("/item/list.do")) {
+        sqlite.exec("UPDATE accurate_sync_state SET locked_until = '2999-01-01 00:00:00', page = 5");
+      }
+      return fake.impl(input, init);
+    };
+    const a = await syncStep(db, "CV", creds, cfg, { deadline: Date.now() + 5000, fetchImpl: hung, gapMs: 0 });
+    expect(a.outcome).toBe("locked");
+    expect(state()).toEqual({ phase: "items", page: 5, locked_until: "2999-01-01 00:00:00", last_error: null });
+  });
+
+  it("bounds every Accurate call with a timeout inside the 5-minute lock", async () => {
+    const signals: (AbortSignal | null | undefined)[] = [];
+    const fake = fakeAccurate({ items: ITEMS, stock: {} });
+    const spy: typeof fetch = async (input, init) => (signals.push(init?.signal), fake.impl(input, init));
+    await new AccurateClient(creds, null, spy, 0).list("item/list.do", { "sp.page": 1 });
+    expect(signals.length).toBe(2); // api-token.do, then the list
+    expect(signals.every((s) => s instanceof AbortSignal)).toBe(true);
+    expect(CALL_TIMEOUT_MS).toBeLessThan(5 * 60_000);
   });
 
   it("records an error without losing the cursor", async () => {

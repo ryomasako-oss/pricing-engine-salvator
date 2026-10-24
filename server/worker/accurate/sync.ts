@@ -95,6 +95,19 @@ const HOST_TTL_DAYS = 30; // Accurate asks integrators to re-check the host mont
 const hoursSince = (iso: string | null) =>
   iso ? (Date.now() - Date.parse(iso.replace(" ", "T") + (iso.endsWith("Z") ? "" : "Z"))) / 3_600_000 : Infinity;
 
+/**
+ * Only Accurate's own page count ends a list. An empty page before it used to end the run too,
+ * and the finishing run then pruned every row it had not reached: one odd empty reply on page 30
+ * of 70 deleted ~4k staged items. It now fails the tick, which keeps the cursor and retries.
+ */
+function lastPage(res: { rows: unknown[]; pageCount: number }, page: number, what: string): boolean {
+  if (page >= res.pageCount) return true;
+  if (!res.rows.length) throw new AccurateError(`Halaman ${page} dari ${res.pageCount} (${what}) kosong; dicoba lagi tick berikutnya`, 502);
+  return false;
+}
+
+class LockLost extends Error {}
+
 export interface StepResult {
   entity: EntityKey;
   outcome: "locked" | "idle" | "progress" | "finished" | "error";
@@ -120,15 +133,20 @@ export async function syncStep(
   if (!lock.meta.changes) return { entity, outcome: "locked", phase: "idle", calls: 0 };
 
   let st = (await get<SyncState>(db, "SELECT * FROM accurate_sync_state WHERE entity = ?", entity))!;
-  const save = (fields: Partial<SyncState>) => {
+  // The lock value this tick set is its proof of ownership. A tick whose call hung past the
+  // 5 minutes may have lost the lock to a newer tick; its writes then must not land.
+  const mine = st.locked_until;
+  const save = async (fields: Partial<SyncState>) => {
     st = { ...st, ...fields };
     const keys = Object.keys(fields);
-    return run(
+    const r = await run(
       db,
-      `UPDATE accurate_sync_state SET ${keys.map((k) => `${k} = ?`).join(", ")} WHERE entity = ?`,
+      `UPDATE accurate_sync_state SET ${keys.map((k) => `${k} = ?`).join(", ")} WHERE entity = ? AND locked_until = ?`,
       ...keys.map((k) => (fields as Record<string, string | number | null>)[k]),
       entity,
+      mine,
     );
+    if (!r.meta.changes) throw new LockLost();
   };
 
   try {
@@ -191,7 +209,7 @@ export async function syncStep(
             runId,
           );
         }
-        const done = res.rows.length === 0 || st.page >= res.pageCount;
+        const done = lastPage(res, st.page, "barang");
         await save(
           done
             ? { phase: "warehouses", page: 1, items_seen: st.items_seen + items.length }
@@ -202,7 +220,7 @@ export async function syncStep(
         for (let p = 1; ; p++) {
           const res = await client.list("warehouse/list.do", { fields: "id,name", "sp.page": p, "sp.pageSize": 100 });
           whs.push(...res.rows.map(mapWarehouse).filter((x) => x !== null));
-          if (res.rows.length === 0 || p >= res.pageCount) break;
+          if (lastPage(res, p, "gudang")) break;
         }
         await batch(db, [
           stmt(
@@ -244,7 +262,7 @@ export async function syncStep(
             entity, whId, JSON.stringify(rows), runId,
           );
         }
-        const done = res.rows.length === 0 || st.page >= res.pageCount;
+        const done = lastPage(res, st.page, `stok gudang ${whId}`);
         await save(
           done
             ? { warehouse_idx: st.warehouse_idx + 1, page: 1, stock_rows: st.stock_rows + rows.length }
@@ -263,15 +281,18 @@ export async function syncStep(
     if (st.last_error) await save({ last_error: null, last_error_at: null });
 
     if (finished) {
+      const ours = "(SELECT locked_until FROM accurate_sync_state WHERE entity = ?1) = ?3";
       await batch(db, [
-        stmt(db, "DELETE FROM accurate_items WHERE entity = ? AND run_id <> ?", entity, runId),
-        stmt(db, "DELETE FROM accurate_stock WHERE entity = ? AND run_id <> ?", entity, runId),
+        stmt(db, `DELETE FROM accurate_items WHERE entity = ?1 AND run_id <> ?2 AND ${ours}`, entity, runId, mine),
+        stmt(db, `DELETE FROM accurate_stock WHERE entity = ?1 AND run_id <> ?2 AND ${ours}`, entity, runId, mine),
       ]);
       await save({ phase: "idle", page: 1, warehouse_idx: 0, last_success_at: new Date().toISOString(), last_error: null, last_error_at: null });
       return { entity, outcome: "finished", phase: "idle", calls: client.calls };
     }
     return { entity, outcome: "progress", phase: st.phase, calls: client.calls };
   } catch (err) {
+    // The newer tick owns the cursor and reports its own errors.
+    if (err instanceof LockLost) return { entity, outcome: "locked", phase: st.phase, calls: 0 };
     const msg = err instanceof AccurateError ? `${err.message} (HTTP ${err.status})` : String((err as Error)?.message ?? err);
     // A bad token or host: forget the cached host so the next tick re-resolves it.
     const resetHost = err instanceof AccurateError && (err.status === 401 || err.status === 404);
@@ -279,10 +300,12 @@ export async function syncStep(
       last_error: msg.slice(0, 500),
       last_error_at: new Date().toISOString(),
       ...(resetHost ? { host_checked_at: null } : {}),
+    }).catch((e) => {
+      if (!(e instanceof LockLost)) throw e;
     });
     return { entity, outcome: "error", phase: st.phase, calls: 0, error: msg };
   } finally {
-    await run(db, "UPDATE accurate_sync_state SET locked_until = NULL WHERE entity = ?", entity);
+    await run(db, "UPDATE accurate_sync_state SET locked_until = NULL WHERE entity = ? AND locked_until = ?", entity, mine);
   }
 }
 
@@ -306,8 +329,21 @@ export async function syncTick(env: Bindings, opts: { deadlineMs: number }): Pro
   // The same once-per-run moment adds the items new in Accurate first, so the
   // check already sees them in the catalog.
   if (out.find((r) => r.entity === mine)?.outcome === "idle" && (await reconcileDue(env.DB, mine))) {
-    if (env.ACCURATE_AUTO_NEW_ITEMS !== "false") await addNewItems(env.DB, mine);
-    await runReconcile(env.DB, mine);
+    try {
+      if (env.ACCURATE_AUTO_NEW_ITEMS !== "false") await addNewItems(env.DB, mine);
+      await runReconcile(env.DB, mine);
+    } catch (err) {
+      // Marked done anyway: left unmarked, every 5-minute tick retried this step, and each try
+      // reads the whole staging table and catalog (2-8M rows a day, the D1 allowance of 2026-10-10).
+      // The error shows on the panel and in the morning recap; the next run tries again.
+      const now = new Date().toISOString();
+      await run(
+        env.DB,
+        "UPDATE accurate_sync_state SET reconciled_at = ?, last_error = ?, last_error_at = ? WHERE entity = ?",
+        now, `Barang baru / cek silang gagal: ${String((err as Error)?.message ?? err)}`.slice(0, 500), now, mine,
+      );
+      console.error("[accurate] new items / cross-check failed:", err);
+    }
   }
   return out;
 }
