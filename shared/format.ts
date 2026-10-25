@@ -11,12 +11,7 @@ export const rp = (n: number): string =>
 export const pct = (x: number, d = 1): string =>
   ((Number(x) || 0) * 100).toFixed(d).replace(".", ",") + "%";
 
-export const jt = (n: number): string =>
-  "Rp " + ((Number(n) || 0) / 1e6).toFixed(2).replace(".", ",") + " jt";
-
 export const uid = (): string => Math.random().toString(36).slice(2, 10);
-
-export const uniq = <T,>(arr: T[]): T[] => [...new Set(arr.filter(Boolean))];
 
 export const fmtDate = (d: string | number | Date): string => {
   try {

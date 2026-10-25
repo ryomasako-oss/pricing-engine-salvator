@@ -10,6 +10,7 @@ import { type CogsRow, applyHolds, cogsLookupKeys, cogsRowsSql, liveHoldCodes, p
 import { type CatalogByKey, catalogByKeysSql, staffLookupKeys } from "../staffView";
 import { normalizeCode } from "../../shared/duplicates";
 import { keysNotIn, pendingCodesSql, pendingProblems, pendingRowsSql } from "../pendingItems";
+import { chunks } from "../sqlParams";
 import type { CatalogItem, UnitFactor } from "../../shared/types";
 import { DEFAULT_POLICY, evaluatePolicy } from "../../shared/policy";
 import type {
@@ -75,7 +76,7 @@ export async function nextQuoteNumber(d1: D1Database, date = new Date()): Promis
   return prefix + String(next).padStart(3, "0");
 }
 
-export function hydrate(row: QuoteRow): Quote {
+function hydrate(row: QuoteRow): Quote {
   const snapshot = {
     assumptions: JSON.parse(row.assumptions),
     items: JSON.parse(row.items),
@@ -163,15 +164,6 @@ export async function saveRevision(
   );
 }
 
-/** Statuses whose content is frozen until the quote is explicitly reopened. */
-export const LOCKED_STATUSES: QuoteStatus[] = [
-  "submitted",
-  "approved",
-  "sent",
-  "won",
-  "lost",
-  "completed",
-];
 
 export const EDITABLE_STATUSES: QuoteStatus[] = ["draft", "rejected"];
 
@@ -187,16 +179,14 @@ export async function cogsProblemsFor(d1: D1Database, codes: string[]): Promise<
   const keys = cogsLookupKeys(codes);
   const rows: CogsRow[] = [];
   // D1 caps bound parameters per statement, so look codes up in chunks.
-  for (let i = 0; i < keys.length; i += 90) {
-    const chunk = keys.slice(i, i + 90);
+  for (const chunk of chunks(keys)) {
     rows.push(...(await all<CogsRow>(d1, cogsRowsSql(chunk.length), ...chunk)));
   }
   const out = problemsByCode(codes, rows);
   // A code the catalog doesn't have may be a "barang baru": held too.
   const missing = keysNotIn(keys, rows);
   const pending: { key: string; cancelled: number }[] = [];
-  for (let i = 0; i < missing.length; i += 90) {
-    const chunk = missing.slice(i, i + 90);
+  for (const chunk of chunks(missing)) {
     pending.push(...(await all<{ key: string; cancelled: number }>(d1, pendingCodesSql(chunk.length), ...chunk)));
   }
   for (const [code, p] of pendingProblems(codes, pending)) out.set(code, p);
@@ -218,13 +208,11 @@ export async function catalogListsByKeys(
   const out: CatalogByKey = new Map();
   const rows: CatalogItem[] = [];
   // D1 caps bound parameters per statement, so look codes up in chunks.
-  for (let i = 0; i < keys.length; i += 90) {
-    const chunk = keys.slice(i, i + 90);
+  for (const chunk of chunks(keys)) {
     rows.push(...(await all<CatalogItem>(d1, catalogByKeysSql(chunk.length), ...chunk)));
   }
   const units: { code: string; uom: string; factor: number }[] = [];
-  for (let i = 0; i < rows.length; i += 90) {
-    const chunk = rows.slice(i, i + 90).map((r) => r.code);
+  for (const chunk of chunks(rows.map((r) => r.code))) {
     units.push(
       ...(await all<{ code: string; uom: string; factor: number }>(
         d1,
@@ -241,8 +229,7 @@ export async function catalogListsByKeys(
   if (!pendingFor) return out;
   // A pending "barang baru" stands in for a catalog row until the catalog has the code.
   const missing = keysNotIn(keys, rows);
-  for (let i = 0; i < missing.length; i += 90) {
-    const chunk = missing.slice(i, i + 90);
+  for (const chunk of chunks(missing)) {
     for (const r of await all<CatalogItem>(d1, pendingRowsSql(chunk.length), pendingFor.viewerId, ...chunk)) {
       out.set(normalizeCode(r.code), [{ ...r, units: [] }]);
     }
