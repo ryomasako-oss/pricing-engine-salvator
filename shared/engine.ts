@@ -112,7 +112,9 @@ export function computeEngine(
 
   const rows: ComputedRow[] = items.map((it) => {
     const cogs = finite(it.cogs);
-    const rrp = finite(it.rrp);
+    // The ceiling is in whole rupiah like the prices below: a unit change leaves
+    // cents (1.041,67 per Pcs) that would otherwise put the capped price above it.
+    const rrp = Math.round(finite(it.rrp));
     const qty = finite(it.qty);
     const landed = cogs * clean(1 + opex + logiApplied);
     const target = landed / (1 - targetMargin);
@@ -140,12 +142,13 @@ export function computeEngine(
     const overridden: boolean[] = [false, false, false];
     const prices = computed.map((p, k) => {
       const manual = it.manualPrice?.[k];
-      if (manual == null || !Number.isFinite(manual) || manual <= 0) return p;
+      // Whole rupiah, so every total is the sum of the line amounts printed (P2-7).
+      if (manual == null || !Number.isFinite(manual) || manual <= 0) return Math.round(p);
       overridden[k] = true;
       // A manual price is the rep's call and may go past the client's ceiling
       // (or stand in for a missing one); policy flags it for approval instead
       // (ABOVE_CEILING), so a quote can chase a sale without being unreviewable.
-      return finite(manual);
+      return Math.round(finite(manual));
     });
 
     // A price of 0 on a line that costs something (no ceiling, no manual price) is
