@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_ASSUMPTIONS, DEFAULT_REGIONS, computeEngine } from "./engine.js";
 import { DEFAULT_POLICY, evaluatePolicy, isWithinPolicy } from "./policy.js";
 import type { Assumptions, QuoteItem, Region } from "./types.js";
+import { changeLineUom } from "./uom.js";
 
 const item = (over: Partial<QuoteItem> = {}): QuoteItem => ({
   id: "x",
@@ -314,5 +315,42 @@ describe("held lines (COGS awaiting a manager)", () => {
     const both = computeEngine(DEFAULT_ASSUMPTIONS, [a, b], DEFAULT_REGIONS);
     const released = computeEngine(DEFAULT_ASSUMPTIONS, [a, { ...b, held: false }], DEFAULT_REGIONS);
     expect(released.scen).toEqual(both.scen);
+  });
+});
+
+describe("whole rupiah after a unit change", () => {
+  // Box of 24 at RRP 25.000 -> 1.041,67 per Pcs: the PDF printed 1.042 x 7 = 7.294
+  // next to a total of 7.292 (P2-7). Prices are now whole, so totals add up.
+  const units = { baseUom: "Pcs", units: [{ uom: "Box", factor: 24 }] };
+  const box = (over: Partial<QuoteItem> = {}) => item({ uom: "Box", qty: 7, cogs: 20000, rrp: 25000, ...over });
+  const pcs = (over: Partial<QuoteItem> = {}) => changeLineUom(box(over), "Pcs", units);
+
+  const addsUp = (line: QuoteItem) => {
+    const e = computeEngine(A(), [line], DEFAULT_REGIONS);
+    const row = e.rows[0];
+    for (const p of row.prices) expect(Number.isInteger(p)).toBe(true);
+    for (const k of [0, 1, 2]) expect(e.scen[k].revenue).toBe(row.prices[k] * row.qty);
+    return e;
+  };
+
+  it("an RRP-capped price is whole, stays at the ceiling and is not flagged above it", () => {
+    const line = pcs();
+    expect(line.rrp).toBe(1041.67);
+    const e = addsUp(line);
+    expect(e.rows[0].status[0]).toBe("CAPPED AT RRP");
+    expect(e.rows[0].prices[0]).toBe(1042);
+    expect(e.scen[0].atCeiling).toBe(1);
+    expect(evaluatePolicy(e, 0, DEFAULT_POLICY).map((b) => b.code)).not.toContain("ABOVE_CEILING");
+  });
+
+  it("a manual price is whole too", () => {
+    const e = addsUp(pcs({ manualPrice: [26000, null, null] }));
+    expect(e.rows[0].prices[0]).toBe(1083);
+    expect(e.rows[0].status[0]).toBe("MANUAL");
+  });
+
+  it("COGS is not rounded", () => {
+    const e = addsUp(pcs());
+    expect(e.rows[0].cogs).toBe(833.33);
   });
 });
