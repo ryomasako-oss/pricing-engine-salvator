@@ -121,6 +121,8 @@ const test = (name: string, fn: () => Promise<void>) => tests.push({ name, fn })
 let repSession: Session;
 let managerSession: Session;
 let rep2Session: Session;
+let manager2Session: Session;
+let adminSession: Session;
 /** The test database, for asserting on rows no route returns. */
 let testDb: D1Database;
 
@@ -171,6 +173,8 @@ async function setup() {
     ["rep@test.local", "Rep One", "rep"],
     ["manager@test.local", "Manager One", "manager"],
     ["rep2@test.local", "Rep Two", "rep"],
+    ["manager2@test.local", "Manager Two", "manager"],
+    ["admin@test.local", "Admin One", "admin"],
   ]) {
     await run(db, "INSERT INTO users(email, name, password_hash, role) VALUES(?, ?, ?, ?)", email, name, await hashPassword("password123"), role);
   }
@@ -179,6 +183,8 @@ async function setup() {
   repSession = await login("rep@test.local", "password123");
   managerSession = await login("manager@test.local", "password123");
   rep2Session = await login("rep2@test.local", "password123");
+  manager2Session = await login("manager2@test.local", "password123");
+  adminSession = await login("admin@test.local", "password123");
 }
 
 async function teardown() {}
@@ -223,6 +229,39 @@ test("manager submitting a breaching quote does NOT get auto-approved despite th
   const submitted = await api("POST", `/api/quotes/${quote.id}/submit`, { session: manager });
   assert.equal(submitted.json.autoApproved, false);
   assert.equal(submitted.json.quote.status, "submitted");
+});
+
+/** A manager's own quote with a block breach, submitted and waiting for a decision. */
+async function ownBlockedQuote() {
+  const quote = await createDraft(managerSession, [cleanItem()], { targetMargin: 0.05, leaderMargin: 0.0 });
+  const submitted = await api("POST", `/api/quotes/${quote.id}/submit`, { session: managerSession });
+  assert.equal(submitted.json.quote.status, "submitted");
+  assert.ok(submitted.json.breaches.some((b: { severity: string }) => b.severity === "block"), "fixture must carry a block breach");
+  return quote;
+}
+
+test("a manager cannot approve their own quote that has a block breach (403), and nothing is decided", async () => {
+  const quote = await ownBlockedQuote();
+  const self = await api("POST", `/api/quotes/${quote.id}/decide`, { body: { decision: "approved", note: "" }, session: managerSession });
+  assert.equal(self.status, 403, `self-approval must be refused: ${JSON.stringify(self.json)}`);
+  const after = await api("GET", `/api/quotes/${quote.id}`, { session: managerSession });
+  assert.equal(after.json.quote.status, "submitted");
+});
+
+test("another manager or an admin can approve that quote", async () => {
+  for (const session of [manager2Session, adminSession]) {
+    const quote = await ownBlockedQuote();
+    const decided = await api("POST", `/api/quotes/${quote.id}/decide`, { body: { decision: "approved", note: "" }, session });
+    assert.equal(decided.status, 200, JSON.stringify(decided.json));
+    assert.equal(decided.json.quote.status, "approved");
+  }
+});
+
+test("a manager may still reject their own blocked quote", async () => {
+  const quote = await ownBlockedQuote();
+  const decided = await api("POST", `/api/quotes/${quote.id}/decide`, { body: { decision: "rejected", note: "Naikkan harga" }, session: managerSession });
+  assert.equal(decided.status, 200, JSON.stringify(decided.json));
+  assert.equal(decided.json.quote.status, "rejected");
 });
 
 test("submitting twice (already locked) is rejected with 409", async () => {

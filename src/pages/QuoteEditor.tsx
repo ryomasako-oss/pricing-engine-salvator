@@ -1118,6 +1118,7 @@ export function QuoteEditorPage() {
           quote={quote}
           breaches={breaches}
           engine={engine}
+          selfBlocked={quote.created_by === user?.id && blocked.length > 0}
           onClose={() => setModal(null)}
           onDecide={(decision, note) =>
             void act(
@@ -1238,12 +1239,16 @@ export function WorkflowButtons({
 
 /* ---------------- decision modal ---------------- */
 
+const SELF_APPROVE_HINT = "Quotation buatan Anda dengan pelanggaran blokir harus disetujui manajer/admin lain. Anda tetap bisa menolaknya.";
+
 function DecideModal({
-  quote, breaches, engine, onClose, onDecide,
+  quote, breaches, engine, selfBlocked, onClose, onDecide,
 }: {
   quote: Quote;
   breaches: PolicyBreach[];
   engine: ReturnType<typeof computeEngine>;
+  /** The viewer wrote this quote and it has a block breach: someone else must approve it. */
+  selfBlocked: boolean;
   onClose: () => void;
   onDecide: (decision: "approved" | "rejected", note: string) => void;
 }) {
@@ -1267,7 +1272,12 @@ function DecideModal({
           >
             Tolak
           </button>
-          <button className="btn success" onClick={() => onDecide("approved", note)}>
+          <button
+            className="btn success"
+            onClick={() => onDecide("approved", note)}
+            disabled={selfBlocked}
+            title={selfBlocked ? SELF_APPROVE_HINT : undefined}
+          >
             Setujui
           </button>
         </>
@@ -1289,6 +1299,7 @@ function DecideModal({
       </div>
 
       <BreachList breaches={breaches} />
+      {selfBlocked && <p className="muted small" style={{ marginTop: 8 }}>{SELF_APPROVE_HINT}</p>}
 
       <label className="field" style={{ marginTop: 14 }}>
         <span>Catatan keputusan {clean ? "(opsional)" : "(wajib jika menolak)"}</span>
