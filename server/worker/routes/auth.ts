@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { all, get, run } from "../../db.d1";
 import { audit } from "../audit";
-import { clearSession, hashPassword, issueSession, requireAuth, requirePermission, verifyPassword } from "../auth";
+import { clearSession, hashPassword, issueSession, requireAuth, requirePermission, verifyDummyPassword, verifyPassword } from "../auth";
 import { hasPermission, rolesWith } from "../../../shared/permissions";
 import { profileSchema, zodMessage } from "../../validate";
 import type { User } from "../../../shared/types";
@@ -26,7 +26,9 @@ authRouter.post("/login", async (c) => {
     "SELECT * FROM users WHERE lower(email) = lower(?)",
     parsed.data.email,
   );
-  const verified = row && row.active ? await verifyPassword(parsed.data.password, row.password_hash) : null;
+  const verified = row && row.active
+    ? await verifyPassword(parsed.data.password, row.password_hash)
+    : (await verifyDummyPassword(parsed.data.password), null);
   // Same message either way, so the form cannot be used to enumerate accounts.
   if (!row || !row.active || !verified?.ok) {
     return c.json({ error: "Email atau kata sandi salah." }, 401);
