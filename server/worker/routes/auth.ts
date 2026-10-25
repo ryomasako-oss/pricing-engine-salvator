@@ -21,7 +21,7 @@ authRouter.post("/login", async (c) => {
     .safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: "Email atau kata sandi tidak valid." }, 400);
 
-  const row = await get<User & { password_hash: string }>(
+  const row = await get<User & { password_hash: string; token_version: number }>(
     c.env.DB,
     "SELECT * FROM users WHERE lower(email) = lower(?)",
     parsed.data.email,
@@ -43,7 +43,7 @@ authRouter.post("/login", async (c) => {
     phone: row.phone,
     created_at: row.created_at,
   };
-  await issueSession(c, user);
+  await issueSession(c, user, row.token_version);
   await audit(c.env.DB, user.id, "user", user.id, "login");
   return c.json({ user });
 });
@@ -83,7 +83,11 @@ authRouter.delete("/password-reset-requests/:id", requirePermission("manage_user
 
 authRouter.post("/logout", async (c) => {
   const user = c.get("user");
-  if (user) await audit(c.env.DB, user.id, "user", user.id, "logout");
+  if (user) {
+    // Ends this user's sessions everywhere, so a copied cookie stops working too.
+    await run(c.env.DB, "UPDATE users SET token_version = token_version + 1 WHERE id = ?", user.id);
+    await audit(c.env.DB, user.id, "user", user.id, "logout");
+  }
   clearSession(c);
   return c.json({ ok: true });
 });
@@ -100,15 +104,22 @@ authRouter.post("/password", requireAuth, async (c) => {
     .safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: "Kata sandi baru minimal 8 karakter." }, 400);
 
-  const row = await get<{ password_hash: string }>(
+  const row = await get<{ password_hash: string; token_version: number }>(
     c.env.DB,
-    "SELECT password_hash FROM users WHERE id = ?",
+    "SELECT password_hash, token_version FROM users WHERE id = ?",
     user.id,
   );
   const verified = row ? await verifyPassword(parsed.data.current, row.password_hash) : null;
   if (!row || !verified?.ok) return c.json({ error: "Kata sandi saat ini salah." }, 401);
 
-  await run(c.env.DB, "UPDATE users SET password_hash = ? WHERE id = ?", await hashPassword(parsed.data.next), user.id);
+  // Other sessions end; this one is re-issued so the user stays signed in here.
+  await run(
+    c.env.DB,
+    "UPDATE users SET password_hash = ?, token_version = token_version + 1 WHERE id = ?",
+    await hashPassword(parsed.data.next),
+    user.id,
+  );
+  await issueSession(c, user, row.token_version + 1);
   await audit(c.env.DB, user.id, "user", user.id, "password_changed");
   return c.json({ ok: true });
 });
@@ -213,7 +224,12 @@ authRouter.patch("/users/:id", requirePermission("manage_users"), async (c) => {
   if (d.role !== undefined) await run(c.env.DB, "UPDATE users SET role = ? WHERE id = ?", d.role, id);
   if (d.active !== undefined) await run(c.env.DB, "UPDATE users SET active = ? WHERE id = ?", d.active ? 1 : 0, id);
   if (d.password !== undefined)
-    await run(c.env.DB, "UPDATE users SET password_hash = ? WHERE id = ?", await hashPassword(d.password), id);
+    await run(
+      c.env.DB,
+      "UPDATE users SET password_hash = ?, token_version = token_version + 1 WHERE id = ?",
+      await hashPassword(d.password),
+      id,
+    );
   await audit(c.env.DB, actor.id, "user", id, "updated", { ...d, password: d.password ? "(reset)" : undefined });
   const user = await get<User>(c.env.DB, "SELECT id, email, name, role, active, phone, created_at FROM users WHERE id = ?", id);
   return c.json({ user });
