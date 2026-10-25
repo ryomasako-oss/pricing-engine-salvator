@@ -16,6 +16,7 @@ import { ITEM_FIELDS, RECEIPT_LIST_FIELDS } from "../accurate/mapping";
 import { applyHeldCosts, applyPurchaseCosts } from "../accurate/purchaseCost";
 import { loadReceiptState, receiptsEnabled, wibTimestamp } from "../accurate/receipts";
 import { sweepPending } from "./pendingItems";
+import { RESUME_NEW_ITEMS_SQL } from "../accurate/newItems";
 import { reconcileCounts, reconcileExamples, runReconcile } from "../accurate/reconcile";
 import { CHECKS, CHECK_KEYS, isCheckKey } from "../../../shared/accurateReconcile";
 import {
@@ -278,6 +279,8 @@ accurateRouter.post("/apply", requirePermission("import_catalog"), async (c) => 
       entity,
       insertNew ? 1 : 0,
     ),
+    // Answering OK to new items is the explicit go-ahead after a clear/replace paused them (newItems.ts).
+    ...(insertNew ? [stmt(db, RESUME_NEW_ITEMS_SQL)] : []),
   ]);
   const result = {
     entity,

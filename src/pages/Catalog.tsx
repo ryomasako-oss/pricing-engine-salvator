@@ -378,6 +378,7 @@ export function CatalogPage() {
                 Ini menghapus seluruh isi katalog lalu menggantinya dengan isi file ini.
               </strong>{" "}
               Pakai template "Unduh template katalog". Kolom Kode Barang dan Nama Barang wajib diisi.
+              Barang baru dari Accurate berhenti masuk otomatis sampai "Terapkan ke katalog" dijawab OK.
             </>
           }
           onClose={() => {
@@ -387,14 +388,14 @@ export function CatalogPage() {
           onFile={async (file) => {
             const { parseFullCatalog } = await import("../import/parsers");
             const { rows, report } = await parseFullCatalog(file);
-            const r = await api.post<{ inserted: number; updated: number; total: number }>("/catalog/import", {
+            const r = await api.post<{ inserted: number; updated: number; total: number; removed: number }>("/catalog/import", {
               rows,
               source: file.name,
               mode: "replace",
             });
             return {
               report,
-              summary: `Katalog diganti. ${r.total} barang dari file, ${r.inserted} ditambahkan.`,
+              summary: `Katalog diganti. ${r.total} barang dari file, ${r.inserted} ditambahkan, ${r.removed} dihapus.`,
             };
           }}
         />

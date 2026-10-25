@@ -3,6 +3,8 @@ import { z } from "zod";
 import { all, get, run, stmt, batch } from "../../db.d1";
 import { audit } from "../audit";
 import { requireAuth, requirePermission } from "../auth";
+import { hasPermission } from "../../../shared/permissions";
+import { PAUSE_NEW_ITEMS_SQL } from "../accurate/newItems";
 import { catalogRowSchema, unitsSchema, zodMessage } from "../../validate";
 import {
   type AliasRow,
@@ -311,28 +313,25 @@ catalogRouter.post("/import", requirePermission("import_catalog"), async (c) => 
     .safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
   const { rows, source, mode } = parsed.data;
-
-  if (mode === "replace") {
-    await batch(c.env.DB, [
-      stmt(c.env.DB, "DELETE FROM catalog_item_uoms"),
-      stmt(c.env.DB, "DELETE FROM catalog_items"),
-    ]);
+  const replace = mode === "replace";
+  // Replace deletes every item not in the file, the same effect as DELETE /catalog, so the same gate.
+  if (replace && !hasPermission(user.role, "delete_catalog")) {
+    return c.json({ error: "Mengganti seluruh katalog hanya bisa dilakukan admin. Pakai impor gabung." }, 403);
   }
 
   const codes = [...new Set(rows.map((r) => r.code.trim()).filter(Boolean))];
+  if (replace && !codes.length) return c.json({ error: "File tidak berisi kode barang." }, 400);
   // code -> current base unit, so units can be cleaned against it when a
   // row doesn't send its own uom.
   const existing = new Map<string, string>();
-  if (mode === "merge") {
-    for (const chunk of chunks(codes, CHUNK)) {
-      const placeholders = chunk.map(() => "?").join(",");
-      const found = await all<{ code: string; uom: string }>(
-        c.env.DB,
-        `SELECT code, uom FROM catalog_items WHERE code IN (${placeholders})`,
-        ...chunk,
-      );
-      for (const f of found) existing.set(f.code, f.uom);
-    }
+  for (const chunk of chunks(codes, CHUNK)) {
+    const placeholders = chunk.map(() => "?").join(",");
+    const found = await all<{ code: string; uom: string }>(
+      c.env.DB,
+      `SELECT code, uom FROM catalog_items WHERE code IN (${placeholders})`,
+      ...chunk,
+    );
+    for (const f of found) existing.set(f.code, f.uom);
   }
 
   // COGS = harga pembelian terakhir (Ryoma, 2026-10-15): an existing item with a priced
@@ -351,6 +350,9 @@ catalogRouter.post("/import", requirePermission("import_catalog"), async (c) => 
     for (const f of found) purchased.add(f.item_code);
   }
 
+  // ?9 is NULL for a purchased item (its COGS stays); ?10 = 1 in replace mode,
+  // where the file wins and a 0 or blank is written as such. A blank unit keeps
+  // the current one in both modes, so the item's unit ratios stay valid.
   const UPSERT = `
     INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock, category, source)
     VALUES (
@@ -359,10 +361,10 @@ catalogRouter.post("/import", requirePermission("import_catalog"), async (c) => 
     ON CONFLICT(code) DO UPDATE SET
       name = ?2,
       uom = CASE WHEN ?3 != '' THEN ?3 ELSE catalog_items.uom END,
-      cogs = CASE WHEN ?9 > 0 THEN ?9 ELSE catalog_items.cogs END,
-      list_price = CASE WHEN ?5 > 0 THEN ?5 ELSE catalog_items.list_price END,
-      stock = COALESCE(?6, catalog_items.stock),
-      category = CASE WHEN ?7 != '' THEN ?7 ELSE catalog_items.category END,
+      cogs = CASE WHEN ?9 IS NULL THEN catalog_items.cogs WHEN ?9 > 0 OR ?10 = 1 THEN ?9 ELSE catalog_items.cogs END,
+      list_price = CASE WHEN ?5 > 0 OR ?10 = 1 THEN ?5 ELSE catalog_items.list_price END,
+      stock = CASE WHEN ?10 = 1 THEN COALESCE(?6, 0) ELSE COALESCE(?6, catalog_items.stock) END,
+      category = CASE WHEN ?7 != '' OR ?10 = 1 THEN ?7 ELSE catalog_items.category END,
       source = ?8,
       updated_at = datetime('now')`;
 
@@ -373,7 +375,7 @@ catalogRouter.post("/import", requirePermission("import_catalog"), async (c) => 
   for (const chunk of chunks(validRows, CHUNK)) {
     const statements = chunk.flatMap((r) => {
       const code = r.code.trim();
-      if (mode === "replace" || !existing.has(code)) inserted++;
+      if (!existing.has(code)) inserted++;
       else updated++;
       const keepCogs = purchased.has(code) && (r.cogs ?? 0) > 0;
       if (keepCogs) cogsFromPurchases++;
@@ -389,7 +391,8 @@ catalogRouter.post("/import", requirePermission("import_catalog"), async (c) => 
           r.stock ?? null,
           r.category ?? "",
           source,
-          keepCogs ? 0 : (r.cogs ?? 0),
+          purchased.has(code) ? null : (r.cogs ?? 0),
+          replace ? 1 : 0,
         ),
         ...(r.units
           ? replaceUnitsStmts(c.env.DB, code, r.uom || existing.get(code) || "Pcs", r.units)
@@ -399,7 +402,19 @@ catalogRouter.post("/import", requirePermission("import_catalog"), async (c) => 
     await batch(c.env.DB, statements);
   }
 
-  const result = { inserted, updated, cogsFromPurchases };
+  // Deleted last, so a failure part-way leaves the old catalog rather than half of the new one.
+  let removed = 0;
+  if (replace) {
+    const keep = JSON.stringify(codes);
+    const [, gone] = await batch(c.env.DB, [
+      stmt(c.env.DB, "DELETE FROM catalog_item_uoms WHERE code NOT IN (SELECT value FROM json_each(?))", keep),
+      stmt(c.env.DB, "DELETE FROM catalog_items WHERE code NOT IN (SELECT value FROM json_each(?))", keep),
+      stmt(c.env.DB, PAUSE_NEW_ITEMS_SQL, user.id),
+    ]);
+    removed = gone.meta.changes;
+  }
+
+  const result = { inserted, updated, cogsFromPurchases, ...(replace && { removed }) };
   await audit(c.env.DB, user.id, "catalog", 0, "imported", { ...result, source, mode, rows: rows.length });
   // Barang baru requests whose code this import brought into the catalog are linked, and their tasks closed.
   await sweepPending(c.env.DB);
@@ -442,6 +457,7 @@ catalogRouter.delete("/", requirePermission("delete_catalog"), async (c) => {
   const [, info] = await batch(c.env.DB, [
     stmt(c.env.DB, "DELETE FROM catalog_item_uoms"),
     stmt(c.env.DB, "DELETE FROM catalog_items"),
+    stmt(c.env.DB, PAUSE_NEW_ITEMS_SQL, user.id),
   ]);
   await audit(c.env.DB, user.id, "catalog", 0, "cleared", { removed: info.meta.changes });
   return c.json({ ok: true, removed: info.meta.changes });

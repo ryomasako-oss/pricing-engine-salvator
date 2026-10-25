@@ -839,9 +839,16 @@ scenario("a quote line's priceUom survives save and reload", async (d) => {
 
 scenario("replace-mode import clears every item's units", async (d) => {
   const manager = await loginCached(d, "manager@test.local", "password123");
-  await d.api("POST", "/api/catalog/import", {
+  // Replace deletes what the file leaves out, so like DELETE /catalog it needs an admin.
+  const admin = await loginCached(d, "admin@test.local", "password123");
+  const byManager = await d.api("POST", "/api/catalog/import", {
     body: { rows: [{ code: "U-NEW", name: "Fresh", uom: "Pcs" }], mode: "replace" },
     session: manager,
+  });
+  assert.equal(byManager.status, 403);
+  await d.api("POST", "/api/catalog/import", {
+    body: { rows: [{ code: "U-NEW", name: "Fresh", uom: "Pcs" }], mode: "replace" },
+    session: admin,
   });
   const units = await unitsOf(d, manager, ["U-SMB", "U-PEN", "U-NEW"]);
   assert.deepEqual(units, { "U-NEW": { baseUom: "Pcs", units: [] } });
@@ -1285,8 +1292,10 @@ scenario("warranty must be a whole or half year, payment days 0-365 -> else 400"
 // ---------------------------------------------------------------
 
 async function importRows(d: Driver, rows: Record<string, unknown>[], mode: "merge" | "replace" = "merge") {
-  const manager = await loginCached(d, "manager@test.local", "password123");
-  const r = await d.api("POST", "/api/catalog/import", { body: { rows, mode }, session: manager });
+  // Replace deletes what the file leaves out, so it needs an admin (delete_catalog).
+  const who = mode === "replace" ? "admin@test.local" : "manager@test.local";
+  const session = await loginCached(d, who, "password123");
+  const r = await d.api("POST", "/api/catalog/import", { body: { rows, mode }, session });
   assert.equal(r.status, 200, JSON.stringify(r.json));
 }
 /** The COGS problem as a manager reads it (staff get a wording without amounts, PE-1). */
