@@ -10,6 +10,7 @@ import { z } from "zod";
 import { all, batch, get, stmt } from "../../db.d1";
 import { audit } from "../audit";
 import { requireAuth, requirePermission } from "../auth";
+import { hasPermission } from "../../../shared/permissions";
 import { zodMessage } from "../../validate";
 import { AccurateClient } from "../accurate/client";
 import { ITEM_FIELDS, RECEIPT_LIST_FIELDS } from "../accurate/mapping";
@@ -327,6 +328,10 @@ accurateRouter.get("/receipts", requirePermission("import_catalog"), requirePerm
 accurateRouter.post("/apply-cogs", requirePermission("import_catalog"), requirePermission("view_costs"), async (c) => {
   const parsed = z.object({ dryRun: z.boolean().default(true) }).safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
+  // Writing COGS takes what the other COGS writes take (verify-cogs, apply-held-cogs, PUT /catalog/:id); the preview doesn't.
+  if (!parsed.data.dryRun && !hasPermission(c.get("user")!.role, "edit_catalog")) {
+    return c.json({ error: "Akses ditolak untuk peran Anda." }, 403);
+  }
   const entity = catalogEntity(c.env);
   const st = await loadReceiptState(c.env.DB, entity);
   if (!st.last_pass_at) {

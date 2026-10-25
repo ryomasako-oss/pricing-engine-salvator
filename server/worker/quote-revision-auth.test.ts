@@ -1,79 +1,84 @@
-// @ts-nocheck
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { DatabaseSync } from "node:sqlite";
-import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { D1DatabaseShim } from "../../scripts/d1-sqlite-shim.js";
+import { DatabaseSync } from "node:sqlite";
+import { Hono } from "hono";
+import { D1DatabaseShim } from "../../scripts/d1-sqlite-shim";
+import { quotesRouter } from "./routes/quotes";
+import type { Env } from "./env";
 
-describe("Worker revision conditional insert (TOCTOU guard)", () => {
-  it("conditional INSERT blocks locked status and creates no revision", async () => {
-    const sqlite = new DatabaseSync(":memory:");
-    const migrationsDir = path.resolve(import.meta.dirname, "../../migrations");
-    for (const file of ["0001_init.sql", "0002_consistency.sql", "0003_password_reset_requests.sql", "0004_user_phone.sql", "0005_reassignment_and_restore.sql", "0006_uom_options.sql"]) {
-      sqlite.exec(readFileSync(path.join(migrationsDir, file), "utf8"));
-    }
-    const db = new D1DatabaseShim(sqlite) as unknown as D1Database;
-    const { run, get } = await import("../db.d1.js");
-    const { hashPassword } = await import("./auth.js");
+/* POST /quotes/:id/revisions re-checks status and ownership inside its INSERT,
+   so a lock or reassignment landing between the route's read and its write
+   can't slip a revision in. This file used to run that SQL by hand; these go
+   through the real route, with the competing write landing right before the INSERT. */
 
-    await run(db, `INSERT INTO users(email, name, password_hash, role) VALUES(?, ?, ?, ?)`, "owner@test.local", "Owner", await hashPassword("password123"), "rep");
-    const user = await get(db, `SELECT id FROM users WHERE email = ?`, "owner@test.local");
-    const userId = user.id;
+const OWNER = 1, ASSIGNEE = 2, OTHER = 3;
 
-    sqlite.exec(`INSERT INTO quotes(number, title, status, scenario, rev_no, assumptions, items, regions, meta, created_by) VALUES('HK/SIP/Q/2601/001', 'Race', 'draft', 1, 1, '[]', '[]', '[]', '{}', ${userId})`);
-    const quoteRow = await get(db, `SELECT id, rev_no, status FROM quotes WHERE number = ?`, "HK/SIP/Q/2601/001");
-    const qid = quoteRow.id;
+function setup() {
+  const sqlite = new DatabaseSync(":memory:");
+  const dir = path.resolve(import.meta.dirname, "../../migrations");
+  for (const f of readdirSync(dir).filter((f) => f.endsWith(".sql")).sort()) sqlite.exec(readFileSync(path.join(dir, f), "utf8"));
+  sqlite.exec(`INSERT INTO users(id, email, name, password_hash, role) VALUES
+    (1, 'o@x', 'Owner', 'x', 'rep'), (2, 'a@x', 'Assignee', 'x', 'rep'), (3, 'r@x', 'Other', 'x', 'rep')`);
+  const shim = new D1DatabaseShim(sqlite);
+  // Runs once, just before the route's revision INSERT.
+  let before: (() => void) | undefined;
+  const db = new Proxy(shim, {
+    get(target, prop) {
+      if (prop !== "prepare") return Reflect.get(target, prop);
+      return (sql: string) => {
+        if (before && sql.trimStart().startsWith("INSERT INTO quote_revisions")) {
+          before();
+          before = undefined;
+        }
+        return target.prepare(sql);
+      };
+    },
+  }) as unknown as D1Database;
+  const env = { DB: db } as unknown as Env["Bindings"];
+  const as = (id: number) => {
+    const a = new Hono<Env>();
+    a.use(async (c, next) => {
+      c.set("user", { id, email: "x@x", name: "X", role: "rep" } as never);
+      await next();
+    });
+    a.route("/api/quotes", quotesRouter);
+    return async (method: string, p: string, body?: unknown) => {
+      const r = await a.request(p, { method, body: body === undefined ? undefined : JSON.stringify(body), headers: { "content-type": "application/json" } }, env);
+      return { status: r.status, json: (await r.json()) as Record<string, any> };
+    };
+  };
+  return { sqlite, as, raceBeforeInsert: (fn: () => void) => { before = fn; } };
+}
 
-    // Concurrent lock before revision insert
-    await run(db, `UPDATE quotes SET status = 'submitted' WHERE id = ?`, qid);
+async function draftQuote() {
+  const t = setup();
+  const created = await t.as(OWNER)("POST", "/api/quotes", { title: "Race" });
+  expect(created.status).toBe(201);
+  const id = created.json.quote.id as number;
+  const revisions = () => (t.sqlite.prepare("SELECT COUNT(*) AS n FROM quote_revisions WHERE quote_id = ? AND note = 'race'").get(id) as { n: number }).n;
+  return { ...t, id, revisions };
+}
 
-    const result = await run(db, `INSERT INTO quote_revisions(quote_id, rev_no, snapshot, note, created_by) SELECT ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM quotes WHERE id = ? AND status IN ('draft','rejected') AND (created_by = ? OR assigned_to = ? OR ? = 1))`, qid, 1, JSON.stringify({}), "race", userId, qid, userId, userId, 0);
-    expect(result.meta.changes).toBe(0);
-    const revCount = await get(db, `SELECT COUNT(*) as c FROM quote_revisions WHERE quote_id = ?`, qid);
-    expect(revCount.c).toBe(0);
+describe("POST /quotes/:id/revisions under a concurrent change", () => {
+  it("a lock between the read and the INSERT gives 409 and no revision", async () => {
+    const { sqlite, as, raceBeforeInsert, id, revisions } = await draftQuote();
+    raceBeforeInsert(() => sqlite.prepare("UPDATE quotes SET status = 'submitted' WHERE id = ?").run(id));
+    expect((await as(OWNER)("POST", `/api/quotes/${id}/revisions`, { note: "race" })).status).toBe(409);
+    expect(revisions()).toBe(0);
   });
 
-  it("conditional INSERT allows draft for owner and creates one revision", async () => {
-    const sqlite = new DatabaseSync(":memory:");
-    const migrationsDir = path.resolve(import.meta.dirname, "../../migrations");
-    for (const file of ["0001_init.sql", "0002_consistency.sql", "0003_password_reset_requests.sql", "0004_user_phone.sql", "0005_reassignment_and_restore.sql", "0006_uom_options.sql"]) {
-      sqlite.exec(readFileSync(path.join(migrationsDir, file), "utf8"));
-    }
-    const db = new D1DatabaseShim(sqlite) as unknown as D1Database;
-    const { run, get } = await import("../db.d1.js");
-    const { hashPassword } = await import("./auth.js");
-
-    await run(db, `INSERT INTO users(email, name, password_hash, role) VALUES(?, ?, ?, ?)`, "owner2@test.local", "Owner2", await hashPassword("password123"), "rep");
-    const user = await get(db, `SELECT id FROM users WHERE email = ?`, "owner2@test.local");
-    const userId = user.id;
-
-    sqlite.exec(`INSERT INTO quotes(number, title, status, scenario, rev_no, assumptions, items, regions, meta, created_by) VALUES('HK/SIP/Q/2601/002', 'Race2', 'draft', 1, 1, '[]', '[]', '[]', '{}', ${userId})`);
-    const quoteRow = await get(db, `SELECT id FROM quotes WHERE number = ?`, "HK/SIP/Q/2601/002");
-    const qid = quoteRow.id;
-
-    const result = await run(db, `INSERT INTO quote_revisions(quote_id, rev_no, snapshot, note, created_by) SELECT ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM quotes WHERE id = ? AND status IN ('draft','rejected') AND (created_by = ? OR assigned_to = ? OR ? = 1))`, qid, 1, JSON.stringify({}), "ok", userId, qid, userId, userId, 0);
-    expect(result.meta.changes).toBe(1);
+  it("losing the assignment between the read and the INSERT gives 403 and no revision", async () => {
+    const { sqlite, as, raceBeforeInsert, id, revisions } = await draftQuote();
+    sqlite.prepare("UPDATE quotes SET assigned_to = ? WHERE id = ?").run(ASSIGNEE, id);
+    raceBeforeInsert(() => sqlite.prepare("UPDATE quotes SET assigned_to = ? WHERE id = ?").run(OTHER, id));
+    expect((await as(ASSIGNEE)("POST", `/api/quotes/${id}/revisions`, { note: "race" })).status).toBe(403);
+    expect(revisions()).toBe(0);
   });
 
-  it("conditional INSERT blocks non-owner without edit_all_quotes", async () => {
-    const sqlite = new DatabaseSync(":memory:");
-    const migrationsDir = path.resolve(import.meta.dirname, "../../migrations");
-    for (const file of ["0001_init.sql", "0002_consistency.sql", "0003_password_reset_requests.sql", "0004_user_phone.sql", "0005_reassignment_and_restore.sql", "0006_uom_options.sql"]) {
-      sqlite.exec(readFileSync(path.join(migrationsDir, file), "utf8"));
-    }
-    const db = new D1DatabaseShim(sqlite) as unknown as D1Database;
-    const { run, get } = await import("../db.d1.js");
-    const { hashPassword } = await import("./auth.js");
-
-    await run(db, `INSERT INTO users(email, name, password_hash, role) VALUES(?, ?, ?, ?)`, "owner3@test.local", "Owner", await hashPassword("password123"), "rep");
-    await run(db, `INSERT INTO users(email, name, password_hash, role) VALUES(?, ?, ?, ?)`, "other@test.local", "Other", await hashPassword("password123"), "rep");
-    const owner = await get(db, `SELECT id FROM users WHERE email = ?`, "owner3@test.local");
-    const other = await get(db, `SELECT id FROM users WHERE email = ?`, "other@test.local");
-    sqlite.exec(`INSERT INTO quotes(number, title, status, scenario, rev_no, assumptions, items, regions, meta, created_by) VALUES('HK/SIP/Q/2601/003', 'Race3', 'draft', 1, 1, '[]', '[]', '[]', '{}', ${owner.id})`);
-    const quoteRow = await get(db, `SELECT id FROM quotes WHERE number = ?`, "HK/SIP/Q/2601/003");
-    const qid = quoteRow.id;
-
-    const result = await run(db, `INSERT INTO quote_revisions(quote_id, rev_no, snapshot, note, created_by) SELECT ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM quotes WHERE id = ? AND status IN ('draft','rejected') AND (created_by = ? OR assigned_to = ? OR ? = 1))`, qid, 1, JSON.stringify({}), "hijack", other.id, qid, other.id, other.id, 0);
-    expect(result.meta.changes).toBe(0);
+  it("without a race the owner saves exactly one revision", async () => {
+    const { as, id, revisions } = await draftQuote();
+    expect((await as(OWNER)("POST", `/api/quotes/${id}/revisions`, { note: "race" })).status).toBe(201);
+    expect(revisions()).toBe(1);
   });
 });

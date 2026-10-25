@@ -96,6 +96,14 @@ export async function verifyPassword(
   return { ok: true, rehash: await hashPassword(plain) };
 }
 
+// A login for an unknown or inactive account still pays one PBKDF2 verify, so the
+// response time doesn't tell which emails exist. Hashed once per isolate.
+let dummyHash: Promise<string> | undefined;
+export async function verifyDummyPassword(plain: string): Promise<void> {
+  dummyHash ??= hashPassword("not-a-real-account");
+  await verifyPassword(plain, await dummyHash);
+}
+
 function secretKey(env: Env["Bindings"]): Uint8Array {
   const s = env.JWT_SECRET;
   if (!s || s.length < 16) {
