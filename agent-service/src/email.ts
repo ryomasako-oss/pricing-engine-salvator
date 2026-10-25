@@ -2,11 +2,10 @@
    Gmail / Google Workspace client — kirim notifikasi email via
    Gmail API dengan service account (impersonasi).
 
-   Agent service punya file gmail.ts sendiri (berbeda dari app utama
-   di server/gmail.ts); konfigurasi dan scope bisa berbeda.
+   JWT dan MIME memakai server/gmail.ts (versi yang sudah dites), bukan salinan.
    ============================================================ */
 
-import { encodeMimeMessage, type ServiceAccountCredentials } from "./gmail.js";
+import { createSignedJwt, encodeMimeMessage, stringToBase64Url } from "../../server/gmail.js";
 
 const OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const GMAIL_SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/{user}/messages/send";
@@ -64,16 +63,15 @@ export class GmailClient {
   async send(to: string, subject: string, html: string): Promise<void> {
     const token = await this.getAccessToken();
 
-    // Encode MIME message ( From/To/Subject/Content-Type/HTML body)
-    const encoded = await encodeMimeMessage(this.cfg.impersonatedUser, to, subject, html);
+    const raw = stringToBase64Url(encodeMimeMessage(this.cfg.impersonatedUser, to, subject, html));
 
     const res = await fetch(GMAIL_SEND_URL.replace("{user}", this.cfg.impersonatedUser), {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
-        "Content-Type": "message/rfc822",
+        "Content-Type": "application/json",
       },
-      body: encoded,
+      body: JSON.stringify({ raw }),
     });
 
     if (!res.ok) {
@@ -82,40 +80,3 @@ export class GmailClient {
     }
   }
 }
-
-/**
- * Encode sebuah pesan email sederhana sebagai string MIME yang bisa
-   dikirim via Gmail API's users.messages.send.
-   (Mirror dari server/gmail.ts — sama persis.)
-   */
-export async function encodeMimeMessage(
-  from: string,
-  to: string,
-  subject: string,
-  html: string,
-): Promise<string> {
-  const encodedSubject = subject.includes("=\?") ? subject :
-    `Subject: =?UTF-8?B?${Buffer.from(subject).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}?=`;
-
-  const headers = [
-    `From: ${from}`,
-    `To: ${to}`,
-    encodedSubject,
-    `Content-Type: text/html; charset="UTF-8"`,
-    "MIME-Version: 1.0",
-    "",
-    html,
-  ].join("\r\n");
-
-  // Base64url-encode whole message (Gmail API accepts raw MIME as base64url)
-  const bytes = new TextEncoder().encode(headers);
-  let binary = "";
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary)
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-}
-
-/** Kloning dari server/gmail.js — fungsi yang sama. */
-import { createSignedJwt } from "./gmail.js";

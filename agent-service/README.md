@@ -130,7 +130,6 @@ agent-service/
     ├── industry.ts     # Industry detection
     ├── recommend.ts    # Recommendation engine
     ├── gemini.ts       # Gemini LLM client
-    ├── gmail.ts        # Gmail auth helpers
     └── email.ts        # Gmail client (Kirim email)
 ```
 

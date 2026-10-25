@@ -11,6 +11,8 @@ COPY agent-service/package.json agent-service/package-lock.json agent-service/
 RUN cd agent-service && npm ci --omit=dev --ignore-scripts
 
 COPY shared shared
+# email.ts reuses the Worker's Gmail JWT + MIME helpers (self-contained, no imports).
+COPY server/gmail.ts server/gmail.ts
 COPY agent-service/src agent-service/src
 COPY agent-service/tsconfig.json agent-service/
 

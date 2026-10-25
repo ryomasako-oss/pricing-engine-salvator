@@ -148,8 +148,8 @@ function cmdRecommend(clientName: string) {
   }
 }
 
-function cmdServer() {
-  const { listen } = await import("./index.js");
+async function cmdServer() {
+  await import("./index.js");
   // index.ts langsung memulai server saat di-import; ini hanya placeholder
   console.log("Server sudah berjalan. Lihat output di atas.");
 }
