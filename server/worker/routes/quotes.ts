@@ -71,6 +71,7 @@ function canEdit(user: User, createdBy: number, assignedTo: number | null): bool
 }
 
 const QUOTE_MOVED = "Quotation ini sudah berubah (diubah, diajukan, atau diputuskan pengguna lain). Muat ulang untuk melihat versi terbaru.";
+const SELF_APPROVE_BLOCKED = "Quotation buatan sendiri dengan pelanggaran blokir harus diputuskan manajer/admin lain.";
 
 /**
  * Runs a status write as one batch led by the version/status guard, so a quote
@@ -728,6 +729,11 @@ quotesRouter.post("/:id/decide", requirePermission("decide_quotes"), async (c) =
   // A rejection must say why, so the rep knows what to change.
   if (parsed.data.decision === "rejected" && !parsed.data.note.trim()) {
     return c.json({ error: "Penolakan wajib disertai alasan." }, 400);
+  }
+  // A block breach means the author can't approve it (shared/policy.ts): another manager or admin decides.
+  if (parsed.data.decision === "approved" && quote.created_by === user.id) {
+    const { breaches } = await breachesFor(c.env.DB, quote);
+    if (breaches.some((b) => b.severity === "block")) return c.json({ error: SELF_APPROVE_BLOCKED }, 403);
   }
   const pending = await get<{ id: number }>(
     c.env.DB,
