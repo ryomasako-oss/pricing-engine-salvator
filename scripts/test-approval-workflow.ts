@@ -121,12 +121,15 @@ const test = (name: string, fn: () => Promise<void>) => tests.push({ name, fn })
 let repSession: Session;
 let managerSession: Session;
 let rep2Session: Session;
+/** The test database, for asserting on rows no route returns. */
+let testDb: D1Database;
 
 async function setup() {
   const sqlite = new DatabaseSync(":memory:");
   const dir = path.resolve(import.meta.dirname, "../migrations");
   for (const f of readdirSync(dir).filter((x) => x.endsWith(".sql")).sort()) sqlite.exec(readFileSync(path.join(dir, f), "utf8"));
   const db = new D1DatabaseShim(sqlite) as unknown as D1Database;
+  testDb = db;
 
   const { Hono } = await import("hono");
   const { loadUser, hashPassword } = await import("../server/worker/auth.js");
@@ -228,6 +231,56 @@ test("submitting twice (already locked) is rejected with 409", async () => {
   await api("POST", `/api/quotes/${quote.id}/submit`, { session: rep });
   const again = await api("POST", `/api/quotes/${quote.id}/submit`, { session: rep });
   assert.equal(again.status, 409);
+});
+
+const countRows = async (sql: string, ...params: unknown[]) =>
+  ((await testDb.prepare(sql).bind(...params).first<{ n: number }>())?.n ?? 0);
+
+test("an editor tab opened before submit can't save over the quote after it was decided and reopened (409)", async () => {
+  const quote = await createDraft(repSession, [cleanItem()]);
+  assert.equal((await api("POST", `/api/quotes/${quote.id}/submit`, { session: repSession })).status, 200);
+  assert.equal(
+    (await api("POST", `/api/quotes/${quote.id}/decide`, { body: { decision: "approved", note: "" }, session: managerSession })).status,
+    200,
+  );
+  assert.equal((await api("POST", `/api/quotes/${quote.id}/reopen`, { session: repSession })).status, 200);
+  const stale = await api("PUT", `/api/quotes/${quote.id}`, {
+    body: { title: "Dari tab lama", snapshot: snapshotFor([cleanItem()]), expected_version: quote.version },
+    session: repSession,
+  });
+  assert.equal(stale.status, 409, `old version must not save: ${JSON.stringify(stale.json)}`);
+  const now = await api("GET", `/api/quotes/${quote.id}`, { session: repSession });
+  assert.equal(now.json.quote.title, "Test quote");
+});
+
+/** Lands `sql` (bound to the quote id) just before the route's next batch: a concurrent writer between its read and its write. */
+function raceNextBatch(sql: string, quoteId: number) {
+  const original = testDb.batch.bind(testDb);
+  testDb.batch = (async (statements: D1PreparedStatement[]) => {
+    testDb.batch = original;
+    await testDb.prepare(sql).bind(quoteId).run();
+    return original(statements);
+  }) as typeof testDb.batch;
+}
+
+test("a decide that loses the race to another decide gets 409 and writes no revision or audit", async () => {
+  const quote = await createDraft(repSession, [cleanItem()], { targetMargin: 0.05, leaderMargin: 0.0 });
+  await api("POST", `/api/quotes/${quote.id}/submit`, { session: repSession });
+  raceNextBatch("UPDATE quotes SET status = 'approved', version = version + 1 WHERE id = ?", quote.id);
+  const late = await api("POST", `/api/quotes/${quote.id}/decide`, { body: { decision: "rejected", note: "Margin" }, session: managerSession });
+  assert.equal(late.status, 409, `late decide must not land: ${JSON.stringify(late.json)}`);
+  assert.equal(await countRows("SELECT COUNT(*) AS n FROM quote_revisions WHERE quote_id = ? AND note = 'Ditolak'", quote.id), 0);
+  assert.equal(await countRows("SELECT COUNT(*) AS n FROM audit_log WHERE entity = 'quote' AND entity_id = ? AND action = 'rejected'", quote.id), 0);
+  assert.equal((await api("GET", `/api/quotes/${quote.id}`, { session: repSession })).json.quote.status, "approved");
+});
+
+test("a submit that loses the race to another submit gets 409 and adds no second approval request", async () => {
+  const quote = await createDraft(repSession, [cleanItem()]);
+  raceNextBatch("UPDATE quotes SET status = 'submitted', version = version + 1 WHERE id = ?", quote.id);
+  const late = await api("POST", `/api/quotes/${quote.id}/submit`, { session: repSession });
+  assert.equal(late.status, 409, `late submit must not land: ${JSON.stringify(late.json)}`);
+  assert.equal(await countRows("SELECT COUNT(*) AS n FROM approvals WHERE quote_id = ?", quote.id), 0);
+  assert.equal(await countRows("SELECT COUNT(*) AS n FROM quote_revisions WHERE quote_id = ? AND note = 'Diajukan'", quote.id), 0);
 });
 
 test("rep cannot decide (403), even on their own quote", async () => {
