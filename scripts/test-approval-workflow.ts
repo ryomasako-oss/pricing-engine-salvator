@@ -401,6 +401,28 @@ test("submit/decide still succeed with notification env vars unset (GOOGLE_*/TWI
   assert.equal(decided.status, 200);
 });
 
+test("rep can delete their own never-submitted draft", async () => {
+  const quote = await createDraft(repSession, [cleanItem()]);
+  const deleted = await api("DELETE", `/api/quotes/${quote.id}`, { session: repSession });
+  assert.equal(deleted.status, 200);
+});
+
+test("rep cannot delete an approved quote by reopening it to draft first (403)", async () => {
+  const rep = repSession;
+  const quote = await createDraft(rep, [cleanItem()], { targetMargin: 0.05, leaderMargin: 0.0 });
+  await api("POST", `/api/quotes/${quote.id}/submit`, { session: rep });
+  const decided = await api("POST", `/api/quotes/${quote.id}/decide`, {
+    body: { decision: "approved", note: "ok" },
+    session: managerSession,
+  });
+  assert.equal(decided.json.quote.status, "approved");
+  const reopened = await api("POST", `/api/quotes/${quote.id}/reopen`, { session: rep });
+  assert.equal(reopened.status, 200);
+  assert.equal(reopened.json.quote.status, "draft");
+  const deleted = await api("DELETE", `/api/quotes/${quote.id}`, { session: rep });
+  assert.equal(deleted.status, 403);
+});
+
 // ---------------------------------------------------------------
 // Run
 // ---------------------------------------------------------------
