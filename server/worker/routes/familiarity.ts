@@ -12,7 +12,6 @@ import {
   resolveInputSchema,
   type FamiliarityStore,
 } from "../../familiarity";
-import { parseFamiliarityFile, type FamiliarityFile, type FamiliarityInputLine } from "../../../shared/familiarityParse";
 import type { Env } from "../env";
 
 /* Interactive familiarity on D1.
@@ -46,47 +45,16 @@ function fail(c: any, err: unknown) {
   return c.json({ error: err instanceof Error ? err.message : "Input tidak valid." }, 400);
 }
 
-function isFile(value: unknown): value is FamiliarityFile {
-  return !!value && typeof value === "object" && typeof (value as FamiliarityFile).arrayBuffer === "function";
-}
-
-async function readFeed(c: any): Promise<{ body: unknown; file?: FamiliarityFile }> {
-  const contentType = c.req.header("content-type") ?? "";
-  if (!contentType.includes("multipart/form-data")) {
-    return { body: await c.req.json().catch(() => null) };
-  }
-  const form = await c.req.formData();
-  const raw = form.get("raw_lines");
-  let rawLines: unknown = undefined;
-  if (typeof raw === "string" && raw.trim()) {
-    try {
-      rawLines = JSON.parse(raw);
-    } catch {
-      throw new FamiliarityError(400, "raw_lines harus berupa JSON array.");
-    }
-  }
-  const file = form.get("file");
-  return {
-    body: {
-      client_id: form.get("client_id") ?? undefined,
-      title: form.get("title") ?? undefined,
-      raw_lines: rawLines,
-    },
-    file: isFile(file) ? file : undefined,
-  };
-}
-
 familiarityRouter.post("/feed", async (c) => {
   const user = c.get("user")!;
   try {
-    const { body, file } = await readFeed(c);
-    const parsed = feedInputSchema.safeParse(body);
+    // The browser parses Excel/CSV/PDF itself and sends the lines (no SheetJS in the Worker).
+    const parsed = feedInputSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
     const clientId = await parseClientId(c.env.DB, parsed.data.client_id);
-    const fileLines: FamiliarityInputLine[] = file ? (await parseFamiliarityFile(file)).lines : [];
-    const lines = [...(parsed.data.raw_lines ?? []), ...fileLines];
-    if (!lines.length) return c.json({ error: "Isi raw_lines atau unggah file Excel/CSV." }, 400);
-    const source = file && parsed.data.raw_lines?.length ? "mixed" : file ? "file" : "text";
+    const lines = parsed.data.raw_lines ?? [];
+    if (!lines.length) return c.json({ error: "Isi raw_lines." }, 400);
+    const source = "text";
     const view = await createFamiliaritySession(
       storeOf(c.env.DB),
       { clientId, title: parsed.data.title ?? "", source, lines },
