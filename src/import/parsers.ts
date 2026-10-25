@@ -396,16 +396,29 @@ const pickClientSheet = (wb: XLSX.WorkBook) =>
  */
 const NAME_HEADER = /^(nama barang|nama item|item name|item description|deskripsi|description|desc|des|uraian|urain|barang)\b/;
 const CODE_HEADER = /kode|code|sku/;
+const ITEM_WORD = /item|nama barang|nama|deskripsi|description|barang|^des$/;
+/** Other column names a real header row has next to the item column. */
+const COLUMN_WORD = /^(no\.?|nomor)$|qty|kuantitas|jumlah|quantity|kebutuhan|kts|uom|satuan|unit|kode|code|sku|harga|price|rrp|hpp|cogs|plafon|budget/;
+const PRICE_WORD = /harga|price|rp\b/;
+
+/** Sheets to try, main sheet first. */
+const sheetOrder = (wb: XLSX.WorkBook) => {
+  const main = pickClientSheet(wb);
+  return [main, ...wb.SheetNames.filter((n) => n !== main)];
+};
 
 /**
  * Finds the client list's sheet, header row and columns. Shared by both
  * client-list readers; a bare request list may have only "Nama | Qty".
+ * A cover sheet without a header doesn't reject the file: the first sheet
+ * that has one is read, and the main sheet's error shown only when none has.
  */
 async function readClientSheet(file: File, minHeaderCells: number) {
   const wb = await readWorkbook(file);
-  const found = readClientColumns(wb, pickClientSheet(wb), minHeaderCells);
-  if ("error" in found) throw new Error(found.error);
-  return found;
+  const found = sheetOrder(wb).map((n) => readClientColumns(wb, n, minHeaderCells));
+  const sheet = found.find((s) => !("error" in s));
+  if (!sheet) throw new Error((found[0] as { error: string }).error);
+  return sheet as Exclude<(typeof found)[number], { error: string }>;
 }
 
 /** Header row and columns of one sheet, or why it has none. */
@@ -414,8 +427,11 @@ function readClientColumns(wb: XLSX.WorkBook, sheetName: string, minHeaderCells:
 
   const hi = findHeader(
     rows,
+    // A title row ("DAFTAR PERMINTAAN BARANG" next to a date) names an item word
+    // once; a header row also names another column (Qty, Satuan, No, ...).
     (c) =>
-      c.some((x) => /item|nama barang|nama|deskripsi|description|barang|^des$/.test(x)) &&
+      c.some((x) => ITEM_WORD.test(x)) &&
+      c.filter((x) => ITEM_WORD.test(x) || COLUMN_WORD.test(x)).length >= 2 &&
       c.filter(Boolean).length >= minHeaderCells,
     30,
   );
@@ -428,8 +444,10 @@ function readClientColumns(wb: XLSX.WorkBook, sheetName: string, minHeaderCells:
   const col = {
     name: find(NAME_HEADER),
     code: find(CODE_HEADER),
-    uom: find(/uom|satuan|unit/),
-    qty: find(/qty|kuantitas|jumlah|quantity|kebutuhan|kts/),
+    // "Harga Satuan" / "Unit Price" are prices, not the unit.
+    uom: [find(/^(satuan|uom|unit)$/), header.findIndex((h) => /uom|satuan|unit/.test(h) && !PRICE_WORD.test(h))].find((i) => i >= 0) ?? -1,
+    // "Jumlah" is often the line's rupiah total: a qty only when nothing else is.
+    qty: [find(/qty|kuantitas|quantity|kebutuhan|kts/), header.findIndex((h) => /jumlah/.test(h) && !PRICE_WORD.test(h))].find((i) => i >= 0) ?? -1,
     cogs: find(/cogs|hpp|harga beli|modal|supplier/),
     rrp: find(/rrp|ceiling|plafon|harga maks|het|harga kontrak|budget/),
     role: find(/role|peran/),
@@ -453,10 +471,10 @@ export async function parseRequestList(file: File): Promise<{ lines: RequestLine
   // Every sheet with an item header, main sheet first: CGV split one list into ATK, HOUSEHOLD and
   // Sheet1, and only the first was read (2026-10-17). The main sheet's error is the one shown.
   const wb = await readWorkbook(file);
-  const main = pickClientSheet(wb);
-  const found = [main, ...wb.SheetNames.filter((n) => n !== main)].map((n) => readClientColumns(wb, n, 2));
-  if ("error" in found[0]) throw new Error(found[0].error);
+  const found = sheetOrder(wb).map((n) => readClientColumns(wb, n, 2));
   const sheets = found.filter((s) => !("error" in s)) as Exclude<(typeof found)[number], { error: string }>[];
+  // A cover sheet without a header is skipped; only a file with no header anywhere is refused.
+  if (!sheets.length) throw new Error((found[0] as { error: string }).error);
 
   const lines: RequestLine[] = [];
   let fromRegion = 0;

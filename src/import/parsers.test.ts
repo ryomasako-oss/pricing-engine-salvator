@@ -251,3 +251,62 @@ describe("request list (no prices needed)", () => {
     expect(lines[0]).toMatchObject({ name: "Spidol whiteboard", code: "X1", qty: 12 });
   });
 });
+
+describe("client list header and columns (audit P2-6)", () => {
+  const book = (sheets: [string, unknown[][]][]) => {
+    const wb = XLSX.utils.book_new();
+    for (const [name, grid] of sheets) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(grid), name);
+    return new File([XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer], "list.xlsx");
+  };
+
+  it("a title row like DAFTAR PERMINTAAN BARANG is not taken as the header", async () => {
+    const file = book([["Sheet1", [
+      ["DAFTAR PERMINTAAN BARANG", "", "Tgl: 20/10/2026"],
+      ["No", "Nama Barang", "Qty"],
+      [1, "Kertas A4", 5],
+    ]]]);
+    const { lines } = await parseRequestList(file);
+    expect(lines).toEqual([{ name: "Kertas A4", code: undefined, uom: undefined, qty: 5, rrp: undefined }]);
+  });
+
+  it("Harga Satuan / Unit Price are not the unit column", async () => {
+    const file = book([["Sheet1", [
+      ["Nama Barang", "Harga Satuan", "Satuan", "Qty"],
+      ["Pulpen", 3000, "Box", 2],
+    ]]]);
+    expect((await parseRequestList(file)).lines[0]).toMatchObject({ uom: "Box", qty: 2 });
+
+    const en = book([["Sheet1", [
+      ["Item", "Unit Price", "UOM", "Qty"],
+      ["Pen", 3000, "Box", 2],
+    ]]]);
+    expect((await parseRequestList(en)).lines[0]).toMatchObject({ uom: "Box", qty: 2 });
+  });
+
+  it("Jumlah is the qty only when there is no qty column", async () => {
+    const withQty = book([["Sheet1", [
+      ["Nama Barang", "Jumlah", "Qty", "Harga"],
+      ["Pulpen", 60000, 20, 3000],
+    ]]]);
+    expect((await parseRequestList(withQty)).lines[0].qty).toBe(20);
+
+    const onlyJumlah = book([["Sheet1", [
+      ["Nama Barang", "Jumlah", "Satuan"],
+      ["Pulpen", 20, "Pcs"],
+    ]]]);
+    expect((await parseRequestList(onlyJumlah)).lines[0]).toMatchObject({ qty: 20, uom: "Pcs" });
+  });
+
+  it("an empty cover sheet doesn't reject the file", async () => {
+    const sheets: [string, unknown[][]][] = [
+      ["Cover", [["PT Klien"], ["Permintaan Oktober"]]],
+      ["Daftar", [["Nama Barang", "Satuan", "Qty"], ["Kertas A4", "Rim", 3]]],
+    ];
+    expect((await parseRequestList(book(sheets))).lines[0]).toMatchObject({ name: "Kertas A4", qty: 3 });
+    const { items } = await parseClientList(book([
+      sheets[0],
+      ["Daftar", [["Nama Barang", "Satuan", "Qty", "RRP"], ["Kertas A4", "Rim", 3, 46000]]],
+    ]));
+    expect(items[0]).toMatchObject({ name: "Kertas A4", qty: 3, rrp: 46000 });
+  });
+});
