@@ -17,3 +17,10 @@ export function positional<P>(sql: string, params: P[]): { sql: string; params: 
   });
   return { sql: rewritten, params: out };
 }
+
+/** Splits a list for IN (...) lookups: D1 binds at most 100 parameters per statement. */
+export function chunks<T>(xs: T[], n = 90): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < xs.length; i += n) out.push(xs.slice(i, i + n));
+  return out;
+}

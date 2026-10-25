@@ -28,9 +28,6 @@ GEMINI_MODEL=
 # The first local admin is not set here: pass ADMIN_EMAIL / ADMIN_PASSWORD /
 # ADMIN_NAME to `npm run d1:seed:local` (a password is generated if omitted).
 
-# SQLite location
-DATABASE_PATH=./data/halokantor.db
-
 # Base URL the notification emails/WhatsApp messages link back to.
 APP_URL=http://localhost:5173
 

@@ -44,6 +44,7 @@ import {
 import { cleanInputLine, splitLeadingCode, type FamiliarityInputLine } from "../shared/familiarityParse.js";
 import type { CatalogItem, Role } from "../shared/types.js";
 import { INSERT_PENDING_SQL, pendingItemSchema } from "./pendingItems.js";
+import { chunks } from "./sqlParams.js";
 
 /* ---------------- storage contract ---------------- */
 
@@ -335,19 +336,14 @@ async function enrichRows(store: FamiliarityStore, rows: StoredRow[]): Promise<F
 
   const catalog = new Map<number, CatalogItem>();
   const pending = new Map<number, PendingRow>();
-  const chunk = <T,>(xs: T[], n = 90): T[][] => { // D1 binds at most 100 params per query
-    const out: T[][] = [];
-    for (let i = 0; i < xs.length; i += n) out.push(xs.slice(i, i + n));
-    return out;
-  };
-  for (const ids of chunk([...catalogIds])) {
+  for (const ids of chunks([...catalogIds])) {
     const found = await store.all<CatalogItem>(
       `SELECT id, code, name, uom, list_price, stock, category FROM catalog_items WHERE id IN (${ids.map(() => "?").join(",")})`,
       ...ids,
     );
     for (const c of found) catalog.set(c.id, c);
   }
-  for (const ids of chunk([...pendingIds])) {
+  for (const ids of chunks([...pendingIds])) {
     const found = await store.all<PendingRow>(
       `SELECT id, code, name, uom, proposed_price, note, status FROM pending_items WHERE id IN (${ids.map(() => "?").join(",")})`,
       ...ids,

@@ -28,6 +28,7 @@ import { sweepPending } from "./pendingItems";
 import { catalogEntity } from "../accurate/sync";
 import { canSeeCosts, catalogItemsForViewer, problemsForViewer } from "../../staffView";
 import { cleanUnits, type ItemUnits } from "../../../shared/uom";
+import { chunks } from "../../sqlParams";
 import type { CatalogItem, UnitFactor } from "../../../shared/types";
 import type { Env } from "../env";
 
@@ -35,11 +36,6 @@ export const catalogRouter = new Hono<Env>();
 catalogRouter.use(requireAuth);
 
 const CHUNK = 90;
-function chunks<T>(arr: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
-}
 
 /** Extra units per code, for the given codes. */
 async function unitsByCode(db: D1Database, codes: string[]): Promise<Map<string, UnitFactor[]>> {

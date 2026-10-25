@@ -16,9 +16,6 @@ export interface Bindings {
   /* Reads PDF/photo request lists (server/ocr.ts). Set with `wrangler secret put GEMINI_API_KEY`. */
   GEMINI_API_KEY?: string;
   GEMINI_MODEL?: string;
-  ADMIN_EMAIL?: string;
-  ADMIN_PASSWORD?: string;
-  ADMIN_NAME?: string;
   AUTH_LIMITER: RateLimit;
   ASSISTANT_LIMITER: RateLimit;
   API_LIMITER: RateLimit;

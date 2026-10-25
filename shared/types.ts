@@ -21,7 +21,6 @@ export interface PasswordResetRequest {
 }
 
 /** The three pricing strategies the engine evaluates side by side. */
-export type ScenarioKey = "S1" | "S2" | "S3";
 export type ScenarioIndex = 0 | 1 | 2;
 
 /** Role a line item plays in the cross-subsidy scenario (S2). */
@@ -285,19 +284,6 @@ export interface Quote extends QuoteSnapshot {
   updated_at: string;
 }
 
-export interface QuoteListRow {
-  id: number;
-  number: string;
-  title: string;
-  client_name: string | null;
-  status: QuoteStatus;
-  scenario: ScenarioIndex;
-  rev_no: number;
-  created_by_name: string;
-  updated_at: string;
-  monthly_value: number;
-  net_margin: number;
-}
 
 export interface CatalogItem {
   id: number;

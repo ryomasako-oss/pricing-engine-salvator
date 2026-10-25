@@ -10,8 +10,6 @@
 
 export type PendingStatus = "draft" | "submitted" | "linked" | "cancelled";
 
-export const LIVE_PENDING: PendingStatus[] = ["draft", "submitted"];
-
 /** The "problem" a line with a pending code gets; applyHolds turns it into holdReason "new_item". */
 export const PENDING_ITEM_PROBLEM = "Barang baru, menunggu dibuat di Accurate";
 
@@ -35,8 +33,6 @@ export const isPendingItemProblem = (problem: string | undefined | null): boolea
 
 /** What a held line says in documents and badges. */
 export const PENDING_BADGE = "Menunggu Accurate";
-
-export const AUTO_CODE_PREFIX = "BARU-";
 
 /** "BARU-0007" and the like are only ever given out by the numbering, never typed. */
 export const isAutoCode = (code: string): boolean => /^BARU-\d+$/i.test(code.trim());

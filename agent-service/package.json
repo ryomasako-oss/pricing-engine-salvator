@@ -11,7 +11,6 @@
     "test": "tsx --test \"src/**/*.test.ts\""
   },
   "dependencies": {
-    "googleapis": "^14.0.0",
     "tsx": "^4.7.0"
   },
   "devDependencies": {
