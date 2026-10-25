@@ -14,6 +14,16 @@ import { all, batch, stmt } from "../../db.d1";
 import { CLOSE_LINKED_TASKS_SQL, LINK_PENDING_SQL } from "../../pendingItems";
 import type { EntityKey } from "./sync";
 
+/* Emptying the catalog on purpose (clear, or "ganti semua") pauses this until
+   a manager presses "Terapkan" and answers OK to adding new items: otherwise
+   the next completed run put back every Accurate item the file left out
+   (about 7k) with COGS 0, holding every quote. Not time-based, because each
+   later run would refill it the same way. */
+export const PAUSE_NEW_ITEMS_SQL = `INSERT INTO settings(key, value)
+  VALUES('accurate_new_items_paused', json_object('at', datetime('now'), 'by', ?))
+  ON CONFLICT(key) DO UPDATE SET value = excluded.value`;
+export const RESUME_NEW_ITEMS_SQL = "DELETE FROM settings WHERE key = 'accurate_new_items_paused'";
+
 /** Codes listed in one audit entry; the count is always complete. */
 export const AUDIT_CODES = 200;
 
@@ -33,6 +43,7 @@ export async function addNewItems(db: D1Database, entity: EntityKey): Promise<Ne
     `SELECT i.code FROM accurate_items i
       WHERE i.entity = ? AND i.suspended = 0 AND i.code <> ''
         AND NOT EXISTS (SELECT 1 FROM catalog_items c WHERE c.code = i.code)
+        AND NOT EXISTS (SELECT 1 FROM settings WHERE key = 'accurate_new_items_paused')
       ORDER BY i.code`,
     entity,
   );
