@@ -14,7 +14,7 @@ You audit the **item-matching pipeline** of Pricing Engine Salvator (B2B pricing
 - `server/catalogMatch.ts` — `matchInput`, `aliasInput`, `runMatch()`, the response shape.
 - `server/worker/routes/catalog.ts` (Hono) — `/catalog/match`, `/catalog/aliases`, `/catalog/match-learning`. `scripts/test-api-scenarios.ts` drives them and compares the answers with `scripts/api-scenarios.golden.json`.
 - `shared/pendingItems.ts` — "barang baru", an item not in Accurate yet, requested through `POST /pending-items` and carried as a held line.
-- `migrations/` — `0008_catalog_aliases.sql`, `0018_match_learning.sql`. Note that the familiarity tables are still created at runtime (`server/familiarity.ts` FAMILIARITY_SCHEMA_STATEMENTS), not in `migrations/`.
+- `migrations/` — `0008_catalog_aliases.sql`, `0018_match_learning.sql`, `0023_familiarity.sql` (familiarity tables).
 
 ## How to audit
 

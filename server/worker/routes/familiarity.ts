@@ -1,10 +1,9 @@
 import { Hono } from "hono";
-import { all, batch, get, run, stmt } from "../../db.d1";
+import { all, get, run } from "../../db.d1";
 import { audit } from "../audit";
 import { requireAuth } from "../auth";
 import { zodMessage } from "../../validate";
 import {
-  FAMILIARITY_SCHEMA_STATEMENTS,
   FamiliarityError,
   createFamiliaritySession,
   feedInputSchema,
@@ -21,15 +20,6 @@ import type { Env } from "../env";
 
 export const familiarityRouter = new Hono<Env>();
 familiarityRouter.use(requireAuth);
-
-let schemaReady = false;
-
-/** Also called by /catalog/match, which reads familiarity_rules. */
-export async function ensureSchema(db: D1Database): Promise<void> {
-  if (schemaReady) return;
-  await batch(db, FAMILIARITY_SCHEMA_STATEMENTS.map((sql) => stmt(db, sql)));
-  schemaReady = true;
-}
 
 function storeOf(db: D1Database): FamiliarityStore {
   return {
@@ -88,7 +78,6 @@ async function readFeed(c: any): Promise<{ body: unknown; file?: FamiliarityFile
 
 familiarityRouter.post("/feed", async (c) => {
   const user = c.get("user")!;
-  await ensureSchema(c.env.DB);
   try {
     const { body, file } = await readFeed(c);
     const parsed = feedInputSchema.safeParse(body);
@@ -116,7 +105,6 @@ familiarityRouter.post("/feed", async (c) => {
 
 familiarityRouter.get("/sessions/:sessionId", async (c) => {
   const user = c.get("user")!;
-  await ensureSchema(c.env.DB);
   const id = Number(c.req.param("sessionId"));
   if (!Number.isInteger(id) || id <= 0) return c.json({ error: "Sesi familiarity tidak ditemukan." }, 404);
   const view = await readFamiliaritySession(storeOf(c.env.DB), id, user);
@@ -126,7 +114,6 @@ familiarityRouter.get("/sessions/:sessionId", async (c) => {
 
 familiarityRouter.patch("/sessions/:sessionId/resolve", async (c) => {
   const user = c.get("user")!;
-  await ensureSchema(c.env.DB);
   const id = Number(c.req.param("sessionId"));
   if (!Number.isInteger(id) || id <= 0) return c.json({ error: "Sesi familiarity tidak ditemukan." }, 404);
   const parsed = resolveInputSchema.safeParse(await c.req.json().catch(() => null));
