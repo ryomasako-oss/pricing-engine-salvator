@@ -2948,6 +2948,32 @@ scenario("familiarity: GET returns the session's rows and candidates; unknown se
   return { status: got.status, summary: famSummary(got.json), rows: got.json.rows.length, missing: missing.status, anonymous: anonymous.status, anonymousFeed: anonymousFeed.status };
 });
 
+scenario("familiarity: a session is only opened and resolved by its creator or a manager; another rep gets 404", async (d) => {
+  await seedFamiliarityCatalog(d);
+  const rep = await loginCached(d, "rep@test.local", "password123");
+  const rep2 = await loginCached(d, "rep2@test.local", "password123");
+  const manager = await loginCached(d, "manager@test.local", "password123");
+  const client = await famClient(d, rep, "PT Familiarity Private");
+  const feed = await famFeed(d, rep, { client_id: String(client), raw_lines: [{ text: "Kertas HVS A4 70 gram", qty: 1, unit: "Rim" }] });
+  const path = `/api/familiarity/sessions/${feed.json.session_id}`;
+  const row = feed.json.rows[0];
+  const resolve = (session: Session) =>
+    d.api("PATCH", `${path}/resolve`, { body: { row_id: row.id, action: "ignore_row", apply_to_client_only: true }, session });
+
+  const otherGet = await d.api("GET", path, { session: rep2 });
+  const otherResolve = await resolve(rep2);
+  const untouched = await d.api("GET", path, { session: rep });
+  assert.equal(otherGet.status, 404, JSON.stringify(otherGet.json));
+  assert.equal(otherResolve.status, 404, JSON.stringify(otherResolve.json));
+  assert.equal(untouched.json.rows[0].resolved, null, "another rep's resolve must not write");
+  const managerGet = await d.api("GET", path, { session: manager });
+  const ownResolve = await resolve(rep);
+  assert.equal(managerGet.status, 200);
+  assert.equal(untouched.status, 200);
+  assert.equal(ownResolve.status, 200, JSON.stringify(ownResolve.json));
+  return { otherGet: otherGet.status, otherResolve: otherResolve.status, managerGet: managerGet.status, ownGet: untouched.status, ownResolve: ownResolve.status };
+});
+
 scenario("familiarity: an Excel file is read from DES on every sheet, and a client's colliding code is not trusted", async (d) => {
   await seedFamiliarityCatalog(d);
   const XLSX = await import("xlsx");

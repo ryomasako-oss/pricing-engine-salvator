@@ -1237,6 +1237,13 @@
   "anonymous": 401,
   "anonymousFeed": 401
  },
+ "familiarity: a session is only opened and resolved by its creator or a manager; another rep gets 404": {
+  "otherGet": 404,
+  "otherResolve": 404,
+  "managerGet": 200,
+  "ownGet": 200,
+  "ownResolve": 200
+ },
  "familiarity: an Excel file is read from DES on every sheet, and a client's colliding code is not trusted": {
   "status": 200,
   "summary": {
