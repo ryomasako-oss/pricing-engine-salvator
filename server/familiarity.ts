@@ -394,7 +394,7 @@ async function enrichRows(store: FamiliarityStore, rows: StoredRow[]): Promise<F
 
   const catalog = new Map<number, CatalogItem>();
   const pending = new Map<number, PendingRow>();
-  const chunk = <T,>(xs: T[], n = 400): T[][] => {
+  const chunk = <T,>(xs: T[], n = 90): T[][] => { // D1 binds at most 100 params per query
     const out: T[][] = [];
     for (let i = 0; i < xs.length; i += n) out.push(xs.slice(i, i + n));
     return out;
@@ -571,9 +571,17 @@ export async function createFamiliaritySession(
 
 /* ---------------- read ---------------- */
 
-export async function readFamiliaritySession(store: FamiliarityStore, sessionId: number): Promise<FamiliaritySessionView | null> {
+/** Same rule as list drafts: the creator, or whoever may edit every quote. Others see "not found". */
+const mayOpenSession = (session: SessionRow, actor: FamiliarityActor) =>
+  session.created_by === actor.id || hasPermission(actor.role, "edit_all_quotes");
+
+export async function readFamiliaritySession(
+  store: FamiliarityStore,
+  sessionId: number,
+  actor: FamiliarityActor,
+): Promise<FamiliaritySessionView | null> {
   const session = await store.get<SessionRow>(`SELECT ${SESSION_COLUMNS} FROM familiarity_sessions WHERE id = ?`, sessionId);
-  if (!session) return null;
+  if (!session || !mayOpenSession(session, actor)) return null;
   const rows = await rowsOf(store, `SELECT ${ROW_COLUMNS} FROM familiarity_session_rows WHERE session_id = ? ORDER BY line_no, id`, sessionId);
   return { session_id: session.id, summary: await summaryOfSession(store, sessionId), rows: await enrichRows(store, rows) };
 }
@@ -610,7 +618,7 @@ export async function resolveFamiliarityRow(
   actor: FamiliarityActor,
 ): Promise<{ session_id: number; summary: FamiliaritySummary; rows: FamiliarityRow[] }> {
   const session = await store.get<SessionRow>(`SELECT ${SESSION_COLUMNS} FROM familiarity_sessions WHERE id = ?`, sessionId);
-  if (!session) throw new FamiliarityError(404, "Sesi familiarity tidak ditemukan.");
+  if (!session || !mayOpenSession(session, actor)) throw new FamiliarityError(404, "Sesi familiarity tidak ditemukan.");
   const row = await store.get<StoredRow>(`SELECT ${ROW_COLUMNS} FROM familiarity_session_rows WHERE id = ?`, input.row_id);
   if (!row || row.session_id !== sessionId) throw new FamiliarityError(404, "Baris tidak ditemukan di sesi ini.");
 

@@ -115,10 +115,11 @@ familiarityRouter.post("/feed", async (c) => {
 });
 
 familiarityRouter.get("/sessions/:sessionId", async (c) => {
+  const user = c.get("user")!;
   await ensureSchema(c.env.DB);
   const id = Number(c.req.param("sessionId"));
   if (!Number.isInteger(id) || id <= 0) return c.json({ error: "Sesi familiarity tidak ditemukan." }, 404);
-  const view = await readFamiliaritySession(storeOf(c.env.DB), id);
+  const view = await readFamiliaritySession(storeOf(c.env.DB), id, user);
   if (!view) return c.json({ error: "Sesi familiarity tidak ditemukan." }, 404);
   return c.json({ session_id: view.session_id, summary: view.summary, rows: view.rows });
 });
