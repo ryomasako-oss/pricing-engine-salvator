@@ -104,8 +104,9 @@ function secretKey(env: Env["Bindings"]): Uint8Array {
   return new TextEncoder().encode(s);
 }
 
-export async function issueSession(c: Context<Env>, user: User): Promise<void> {
-  const token = await new SignJWT({ role: user.role })
+/** `tokenVersion` is users.token_version now; bumping that column revokes this session. */
+export async function issueSession(c: Context<Env>, user: User, tokenVersion: number): Promise<void> {
+  const token = await new SignJWT({ role: user.role, tv: tokenVersion })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(String(user.id))
     .setExpirationTime(`${TOKEN_TTL_SECONDS}s`)
@@ -131,8 +132,10 @@ export async function loadUser(c: Context<Env>, next: Next): Promise<void> {
       const { payload } = await jwtVerify(token, secretKey(c.env), { algorithms: ["HS256"] });
       const user = await get<User>(
         c.env.DB,
-        "SELECT id, email, name, role, active, phone, created_at FROM users WHERE id = ? AND active = 1",
+        "SELECT id, email, name, role, active, phone, created_at FROM users WHERE id = ? AND active = 1 AND token_version = ?",
         Number(payload.sub),
+        // A token issued before 0022 has no tv: it stays valid until the first bump.
+        Number(payload.tv ?? 0),
       );
       if (user) c.set("user", user);
     } catch {

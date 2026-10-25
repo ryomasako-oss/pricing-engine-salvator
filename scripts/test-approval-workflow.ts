@@ -478,6 +478,52 @@ test("rep cannot delete an approved quote by reopening it to draft first (403)",
 
 // ---------------------------------------------------------------
 // Run
+/* ---------------- P2-5: logout and password changes end old sessions ---------------- */
+
+async function freshUser(email: string, role = "rep"): Promise<Session> {
+  const { run } = await import("../server/db.d1.js");
+  const { hashPassword } = await import("../server/worker/auth.js");
+  await run(testDb, "INSERT INTO users(email, name, password_hash, role) VALUES(?, ?, ?, ?)", email, email, await hashPassword("password123"), role);
+  return login(email, "password123");
+}
+
+test("a password change ends the old cookie (401) and keeps the new one signed in", async () => {
+  const old = await freshUser("tv-pw@test.local");
+  const changed = await api("POST", "/api/auth/password", { session: old, body: { current: "password123", next: "newpassword456" } });
+  assert.equal(changed.status, 200);
+  assert.equal((await api("GET", "/api/quotes", { session: old })).status, 401);
+  assert.ok(changed.cookie, "the changing session is re-issued");
+  assert.equal((await api("GET", "/api/quotes", { session: { cookie: changed.cookie! } })).status, 200);
+});
+
+test("after logout the same cookie, replayed, is rejected (401)", async () => {
+  const s = await freshUser("tv-logout@test.local");
+  assert.equal((await api("GET", "/api/quotes", { session: s })).status, 200);
+  assert.equal((await api("POST", "/api/auth/logout", { session: s })).status, 200);
+  assert.equal((await api("GET", "/api/quotes", { session: s })).status, 401);
+});
+
+test("an admin password reset ends the user's existing sessions (401)", async () => {
+  const user = await freshUser("tv-reset@test.local");
+  const admin = await freshUser("tv-admin@test.local", "admin");
+  const me = await api("GET", "/api/auth/me", { session: user });
+  const reset = await api("PATCH", `/api/auth/users/${me.json.user.id}`, { session: admin, body: { password: "resetpassword789" } });
+  assert.equal(reset.status, 200, JSON.stringify(reset.json));
+  assert.equal((await api("GET", "/api/quotes", { session: user })).status, 401);
+});
+
+test("a token issued before token_version existed (no tv) still works", async () => {
+  const s = await freshUser("tv-legacy@test.local");
+  const me = await api("GET", "/api/auth/me", { session: s });
+  const { SignJWT } = await import("jose");
+  const legacy = await new SignJWT({ role: "rep" })
+    .setProtectedHeader({ alg: "HS256" })
+    .setSubject(String(me.json.user.id))
+    .setExpirationTime("1h")
+    .sign(new TextEncoder().encode("test-only-secret-not-for-production-0000000000"));
+  assert.equal((await api("GET", "/api/quotes", { session: { cookie: `hk_session=${legacy}` } })).status, 200);
+});
+
 // ---------------------------------------------------------------
 
 async function main() {
