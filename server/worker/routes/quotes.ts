@@ -70,6 +70,25 @@ function canEdit(user: User, createdBy: number, assignedTo: number | null): bool
   return user.id === createdBy || user.id === assignedTo || hasPermission(user.role, "edit_all_quotes");
 }
 
+const QUOTE_MOVED = "Quotation ini sudah berubah (diubah, diajukan, atau diputuskan pengguna lain). Muat ulang untuk melihat versi terbaru.";
+
+/**
+ * Runs a status write as one batch led by the version/status guard, so a quote
+ * that moved after it was read (another tab, a concurrent decide) fails whole:
+ * no approval, revision or task rows next to an UPDATE that hit nothing.
+ * False = the quote moved (answer 409).
+ */
+async function guardedBatch(db: D1Database, quote: Pick<Quote, "id" | "version" | "status">, statements: D1PreparedStatement[]): Promise<boolean> {
+  try {
+    await batch(db, [stmt(db, SALES_REVIEW_GUARD_SQL, quote.id, quote.version, quote.status), ...statements]);
+    return true;
+  } catch (err) {
+    const now = await get<{ version: number; status: string }>(db, "SELECT version, status FROM quotes WHERE id = ?", quote.id);
+    if (!now || now.version !== quote.version || now.status !== quote.status) return false;
+    throw err;
+  }
+}
+
 function slugify(input: string): string {
   return input.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-+|-+$)/g, "");
 }
@@ -359,7 +378,7 @@ quotesRouter.put("/:id", async (c) => {
     `UPDATE quotes SET title = COALESCE(?, title), client_id = ?, scenario = ?,
             assumptions = ?, items = ?, regions = ?, meta = ?,
             version = version + 1, updated_at = datetime('now')
-      WHERE id = ? AND version = ?`,
+      WHERE id = ? AND version = ? AND status IN (${EDITABLE_STATUSES.map((s) => `'${s}'`).join(", ")})`,
     parsed.data.title ?? null,
     parsed.data.client_id === undefined ? existing.client_id : parsed.data.client_id,
     s.scenario,
@@ -474,7 +493,7 @@ quotesRouter.post("/:id/restore/:revisionId", async (c) => {
   const restoreNo = quote.restore_count + 1;
   const tag = `restore-${slugify(client?.code || quote.client_name || "unassigned") || "unassigned"}-${restoreNo}`;
 
-  await batch(c.env.DB, [
+  const restored = await guardedBatch(c.env.DB, quote, [
     // Snapshot what was there before the overwrite, so an accidental restore
     // doesn't silently discard unsaved draft content with no way back.
     stmt(
@@ -508,6 +527,7 @@ quotesRouter.post("/:id/restore/:revisionId", async (c) => {
       user.id,
     ),
   ]);
+  if (!restored) return c.json({ error: QUOTE_MOVED }, 409);
   await audit(c.env.DB, user.id, "quote", id, "restored", { from_rev: rev.rev_no, tag });
   return c.json({ quote: view(c.get("user")!.role, await findQuote(c.env.DB, id)) });
 });
@@ -622,7 +642,7 @@ quotesRouter.post("/:id/submit", async (c) => {
   // What isn't offered (held COGS, a unit without a ratio) goes on "Perlu diperbaiki".
   const heldProblems = await cogsProblemsFor(c.env.DB, quote.items.filter((it) => it.held).map((it) => it.code));
 
-  await batch(c.env.DB, [
+  const submitted = await guardedBatch(c.env.DB, quote, [
     ...taskStmts(c.env.DB, tasksFromItems(id, quote.items, heldProblems), user.id),
     stmt(
       c.env.DB,
@@ -643,7 +663,7 @@ quotesRouter.post("/:id/submit", async (c) => {
     stmt(c.env.DB, "UPDATE quotes SET items = ? WHERE id = ?", JSON.stringify(quote.items), id),
     stmt(
       c.env.DB,
-      `UPDATE quotes SET status = ?, approved_by = ?, approved_at = ?, updated_at = datetime('now')
+      `UPDATE quotes SET status = ?, approved_by = ?, approved_at = ?, version = version + 1, updated_at = datetime('now')
         WHERE id = ?`,
       autoApprove ? "approved" : "submitted",
       autoApprove ? user.id : null,
@@ -660,6 +680,7 @@ quotesRouter.post("/:id/submit", async (c) => {
       user.id,
     ),
   ]);
+  if (!submitted) return c.json({ error: QUOTE_MOVED }, 409);
 
   await audit(c.env.DB, user.id, "quote", id, autoApprove ? "auto_approved" : "submitted", {
     ...(afterSalesRejection && { after_sales_rejection: true }),
@@ -735,7 +756,7 @@ quotesRouter.post("/:id/decide", requirePermission("decide_quotes"), async (c) =
       // approved_by/approved_at record whoever decided, approve or reject —
       // otherwise a rejection banner has no way to say who rejected it.
       `UPDATE quotes SET status = ?, approved_by = ?, approved_at = ?, decision_note = ?,
-              updated_at = datetime('now') WHERE id = ?`,
+              version = version + 1, updated_at = datetime('now') WHERE id = ?`,
       parsed.data.decision,
       user.id,
       now,
@@ -763,7 +784,7 @@ quotesRouter.post("/:id/decide", requirePermission("decide_quotes"), async (c) =
       JSON.stringify({ note: parsed.data.note }),
     ),
   );
-  await batch(c.env.DB, statements);
+  if (!(await guardedBatch(c.env.DB, quote, statements))) return c.json({ error: QUOTE_MOVED }, 409);
 
   const submitter = await get<{ name: string; email: string; phone: string }>(
     c.env.DB,
@@ -800,7 +821,13 @@ quotesRouter.post("/:id/status", async (c) => {
   if (!allowed.includes(next)) {
     return c.json({ error: `Status ${quote.status} tidak bisa langsung menjadi ${next}.` }, 409);
   }
-  await run(c.env.DB, "UPDATE quotes SET status = ?, updated_at = datetime('now') WHERE id = ?", next, id);
+  const moved = await run(
+    c.env.DB,
+    `UPDATE quotes SET status = ?, version = version + 1, updated_at = datetime('now')
+      WHERE id = ? AND version = ? AND status = ?`,
+    next, id, quote.version, quote.status,
+  );
+  if (moved.meta.changes === 0) return c.json({ error: QUOTE_MOVED }, 409);
   await audit(c.env.DB, user.id, "quote", id, `status_${next}`);
   return c.json({ quote: view(c.get("user")!.role, await findQuote(c.env.DB, id)) });
 });
@@ -828,7 +855,7 @@ quotesRouter.post("/:id/reopen", async (c) => {
     stmt(
       c.env.DB,
       `UPDATE quotes SET status = 'draft', rev_no = ?, approved_by = NULL, approved_at = NULL,
-              decision_note = NULL, updated_at = datetime('now') WHERE id = ?`,
+              decision_note = NULL, version = version + 1, updated_at = datetime('now') WHERE id = ?`,
       nextRev,
       id,
     ),
@@ -839,7 +866,7 @@ quotesRouter.post("/:id/reopen", async (c) => {
     // queue, pointing at content that's already back in draft.
     statements.push(stmt(c.env.DB, "DELETE FROM approvals WHERE quote_id = ? AND decision = 'pending'", id));
   }
-  await batch(c.env.DB, statements);
+  if (!(await guardedBatch(c.env.DB, quote, statements))) return c.json({ error: QUOTE_MOVED }, 409);
   await audit(c.env.DB, user.id, "quote", id, "reopened", { rev_no: nextRev });
   return c.json({ quote: view(c.get("user")!.role, await findQuote(c.env.DB, id)) });
 });
