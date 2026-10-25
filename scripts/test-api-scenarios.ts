@@ -85,7 +85,7 @@ interface Driver {
   setSilvy(mode: "on" | "off" | "down" | "iam" | "iam-badkey"): void;
   /** Set the Silvy spend caps (null = back to the defaults). */
   setQuota(limits: { monthly?: number; perUserDay?: number } | null): void;
-  api(method: string, routePath: string, opts?: { body?: unknown; session?: Session; form?: FormData }): Promise<ApiResult>;
+  api(method: string, routePath: string, opts?: { body?: unknown; session?: Session }): Promise<ApiResult>;
   login(email: string, password: string): Promise<Session>;
   seedUser(email: string, name: string, role: "rep" | "manager" | "admin", password: string): Promise<void>;
   teardown(): Promise<void>;
@@ -186,7 +186,7 @@ async function makeWorkerDriver(): Promise<Driver> {
             ...(opts.body !== undefined ? { "content-type": "application/json" } : {}),
             ...(opts.session ? { cookie: opts.session.cookie } : {}),
           },
-          body: opts.form ?? (opts.body !== undefined ? JSON.stringify(opts.body) : undefined),
+          body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
         },
         env,
         executionCtx,
@@ -3002,11 +3002,14 @@ scenario("familiarity: an Excel file is read from DES on every sheet, and a clie
   ]);
   sheet("Catatan", [["Harga exclude PPN"]]);
   const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
-  const form = new FormData();
-  form.set("client_id", String(client));
-  form.set("title", "ED - CGV - ATK & HOUSEHOLD");
-  form.set("file", new File([buf], "ED - CGV - ATK & HOUSEHOLD.xlsx"));
-  const r = await d.api("POST", "/api/familiarity/feed", { form, session: rep });
+  // As the workbench does it: the browser parser reads the file, the feed gets JSON lines.
+  const { parseRequestList } = await import("../src/import/parsers.js");
+  const { feedLines } = await import("../src/components/familiarityRows.js");
+  const { lines } = await parseRequestList(new File([buf], "ED - CGV - ATK & HOUSEHOLD.xlsx"));
+  const r = await d.api("POST", "/api/familiarity/feed", {
+    body: { client_id: client, title: "ED - CGV - ATK & HOUSEHOLD", raw_lines: feedLines(lines) },
+    session: rep,
+  });
   assert.equal(r.status, 200, JSON.stringify(r.json));
   assert.deepEqual((r.json.rows as any[]).map((x) => x.raw_text), [
     "CAFE_GARAM 1 KG",
