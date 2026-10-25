@@ -263,18 +263,22 @@ export function QuoteEditorPage() {
     [snapshot, detail, quoteId, toast, load],
   );
 
-  const save = useCallback(async () => {
-    if (!snapshot || !detail) return;
+  /** True once the server has the snapshot; a later action must not run on false. */
+  const save = useCallback(async (): Promise<boolean> => {
+    if (!snapshot || !detail) return false;
     setSaving(true);
     try {
-      await api.put(`/quotes/${quoteId}`, {
+      const r = await api.put<{ quote: Quote }>(`/quotes/${quoteId}`, {
         snapshot,
         client_id: detail.quote.client_id,
         expected_version: detail.quote.version,
       });
+      // The next save must send the version this one produced, or it reads as a conflict.
+      setDetail((d) => d && { ...d, quote: { ...d.quote, version: r.quote.version } });
       saved.current = JSON.stringify(snapshot);
       setDirty(false);
       toast("Tersimpan", "success");
+      return true;
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
         toast("Quotation ini sudah diubah pengguna lain. Memuat ulang…", "error");
@@ -282,6 +286,7 @@ export function QuoteEditorPage() {
       } else {
         toast(e instanceof Error ? e.message : "Gagal menyimpan.", "error");
       }
+      return false;
     } finally {
       setSaving(false);
     }
@@ -455,7 +460,7 @@ export function QuoteEditorPage() {
     try {
       // load() below replaces the local snapshot with the server's copy -
       // save first or any unsaved edit (e.g. manual COGS/RRP) is silently lost.
-      if (dirty) await save();
+      if (dirty && !(await save())) return;
       await fn();
       await load();
       toast(message, "success");
@@ -466,7 +471,6 @@ export function QuoteEditorPage() {
   };
 
   const submit = async () => {
-    if (dirty) await save();
     await act(async () => {
       const r = await api.post<{ autoApproved: boolean }>(`/quotes/${quoteId}/submit`);
       return r;
