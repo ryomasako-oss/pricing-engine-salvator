@@ -48,9 +48,10 @@ export const fmtDateTime = (d: string | number | Date): string => {
 export function toNum(v: unknown): number {
   if (typeof v === "number") return Number.isFinite(v) ? v : NaN;
   let s = String(v ?? "")
-    .trim()
-    .replace(/rp/i, "")
-    .replace(/\s/g, "");
+    .replace(/\s/g, "")
+    // "Rp. 15.000" and "15.000,-": the dot after Rp and the ",-" ending aren't decimals.
+    .replace(/^(-?)(?:rp|idr)\.?/i, "$1")
+    .replace(/[,.]-$/, "");
   if (!s) return NaN;
   if (/^-?\d{1,3}(\.\d{3})+(,\d+)?$/.test(s)) s = s.replace(/\./g, "").replace(",", ".");
   else if (/^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(s)) s = s.replace(/,/g, "");
