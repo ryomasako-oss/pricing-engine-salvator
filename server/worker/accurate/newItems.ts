@@ -42,7 +42,8 @@ export async function addNewItems(db: D1Database, entity: EntityKey): Promise<Ne
     db,
     `SELECT i.code FROM accurate_items i
       WHERE i.entity = ? AND i.suspended = 0 AND i.code <> ''
-        AND NOT EXISTS (SELECT 1 FROM catalog_items c WHERE c.code = i.code)
+        -- An Accurate "abc-01" next to catalog "ABC-01" is the same item, not a new one (idx_catalog_code_nocase).
+        AND NOT EXISTS (SELECT 1 FROM catalog_items c WHERE c.code = i.code COLLATE NOCASE)
         AND NOT EXISTS (SELECT 1 FROM settings WHERE key = 'accurate_new_items_paused')
       ORDER BY i.code`,
     entity,

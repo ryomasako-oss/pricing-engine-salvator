@@ -351,6 +351,28 @@ describe("POST /api/accurate/apply keeps cost, unit and stock consistent (Codex 
   });
 });
 
+describe("POST /api/accurate/apply with new items", () => {
+  it("doesn't insert an Accurate code whose catalog twin differs only in case, and still updates the exact match", async () => {
+    const { sqlite, db } = freshDb();
+    sqlite.exec(`INSERT INTO users(id, email, name, password_hash, role) VALUES (1, 'm@x', 'M', 'x', 'manager')`);
+    sqlite.exec(`INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock) VALUES
+      ('ABC-01', 'Map', 'Pcs', 0, 1000, 0), ('D1', 'Pena', 'Pcs', 0, 100, 0)`);
+    const items = [
+      { id: 1, no: "abc-01", name: "Map kecil", unitPrice: 1200, unit1Name: "Pcs" },
+      { id: 2, no: "D1", name: "Pena biru", unitPrice: 150, unit1Name: "Pcs" },
+      { id: 3, no: "N1", name: "Baru", unitPrice: 500, unit1Name: "Pcs" },
+    ];
+    await runToIdle(db, fakeAccurate({ items, stock: {} }).impl, cfg, "PT");
+    const r = await applier(db)({ entity: "PT", insertNew: true });
+    expect(r.status).toBe(200);
+    expect(sqlite.prepare("SELECT code, name FROM catalog_items ORDER BY code").all()).toEqual([
+      { code: "ABC-01", name: "Map" },
+      { code: "D1", name: "Pena biru" },
+      { code: "N1", name: "Baru" },
+    ]);
+  });
+});
+
 describe("AccurateClient", () => {
   it("never sends credentials to a host other than the account server before resolving", async () => {
     const seen: string[] = [];

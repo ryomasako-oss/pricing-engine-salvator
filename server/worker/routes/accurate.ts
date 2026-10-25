@@ -218,8 +218,10 @@ accurateRouter.post("/apply", requirePermission("import_catalog"), async (c) => 
   if (!staged?.n) return c.json({ error: `Belum ada data Accurate ${entity}. Jalankan sinkron dulu.` }, 409);
 
   const db = c.env.DB;
+  // A new item is inserted only when no catalog code matches it ignoring case (newItems.ts does the same).
   const scope = `i.entity = ?1 AND i.suspended = 0 AND i.code <> ''
-                 AND (?2 = 1 OR i.code IN (SELECT code FROM catalog_items))`;
+                 AND (i.code IN (SELECT code FROM catalog_items)
+                      OR (?2 = 1 AND NOT EXISTS (SELECT 1 FROM catalog_items c WHERE c.code = i.code COLLATE NOCASE)))`;
   // Accurate's base unit differs from the catalog's for an item that has a COGS.
   const unitChanged = (c: string) =>
     `(${c}.cogs > 0 AND lower(trim(${c}.uom)) <> lower(trim(COALESCE(NULLIF(i.uom, ''), 'Pcs'))))`;

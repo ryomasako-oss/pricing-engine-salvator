@@ -55,6 +55,16 @@ describe("items new in Accurate join the catalog on their own", () => {
     expect(JSON.parse(a[0].detail)).toEqual({ entity: "PT", added: 2, codes: ["NEW1", "NEW2"] });
   });
 
+  it("an Accurate code that differs from a catalog code only in case is not added again", async () => {
+    const { sqlite, db } = freshDb();
+    sqlite.exec(`INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock) VALUES ('ABC-01', 'Map', 'Pcs', 900, 1000, 3)`);
+    sqlite.exec(`INSERT INTO accurate_items(entity, accurate_id, code, name, uom, unit_price, units, category, suspended, run_id) VALUES
+      ('PT', 1, 'abc-01', 'Map kecil', 'Pcs', 1000, '[]', '', 0, 'r1'),
+      ('PT', 2, 'NEW1', 'Baru', 'Pcs', 500, '[]', '', 0, 'r1')`);
+    expect(await addNewItems(db, "PT")).toEqual({ added: 1, codes: ["NEW1"] });
+    expect(sqlite.prepare("SELECT code FROM catalog_items ORDER BY code").all()).toEqual([{ code: "ABC-01" }, { code: "NEW1" }]);
+  });
+
   it("a new item is held on quotes until it has a COGS", async () => {
     const { sqlite, db } = freshDb();
     seed(sqlite);
