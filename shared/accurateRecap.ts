@@ -18,8 +18,12 @@ export const TOP_N = 20;
 /** Rows Silvy reads: enough to name priorities, small enough to keep each daily call cheap. */
 export const PROMPT_CHANGES = 5;
 export const PROMPT_SKIPS = 3;
-/** Silvy writes a brief summary (Ryoma: "brief summary aja"), ~60 words; this caps a runaway reply. */
-export const RECAP_MAX_OUTPUT_TOKENS = 300;
+/**
+ * Silvy writes a brief summary (Ryoma: "brief summary aja", ~60 words, held by the prompt). Gemini
+ * counts thinking tokens against this cap: at 300, "low" thinking used 287 and the email got 9
+ * tokens of text, cut mid-sentence (measured 2026-10-30). 2000 leaves room for ~600 of thinking.
+ */
+export const RECAP_MAX_OUTPUT_TOKENS = 2000;
 /** Same threshold as the catalog's COGS check (cogsCheck) and the apply-cogs panel. */
 export const BIG_JUMP = 0.5;
 

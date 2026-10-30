@@ -172,7 +172,8 @@ test("silvyReport renders the DATA block itself and asks for a short, cheap repl
   const { system, messages, opts } = llm.calls[0];
   assert.match(system, /maksimal 60 kata/);
   assert.match(messages[0].content, /101311 3M KESET: Rp 10\.831\.300 -> Rp 11\.005\.000/);
-  assert.equal(opts.maxOutputTokens, 300);
+  // Thinking tokens count against the cap: 300 left 9 tokens of reply (2026-10-30).
+  assert.equal(opts.maxOutputTokens, 2000);
   assert.equal(opts.temperature, 0.2);
 });
 
