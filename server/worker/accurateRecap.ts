@@ -7,8 +7,9 @@
    one Silvy (Gemini) call a day, none on a day with nothing to act on, and
    still an email when Silvy is off or fails (the numbers come from here). */
 
-import { all, get, getSetting, setSetting } from "../db.d1";
-import { buildRecap, recapEmail, recapIsEmpty } from "../../shared/accurateRecap";
+import { all, batch, get, getSetting, setSetting, stmt } from "../db.d1";
+import { STOCK_TOP, buildRecap, recapEmail, recapIsEmpty } from "../../shared/accurateRecap";
+import { STOCK_AS_OF_KEY } from "./accurate/stock";
 import { forwardToSilvy, silvyConfigFrom } from "../silvy";
 import { applyPurchaseCosts } from "./accurate/purchaseCost";
 import { loadReceiptState, receiptsEnabled } from "./accurate/receipts";
@@ -56,6 +57,27 @@ export async function runAccurateRecap(
     "SELECT last_success_at, last_error FROM accurate_sync_state WHERE entity = ?",
     entity,
   );
+  // Catalog stock as sales see it, only once a completed run has refreshed it (accurate/stock.ts).
+  const [stockTotals, negative] = await batch(db, [
+    stmt(
+      db,
+      `SELECT (SELECT value FROM settings WHERE key = ?) AS as_of, COALESCE(SUM(stock > 0), 0) AS in_stock,
+              COALESCE(SUM(stock = 0), 0) AS empty, COALESCE(SUM(stock < 0), 0) AS negative
+         FROM catalog_items`,
+      STOCK_AS_OF_KEY,
+    ),
+    stmt(db, `SELECT code, name, stock AS qty FROM catalog_items WHERE stock < 0 ORDER BY stock, code LIMIT ${STOCK_TOP}`),
+  ]);
+  const totals = stockTotals.results[0] as { as_of: string | null; in_stock: number; empty: number; negative: number } | undefined;
+  const stock = totals?.as_of
+    ? {
+        asOf: totals.as_of,
+        inStock: totals.in_stock,
+        empty: totals.empty,
+        negative: totals.negative,
+        topNegative: negative.results as { code: string; name: string; qty: number }[],
+      }
+    : null;
   const recap = buildRecap({
     now: opts.now,
     entity,
@@ -64,6 +86,7 @@ export async function runAccurateRecap(
     counts,
     newItems,
     sync,
+    stock,
   });
 
   // Marked before Silvy and the send, like the fix digest: a missed email beats a double one.

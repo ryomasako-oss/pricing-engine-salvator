@@ -147,3 +147,42 @@ describe("barang baru dari Accurate (2026-10-23)", () => {
     expect(recapPrompt(old)).not.toContain("Barang baru");
   });
 });
+
+describe("stok Accurate (2026-10-30)", () => {
+  const stock = {
+    asOf: "2026-10-30T01:00:00.000Z",
+    inStock: 5200,
+    empty: 1800,
+    negative: 4,
+    topNegative: [
+      { code: "K1", name: "Kertas <A4>", qty: -1500 },
+      { code: "K2", name: "Map", qty: -3 },
+      { code: "K3", name: "Pena", qty: -2 },
+      { code: "K4", name: "Lem", qty: -1 },
+    ],
+  };
+
+  it("is highlighted under Silvy's summary, in WIB, with the negative items escaped", () => {
+    const { html } = recapEmail(recap({ stock }), "Ringkasan.", "https://app/catalog");
+    const block = html.indexOf("Stok Accurate");
+    expect(block).toBeGreaterThan(html.indexOf("Ringkasan."));
+    expect(block).toBeLessThan(html.indexOf("COGS dari harga pembelian terakhir"));
+    expect(html).toContain("Posisi per 30/10/2026 08:00 WIB");
+    expect(html).toContain("Ada stok <strong>5.200</strong> · habis <strong>1.800</strong>");
+    expect(html).toContain("Kertas &lt;A4&gt;");
+    expect(html).toContain(">-1.500<");
+  });
+
+  it("Silvy reads the totals and only the first PROMPT_SKIPS negative items", () => {
+    const p = recapPrompt(recap({ stock }));
+    expect(p).toContain("Stok katalog (posisi Accurate 30/10/2026 08:00 WIB): ada stok 5.200, habis 1.800, minus 4");
+    expect(p.match(/stok minus /g)).toHaveLength(PROMPT_SKIPS);
+  });
+
+  it("is left out before the first refresh, and doesn't make an email on its own", () => {
+    expect(recapEmail(recap(), null, "x").html).not.toContain("Stok Accurate");
+    expect(recapPrompt(recap())).not.toContain("Stok katalog");
+    const nothing = { preview: { withReceipt: 0, changed: [], unchanged: 0, skipped: [], noReceipt: 0 }, counts: zeroCounts };
+    expect(recapIsEmpty(recap({ ...nothing, stock }))).toBe(true);
+  });
+});

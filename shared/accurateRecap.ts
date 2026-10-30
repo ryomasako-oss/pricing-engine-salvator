@@ -77,6 +77,24 @@ export interface AccurateRecap {
    * has finished for SYNC_STUCK_HOURS. Absent when the sync was never set up.
    */
   sync?: { lastSuccessAt: string | null; lastError: string | null; stuck: boolean };
+  /**
+   * Catalog stock as sales see it, refreshed from Accurate after every completed run
+   * (server/worker/accurate/stock.ts). Absent until the first refresh, and from an older app.
+   */
+  stock?: RecapStock;
+}
+
+/** Items listed under "stok minus" in the email; Silvy reads the first PROMPT_SKIPS. */
+export const STOCK_TOP = 10;
+
+export interface RecapStock {
+  /** The Accurate run the stock comes from (ISO). */
+  asOf: string;
+  inStock: number;
+  empty: number;
+  negative: number;
+  /** Most negative first, at most STOCK_TOP. */
+  topNegative: { code: string; name: string; qty: number }[];
 }
 
 /** A run finishes every 6 hours (ACCURATE_SYNC_EVERY_HOURS); a day without one means it is stuck. */
@@ -104,6 +122,7 @@ export function buildRecap(input: {
   counts: ReconcileCounts | null;
   newItems?: { code: string; name: string }[];
   sync?: { last_success_at: string | null; last_error: string | null } | null;
+  stock?: RecapStock | null;
 }): AccurateRecap {
   const p = input.preview;
   const changed = p?.changed ?? [];
@@ -156,6 +175,7 @@ export function buildRecap(input: {
           },
         }
       : {}),
+    ...(input.stock ? { stock: input.stock } : {}),
   };
 }
 
@@ -165,6 +185,11 @@ export const recapIsEmpty = (r: AccurateRecap) =>
 
 const grp = (n: number) => Math.round(Number(n) || 0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 const rp = (n: number) => `Rp ${grp(n)}`;
+/** "2026-10-30T01:00:00Z" → "30/10/2026 08:00": managers read the recap in WIB. */
+const fmtWib = (iso: string) => {
+  const d = new Date(Date.parse(iso) + 7 * 3_600_000).toISOString();
+  return `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)} ${d.slice(11, 16)}`;
+};
 const pctText = (c: RecapChange) => {
   const j = jump(c);
   return Number.isFinite(j) ? `${j > 0 ? "+" : ""}${(j * 100).toFixed(1).replace(".", ",")}%` : "baru";
@@ -210,6 +235,11 @@ export function recapPrompt(r: AccurateRecap): string {
     const n = r.newItems;
     const held = n.held ?? 0;
     lines.push(`Barang baru dari Accurate masuk katalog (24 jam terakhir, COGS masih kosong): ${grp(n.added)}; punya RI (ikut Terapkan COGS): ${grp(n.withReceipt)}; ditahan (RI tidak sepakat): ${grp(held)}; tanpa RI (isi COGS manual): ${grp(n.added - n.withReceipt - held)}`);
+  }
+  if (r.stock) {
+    const s = r.stock;
+    lines.push(`Stok katalog (posisi Accurate ${fmtWib(s.asOf)} WIB): ada stok ${grp(s.inStock)}, habis ${grp(s.empty)}, minus ${grp(s.negative)}`);
+    for (const n of s.topNegative.slice(0, PROMPT_SKIPS)) lines.push(`- stok minus ${n.code} ${n.name}: ${grp(n.qty)}`);
   }
   const checks = r.checks.filter((c) => c.count > 0);
   if (checks.length) {
@@ -276,6 +306,23 @@ export function recapEmail(
         (r.sync.lastSuccessAt ? `Terakhir selesai ${esc(r.sync.lastSuccessAt.slice(0, 16).replace("T", " "))} UTC.` : "Belum pernah selesai.") +
         (r.sync.lastError ? ` Error terakhir: ${esc(r.sync.lastError)}` : "") +
         ` Barang baru, stok dan cek silang tidak diperbarui sampai ini beres. Cek panel Accurate di Katalog.</p>`,
+    );
+  }
+  if (r.stock) {
+    const s = r.stock;
+    parts.push(
+      `<div style="border:1px solid #2e86de;border-radius:6px;padding:8px 12px;margin:12px 0">` +
+        `<h3 style="margin:4px 0">Stok Accurate</h3>` +
+        `<p><small>Posisi per ${esc(fmtWib(s.asOf))} WIB, total semua gudang, seperti yang dilihat sales di Katalog.</small></p>` +
+        `<p>Ada stok <strong>${grp(s.inStock)}</strong> · habis <strong>${grp(s.empty)}</strong> · ` +
+        `minus <strong${s.negative ? ' style="color:#c0392b"' : ""}>${grp(s.negative)}</strong></p>` +
+        (s.topNegative.length
+          ? `<p><small>Stok minus (${s.topNegative.length} dari ${grp(s.negative)}): cek pencatatan stoknya di Accurate.</small></p>` +
+            `<table style="border-collapse:collapse;font-size:13px"><tr>${th("Kode")}${th("Nama")}${th("Stok", true)}</tr>` +
+            s.topNegative.map((n) => `<tr>${td(esc(n.code))}${td(esc(n.name))}${td(`<strong style="color:#c0392b">${grp(n.qty)}</strong>`, true)}</tr>`).join("") +
+            `</table>`
+          : "") +
+        `</div>`,
     );
   }
   if (r.receipts.inProgress) {
