@@ -171,4 +171,31 @@ describe("runAccurateRecap (rekap Accurate pagi, Silvy)", () => {
     expect(sent[0].subject).toContain("2 barang baru");
     expect(sent[0].html).not.toContain("OLDNEW");
   });
+  it("highlights the catalog stock once Accurate has refreshed it, and sends Silvy the same numbers", async () => {
+    const { sqlite, db } = freshDb();
+    seed(sqlite);
+    sqlite.exec("UPDATE catalog_items SET stock = CASE code WHEN '101311' THEN 4 ELSE -7 END");
+    const run = async () => {
+      sqlite.exec("DELETE FROM settings WHERE key = 'accurate_recap_last'");
+      const silvy = fakeSilvy({ status: 200, body: { content: "ok" } });
+      const sent: string[] = [];
+      await runAccurateRecap(env(db), { now: NOW, link: "x", fetchImpl: silvy.impl, send: async (_to, _subject, html) => void sent.push(html) });
+      return { recap: silvy.calls[0].body.recap, html: sent[0] };
+    };
+    // No completed run has refreshed the stock yet: no numbers that might be days old.
+    const before = await run();
+    expect(before.recap.stock).toBeUndefined();
+    expect(before.html).not.toContain("Stok Accurate");
+
+    sqlite.exec("INSERT INTO settings(key, value) VALUES('accurate_stock_as_of', '2026-10-16T00:30:00.000Z')");
+    const after = await run();
+    expect(after.recap.stock).toEqual({
+      asOf: "2026-10-16T00:30:00.000Z",
+      inStock: 1,
+      empty: 0,
+      negative: 1,
+      topNegative: [{ code: "B1", name: "Spidol", qty: -7 }],
+    });
+    expect(after.html).toContain("Posisi per 16/10/2026 07:30 WIB");
+  });
 });
