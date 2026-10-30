@@ -339,7 +339,21 @@ export function CatalogPage() {
                 <button className="btn small" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
                   Sebelumnya
                 </button>
-                <span className="muted small">Halaman {page + 1} dari {pages}</span>
+                <label className="muted small">
+                  Halaman{" "}
+                  <select
+                    className="input"
+                    style={{ width: "auto", display: "inline-block" }}
+                    value={page}
+                    onChange={(e) => setPage(Number(e.target.value))}
+                    aria-label="Pilih halaman"
+                  >
+                    {Array.from({ length: pages }, (_, i) => (
+                      <option key={i} value={i}>{i + 1}</option>
+                    ))}
+                  </select>{" "}
+                  dari {pages}
+                </label>
                 <button className="btn small" disabled={page + 1 >= pages} onClick={() => setPage((p) => p + 1)}>
                   Berikutnya
                 </button>
