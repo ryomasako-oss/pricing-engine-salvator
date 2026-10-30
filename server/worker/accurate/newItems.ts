@@ -5,8 +5,8 @@
    doesn't have yet, with the same values "Terapkan" would give them.
 
    Only inserts: an item already in the catalog is never touched here, so
-   prices, units and stock of existing items still change only through
-   "Terapkan". COGS starts at 0, which holds the item on every quote
+   prices and units of existing items still change only through "Terapkan"
+   (stock is refreshed separately, stock.ts). COGS starts at 0, which holds the item on every quote
    (cogsProblem: "COGS kosong di katalog") until a manager applies the
    purchase cost (purchaseCost.ts) or fills it in by hand. */
 

@@ -34,6 +34,7 @@ export function CatalogPage() {
   const seeCosts = can("view_costs");
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [total, setTotal] = useState(0);
+  const [stockAsOf, setStockAsOf] = useState<string | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(0);
@@ -70,10 +71,11 @@ export function CatalogPage() {
       sortDir,
     });
     api
-      .get<{ items: CatalogItem[]; total: number }>(`/catalog?${params}`)
+      .get<{ items: CatalogItem[]; total: number; stockAsOf: string | null }>(`/catalog?${params}`)
       .then((r) => {
         setItems(r.items);
         setTotal(r.total);
+        setStockAsOf(r.stockAsOf);
       })
       .catch((e) => toast(e.message, "error"))
       .finally(() => setLoading(false));
@@ -217,7 +219,9 @@ export function CatalogPage() {
             }}
             aria-label="Cari katalog"
           />
-          <span className="muted small">{grp(total)} item cocok</span>
+          <span className="muted small">
+            {grp(total)} item cocok{stockAsOf && ` · stok Accurate per ${fmtDateTime(stockAsOf)}`}
+          </span>
         </div>
 
         {loading ? (

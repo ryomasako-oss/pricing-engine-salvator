@@ -5,6 +5,7 @@ import { audit } from "../audit";
 import { requireAuth, requirePermission } from "../auth";
 import { hasPermission } from "../../../shared/permissions";
 import { PAUSE_NEW_ITEMS_SQL } from "../accurate/newItems";
+import { STOCK_AS_OF_KEY } from "../accurate/stock";
 import { catalogRowSchema, unitsSchema, zodMessage } from "../../validate";
 import {
   type AliasRow,
@@ -105,9 +106,11 @@ catalogRouter.get("/", async (c) => {
   const units = await unitsByCode(c.env.DB, codes);
   const withUnits = items.map((i) => ({ ...i, units: units.get(i.code) ?? [] }));
   const role = c.get("user")!.role;
+  const stockAsOf = await get<{ value: string }>(c.env.DB, "SELECT value FROM settings WHERE key = ?", STOCK_AS_OF_KEY);
   return c.json({
     items: catalogItemsForViewer(role, withProblems(withUnits, await cogsProblemsFor(c.env.DB, codes))),
     total: total?.n ?? 0,
+    stockAsOf: stockAsOf?.value ?? null,
   });
 });
 

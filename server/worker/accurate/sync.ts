@@ -13,6 +13,7 @@
    ============================================================ */
 
 import { addNewItems } from "./newItems";
+import { refreshStock } from "./stock";
 import { reconcileDue, runReconcile } from "./reconcile";
 import { all, batch, get, run, stmt } from "../../db.d1";
 import { AccurateClient, AccurateError, type AccurateCreds } from "./client";
@@ -331,6 +332,7 @@ export async function syncTick(env: Bindings, opts: { deadlineMs: number }): Pro
   if (out.find((r) => r.entity === mine)?.outcome === "idle" && (await reconcileDue(env.DB, mine))) {
     try {
       if (env.ACCURATE_AUTO_NEW_ITEMS !== "false") await addNewItems(env.DB, mine);
+      await refreshStock(env.DB, mine);
       await runReconcile(env.DB, mine);
     } catch (err) {
       // Marked done anyway: left unmarked, every 5-minute tick retried this step, and each try
@@ -340,9 +342,9 @@ export async function syncTick(env: Bindings, opts: { deadlineMs: number }): Pro
       await run(
         env.DB,
         "UPDATE accurate_sync_state SET reconciled_at = ?, last_error = ?, last_error_at = ? WHERE entity = ?",
-        now, `Barang baru / cek silang gagal: ${String((err as Error)?.message ?? err)}`.slice(0, 500), now, mine,
+        now, `Barang baru / stok / cek silang gagal: ${String((err as Error)?.message ?? err)}`.slice(0, 500), now, mine,
       );
-      console.error("[accurate] new items / cross-check failed:", err);
+      console.error("[accurate] new items / stock / cross-check failed:", err);
     }
   }
   return out;
