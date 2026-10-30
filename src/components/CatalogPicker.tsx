@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
-import { grp } from "@shared/format";
+import { fmtDateTime, grp } from "@shared/format";
 import { normalizeCode } from "@shared/duplicates";
 import type { CatalogItem, QuoteItem } from "@shared/types";
 import { lineFromCatalog } from "@shared/match";
@@ -30,6 +30,7 @@ export function CatalogPicker({
   const [query, setQuery] = useState("");
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [total, setTotal] = useState(0);
+  const [stockAsOf, setStockAsOf] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [chosen, setChosen] = useState<Record<number, number>>({});
   // Items stay picked across searches, but a later search replaces `items` and
@@ -58,10 +59,11 @@ export function CatalogPicker({
     const params = new URLSearchParams({ q: query.trim(), limit: "60" });
     if (onlyPriced) params.set("withCogs", "1");
     api
-      .get<{ items: CatalogItem[]; total: number }>(`/catalog?${params}`)
+      .get<{ items: CatalogItem[]; total: number; stockAsOf: string | null }>(`/catalog?${params}`)
       .then((r) => {
         setItems(r.items);
         setTotal(r.total);
+        setStockAsOf(r.stockAsOf);
       })
       .finally(() => setLoading(false));
   }, [query, onlyPriced]);
@@ -109,7 +111,7 @@ export function CatalogPicker({
   return (
     <Modal
       title="Tambah item dari katalog"
-      sub={seeCosts ? `${total} item cocok. COGS berasal dari inventory, plafon awal dari harga jual master.` : `${total} item cocok. Plafon awal dari harga jual master.`}
+      sub={`${total} item cocok. ${seeCosts ? "COGS berasal dari inventory, plafon" : "Plafon"} awal dari harga jual master.${stockAsOf ? ` Stok Accurate per ${fmtDateTime(stockAsOf)}.` : ""}`}
       size="wide"
       onClose={onClose}
       footer={

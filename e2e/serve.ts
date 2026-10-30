@@ -43,6 +43,8 @@ const seed = [
     ([code, name, uom, cogs, price]) =>
       `INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock, source) VALUES(${lit(code)}, ${lit(name)}, ${lit(uom)}, ${cogs}, ${price}, 10, 'e2e');`,
   ),
+  // As if a completed Accurate run had refreshed the stock (server/worker/accurate/stock.ts).
+  `INSERT INTO settings(key, value) VALUES('accurate_stock_as_of', '2026-10-30T01:00:00.000Z');`,
 ].join("\n");
 const seedFile = path.join(dir, "seed.sql");
 fs.writeFileSync(seedFile, seed);

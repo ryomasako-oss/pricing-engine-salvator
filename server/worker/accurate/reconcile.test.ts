@@ -164,7 +164,7 @@ describe("cross-check of the catalog against Accurate", () => {
     const first = await syncTick(env, { deadlineMs: 5_000 });
     expect(first.map((r) => r.outcome)).toEqual(["idle"]);
     const st = sqlite.prepare("SELECT reconciled_at, last_error, last_error_at FROM accurate_sync_state WHERE entity = 'PT'").get() as Record<string, string | null>;
-    expect(st.last_error).toMatch(/^Barang baru \/ cek silang gagal: /);
+    expect(st.last_error).toMatch(/^Barang baru \/ stok \/ cek silang gagal: /);
     expect(st.last_error_at).not.toBeNull();
     expect(st.reconciled_at).not.toBeNull();
     // The next tick is back on the cheap idle path instead of reading every table again.

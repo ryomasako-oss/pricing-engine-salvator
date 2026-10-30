@@ -108,8 +108,11 @@ describe("items new in Accurate join the catalog on their own", () => {
   it("ACCURATE_AUTO_NEW_ITEMS = \"false\" turns it off and leaves the cross-check running", async () => {
     const { sqlite, db } = freshDb();
     seed(sqlite);
+    sqlite.exec(`INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock) VALUES ('NEW1', 'Pensil', 'Pcs', 0, 2500, 1)`);
     await syncTick({ DB: db, ACCURATE_AUTO_NEW_ITEMS: "false", ACCURATE_TOKEN_PT: "aat.t", ACCURATE_SIGNATURE_SECRET: "s" } as never, { deadlineMs: 5_000 });
-    expect(catalog(sqlite)).toHaveLength(1);
+    expect(catalog(sqlite)).toHaveLength(2);
+    // Stock of items already in the catalog is still refreshed (stock.ts): 7 + 5 in PT's warehouses.
+    expect(sqlite.prepare("SELECT stock FROM catalog_items WHERE code = 'NEW1'").get()).toEqual({ stock: 12 });
     // The cross-check still ran.
     expect(sqlite.prepare("SELECT reconciled_at IS NOT NULL AS ok FROM accurate_sync_state WHERE entity = 'PT'").get()).toEqual({ ok: 1 });
   });
