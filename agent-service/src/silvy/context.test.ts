@@ -55,6 +55,11 @@ test("prompts carry the engine rules, the grounding rule and the data", () => {
     assert.doesNotMatch(sys, /Claude/);
   }
   assert.match(chatSystem(ctx), /HANYA dari DATA QUOTATION/);
+  // Pertanyaan umum boleh dijawab di chat, tetapi dokumen tetap hanya dari data.
+  assert.match(chatSystem(ctx), /pengetahuan umum/);
+  assert.match(chatSystem(ctx), /tidak boleh memuat harga atau margin/);
+  assert.match(chatSystem(ctx), /jangan pernah menyarankan menyebut atau menunjukkannya ke klien/);
+  assert.doesNotMatch(docSystem(ctx), /pengetahuan umum/);
 });
 
 test("all four documents are defined", () => {

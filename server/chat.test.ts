@@ -35,6 +35,17 @@ describe("handleChat", () => {
     expect(system).toContain("Namamu Silvy");
   });
 
+  it("lets the model suggest a typical list for a client type, without qty, while still banning prices", async () => {
+    const f = fakeFetch(reply({ reply: "Usulan umum untuk rumah sakit.", lines: [{ name: "Map rekam medis" }] }));
+    const r = await handleChat({ messages: [user("buatin list untuk client rumah sakit")] }, { apiKey: "k", fetchFn: f.fn });
+    const system = JSON.parse(f.calls[0].init.body as string).systemInstruction.parts[0].text as string;
+    expect(system).toContain("usulan daftar untuk jenis klien");
+    expect(system).toContain("tanpa qty dan tanpa satuan");
+    expect(system).toContain("Jangan pernah menyebut, menebak, atau membahas harga");
+    // A suggested row has no qty, so it stays flagged for the rep to fill in.
+    expect(r.json).toEqual({ reply: "Usulan umum untuk rumah sakit.", lines: [{ name: "Map rekam medis", qty: 1, noQty: true }] });
+  });
+
   it("returns the reply, request rows and the client it was told about", async () => {
     const f = fakeFetch(reply({ reply: "Siap, 2 item. Tekan Tinjau.", client: "pt bahtera adi jaya.", lines: [{ name: "Pulpen", qty: 10, uom: "lusin" }, { name: "Kertas A4" }] }));
     const r = await handleChat({ messages: [user("untuk PT Bahtera: pulpen 10 lusin, kertas A4")], clients: ["BAHTERA ADI JAYA PT", "Maju Jaya"] }, { apiKey: "k", fetchFn: f.fn });
