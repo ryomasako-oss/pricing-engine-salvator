@@ -3,12 +3,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { type ChatMessage, useChat } from "../context/ChatContext";
+import { grp } from "@shared/format";
 import { Icon } from "./Icon";
 import { WaitingLine } from "./WaitingLine";
 
 const SUGGESTIONS = [
   "Buatkan penawaran untuk PT … : pulpen 10 lusin, kertas A4 5 rim",
   "Klien butuh 20 box klip, 5 lem stik, dan 10 map",
+  "Cek stok kertas A4 di katalog",
 ];
 
 // True of what the server does for a chat turn; the last line says what the AI does not do.
@@ -16,7 +18,7 @@ const WAITING = [
   "Silvy membaca pesan Anda…",
   "Silvy menyusun daftar barang dan qty…",
   "Mencocokkan nama klien dengan daftar klien…",
-  "Silvy hanya menyusun daftar. Harga nanti diambil dari katalog, bukan dari AI.",
+  "Harga, stok, dan COGS selalu diambil dari katalog, bukan dari AI.",
 ];
 
 function Bubble({ m, onReview }: { m: ChatMessage; onReview: (m: ChatMessage) => void }) {
@@ -24,6 +26,7 @@ function Bubble({ m, onReview }: { m: ChatMessage; onReview: (m: ChatMessage) =>
   return (
     <div className={`answer ${m.error ? "error" : ""}`}>
       <div style={{ whiteSpace: "pre-wrap" }}>{m.text}</div>
+      {m.found && <Found found={m.found} />}
       {m.lines && m.lines.length > 0 && (
         <div className="proposal">
           <strong>{m.lines.length} item tersusun</strong>
@@ -41,6 +44,42 @@ function Bubble({ m, onReview }: { m: ChatMessage; onReview: (m: ChatMessage) =>
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+function Found({ found }: { found: NonNullable<ChatMessage["found"]> }) {
+  if (!found.items.length) return <p className="muted small">Tidak ada barang di katalog yang cocok.</p>;
+  const costs = found.items.some((i) => i.cogs !== undefined);
+  return (
+    <div className="proposal" style={{ overflowX: "auto" }}>
+      <strong>
+        {found.total > found.items.length ? `${found.items.length} dari ${grp(found.total)} barang` : `${found.total} barang`} dari katalog
+      </strong>
+      <table className="table">
+        <thead>
+          <tr>
+            <th className="l">Kode</th>
+            <th className="l">Nama</th>
+            <th className="l">Satuan</th>
+            <th>Stok</th>
+            {costs && <th>COGS</th>}
+            {found.kind === "cogs_problem" && <th className="l">Masalah</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {found.items.map((i) => (
+            <tr key={i.code}>
+              <td className="l">{i.code}</td>
+              <td className="l">{i.name}</td>
+              <td className="l">{i.uom}</td>
+              <td>{grp(i.stock)}</td>
+              {costs && <td>{grp(i.cogs ?? 0)}</td>}
+              {found.kind === "cogs_problem" && <td className="l">{i.problem ?? ""}</td>}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
