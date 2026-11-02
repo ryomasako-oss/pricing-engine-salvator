@@ -6,6 +6,7 @@ import { Icon } from "../components/Icon";
 import { Modal } from "../components/Modal";
 import { ImportDialog } from "../components/ImportDialog";
 import { Thumb } from "../components/Thumb";
+import { ItemImageEditor } from "../components/ItemImageEditor";
 import { AccuratePanel } from "../components/AccuratePanel";
 import { PendingItemsPanel } from "../components/PendingItemsPanel";
 import { fmtDateTime, grp } from "@shared/format";
@@ -544,6 +545,13 @@ export function CatalogPage() {
                 onChange={(e) => setEditing({ ...editing, name: e.target.value })}
               />
             </label>
+            {editing.id && can("edit_catalog") && (
+              <ItemImageEditor
+                code={editing.code}
+                image={items.find((i) => i.id === editing.id)?.image ?? null}
+                onChanged={load}
+              />
+            )}
             <div className="field-grid">
               <label className="field">
                 <span>Satuan dasar</span>
