@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { lineFromCatalog, matchLines, normalizeText, similarity, tokens } from "./match";
+import { lineFromCatalog, matchLines, normalizeText, similarity, splitPackText, tokens } from "./match";
 import type { CatalogItem } from "./types";
 
 const item = (id: number, code: string, name: string, over: Partial<CatalogItem> = {}): CatalogItem => ({
@@ -194,5 +194,94 @@ describe("lineFromCatalog records the catalog COGS it copied", () => {
     expect(lineFromCatalog(pen, 1).catalogCogs).toBe(1000);
     expect(lineFromCatalog(pen, 1, { uom: "Box" }).catalogCogs).toBe(12000);
     expect(lineFromCatalog(item(21, "P-2", "Kosong", { cogs: 0 }), 1).catalogCogs).toBeUndefined();
+  });
+});
+
+/** Nama katalog sungguhan dari PO PT Primajaya (2026-11-02): 30 baris, 11 jatuh ke "none" padahal barangnya ada. */
+describe("PO klien: kemasan di kurung, nomor part, istilah Indonesia", () => {
+  const PO_CATALOG = [
+    item(100034, "100034", "JOYKO BINDER CLIP NO.105"),
+    item(100644, "100644", "JOYKO BINDER CLIP NO.107"),
+    item(100381, "100381", "JOYKO BINDER CLIP NO.155"),
+    item(100646, "100646", "JOYKO BINDER CLIP NO.200"),
+    item(103379, "103379", "JOYKO BINDER CLIP NO.280"),
+    item(100382, "100382", "JOYKO BINDER CLIP NO.300"),
+    item(80801930, "80801930", "JOYKO TRIGONAL CLIP NO.1"),
+    item(5000, "ATK-0005", "JOYKO Trigonal Clip No.1 (isi 10 ktk)"),
+    item(100225, "100225", "JOYKO CORRECTION TAPE CT-522"),
+    item(102654, "102654", "JOYKO CT-595 CORRECTION TAPE"),
+    item(80800915, "80800915", "DELKO CLOTH TAPE 24MM X 12M BLACK"),
+    item(101885, "101885", "JOYKO GLUE STICK GS-25 GR"),
+    item(101551, "101551", "JOYKO STAMP PAD NO.2"),
+    item(101552, "101552", "JOYKO STAMP PAD NO.0"),
+    item(100851, "100851", "JOYKO STAMP PAD INK SPI-12 BLUE"),
+    item(100852, "100852", "JOYKO STAMP PAD INK SPI-12 RED"),
+  ];
+  const run = (name: string, code?: string) => matchLines([{ name, code }], PO_CATALOG)[0];
+
+  it("memisahkan kemasan di kurung dari nama barang", () => {
+    expect(splitPackText("Binder Clip Joyko No. 105 (1 Gross @12 Pack)")).toEqual({ core: "Binder Clip Joyko No. 105  ", pack: "(1 Gross @12 Pack)" });
+    expect(splitPackText("Artline EK-660 Hijau ( isi 12/Lusin )").pack).toBe("( isi 12/Lusin )");
+    expect(splitPackText("Bantalan Stempel Joyko No. 2 (15.8 cm x 10.4 cm)").pack).toBe("(15.8 cm x 10.4 cm)");
+    // Detail barang di kurung tetap.
+    for (const keep of ["Stamp Pad Ink SPI-12 (Blue)", "Pelubang Kertas (Besar)", "Correction Pen Re-Type (Tipe X Set)"]) {
+      expect(splitPackText(keep)).toEqual({ core: keep, pack: "" });
+    }
+  });
+
+  it("kemasan tidak lagi menghukum: binder clip PO cocok otomatis ke nomornya", () => {
+    const lines = [
+      ["Binder Clip Joyko No. 105 (1 Gross @12 Pack)", 100034],
+      ["Binder Clip Joyko No. 107 (1 Gross @12 Pack)", 100644],
+      ["Binder Clip Joyko No.155 (1 Gross @12 Pack)", 100381],
+      ["Binder Clip Joyko No.200 (1 Gross @12 Pack)", 100646],
+      ["Binder Clip Joyko No.280 (1 box @6 PCS)", 103379],
+      ["Binder Clip Joyko No. 300 (1 box @6 PCS)", 100382],
+    ] as const;
+    for (const [name, id] of lines) {
+      const r = run(name);
+      expect(r.status).toBe("match");
+      expect(r.candidates[0].id).toBe(id);
+    }
+  });
+
+  it("nomor yang berbeda tidak tertukar walau kemasannya sama", () => {
+    expect(run("Binder Clip Joyko No. 105 (1 Gross @12 Pack)").candidates[0].id).not.toBe(100644);
+  });
+
+  it("kemasan membantu barang yang menyebutnya, dan menang atas barang kembar yang tidak", () => {
+    expect(run("JOYKO Trigonal Clip No.1 (isi 10 ktk)").candidates[0].id).toBe(5000);
+    expect(run("JOYKO Trigonal Clip No.1").candidates[0].id).toBe(80801930);
+  });
+
+  it("detail barang di kurung tetap membedakan (Blue vs Red)", () => {
+    expect(run("Tinta Stamp Pad Ink Joyko SPI-12 (Blue)").candidates[0].id).toBe(100851);
+    expect(run("Tinta Stamp Pad Ink Joyko SPI-12 (Red)").candidates[0].id).toBe(100852);
+  });
+
+  it("glue stick dengan teks kemasan tidak jatuh ke none", () => {
+    const r = run("Joyko Glue Stick GS-25 isi 25 gram ( isi 12/lusin)");
+    expect(r.status).not.toBe("none");
+    expect(r.candidates[0].id).toBe(101885);
+  });
+
+  it("nomor part yang tercetak di PO dan ada di nama katalog mengangkat barangnya, hanya sampai review", () => {
+    const withPart = run("Correction Tape Joyko 12M", "CT-522");
+    expect(withPart.candidates[0].id).toBe(100225);
+    expect(withPart.status).toBe("review");
+    // Nomor yang tidak ada di mana pun, atau terlalu pendek/tanpa angka, tidak mengubah apa-apa.
+    expect(run("Correction Tape Joyko 12M", "XYZ-999")).toEqual(run("Correction Tape Joyko 12M"));
+    expect(run("Correction Tape Joyko 12M", "CT")).toEqual(run("Correction Tape Joyko 12M"));
+  });
+
+  it("nomor part tidak mengangkat barang yang namanya sama sekali beda", () => {
+    const r = run("Lakban Bening 2 inch", "CT-522");
+    expect(r.candidates.map((c) => c.id)).not.toContain(100225);
+  });
+
+  it("Bantalan Stempel = Stamp Pad, dan ukuran di kurung tidak menggugurkan", () => {
+    const r = run("Bantalan Stempel Besar Joyko No. 2 (15.8 cm x 10.4 cm)");
+    expect(r.status).toBe("review");
+    expect(r.candidates[0].id).toBe(101551);
   });
 });

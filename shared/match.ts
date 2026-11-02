@@ -17,6 +17,14 @@
       0.5mm) weigh more, and a size the request names but the candidate
       lacks is penalised — 70g and 80g paper are different products.
 
+   Two things about the client's wording are read before scoring. Packaging in brackets
+   ("(1 Gross @12 Pack)", "(isi 12/Lusin)") says how it is sold, not which product. Its
+   words are optional: they help an item that has them ("(isi 10 ktk)" tells two Trigonal
+   Clip rows apart) but never count against one that does not (a PO's binder clips all fell
+   to "none" because "1", "6", "12" were read as sizes the item lacks).
+   And a part number the client printed ("CT-522") that appears inside a catalog name lifts
+   that item to at least PART_HINT_SCORE: never an auto "match", always a rep's call.
+
    Codes and aliases are "exact". A similarity match is only "match" when it
    is strong, clearly ahead of the runner-up, and the item name contains
    every word the client wrote; otherwise "review", and the rep picks. Prices are never part of matching: COGS and RRP always
@@ -72,6 +80,8 @@ export const REVIEW_SCORE = 0.45;
 /** A "match" must beat the runner-up by this much, or it is a coin toss. */
 export const MATCH_MARGIN = 0.08;
 export const MAX_ALTERNATIVES = 5;
+/** A part number the client printed that also appears in the item's name: strong, but only ever "review". */
+export const PART_HINT_SCORE = 0.7;
 /**
  * A code match also needs the line's name to look like the item. CGV's colliding codes scored
  * at most 0.24 against the item they hit; a genuine code with a two-word name scores 0.78+.
@@ -94,6 +104,8 @@ const SYNONYMS: Record<string, string> = {
   green: "hijau",
   yellow: "kuning",
   white: "putih",
+  bantalan: "pad",
+  stempel: "stamp",
   lembar: "lbr",
   sheet: "lbr",
   sheets: "lbr",
@@ -116,6 +128,27 @@ export function normalizeText(s: string): string {
     .replace(/[^a-z0-9.]+/g, " ")
     .trim()
     .replace(/\s+/g, " ");
+}
+
+/** Words that mark a bracket as packaging ("1 box @6 PCS", "isi 12/Lusin") or a loose dimension ("15.8 cm x 10.4 cm") rather than a product detail. */
+const PACK_WORD = /\b(isi|box|pack|gross|lusin|kotak|dus|pcs|pak|ktk|lsn|karton)\b|@\s*\d|\d\s*(?:cm|mm)?\s*x\s*\d/i;
+
+/** The client's wording split into the product part and the packaging brackets. "(Blue)", "(Besar)" and "(Tipe X Set)" stay in the product part. */
+export function splitPackText(s: string): { core: string; pack: string } {
+  const pack: string[] = [];
+  const core = (s ?? "").replace(/\([^()]*\)/g, (group) => {
+    if (!PACK_WORD.test(group)) return group;
+    pack.push(group);
+    return " ";
+  });
+  return { core, pack: pack.join(" ") };
+}
+
+/** Pattern for a part number like "CT-522" inside a catalog name, ignoring case and separators ("ct 522", "CT-522"). */
+function partPattern(code: string | undefined): RegExp | null {
+  const c = (code ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (c.length < 4 || !/[a-z]/.test(c) || !/\d/.test(c)) return null;
+  return new RegExp(`(^|[^a-z0-9])${[...c].join("[^a-z0-9]*")}(?![0-9])`);
 }
 
 export function tokens(s: string): string[] {
@@ -234,7 +267,14 @@ export function matchLine<T extends MatchableItem>(
 ): MatchResult {
   const code = normalizeCode(line.code);
   const byCode = code ? catalog.byCode.get(code) : undefined;
-  const req = tokens(line.name);
+  const { core, pack } = splitPackText(line.name);
+  const req = tokens(core);
+  const soft = tokens(pack).filter((t) => !req.includes(t));
+  // Packaging words count only for the items that have them; an item with none of them loses a hair
+  // (2%) so that, between two otherwise equal rows, the one that states the pack wins.
+  const packHits = (i: number) => soft.filter((t) => catalog.tokens[i].some((u) => tokenHit(t, u)));
+  const wording = (i: number) => (soft.length ? [...req, ...packHits(i)] : req);
+  const packFactor = (i: number) => (soft.length && !packHits(i).length ? 0.98 : 1);
   if (byCode) {
     // A line that names nothing but its code (or nothing at all) has nothing to disagree with.
     const nameIsCode = !req.length || normalizeCode(line.name) === code;
@@ -247,14 +287,16 @@ export function matchLine<T extends MatchableItem>(
   const aliased = aliases.client.get(text) ?? aliases.global.get(text);
   const byAlias = aliased ? catalog.byCode.get(normalizeCode(aliased)) : undefined;
 
+  const part = byCode ? null : partPattern(line.code);
   const scored: Candidate[] = [];
   const posOf = new Map<number, number>();
   for (const i of candidatesFor(req, catalog)) {
-    const raw = similarity(req, catalog.tokens[i]);
+    const raw = similarity(wording(i), catalog.tokens[i]) * packFactor(i);
     if (raw < REVIEW_SCORE / 2) continue;
     // A pairing this wording was already corrected away from never scores as a
     // certainty again, but stays on the list: one correction can be the mistake.
-    const score = isRejectedPair(rejected, text, catalog.items[i].code) ? raw * REJECTED_PENALTY : raw;
+    let score = isRejectedPair(rejected, text, catalog.items[i].code) ? raw * REJECTED_PENALTY : raw;
+    if (part && score < PART_HINT_SCORE && part.test(catalog.items[i].name.toLowerCase())) score = PART_HINT_SCORE;
     scored.push({ id: catalog.items[i].id, score: Math.round(score * 1000) / 1000 });
     posOf.set(catalog.items[i].id, i);
   }
@@ -272,7 +314,7 @@ export function matchLine<T extends MatchableItem>(
   // A word the client wrote that the item lacks ("Sinar Dunia" vs "BOLA DUNIA")
   // may be the brand. Never auto-accept that, however high the score.
   const bestTokens = catalog.tokens[posOf.get(best.id)!];
-  const complete = compare(req, bestTokens).complete;
+  const complete = compare(wording(posOf.get(best.id)!), bestTokens).complete;
   const status: MatchStatus =
     complete && best.score >= MATCH_SCORE && best.score - runnerUp >= MATCH_MARGIN ? "match" : "review";
   return { index, status, via: "name", candidates: top };
