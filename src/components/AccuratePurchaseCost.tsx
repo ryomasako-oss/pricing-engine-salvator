@@ -8,6 +8,7 @@
    reference (POST /accurate/apply-held-cogs, at the price shown). */
 
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../api";
 import { useToast } from "../context/ToastContext";
 import { Icon } from "./Icon";
@@ -187,6 +188,9 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
           <button className="btn small ghost" disabled={!!busy || !status.lastPassAt} onClick={runPreview}>
             <Icon name="eye" size={13} /> {busy === "preview" ? "Menghitung…" : "Pratinjau"}
           </button>
+          <Link className="btn small ghost" to="/cogs-history">
+            <Icon name="search" size={13} /> Cari riwayat COGS
+          </Link>
           {preview && preview.changed.length > 0 && (
             <button className="btn small" disabled={!!busy} onClick={apply}>
               <Icon name="check" size={13} /> {busy === "apply" ? "Menerapkan…" : `Terapkan ${grp(preview.changed.length)} perubahan`}
@@ -253,6 +257,7 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
                       <th>Pembelian terakhir</th>
                       <th className="l">Kenapa ditahan</th>
                       <th className="l">Sumber</th>
+                      <th />
                     </tr>
                   </thead>
                   <tbody>
@@ -268,6 +273,9 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
                         <td className="l">{h.reason}</td>
                         <td className="l muted">
                           {h.receiptNo} · {fmtDate(h.transDate)}
+                        </td>
+                        <td className="l">
+                          <Link to={`/cogs-history?q=${encodeURIComponent(h.code)}`}>Riwayat ›</Link>
                         </td>
                       </tr>
                     ))}
@@ -315,6 +323,7 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
                     <th>Pembelian terakhir</th>
                     <th>Selisih</th>
                     <th className="l">Sumber</th>
+                    <th />
                   </tr>
                 </thead>
                 <tbody>
@@ -331,6 +340,9 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
                         </td>
                         <td className="l muted">
                           {c.receiptNo} · {fmtDate(c.transDate)}
+                        </td>
+                        <td className="l">
+                          <Link to={`/cogs-history?q=${encodeURIComponent(c.code)}`}>Riwayat ›</Link>
                         </td>
                       </tr>
                     );

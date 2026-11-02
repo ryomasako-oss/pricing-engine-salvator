@@ -86,12 +86,6 @@ function TopBar() {
           <Icon name="box" size={16} />
           <span className="label">Katalog</span>
         </NavLink>
-        {can("view_costs") && (
-          <NavLink to="/cogs-history" className={({ isActive }) => (isActive ? "active" : "")} onClick={guardedClick}>
-            <Icon name="clock" size={16} />
-            <span className="label">Riwayat COGS</span>
-          </NavLink>
-        )}
         <NavLink to="/clients" className={({ isActive }) => (isActive ? "active" : "")} onClick={guardedClick}>
           <Icon name="building" size={16} />
           <span className="label">Klien</span>

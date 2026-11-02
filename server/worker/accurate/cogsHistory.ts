@@ -6,6 +6,8 @@
    ============================================================ */
 
 import { all, get } from "../../db.d1";
+import { sameUom, unitFactor } from "../../../shared/uom";
+import type { UnitFactor } from "../../../shared/types";
 import { applyPurchaseCosts } from "./purchaseCost";
 import type { EntityKey } from "./sync";
 
@@ -19,6 +21,10 @@ export interface HistoryReceipt {
   unit: string;
   quantity: number;
   unitPrice: number;
+  /** Price per catalog base unit, or null when the unit has no known ratio. */
+  cost: number | null;
+  /** The newest receipt whose cost equals the catalog COGS: the one the COGS most likely came from. */
+  used: boolean;
 }
 
 export interface HistoryCard {
@@ -68,7 +74,7 @@ export async function cogsHistory(
   );
   const codes = JSON.stringify(items.map((i) => i.code));
 
-  const receipts = await all<HistoryReceipt & { item_code: string }>(
+  const receipts = await all<Omit<HistoryReceipt, "cost" | "used"> & { item_code: string }>(
     db,
     `SELECT item_code, receipt_no AS receiptNo, trans_date AS transDate, unit, quantity, unit_price AS unitPrice
        FROM (SELECT l.*, ROW_NUMBER() OVER (
@@ -92,11 +98,42 @@ export async function cogsHistory(
     codes,
   );
 
-  const cards = items.map((i): HistoryCard => ({
-    ...i,
-    pending: pending.get(i.code) ?? null,
-    receipts: receipts.filter((r) => r.item_code === i.code).map(({ item_code: _, ...r }) => r),
-    changes: changes.filter((h) => h.code === i.code).map(({ cogs, at }) => ({ cogs, at })),
-  }));
+  const units = new Map(
+    (await all<{ code: string; uom: string; units: string }>(
+      db,
+      `SELECT code, uom, units FROM accurate_items WHERE entity = ?1 AND code IN (SELECT value FROM json_each(?2))`,
+      entity,
+      codes,
+    )).map((u) => [u.code, u]),
+  );
+  const parseUnits = (s: string): UnitFactor[] => {
+    try {
+      const v = JSON.parse(s);
+      return Array.isArray(v) ? v : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const cards = items.map((i): HistoryCard => {
+    const a = units.get(i.code);
+    const item = a && sameUom(i.uom, a.uom || "Pcs") ? { baseUom: a.uom || "Pcs", units: parseUnits(a.units) } : undefined;
+    let found = false;
+    const own = receipts
+      .filter((r) => r.item_code === i.code)
+      .map(({ item_code: _, ...r }): HistoryReceipt => {
+        const factor = item && r.unit.trim() ? unitFactor(item, r.unit) : undefined;
+        const cost = factor ? Math.round((r.unitPrice / factor) * 100) / 100 : null;
+        const used = !found && cost !== null && i.cogs > 0 && Math.abs(cost - i.cogs) < 0.01;
+        found ||= used;
+        return { ...r, cost, used };
+      });
+    return {
+      ...i,
+      pending: pending.get(i.code) ?? null,
+      receipts: own,
+      changes: changes.filter((h) => h.code === i.code).map(({ cogs, at }) => ({ cogs, at })),
+    };
+  });
   return { total, page, pageSize: HISTORY_PAGE_SIZE, cards };
 }

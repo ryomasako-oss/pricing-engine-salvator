@@ -3,6 +3,7 @@
    Katalog → "COGS dari harga pembelian terakhir". Needs view_costs. */
 
 import { useEffect, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { useToast } from "../context/ToastContext";
 import { Icon } from "../components/Icon";
@@ -14,7 +15,7 @@ interface Card {
   uom: string;
   cogs: number;
   pending: { to: number; receiptNo: string; transDate: string; held: string | null } | null;
-  receipts: { receiptNo: string; transDate: string; unit: string; quantity: number; unitPrice: number }[];
+  receipts: { receiptNo: string; transDate: string; unit: string; quantity: number; unitPrice: number; cost: number | null; used: boolean }[];
   changes: { cogs: number; at: string }[];
 }
 
@@ -27,8 +28,10 @@ interface Page {
 
 export function CogsHistoryPage() {
   const toast = useToast();
-  const [q, setQ] = useState("");
-  const [search, setSearch] = useState("");
+  // Katalog's "Riwayat" links arrive here as /cogs-history?q=<kode>.
+  const [params] = useSearchParams();
+  const [q, setQ] = useState(params.get("q") ?? "");
+  const [search, setSearch] = useState(params.get("q") ?? "");
   const [onlyPending, setOnlyPending] = useState(false);
   const [page, setPage] = useState(1);
   const [data, setData] = useState<Page | null>(null);
@@ -62,6 +65,9 @@ export function CogsHistoryPage() {
     <main className="hk-main">
       <div className="hk-page-head">
         <div>
+          <Link to="/catalog" className="link-btn small">
+            <Icon name="back" size={12} /> Kembali ke Katalog
+          </Link>
           <h1>Riwayat COGS</h1>
           <p>
             Harga beli terbaru dari penerimaan barang (RI) Accurate dan COGS lama tiap barang. Halaman ini hanya
@@ -134,9 +140,13 @@ export function CogsHistoryPage() {
                             <li key={r.receiptNo + i}>
                               {fmtDate(r.transDate)} · {r.receiptNo} · {rp(r.unitPrice)} / {r.unit || "satuan dasar"}
                               {i === 0 && <span className="muted"> · terakhir</span>}
+                              {r.used && <span className="badge green" style={{ marginLeft: 6 }}>✔ dipakai</span>}
                             </li>
                           ))}
                         </ul>
+                      )}
+                      {c.cogs > 0 && c.receipts.length > 0 && !c.receipts.some((r) => r.used) && (
+                        <div className="muted">COGS tidak cocok dengan RI mana pun di atas (mungkin manual atau dari Excel).</div>
                       )}
                     </div>
 
