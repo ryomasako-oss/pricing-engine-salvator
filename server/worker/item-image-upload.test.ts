@@ -42,7 +42,8 @@ describe("upload gambar barang dari aplikasi", () => {
     for (const file of readdirSync(dir).filter((f) => f.endsWith(".sql")).sort())
       sqlite.exec(readFileSync(path.join(dir, file), "utf8"));
     sqlite.exec(`INSERT INTO users(id, email, name, role, password_hash) VALUES (1, 'm@test', 'M', 'manager', 'x')`);
-    sqlite.exec(`INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock) VALUES ('ATK-1', 'Pulpen', 'Pcs', 1000, 2000, 1)`);
+    sqlite.exec(`INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock) VALUES
+      ('ATK-1', 'Pulpen', 'Pcs', 1000, 2000, 1), ('ATK-2', 'Kertas', 'Rim', 1, 2, 1)`);
     db = new D1DatabaseShim(sqlite);
     app = new Hono();
     app.use(async (c, next) => {
@@ -114,5 +115,34 @@ describe("upload gambar barang dari aplikasi", () => {
     const changed = await app.request("/api/item-image/ATK-1.webp", { headers: { "If-None-Match": etag } }, env);
     expect(changed.status).toBe(200);
     expect(await changed.text()).toContain("baru!!");
+  });
+
+  it("_check: kode resmi katalog (huruf besar-kecil sama) dan apakah sudah punya gambar", async () => {
+    await post("ATK-1", form(webp("f"), webp("t")));
+    const res = await app.request(
+      "/api/item-image/_check",
+      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ codes: ["atk-1", "ATK-2", "TIDAK-ADA"] }) },
+      env,
+    );
+    expect(res.status).toBe(200);
+    const items = (await res.json()).items.sort((a, b) => a.code.localeCompare(b.code));
+    expect(items).toEqual([
+      { input: "atk-1", code: "ATK-1", hasImage: true },
+      { input: "ATK-2", code: "ATK-2", hasImage: false },
+    ]);
+  });
+
+  it("unggah satuan memakai kode resmi katalog walau huruf nama berkas beda", async () => {
+    const res = await post("atk-1", form(webp("f"), webp("t")));
+    expect(res.status).toBe(200);
+    expect([...bucket.files.keys()].sort()).toEqual(["ATK-1-thumb.webp", "ATK-1.webp"]);
+  });
+
+  it("_check: sales ditolak, lebih dari 500 kode ditolak", async () => {
+    const call = (codes) =>
+      app.request("/api/item-image/_check", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ codes }) }, env);
+    expect((await call(Array.from({ length: 501 }, (_, i) => `K${i}`))).status).toBe(400);
+    role = "rep";
+    expect((await call(["ATK-1"])).status).toBe(403);
   });
 });
