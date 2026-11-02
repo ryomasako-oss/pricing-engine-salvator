@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { amountInUnit, changeLineUom, cleanUnits, toBaseUnit, uomChoices, uomWarning, unitFactor, type ItemUnits, packUnitWord, readPackUnit } from "./uom.js";
+import { amountInUnit, changeLineUom, cleanUnits, toBaseUnit, uomChoices, uomWarning, unitFactor, type ItemUnits, packUnitNeedsCheck, packUnitWord, readPackUnit } from "./uom.js";
 import type { QuoteItem } from "./types.js";
 
 const line = (over: Partial<QuoteItem> = {}): QuoteItem => ({
@@ -194,6 +194,20 @@ describe("unit written in a client's wording (PO PT Primajaya)", () => {
     expect(readPackUnit("Joyko Glue Stick GS-25 (isi 12/lusin)", glue)).toEqual({ unmatched: "lusin" });
     // A box that does not fit is not worth a warning (a box of 12 is a lusin).
     expect(readPackUnit("Binder Clip No.260 (1 box @12 PCS)", { uom: "LSN", units: [] })).toEqual({});
+  });
+});
+
+describe("which lines need a person to check the unit", () => {
+  const artline = { uom: "PCS", units: [{ uom: "LSN", factor: 12 }] };
+  it("a converted unit, a missing lusin/gross and a count conflict need a check", () => {
+    expect(packUnitNeedsCheck("Artline EK-660 (isi 12/Lusin)", artline)).toBe(true);
+    expect(packUnitNeedsCheck("Glue Stick GS-25 (isi 12/lusin)", { uom: "PCS", units: [] })).toBe(true);
+    expect(packUnitNeedsCheck("Artline (isi 12/Lusin)", { uom: "PCS", units: [{ uom: "LSN", factor: 6 }] })).toBe(true);
+  });
+  it("nothing written, or the base unit already is the unit, needs none", () => {
+    expect(packUnitNeedsCheck("Pena Oval Joyko Gel 0,5 mm Biru", artline)).toBe(false);
+    expect(packUnitNeedsCheck("Binder Clip No.300 (1 box @6 PCS)", { uom: "KTK", units: [] })).toBe(false);
+    expect(packUnitNeedsCheck("Binder Clip No.260 (1 box @12 PCS)", { uom: "LSN", units: [] })).toBe(false);
   });
 });
 

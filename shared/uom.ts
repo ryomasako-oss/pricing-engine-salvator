@@ -121,6 +121,16 @@ export function readPackUnit(
   return WARN_IF_MISSING.has(read.word) ? { unmatched: read.word } : {};
 }
 
+/**
+ * True when a person must look at the unit of this line before it is quoted: the wording's unit
+ * was applied (cost converted), or it could not be (item lacks it, or the counts disagree).
+ * False when the wording says nothing about a pack, or says what the base unit already is.
+ */
+export function packUnitNeedsCheck(name: string, item: { uom?: string; units?: UnitFactor[] }): boolean {
+  const r = readPackUnit(name, item);
+  return !!(r.unmatched || r.conflict || (r.uom && !sameUom(r.uom, item.uom || "Pcs")));
+}
+
 /** The unit this line's numbers are actually expressed in. */
 export const priceUnitOf = (line: QuoteItem) => line.priceUom ?? line.uom;
 
