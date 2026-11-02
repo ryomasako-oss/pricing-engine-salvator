@@ -25,6 +25,10 @@
    And a part number the client printed ("CT-522") that appears inside a catalog name lifts
    that item to at least PART_HINT_SCORE: never an auto "match", always a rep's call.
 
+   A width in inches ("3\"", "2 inch", "3/4\"") is read as both the inch number and its usual
+   millimetre size (3" = 72 mm), so a PO's `Lakban 3"` finds the catalog's "72MM". A fraction
+   such as 3/4" is one token, so its "3" no longer matches a 3".
+
    Codes and aliases are "exact". A similarity match is only "match" when it
    is strong, clearly ahead of the runner-up, and the item name contains
    every word the client wrote; otherwise "review", and the rep picks. Prices are never part of matching: COGS and RRP always
@@ -151,11 +155,31 @@ function partPattern(code: string | undefined): RegExp | null {
   return new RegExp(`(^|[^a-z0-9])${[...c].join("[^a-z0-9]*")}(?![0-9])`);
 }
 
+/** Tape and similar widths: inches as written -> millimetres as the catalog writes them. */
+const INCH_MM: Record<string, number> = { "1f2": 12, "3f4": 19, "1": 24, "1p5": 36, "2": 48, "3": 72, "4": 96 };
+
+/** Replace an inch mark ("3\"", "2 inch", "3/4\"") with a placeholder word that survives normalizeText. */
+function markInches(s: string): string {
+  const unit = `(?:"|”|''|inch|inci)`;
+  return (s ?? "")
+    .replace(new RegExp(`(\\d+)\\s*/\\s*(\\d+)\\s*${unit}`, "gi"), (_m, a, b) => ` zinch${a}f${b} `)
+    .replace(new RegExp(`(\\d+(?:[.,]\\d+)?)\\s*${unit}`, "gi"), (_m, n) => ` zinch${String(n).replace(/[.,]/, "p")} `);
+}
+
+/** The placeholder back to a token: the inch number, plus " | " its millimetre size when it has a usual one. */
+function unmarkInch(t: string): string {
+  const m = /^zinch(\d+(?:[fp]\d+)?)$/.exec(t);
+  if (!m) return t;
+  const mm = INCH_MM[m[1]];
+  const plain = m[1].replace("p", ".").replace("f", "/");
+  return mm ? `${plain}|${mm}mm` : plain;
+}
+
 export function tokens(s: string): string[] {
   const out: string[] = [];
-  for (const raw of normalizeText(s).split(" ")) {
+  for (const raw of normalizeText(markInches(s)).split(" ")) {
     if (!raw || STOP.has(raw)) continue;
-    out.push(SYNONYMS[raw] ?? raw);
+    out.push(unmarkInch(SYNONYMS[raw] ?? raw));
   }
   return [...new Set(out)];
 }
@@ -166,6 +190,11 @@ const weight = (t: string) => (hasDigit(t) ? 2 : 1);
 /** Equal, or a word of 4+ letters plus at most 2 more ("map"/"maps" no, "kertas"/"kertasnya" no, "spidol"/"spidols" yes). Never fuzzy on sizes. */
 function tokenHit(a: string, b: string): boolean {
   if (a === b) return true;
+  // An inch width carries its millimetre size as an alternative ("3|72mm"): either one is a hit.
+  if (a.includes("|") || b.includes("|")) {
+    const bs = b.split("|");
+    return a.split("|").some((x) => bs.includes(x));
+  }
   if (hasDigit(a) || hasDigit(b)) return false;
   const [short, long] = a.length <= b.length ? [a, b] : [b, a];
   return short.length >= 4 && long.startsWith(short) && long.length - short.length <= 2;
@@ -238,7 +267,7 @@ export function buildIndex<T extends MatchableItem>(items: T[]): CatalogIndex<T>
   const byPrefix = new Map<string, number[]>();
   tokenLists.forEach((list, i) => {
     for (const t of list) {
-      push(byToken, t, i);
+      for (const part of t.split("|")) push(byToken, part, i);
       const p = prefixKey(t);
       if (p) push(byPrefix, p, i);
     }
@@ -250,7 +279,7 @@ export function buildIndex<T extends MatchableItem>(items: T[]): CatalogIndex<T>
 function candidatesFor(req: string[], catalog: CatalogIndex): Set<number> {
   const out = new Set<number>();
   for (const t of req) {
-    for (const i of catalog.byToken.get(t) ?? []) out.add(i);
+    for (const part of t.split("|")) for (const i of catalog.byToken.get(part) ?? []) out.add(i);
     const p = prefixKey(t);
     if (p) for (const i of catalog.byPrefix.get(p) ?? []) out.add(i);
   }
