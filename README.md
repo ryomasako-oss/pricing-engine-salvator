@@ -112,6 +112,10 @@ Alurnya:
   (`ACCURATE_CATALOG_ENTITY`); data CV, bila tokennya dipasang, hanya dipakai
   untuk pengecekan silang. COGS tidak disentuh; tetap dari laporan Nilai
   Persediaan.
+- **Riwayat COGS** (`/cogs-history`, `GET /api/accurate/cogs-history`, hanya
+  manajer dan admin karena `view_costs`): satu kartu per barang berisi harga
+  beli dari RI terakhir dan COGS katalog yang pernah diganti. Hanya membaca;
+  COGS tetap diubah lewat `apply-cogs`.
 - **Paket Workers gratis**: batas 50 subrequest per eksekusi (query D1 ikut
   dihitung), jadi `ACCURATE_CALLS_PER_TICK = 5`; satu putaran ~30.000 barang
   makan sekitar 5 jam. Naikkan setelah pindah ke paket berbayar
@@ -119,6 +123,44 @@ Alurnya:
   jatahnya tidak terbagi dua.
 
 Semua tombolnya ada di halaman Katalog (peran manajer ke atas).
+
+---
+
+## Gambar barang
+
+Katalog, pemilih barang, dan baris quotation menampilkan gambar produk yang
+disimpan pricing engine sendiri. Tidak ada server lain yang terlibat.
+
+Nama berkas mengikuti kode barang, jadi tidak perlu rename:
+
+```
+<kode>.webp         gambar penuh
+<kode>-thumb.webp   thumbnail (opsional)
+```
+
+Salin dari folder mana pun ke folder gambar:
+
+```bash
+npm run import:images -- /path/ke/folder/gambar
+```
+
+- **Tidak ada sakelar.** Folder gambar kosong = katalog tetap seperti biasa.
+- Yang disimpan di database hanya daftar kode yang punya gambar (`item_images`),
+  supaya barang tanpa gambar tidak menambah satu 404 per baris.
+- Byte-nya dilayani dari storage sendiri lewat `/api/item-image/<berkas>`, jadi
+  CSP tetap `self` dan tidak ada kunci API yang tersentuh. Rute ini butuh login.
+- Storage lokal (Node) = folder `IMAGES_DIR`. Workers = bucket R2 `pricing-images`
+  lewat binding `IMAGES` di `wrangler.toml`. Satu kali di dashboard Cloudflare:
+  nyalakan R2, lalu `wrangler r2 bucket create pricing-images`.
+- Hanya thumbnail yang ada? Route mencarinya, dan kalau hilang dilayani dari
+  gambar penuh — jadi cukup kirim gambar penuh saja kalau tidak ada thumbnail.
+- Daftar kode disegarkan saat katalog atau quotation dibuka, paling sering tiap 30
+  menit. Folder/bucket sedang tidak terbaca tidak mengosongkan daftar: kode lama
+  tetap dipakai dan errornya dicatat di pengaturan `item_images_status`.
+- Klik thumbnail membuka gambar penuh di halaman yang sama (zoom, seret, Esc).
+
+`npm run import:images` hanya mengisi folder lokal. Bucket R2 belum punya
+pengirim massal; sampai itu ada, isi R2 dari mesin yang memang punya gambarnya.
 
 ---
 

@@ -8,6 +8,14 @@ database_name = "halokantor-pricing"
 database_id = "d1d9be2b-db8b-4b76-84b8-dba6807e7e3d"
 migrations_dir = "migrations"
 
+# Product images, one object per catalog code: <kode>.webp / <kode>-thumb.webp.
+# One-time setup on the Cloudflare dashboard: enable R2 for the account, then
+# `wrangler r2 bucket create pricing-images`. Until the bucket exists the
+# binding is missing and the catalog simply draws no images.
+[[r2_buckets]]
+binding = "IMAGES"
+bucket_name = "pricing-images"
+
 [assets]
 directory = "./dist/client"
 not_found_handling = "single-page-application"
