@@ -22,7 +22,7 @@ import { grp } from "@shared/format";
 import { lineFromCatalog, type MatchResult, type RequestLine } from "@shared/match";
 import { choicesFromRows, codesToFetch, restoreRows, type Draft } from "@shared/listDrafts";
 import type { CatalogItem, Client, QuoteItem } from "@shared/types";
-import { uomWarning } from "@shared/uom";
+import { readPackUnit, sameUom, uomWarning } from "@shared/uom";
 import { Icon } from "./Icon";
 import { ClientQuickAdd } from "./ClientQuickAdd";
 import { Modal } from "./Modal";
@@ -273,7 +273,13 @@ export function ListToQuote({
     return rows.map((r) => {
       const item = r.chosen != null ? items.get(r.chosen) : undefined;
       if (!item) return null;
-      const line = lineFromCatalog(item, r.request.qty ?? 1, { uom: r.request.uom, rrp: r.request.rrp });
+      // A PO without a unit column still says "(isi 12/Lusin)" in the name: read it, so the ceiling
+      // (per lusin) is set against the cost per lusin, not per piece. "Tanpa qty" rows stay in the base unit.
+      const line = lineFromCatalog(item, r.request.qty ?? 1, {
+        uom: r.request.uom,
+        rrp: r.request.rrp,
+        requestName: r.request.noQty ? undefined : r.request.name,
+      });
       // "Barang baru" is not in the catalog yet, so its line waits for Accurate
       // (shared/pendingItems.ts). The server holds it on every read as well.
       if (item.source === "pending") return { ...line, held: true, holdReason: "new_item" as const };
@@ -569,6 +575,9 @@ export function ListToQuote({
                   const options = [...row.result.candidates.map((c) => c.id), ...row.extra.filter((id) => !row.result.candidates.some((c) => c.id === id))];
                   const scoreOf = new Map(row.result.candidates.map((c) => [c.id, c.score]));
                   const warn = line ? uomWarning(line) : null;
+                  const chosenItem = row.chosen != null ? items.get(row.chosen) : undefined;
+                  const pack = chosenItem && !row.request.uom && !row.request.noQty ? readPackUnit(row.request.name, chosenItem) : {};
+                  const readUnit = pack.uom && chosenItem && !sameUom(pack.uom, chosenItem.uom || "Pcs") ? pack.uom : null;
                   return (
                     <tr key={i} style={row.chosen == null ? { opacity: 0.6 } : undefined}>
                       <td className="l muted">{i + 1}</td>
@@ -579,6 +588,17 @@ export function ListToQuote({
                             .filter(Boolean)
                             .join(" · ") || "—"}
                         </div>
+                        {readUnit && <div className="muted small">Satuan dibaca dari teks: {readUnit}. COGS dihitung per {readUnit}.</div>}
+                        {pack.conflict && chosenItem && (
+                          <div className="small" style={{ color: "var(--warn)" }}>
+                            ⚠ Teks menyebut isi {pack.conflict.text} per {pack.conflict.word}, katalog mencatat 1 {pack.conflict.word} = {pack.conflict.catalog}. Satuan tidak diubah: COGS dihitung per {chosenItem.uom || "Pcs"}. Periksa satuan dan rasio.
+                          </div>
+                        )}
+                        {pack.unmatched && chosenItem && (
+                          <div className="small" style={{ color: "var(--warn)" }}>
+                            ⚠ Teks menyebut {pack.unmatched}, tapi barang ini tidak punya satuan itu: COGS dihitung per {chosenItem.uom || "Pcs"}. Periksa satuan.
+                          </div>
+                        )}
                       </td>
                       <td className="num">{grp(row.request.qty ?? 1)}</td>
                       <td className="l" style={{ minWidth: 320 }}>

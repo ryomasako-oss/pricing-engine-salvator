@@ -40,7 +40,7 @@
 import { normalizeCode } from "./duplicates.js";
 import type { CatalogItem, QuoteItem } from "./types.js";
 import { REJECTED_PENALTY, isRejectedPair, type Rejected } from "./matchLearning.js";
-import { changeLineUom, sameUom } from "./uom.js";
+import { changeLineUom, readPackUnit, sameUom } from "./uom.js";
 
 export interface RequestLine {
   code?: string;
@@ -368,7 +368,7 @@ export function matchLines<T extends MatchableItem>(
 export function lineFromCatalog(
   item: CatalogItem,
   qty: number,
-  opts: { uom?: string; rrp?: number } = {},
+  opts: { uom?: string; rrp?: number; /** The client's wording, read for a pack unit ("isi 12/Lusin") when they gave no unit. */ requestName?: string } = {},
 ): QuoteItem {
   const baseUom = item.uom || "Pcs";
   const base: QuoteItem = {
@@ -391,7 +391,7 @@ export function lineFromCatalog(
   };
   // Use the catalog's spelling of a known unit ("box" -> "Box"), so the line's
   // unit dropdown recognises it.
-  const asked = opts.uom?.trim();
+  const asked = opts.uom?.trim() || (opts.requestName ? readPackUnit(opts.requestName, item).uom : undefined);
   const to = asked && (item.units ?? []).find((u) => sameUom(u.uom, asked))?.uom || asked;
   const line = to && !sameUom(to, baseUom) ? changeLineUom(base, to, { baseUom, units: item.units ?? [] }) : base;
   return opts.rrp && opts.rrp > 0 ? { ...line, rrp: Math.round(opts.rrp) } : line;

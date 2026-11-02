@@ -56,6 +56,71 @@ export function cleanUnits(baseUom: string | undefined, units: UnitFactor[]): Un
   return out;
 }
 
+/* ---------------- unit written in a client's wording ---------------- */
+
+/** How a client writes a pack unit -> the spellings a catalog may use for it, best first. */
+const PACK_UNITS: Record<string, string[]> = {
+  lusin: ["Lusin", "LSN"],
+  lsn: ["Lusin", "LSN"],
+  gross: ["Gross", "GRS"],
+  grs: ["Gross", "GRS"],
+  box: ["Box", "KTK", "Kotak"],
+  kotak: ["KTK", "Kotak", "Box"],
+  ktk: ["KTK", "Kotak", "Box"],
+  dus: ["Dus", "DUS"],
+  karton: ["Karton", "CRT"],
+  crt: ["Karton", "CRT"],
+  pack: ["Pack", "Pak", "PAK"],
+  pak: ["Pack", "Pak", "PAK"],
+  rim: ["Rim", "RIM"],
+};
+
+/** Units whose absence from an item is worth a warning: a lusin is 12 and a gross 144, so a missing ratio changes the margin. */
+const WARN_IF_MISSING = new Set(["lusin", "lsn", "gross", "grs"]);
+
+/** Pack unit a client wrote in the line's name, with the count they gave when it is "isi N/unit". */
+function readPackText(name: string): { word: string; count?: number } | undefined {
+  const text = (name ?? "").toLowerCase();
+  const isi = /\bisi\s*(\d+)\s*(?:[a-z]+\s*)?\/\s*([a-z]+)\b/.exec(text); // isi 12/lusin, isi 10 kotak/box
+  if (isi && PACK_UNITS[isi[2]]) return { word: isi[2], count: Number(isi[1]) };
+  const at = /\b\d+\s*([a-z]+)\s*@\s*\d+/.exec(text); // 1 gross @12 pack, 1 box @6 pcs
+  if (at && PACK_UNITS[at[1]]) return { word: at[1] };
+  return undefined;
+}
+
+/** Pack unit a client wrote in the line's name: "(isi 12/Lusin)", "(1 Gross @12 Pack)", "( ISI 10 KOTAK/BOX )". */
+export const packUnitWord = (name: string): string | undefined => readPackText(name)?.word;
+
+/**
+ * The unit a client's wording asks for, in the item's own spelling, when the item has it.
+ * - `uom`: the item really has the unit (its base, or an extra unit with a ratio) and, for a
+ *   lusin written "isi 12/Lusin", the catalog's ratio agrees with the 12.
+ * - `unmatched`: a lusin/gross the item does not have, so the line can say so instead of
+ *   silently pricing a lusin against a per-piece cost.
+ * - `conflict`: the wording and the catalog disagree on how many are in a lusin. Nothing is
+ *   applied: one of the two is wrong and a person must look.
+ * The catalog's ratios come from Accurate and the edit form and change over time, so every
+ * use of this is shown on the row, never silent.
+ */
+export function readPackUnit(
+  name: string,
+  item: { uom?: string; units?: UnitFactor[] },
+): { uom?: string; unmatched?: string; conflict?: { word: string; text: number; catalog: number } } {
+  const read = readPackText(name);
+  if (!read) return {};
+  const base = item.uom || "Pcs";
+  for (const candidate of PACK_UNITS[read.word]) {
+    if (sameUom(candidate, base)) return { uom: base };
+    const extra = (item.units ?? []).find((u) => sameUom(u.uom, candidate) && u.factor > 0);
+    if (!extra) continue;
+    if ((read.word === "lusin" || read.word === "lsn") && read.count && extra.factor !== read.count) {
+      return { conflict: { word: read.word, text: read.count, catalog: extra.factor } };
+    }
+    return { uom: extra.uom };
+  }
+  return WARN_IF_MISSING.has(read.word) ? { unmatched: read.word } : {};
+}
+
 /** The unit this line's numbers are actually expressed in. */
 export const priceUnitOf = (line: QuoteItem) => line.priceUom ?? line.uom;
 

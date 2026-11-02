@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { amountInUnit, changeLineUom, cleanUnits, toBaseUnit, uomChoices, uomWarning, unitFactor, type ItemUnits } from "./uom.js";
+import { amountInUnit, changeLineUom, cleanUnits, toBaseUnit, uomChoices, uomWarning, unitFactor, type ItemUnits, packUnitWord, readPackUnit } from "./uom.js";
 import type { QuoteItem } from "./types.js";
 
 const line = (over: Partial<QuoteItem> = {}): QuoteItem => ({
@@ -159,3 +159,41 @@ describe("uomChoices", () => {
     expect(uomChoices(["Pcs"], undefined, "Karung")).toEqual(["Pcs", "Karung"]);
   });
 });
+
+describe("unit written in a client's wording (PO PT Primajaya)", () => {
+  const artline = { uom: "PCS", units: [{ uom: "CRT", factor: 576 }, { uom: "LSN", factor: 12 }] };
+  const binderGross = { uom: "LSN", units: [{ uom: "GRS", factor: 12 }] };
+  const glue = { uom: "PCS", units: [] };
+
+  it("finds the pack unit in the usual PO phrasings", () => {
+    expect(packUnitWord("Artline Highlighter EK-660 Hijau ( isi 12/Lusin )")).toBe("lusin");
+    expect(packUnitWord("Joyko Glue Stick GS-25 isi 25 gram ( isi 12/lusin)")).toBe("lusin");
+    expect(packUnitWord("Binder Clip Joyko No. 105 (1 Gross @12 Pack)")).toBe("gross");
+    expect(packUnitWord("Binder Clip Joyko No.300 (1 bOX @6 PCS)")).toBe("box");
+    expect(packUnitWord("Klip Trigonal Joyko No. 5 ( ISI 10 KOTAK/BOX )")).toBe("box");
+    // Nothing about a pack: nothing to read.
+    expect(packUnitWord("Pena Oval Joyko Gel 0,5 mm Biru")).toBeUndefined();
+    expect(packUnitWord("Kertas A4 70gr (Besar)")).toBeUndefined();
+    expect(packUnitWord("3 in 1 pelumas isi 100ml")).toBeUndefined();
+  });
+
+  it("returns the item's own spelling, only for a unit the item really has", () => {
+    expect(readPackUnit("Artline EK-660 Hijau (isi 12/Lusin)", artline)).toEqual({ uom: "LSN" });
+    expect(readPackUnit("Binder Clip No. 155 (1 Gross @12 Pack)", binderGross)).toEqual({ uom: "GRS" });
+    // The base unit counts: no conversion needed.
+    expect(readPackUnit("Binder Clip No.300 (1 box @6 PCS)", { uom: "KTK", units: [] })).toEqual({ uom: "KTK" });
+  });
+
+  it("a lusin whose count in the wording differs from the catalog's ratio is a conflict, not a conversion", () => {
+    expect(readPackUnit("Artline (isi 12/Lusin)", { uom: "PCS", units: [{ uom: "LSN", factor: 6 }] })).toEqual({ conflict: { word: "lusin", text: 12, catalog: 6 } });
+    // No count written: the catalog's ratio is taken as it is.
+    expect(readPackUnit("Pena (1 Lusin @12 Pcs)", { uom: "PCS", units: [{ uom: "LSN", factor: 12 }] })).toEqual({ uom: "LSN" });
+  });
+
+  it("says so when a lusin or gross is written but the item has no such unit", () => {
+    expect(readPackUnit("Joyko Glue Stick GS-25 (isi 12/lusin)", glue)).toEqual({ unmatched: "lusin" });
+    // A box that does not fit is not worth a warning (a box of 12 is a lusin).
+    expect(readPackUnit("Binder Clip No.260 (1 box @12 PCS)", { uom: "LSN", units: [] })).toEqual({});
+  });
+});
+
