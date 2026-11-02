@@ -19,6 +19,30 @@ export type GeminiResult =
   | { ok: true; text: string; finishReason?: string }
   | { ok: false; status: number; error: string };
 
+/** Google's own reason for a failed call, trimmed to one short line. The key never appears in it, but it is scrubbed anyway. */
+async function googleReason(res: Response): Promise<string> {
+  const text = await res.text().catch(() => "");
+  let message = text;
+  try {
+    const m = (JSON.parse(text) as { error?: { message?: unknown } }).error?.message;
+    message = typeof m === "string" ? m : ""; // valid JSON without a message: nothing worth showing
+  } catch {
+    // not JSON: use the text as it is
+  }
+  return message.replace(/AIza[\w-]{20,}/g, "[kunci]").replace(/\s+/g, " ").trim().slice(0, 200);
+}
+
+/** What a salesperson (or whoever looks after the server) can act on. Google answers 400, not 401, for a bad or expired key. */
+export function describeFailure(what: string, status: number, detail: string): string {
+  if (status === 400 && /API key (not valid|expired)|API_KEY_INVALID/i.test(detail))
+    return "Kunci Gemini ditolak atau sudah kedaluwarsa. Periksa GEMINI_API_KEY di server.";
+  if (status === 404) return "Model Gemini tidak ditemukan. Periksa GEMINI_MODEL di server.";
+  if (status >= 500) return `Layanan ${what} sedang bermasalah di sisi Google (${status}). Coba lagi nanti.`;
+  return detail
+    ? `Layanan ${what} menolak permintaan (${status}): ${detail}`
+    : `Layanan ${what} mengembalikan error ${status}.`;
+}
+
 /** @param body the request JSON, already serialised (OCR builds it by hand around a large base64 string) */
 export async function geminiGenerate(body: string, deps: GeminiDeps, what: string): Promise<GeminiResult> {
   const model = (deps.model || DEFAULT_GEMINI_MODEL).replace(/[^\w.-]/g, "");
@@ -38,7 +62,11 @@ export async function geminiGenerate(body: string, deps: GeminiDeps, what: strin
   }
   if (res.status === 429) return { ok: false, status: 429, error: `Layanan ${what} sedang kena batas pemakaian. Coba lagi sebentar lagi.` };
   if (res.status === 401 || res.status === 403) return { ok: false, status: 502, error: "Kunci Gemini ditolak. Periksa GEMINI_API_KEY di server." };
-  if (!res.ok) return { ok: false, status: 502, error: `Layanan ${what} mengembalikan error ${res.status}.` };
+  if (!res.ok) {
+    const detail = await googleReason(res);
+    console.error(`[gemini] ${what} ${res.status}: ${detail || "(tanpa pesan)"}`);
+    return { ok: false, status: 502, error: describeFailure(what, res.status, detail) };
+  }
   try {
     const payload = (await res.json()) as {
       candidates?: { finishReason?: string; content?: { parts?: { text?: string }[] } }[];

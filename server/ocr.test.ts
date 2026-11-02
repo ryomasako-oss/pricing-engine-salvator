@@ -70,6 +70,33 @@ describe("handleOcr", () => {
     expect((await run({}, 500)).status).toBe(502);
   });
 
+  it("tells why Gemini refused: expired key (Google says 400), missing model, Google down, or its own reason", async () => {
+    const err = (message: string) => ({ error: { code: 400, message, status: "INVALID_ARGUMENT" } });
+    const run = (body: unknown, status: number) => handleOcr("application/pdf", b64, { apiKey: "k", fetchFn: fakeFetch(body, status).fn });
+    const msg = async (body: unknown, status: number) => ((await run(body, status)).json as { error: string }).error;
+
+    expect(await msg(err("API key not valid. Please pass a valid API key."), 400)).toMatch(/Kunci Gemini ditolak atau sudah kedaluwarsa/);
+    expect(await msg(err("API key expired. Please renew the API key."), 400)).toMatch(/GEMINI_API_KEY/);
+    expect(await msg(err("models/foo is not found"), 404)).toMatch(/GEMINI_MODEL/);
+    expect(await msg({}, 503)).toMatch(/sisi Google \(503\)/);
+    // Any other 400: Google's reason is passed on, on one short line.
+    expect(await msg(err("Unable to process input image.\nPlease retry."), 400)).toBe("Layanan OCR menolak permintaan (400): Unable to process input image. Please retry.");
+    // No reason at all keeps the old wording.
+    expect(await msg({}, 400)).toBe("Layanan OCR mengembalikan error 400.");
+    // The status stays 502 for every one of them.
+    expect((await run(err("x"), 400)).status).toBe(502);
+  });
+
+  it("never shows a key that Google echoes back, and cuts a long reason", async () => {
+    const long = "A".repeat(400);
+    const key = "AIzaSyA1234567890abcdefghijklmnopqrstuv";
+    const r = await handleOcr("application/pdf", b64, { apiKey: "k", fetchFn: fakeFetch({ error: { message: `bad value ${key} ${long}` } }, 400).fn });
+    const text = (r.json as { error: string }).error;
+    expect(text).not.toContain(key);
+    expect(text).toContain("[kunci]");
+    expect(text.length).toBeLessThan(300);
+  });
+
   it("a slow Gemini becomes a 504 message, not a hung request", async () => {
     const never = (async (_u: string, init: RequestInit) =>
       new Promise((_, reject) => init.signal?.addEventListener("abort", () => reject(Object.assign(new Error("t"), { name: "TimeoutError" }))))) as unknown as typeof fetch;
