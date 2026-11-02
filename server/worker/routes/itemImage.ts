@@ -1,12 +1,14 @@
 /* /api/item-image — gambar barang di bucket R2 (binding IMAGES).
    GET  /:file  layani berkas <kode>.webp atau <kode>-thumb.webp; kalau hanya satu
                 ukuran yang ada, ukuran satunya dilayani dari situ.
+   POST /_check  untuk daftar kode: mana yang ada di katalog (kode resmi) dan sudah punya gambar.
    POST /:code  ganti gambar sebuah barang (multipart: `full` dan `thumb`, keduanya WebP).
    DELETE /:code hapus gambar sebuah barang.
    POST dan DELETE butuh izin edit_catalog (manajer dan admin); sales hanya bisa melihat. */
 
 import { Hono } from "hono";
-import { batch, get, stmt } from "../../db.d1";
+import { z } from "zod";
+import { all, batch, get, stmt } from "../../db.d1";
 import { audit } from "../audit";
 import { requireAuth, requirePermission } from "../auth";
 import { itemImageCode, itemImageUrl, itemOtherFile, itemThumbFile } from "../../../shared/itemImages";
@@ -41,8 +43,32 @@ const isWebp = (b: Uint8Array) =>
 /** Barang untuk kode dari URL, hanya bila kode sah sebagai nama berkas dan ada di katalog. */
 async function catalogItemFor(db: D1Database, code: string) {
   if (itemImageCode(`${code}.webp`) !== code) return null;
-  return get<{ id: number; code: string }>(db, "SELECT id, code FROM catalog_items WHERE code = ?", code);
+  // Katalog tidak membedakan huruf besar-kecil untuk kode (indeks NOCASE, migrasi 0025); kalau ada dua
+  // kode yang hanya beda huruf, yang persis sama menang.
+  return get<{ id: number; code: string }>(
+    db,
+    "SELECT id, code FROM catalog_items WHERE code = ? COLLATE NOCASE ORDER BY code = ? DESC LIMIT 1",
+    code,
+    code,
+  );
 }
+
+// "_" bukan awal kode yang sah, jadi jalur ini tidak pernah bentrok dengan POST /:code.
+itemImageRouter.post("/_check", requirePermission("edit_catalog"), async (c) => {
+  const parsed = z.object({ codes: z.array(z.string().max(100)).max(500) }).safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: "Daftar kode tidak valid (maksimum 500)." }, 400);
+  // Kolom code NOCASE: nama berkas "abc.webp" cocok dengan kode "ABC"; yang dikembalikan kode resminya.
+  const rows = await all<{ input: string; code: string; has_image: number }>(
+    c.env.DB,
+    `SELECT j.value AS input, ci.code AS code, EXISTS(SELECT 1 FROM item_images ii WHERE ii.code = ci.code) AS has_image
+       FROM json_each(?) j JOIN catalog_items ci ON ci.code = j.value COLLATE NOCASE`,
+    JSON.stringify(parsed.data.codes),
+  );
+  // Satu kode masukan bisa cocok dengan dua kode yang beda huruf saja; yang persis sama menang.
+  const best = new Map<string, (typeof rows)[number]>();
+  for (const r of rows) if (!best.has(r.input) || r.code === r.input) best.set(r.input, r);
+  return c.json({ items: [...best.values()].map((r) => ({ input: r.input, code: r.code, hasImage: !!r.has_image })) });
+});
 
 itemImageRouter.post("/:code", requirePermission("edit_catalog"), async (c) => {
   const item = await catalogItemFor(c.env.DB, c.req.param("code") ?? "");

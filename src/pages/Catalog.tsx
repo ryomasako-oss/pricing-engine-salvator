@@ -7,6 +7,7 @@ import { Modal } from "../components/Modal";
 import { ImportDialog } from "../components/ImportDialog";
 import { Thumb } from "../components/Thumb";
 import { ItemImageEditor } from "../components/ItemImageEditor";
+import { BulkImageUpload } from "../components/BulkImageUpload";
 import { AccuratePanel } from "../components/AccuratePanel";
 import { PendingItemsPanel } from "../components/PendingItemsPanel";
 import { fmtDateTime, grp } from "@shared/format";
@@ -43,7 +44,7 @@ export function CatalogPage() {
   const [sortBy, setSortBy] = useState<"name" | "stock" | "cogs" | "list_price">("name");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState<null | "inventory" | "master" | "full" | "fullMerge">(null);
+  const [modal, setModal] = useState<null | "inventory" | "master" | "full" | "fullMerge" | "images">(null);
   const [editing, setEditing] = useState<EditingItem | null>(null);
   const [uomOptions, setUomOptions] = useState<string[]>([]);
   const [addingUom, setAddingUom] = useState(false);
@@ -143,6 +144,11 @@ export function CatalogPage() {
             >
               <Icon name="download" size={15} /> Unduh template katalog
             </button>
+            {can("edit_catalog") && (
+              <button className="btn" onClick={() => setModal("images")}>
+                <Icon name="upload" size={15} /> Unggah gambar massal
+              </button>
+            )}
             <button className="btn" onClick={() => setModal("inventory")}>
               <Icon name="box" size={15} /> Impor inventory (COGS)
             </button>
@@ -367,6 +373,8 @@ export function CatalogPage() {
           </>
         )}
       </div>
+
+      {modal === "images" && <BulkImageUpload onClose={() => setModal(null)} onDone={load} />}
 
       {modal === "inventory" && (
         <ImportDialog
