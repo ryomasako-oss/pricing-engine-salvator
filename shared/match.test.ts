@@ -285,3 +285,48 @@ describe("PO klien: kemasan di kurung, nomor part, istilah Indonesia", () => {
     expect(r.candidates[0].id).toBe(101551);
   });
 });
+
+describe("lebar dalam inci dibaca juga sebagai milimeter", () => {
+  const TAPES = [
+    item(102324, "102324", 'NACHI ISOLASI HITAM (3/4") 19MM X 20 METER'),
+    item(101637, "101637", "NACHI CLOTH TAPE HITAM 72MM x 12M"),
+    item(100890, "100890", 'DAIMARU LAKBAN BENING 2"'),
+    item(101553, "101553", 'DAIMARU LAKBAN HITAM 2"'),
+    item(9001, "9001", "DAIMARU LAKBAN COKLAT 2 INCH"),
+    item(9002, "9002", 'DAIMARU LAKBAN BENING 3"'),
+  ];
+  const top = (name: string) => matchLines([{ name }], TAPES)[0];
+
+  it("tanda inci menghasilkan angka inci dan ukuran mm-nya sebagai pilihan; pecahan jadi satu token", () => {
+    expect(tokens('Lakban 3"')).toContain("3|72mm");
+    expect(tokens("Lakban 2 inch")).toContain("2|48mm");
+    expect(tokens('Isolasi (3/4") 19MM')).toEqual(expect.arrayContaining(["3/4|19mm", "19mm"]));
+    expect(tokens('Isolasi (3/4") 19MM')).not.toContain("3");
+    // Ukuran inci yang tidak lazim untuk lakban tetap angka biasa.
+    expect(tokens('Bracket TV 65"')).toContain("65");
+    // Kunci alias memakai normalizeText, yang tidak berubah.
+    expect(normalizeText('Lakban 3"')).toBe("lakban 3");
+  });
+
+  it('Nachi Lakban Hitam 3" menuju kain 72MM, bukan isolasi 3/4"', () => {
+    expect(top('Nachi Lakban Hitam 3"').candidates[0].id).toBe(101637);
+  });
+
+  it('pecahan 3/4" tidak ikut cocok dengan lebar 3"', () => {
+    expect(top('Nachi Isolasi Hitam 3/4"').candidates[0].id).toBe(102324);
+  });
+
+  it("inci, mm, dan tulisan inch saling menemukan", () => {
+    expect(top("Lakban Daimaru Bening 48mm").candidates[0].id).toBe(100890);
+    expect(top("Lakban Daimaru Bening 2 inch").candidates[0].id).toBe(100890);
+    expect(top('Lakban Daimaru Bening 3"').candidates[0].id).toBe(9002);
+  });
+
+  it('cara lama tetap jalan: 2" cocok dengan "2 INCH" di nama katalog dan lebar lain tidak tertukar', () => {
+    expect(top('Lakban Daimaru Coklat 2"').candidates[0].id).toBe(9001);
+    expect(top('Lakban Daimaru Hitam 2"')).toMatchObject({ status: "match" });
+    expect(top('Lakban Daimaru Hitam 2"').candidates[0].id).toBe(101553);
+    expect(top('Lakban Daimaru Bening 2"').candidates[0].id).toBe(100890);
+  });
+});
+
