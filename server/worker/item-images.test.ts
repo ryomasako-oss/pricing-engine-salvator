@@ -152,4 +152,24 @@ describe("gambar barang di storage sendiri", () => {
     });
     expect((await getItemImagesStatus(db)).lastError).toMatch(/R2 tidak bisa dibaca/);
   });
+
+  it("filter gambar: sudah ada, belum ada, dan nilai lain dianggap semua", async () => {
+    const list = async (query: string) => {
+      const body = await (await app.request(`/api/catalog?${query}`, {}, env)).json();
+      return { codes: body.items.map((i: { code: string }) => i.code).sort(), total: body.total };
+    };
+    expect(await list("image=with")).toEqual({ codes: ["ATK-1", "ATK-2"], total: 2 });
+    expect(await list("image=without")).toEqual({ codes: ["ATK-3"], total: 1 });
+    expect((await list("image=apa-saja")).total).toBe(3);
+    expect((await list("")).total).toBe(3);
+    // Digabung dengan pencarian.
+    expect(await list("image=with&q=Kertas")).toEqual({ codes: ["ATK-2"], total: 1 });
+    expect(await list("image=without&q=Kertas")).toEqual({ codes: [], total: 0 });
+  });
+
+  it("statistik katalog menghitung barang yang sudah bergambar", async () => {
+    await items(); // memperbarui daftar gambar dari bucket
+    const { stats } = await (await app.request("/api/catalog/stats", {}, env)).json();
+    expect(stats).toMatchObject({ total: 3, withImage: 2 });
+  });
 });

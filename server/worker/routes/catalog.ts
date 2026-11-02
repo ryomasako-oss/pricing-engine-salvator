@@ -98,6 +98,10 @@ catalogRouter.get("/", async (c) => {
     params.push(`%${q}%`, `%${q}%`);
   }
   if (withCogs) where.push("cogs > 0");
+  // Filter gambar: "with" = punya gambar, "without" = belum. Kode lain diabaikan (sama dengan "semua").
+  const imageFilter = c.req.query("image");
+  if (imageFilter === "with") where.push("code IN (SELECT code FROM item_images)");
+  if (imageFilter === "without") where.push("code NOT IN (SELECT code FROM item_images)");
   const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
   const sortColumns: Record<string, string> = {
@@ -298,11 +302,12 @@ catalogRouter.post("/uom", requirePermission("edit_catalog"), async (c) => {
 });
 
 catalogRouter.get("/stats", async (c) => {
-  const stats = await get<{ total: number; priced: number; withList: number; updated: string | null }>(
+  const stats = await get<{ total: number; priced: number; withList: number; withImage: number; updated: string | null }>(
     c.env.DB,
     `SELECT COUNT(*) AS total,
             SUM(CASE WHEN cogs > 0 THEN 1 ELSE 0 END) AS priced,
             SUM(CASE WHEN list_price > 0 THEN 1 ELSE 0 END) AS withList,
+            SUM(CASE WHEN code IN (SELECT code FROM item_images) THEN 1 ELSE 0 END) AS withImage,
             MAX(updated_at) AS updated
        FROM catalog_items`,
   );
