@@ -20,6 +20,14 @@ export interface ChatMessage {
   error?: boolean;
   lines?: RequestLine[];
   client?: string;
+  found?: ChatFound;
+}
+
+/** Catalog rows the server looked up for this answer (server/worker/chatSearch.ts); cogs only reaches managers. */
+export interface ChatFound {
+  kind: "catalog" | "cogs_problem";
+  total: number;
+  items: { code: string; name: string; uom: string; stock: number; cogs?: number; problem?: string }[];
 }
 
 interface ChatState {
@@ -81,14 +89,14 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       setBusy(true);
       try {
         const known = await loadClients();
-        const res = await api.post<{ reply: string; lines: RequestLine[]; client?: string }>("/chat", {
+        const res = await api.post<{ reply: string; lines: RequestLine[]; client?: string; found?: ChatFound }>("/chat", {
           messages: next
             .filter((m) => !m.error)
             .slice(-20)
             .map((m) => ({ role: m.role, content: m.text, ...(m.lines?.length ? { lines: m.lines.map(wire) } : {}) })),
           clients: known.map((c) => c.name).slice(0, 200),
         });
-        setMessages([...next, { id: uid(), role: "assistant", text: res.reply, lines: res.lines, client: res.client }]);
+        setMessages([...next, { id: uid(), role: "assistant", text: res.reply, lines: res.lines, client: res.client, found: res.found }]);
       } catch (e) {
         setMessages([...next, { id: uid(), role: "assistant", text: e instanceof Error ? e.message : "Chat gagal.", error: true }]);
       } finally {

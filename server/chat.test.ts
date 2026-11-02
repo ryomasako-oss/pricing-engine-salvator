@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { handleChat, pickClient } from "./chat.js";
+import { cogsFilterFrom, handleChat, pickClient } from "./chat.js";
 
 const reply = (obj: unknown) => ({ candidates: [{ content: { parts: [{ text: typeof obj === "string" ? obj : JSON.stringify(obj) }] } }] });
 function fakeFetch(body: unknown, status = 200) {
@@ -41,7 +41,7 @@ describe("handleChat", () => {
     const system = JSON.parse(f.calls[0].init.body as string).systemInstruction.parts[0].text as string;
     expect(system).toContain("usulan daftar untuk jenis klien");
     expect(system).toContain("tanpa qty dan tanpa satuan");
-    expect(system).toContain("Jangan pernah menyebut, menebak, atau membahas harga");
+    expect(system).toContain("Jangan pernah menyebut, menebak, atau membahas angka harga");
     // A suggested row has no qty, so it stays flagged for the rep to fill in.
     expect(r.json).toEqual({ reply: "Usulan umum untuk rumah sakit.", lines: [{ name: "Map rekam medis", qty: 1, noQty: true }] });
   });
@@ -102,5 +102,42 @@ describe("pickClient", () => {
     expect(pickClient("", list)).toBeUndefined();
     expect(pickClient(undefined, list)).toBeUndefined();
     expect(pickClient("Maju Jaya", list)).toBeUndefined();
+  });
+});
+
+describe("handleChat catalog search", () => {
+  const sys = (f: ReturnType<typeof fakeFetch>) => JSON.parse(f.calls[0].init.body as string).systemInstruction.parts[0].text as string;
+
+  it("tells the model whether this user may filter on COGS", async () => {
+    const rep = fakeFetch(reply({ reply: "ok", lines: [] }));
+    await handleChat({ messages: [user("cari")] }, { apiKey: "k", fetchFn: rep.fn });
+    expect(sys(rep)).toContain("tidak boleh melihat COGS");
+    const mgr = fakeFetch(reply({ reply: "ok", lines: [] }));
+    await handleChat({ messages: [user("cari")] }, { apiKey: "k", fetchFn: mgr.fn }, true);
+    expect(sys(mgr)).toContain("Pengguna ini manajer");
+  });
+
+  it("passes a well-formed search through, trimmed, and drops a malformed one", async () => {
+    const run = async (search: unknown, text = "cari") =>
+      (await handleChat({ messages: [user(text)] }, { apiKey: "k", fetchFn: fakeFetch(reply({ reply: "ok", lines: [], search })).fn }, true)).json;
+    expect(await run({ kind: "catalog", q: "  kertas ", outOfStock: true })).toEqual({ reply: "ok", lines: [], search: { kind: "catalog", q: "kertas", stockMax: 0 } });
+    // The COGS range comes from the user's words; a number the model puts in the search is ignored.
+    expect(await run({ kind: "catalog", cogsMax: 1, stockMax: 0 }, "barang cogs 20 ribu")).toEqual({ reply: "ok", lines: [], search: { kind: "catalog", cogsMin: 18000, cogsMax: 22000 } });
+    expect(await run({ kind: "catalog", q: "20000" }, "average cogs di 20 ribu")).toEqual({ reply: "ok", lines: [], search: { kind: "catalog", cogsMin: 18000, cogsMax: 22000 } });
+    expect(await run({ kind: "catalog", q: "A4" })).toEqual({ reply: "ok", lines: [], search: { kind: "catalog", q: "A4" } });
+    for (const bad of [{ kind: "sql" }, { kind: "catalog", q: "x".repeat(101) }, "catalog"]) expect(await run(bad)).toEqual({ reply: "ok", lines: [] });
+  });
+
+  it("reads the COGS filter from the user's words", () => {
+    expect(cogsFilterFrom("carikan barang dengan average cogs di 20 ribu")).toEqual({ cogsMin: 18000, cogsMax: 22000 });
+    expect(cogsFilterFrom("kertas yang cogs di bawah 30rb ada apa aja")).toEqual({ cogsMax: 30000 });
+    expect(cogsFilterFrom("pulpen yang cogs nya di atas 5000")).toEqual({ cogsMin: 5000 });
+    expect(cogsFilterFrom("hpp kurang dari 20.000")).toEqual({ cogsMax: 20000 });
+    expect(cogsFilterFrom("modal lebih dari 1,5 jt")).toEqual({ cogsMin: 1500000 });
+    expect(cogsFilterFrom("COGS sekitar 12k")).toEqual({ cogsMin: 10800, cogsMax: 13200 });
+    // No COGS word, or no amount after it: no filter (so "pulpen 10 lusin" never becomes one).
+    expect(cogsFilterFrom("pulpen 10 lusin, kertas A4 5 rim")).toEqual({});
+    expect(cogsFilterFrom("barang apa aja yang COGS-nya bermasalah?")).toEqual({});
+    expect(cogsFilterFrom("cek stok kertas A4")).toEqual({});
   });
 });
