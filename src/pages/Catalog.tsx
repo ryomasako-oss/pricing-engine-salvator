@@ -22,6 +22,7 @@ interface Stats {
   total: number;
   priced: number;
   withList: number;
+  withImage: number;
   updated: string | null;
 }
 
@@ -42,6 +43,7 @@ export function CatalogPage() {
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(0);
   const [sortBy, setSortBy] = useState<"name" | "stock" | "cogs" | "list_price">("name");
+  const [imageFilter, setImageFilter] = useState<"all" | "with" | "without">("all");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<null | "inventory" | "master" | "full" | "fullMerge" | "images">(null);
@@ -72,6 +74,7 @@ export function CatalogPage() {
       offset: String(page * PAGE),
       sortBy,
       sortDir,
+      ...(imageFilter === "all" ? {} : { image: imageFilter }),
     });
     api
       .get<{ items: CatalogItem[]; total: number; stockAsOf: string | null }>(`/catalog?${params}`)
@@ -83,7 +86,7 @@ export function CatalogPage() {
       .catch((e) => toast(e.message, "error"))
       .finally(() => setLoading(false));
     api.get<{ stats: Stats }>("/catalog/stats").then((r) => setStats(r.stats)).catch(() => undefined);
-  }, [query, page, sortBy, sortDir, toast]);
+  }, [query, page, sortBy, sortDir, imageFilter, toast]);
 
   const openEditing = (item: EditingItem) => {
     setAddingUom(false);
@@ -181,6 +184,11 @@ export function CatalogPage() {
             <div className="value num">{grp(stats.total)}</div>
           </div>
           <div className="kpi">
+            <div className="label">Sudah bergambar</div>
+            <div className="value num">{grp(stats.withImage)}</div>
+            <div className="foot">dari {grp(stats.total)} item</div>
+          </div>
+          <div className="kpi">
             <div className="label">Punya harga pokok</div>
             <div className="value num">{grp(stats.priced)}</div>
             <div className="foot">
@@ -227,6 +235,20 @@ export function CatalogPage() {
             }}
             aria-label="Cari katalog"
           />
+          <select
+            className="select"
+            style={{ maxWidth: 190 }}
+            value={imageFilter}
+            onChange={(e) => {
+              setImageFilter(e.target.value as "all" | "with" | "without");
+              setPage(0);
+            }}
+            aria-label="Filter gambar"
+          >
+            <option value="all">Gambar: semua</option>
+            <option value="with">Sudah ada gambar</option>
+            <option value="without">Belum ada gambar</option>
+          </select>
           <span className="muted small">
             {grp(total)} item cocok{stockAsOf && ` · stok Accurate per ${fmtDateTime(stockAsOf)}`}
           </span>
