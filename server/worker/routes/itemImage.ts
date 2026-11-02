@@ -16,6 +16,8 @@ import type { Env } from "../env";
 
 export const MAX_FULL_BYTES = 1_500_000;
 export const MAX_THUMB_BYTES = 200_000;
+/** Lama browser memakai gambar tanpa bertanya ulang. */
+export const CACHE_SECONDS = 300;
 
 export const itemImageRouter = new Hono<Env>();
 itemImageRouter.use(requireAuth);
@@ -25,10 +27,11 @@ itemImageRouter.get("/:file", async (c) => {
   if (!itemImageCode(file)) return c.json({ error: "Gambar tidak ditemukan." }, 404);
   const object = (await c.env.IMAGES?.get(file)) ?? (await c.env.IMAGES?.get(itemOtherFile(file)));
   if (!object) return c.json({ error: "Gambar tidak ditemukan." }, 404);
-  // Nama berkas = kode barang, jadi gambar bisa diganti tanpa ganti nama. Browser wajib
-  // bertanya ulang (ETag) supaya gambar pengganti langsung terlihat.
+  // Nama berkas = kode barang, jadi gambar bisa diganti tanpa ganti nama. Browser memakai
+  // salinannya CACHE_SECONDS detik tanpa bertanya (hemat panggilan Worker dan R2), lalu bertanya
+  // ulang dengan ETag; gambar pengganti paling lambat terlihat setelah itu.
   const etag = object.httpEtag;
-  const headers: Record<string, string> = { "Content-Type": "image/webp", "Cache-Control": "private, no-cache" };
+  const headers: Record<string, string> = { "Content-Type": "image/webp", "Cache-Control": `private, max-age=${CACHE_SECONDS}` };
   if (etag) headers.ETag = etag;
   if (etag && c.req.header("If-None-Match") === etag) {
     object.body?.cancel?.();
