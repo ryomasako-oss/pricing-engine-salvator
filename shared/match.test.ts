@@ -330,3 +330,35 @@ describe("lebar dalam inci dibaca juga sebagai milimeter", () => {
   });
 });
 
+describe("lineFromCatalog reads the unit from the client's wording", () => {
+  const artline = item(80801321, "80801321", "ARTLINE EK-660 HIGHLIGHTER GREEN", { cogs: 3750, list_price: 6000, units: [{ uom: "CRT", factor: 576 }, { uom: "LSN", factor: 12 }] });
+  const binder = item(100381, "100381", "JOYKO BINDER CLIP NO.155", { uom: "LSN", cogs: 5105.42, list_price: 6000, units: [{ uom: "GRS", factor: 12 }] });
+  const glue = item(101885, "101885", "JOYKO GLUE STICK GS-25 GR", { cogs: 5000, list_price: 6000, units: [] });
+  const pen = item(100850, "100850", "JOYKO PULPEN GEL GP-189 OVAL GEL 0.5mm BLUE", { cogs: 2200, list_price: 3000, units: [{ uom: "LSN", factor: 12 }] });
+
+  it("a per-lusin price is set against the cost per lusin, not per piece", () => {
+    const line = lineFromCatalog(artline, 173, { rrp: 70680, requestName: "Artline Highlighter EK-660 Hijau ( isi 12/Lusin )" });
+    expect(line).toMatchObject({ uom: "LSN", qty: 173, cogs: 45000, rrp: 70680 });
+  });
+
+  it("a per-gross price against the cost per gross", () => {
+    const line = lineFromCatalog(binder, 30, { rrp: 70034, requestName: "Binder Clip Joyko No.155 (1 Gross @12 Pack)" });
+    // The base cost is rounded to whole rupiah first (5105.42 -> 5105), as before.
+    expect(line).toMatchObject({ uom: "GRS", cogs: 61260, rrp: 70034 });
+  });
+
+  it("an explicit unit from the list wins over the wording", () => {
+    expect(lineFromCatalog(artline, 5, { uom: "Pcs", requestName: "Artline (isi 12/Lusin)" })).toMatchObject({ uom: "Pcs", cogs: 3750 });
+  });
+
+  it("the wording and the catalog disagree on the count: nothing is converted", () => {
+    const wrong = item(1, "X1", "ARTLINE X", { cogs: 3750, units: [{ uom: "LSN", factor: 6 }] });
+    expect(lineFromCatalog(wrong, 10, { rrp: 70680, requestName: "Artline X (isi 12/Lusin)" })).toMatchObject({ uom: "Pcs", cogs: 3750 });
+  });
+
+  it("nothing written about a pack, or a unit the item lacks, changes nothing", () => {
+    expect(lineFromCatalog(pen, 75, { rrp: 26600, requestName: "Pena Oval Joyko Gel 0,5 mm Biru" })).toMatchObject({ uom: "Pcs", cogs: 2200 });
+    expect(lineFromCatalog(glue, 62, { rrp: 53078, requestName: "Joyko Glue Stick GS-25 isi 25 gram ( isi 12/lusin)" })).toMatchObject({ uom: "Pcs", cogs: 5000 });
+  });
+});
+

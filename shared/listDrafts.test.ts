@@ -18,10 +18,10 @@ describe("choicesFromRows: what a draft keeps", () => {
       [-4, item(-4, "BARU-0004", { source: "pending", cogs: 0, list_price: 1500, name: "Map biru" })],
     ]);
     const rows: EditorRow[] = [
-      { request: lines[0], result: result(0, "match", [1]), chosen: 1, confirmed: true, extra: [] },
-      { request: lines[1], result: result(1, "review", [2]), chosen: 9, confirmed: true, extra: [9] },
-      { request: lines[2], result: result(2, "none", []), chosen: null, confirmed: true, extra: [] },
-      { request: lines[3], result: result(3, "none", []), chosen: -4, confirmed: true, extra: [-4] },
+      { request: lines[0], result: result(0, "match", [1]), chosen: 1, confirmed: true, unitOk: false, extra: [] },
+      { request: lines[1], result: result(1, "review", [2]), chosen: 9, confirmed: true, unitOk: false, extra: [9] },
+      { request: lines[2], result: result(2, "none", []), chosen: null, confirmed: true, unitOk: false, extra: [] },
+      { request: lines[3], result: result(3, "none", []), chosen: -4, confirmed: true, unitOk: false, extra: [-4] },
     ];
     const choices = choicesFromRows(rows, items);
     expect(choices).toEqual([

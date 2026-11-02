@@ -62,6 +62,8 @@ export interface EditorRow {
   result: MatchResult;
   chosen: number | null;
   confirmed: boolean;
+  /** A unit read from the client's wording was looked at. Not saved in a draft: a reopened draft asks again, since the catalog may have changed. */
+  unitOk: boolean;
   extra: number[];
 }
 
@@ -119,6 +121,7 @@ export function restoreRows(
       result,
       chosen: result.status === "none" ? null : result.candidates[0]?.id ?? null,
       confirmed: result.status === "exact" || result.status === "match",
+      unitOk: false,
       extra: [],
     };
     const saved = choices[result.index];

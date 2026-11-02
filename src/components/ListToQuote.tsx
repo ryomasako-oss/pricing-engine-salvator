@@ -22,7 +22,7 @@ import { grp } from "@shared/format";
 import { lineFromCatalog, type MatchResult, type RequestLine } from "@shared/match";
 import { choicesFromRows, codesToFetch, restoreRows, type Draft } from "@shared/listDrafts";
 import type { CatalogItem, Client, QuoteItem } from "@shared/types";
-import { uomWarning } from "@shared/uom";
+import { packUnitNeedsCheck, readPackUnit, sameUom, uomWarning } from "@shared/uom";
 import { Icon } from "./Icon";
 import { ClientQuickAdd } from "./ClientQuickAdd";
 import { Modal } from "./Modal";
@@ -62,6 +62,8 @@ interface Row {
   chosen: number | null;
   /** The rep accepted or changed the pairing (required for "review" rows). */
   confirmed: boolean;
+  /** The rep looked at a unit read from the wording (see packUnitNeedsCheck). Reset when the item changes. */
+  unitOk: boolean;
   /** Extra items found by a manual search for this row. */
   extra: number[];
 }
@@ -143,6 +145,7 @@ export function ListToQuote({
         result,
         chosen: result.status === "none" ? null : result.candidates[0]?.id ?? null,
         confirmed: result.status === "exact" || result.status === "match",
+        unitOk: false,
         extra: [],
       })),
     );
@@ -273,7 +276,13 @@ export function ListToQuote({
     return rows.map((r) => {
       const item = r.chosen != null ? items.get(r.chosen) : undefined;
       if (!item) return null;
-      const line = lineFromCatalog(item, r.request.qty ?? 1, { uom: r.request.uom, rrp: r.request.rrp });
+      // A PO without a unit column still says "(isi 12/Lusin)" in the name: read it, so the ceiling
+      // (per lusin) is set against the cost per lusin, not per piece. "Tanpa qty" rows stay in the base unit.
+      const line = lineFromCatalog(item, r.request.qty ?? 1, {
+        uom: r.request.uom,
+        rrp: r.request.rrp,
+        requestName: r.request.noQty ? undefined : r.request.name,
+      });
       // "Barang baru" is not in the catalog yet, so its line waits for Accurate
       // (shared/pendingItems.ts). The server holds it on every read as well.
       if (item.source === "pending") return { ...line, held: true, holdReason: "new_item" as const };
@@ -309,7 +318,14 @@ export function ListToQuote({
   }, [previewKey, seeCosts]);
 
   const blockedOf = (r: Row) => (r.chosen != null ? items.get(r.chosen)?.cogs_problem ?? null : null);
-  const pending = rows?.filter((r) => r.chosen != null && !r.confirmed).length ?? 0;
+  // A unit read from the client's wording ("isi 12/Lusin") changes the cost of the line by 12x or more,
+  // and the catalog's ratios change over time: the rep confirms it once per row, whatever the matcher thought.
+  const unitCheck = (r: Row) => {
+    const item = r.chosen != null ? items.get(r.chosen) : undefined;
+    return !!item && !r.request.uom && !r.request.noQty && packUnitNeedsCheck(r.request.name, item);
+  };
+  const settled = (r: Row) => r.confirmed && (!unitCheck(r) || r.unitOk);
+  const pending = rows?.filter((r) => r.chosen != null && !settled(r)).length ?? 0;
   const isPending = (r: Row) => (r.chosen != null ? items.get(r.chosen)?.source === "pending" : false);
   const heldCount = rows?.filter((r) => blockedOf(r) || isPending(r)).length ?? 0;
   const used = lines.filter(Boolean).length;
@@ -387,7 +403,7 @@ export function ListToQuote({
   const rowState = (row: Row): RowState => ({
     status: row.result.status,
     chosen: row.chosen != null,
-    confirmed: row.confirmed,
+    confirmed: settled(row),
     pending: isPending(row),
     held: !!blockedOf(row),
   });
@@ -542,7 +558,7 @@ export function ListToQuote({
                 setItems((m) => new Map(m).set(item.id, item));
                 // Into `extra` as well, or the dropdown has no option for it and shows
                 // "— tidak dipakai —" over a row that does have an item.
-                update(at, { chosen: item.id, confirmed: true, extra: [...rows[at].extra, item.id] });
+                update(at, { chosen: item.id, confirmed: true, unitOk: false, extra: [...rows[at].extra, item.id] });
                 setNewItemRow(null);
                 toast(`"${item.name}" diminta ke Accurate. Barisnya ditahan sampai barangnya dibuat.`);
               }}
@@ -569,6 +585,9 @@ export function ListToQuote({
                   const options = [...row.result.candidates.map((c) => c.id), ...row.extra.filter((id) => !row.result.candidates.some((c) => c.id === id))];
                   const scoreOf = new Map(row.result.candidates.map((c) => [c.id, c.score]));
                   const warn = line ? uomWarning(line) : null;
+                  const chosenItem = row.chosen != null ? items.get(row.chosen) : undefined;
+                  const pack = chosenItem && !row.request.uom && !row.request.noQty ? readPackUnit(row.request.name, chosenItem) : {};
+                  const readUnit = pack.uom && chosenItem && !sameUom(pack.uom, chosenItem.uom || "Pcs") ? pack.uom : null;
                   return (
                     <tr key={i} style={row.chosen == null ? { opacity: 0.6 } : undefined}>
                       <td className="l muted">{i + 1}</td>
@@ -579,6 +598,17 @@ export function ListToQuote({
                             .filter(Boolean)
                             .join(" · ") || "—"}
                         </div>
+                        {readUnit && <div className="muted small">Satuan dibaca dari teks: {readUnit}. COGS dihitung per {readUnit}.</div>}
+                        {pack.conflict && chosenItem && (
+                          <div className="small" style={{ color: "var(--warn)" }}>
+                            ⚠ Teks menyebut isi {pack.conflict.text} per {pack.conflict.word}, katalog mencatat 1 {pack.conflict.word} = {pack.conflict.catalog}. Satuan tidak diubah: COGS dihitung per {chosenItem.uom || "Pcs"}. Periksa satuan dan rasio.
+                          </div>
+                        )}
+                        {pack.unmatched && chosenItem && (
+                          <div className="small" style={{ color: "var(--warn)" }}>
+                            ⚠ Teks menyebut {pack.unmatched}, tapi barang ini tidak punya satuan itu: COGS dihitung per {chosenItem.uom || "Pcs"}. Periksa satuan.
+                          </div>
+                        )}
                       </td>
                       <td className="num">{grp(row.request.qty ?? 1)}</td>
                       <td className="l" style={{ minWidth: 320 }}>
@@ -588,7 +618,7 @@ export function ListToQuote({
                             aria-label={`Item katalog untuk ${row.request.name}`}
                             value={row.chosen ?? ""}
                             onChange={(e) =>
-                              update(i, { chosen: e.target.value === "" ? null : Number(e.target.value), confirmed: true })
+                              update(i, { chosen: e.target.value === "" ? null : Number(e.target.value), confirmed: true, unitOk: false })
                             }
                           >
                             <option value="">— tidak dipakai —</option>
@@ -627,7 +657,7 @@ export function ListToQuote({
                             seeCosts={seeCosts}
                             onPick={(it) => {
                               setItems((m) => new Map(m).set(it.id, it));
-                              update(i, { chosen: it.id, confirmed: true, extra: [...row.extra, it.id] });
+                              update(i, { chosen: it.id, confirmed: true, unitOk: false, extra: [...row.extra, it.id] });
                               setSearchRow(null);
                             }}
                           />
@@ -646,7 +676,7 @@ export function ListToQuote({
                         {badge.kind === "confirm" ? (
                           <button
                             className="btn small"
-                            onClick={() => update(i, { confirmed: true })}
+                            onClick={() => update(i, { confirmed: true, unitOk: true })}
                             aria-label={`Benar, pakai saran untuk ${row.request.name}`}
                           >
                             <Icon name="check" size={13} /> Benar
