@@ -27,6 +27,7 @@ export function Icon({ name, size = 18 }: { name: string; size?: number }) {
     case "gear": return <svg {...p}><circle cx="12" cy="12" r="3.2" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1" /></svg>;
     case "download": return <svg {...p}><path d="M12 3v12M7 11l5 5 5-5M4 20h16" /></svg>;
     case "upload": return <svg {...p}><path d="M12 20V8M7 12l5-5 5 5M4 4h16" /></svg>;
+    case "image": return <svg {...p}><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="8.5" cy="9" r="1.5" /><path d="M21 16l-5-5L5 20" /></svg>;
     case "search": return <svg {...p}><circle cx="11" cy="11" r="6.5" /><path d="M16 16l4 4" /></svg>;
     case "back": return <svg {...p}><path d="M15 5l-7 7 7 7" /></svg>;
     case "trash": return <svg {...p}><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6" /></svg>;

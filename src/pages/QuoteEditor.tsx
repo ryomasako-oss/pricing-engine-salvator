@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, ApiError } from "../api";
+import { inlinePhotos, useCatalogImages, withPhotos } from "../catalogImages";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { useUnsavedGuard } from "../context/UnsavedGuardContext";
@@ -223,12 +224,14 @@ export function QuoteEditorPage() {
     });
   }, []);
 
+  // Lines carry their catalog photo for display only; `snapshot` (what is saved) never does.
+  const photos = useCatalogImages(lineCodes ? lineCodes.split("\n") : []);
   const engine = useMemo(
     () =>
       snapshot
-        ? computeEngine(snapshot.assumptions, snapshot.items, snapshot.regions)
+        ? computeEngine(snapshot.assumptions, withPhotos(snapshot.items, photos), snapshot.regions)
         : null,
-    [snapshot],
+    [snapshot, photos],
   );
 
   const breaches = useMemo(
@@ -976,7 +979,7 @@ export function QuoteEditorPage() {
                 if (!company) return;
                 const { downloadQuotationPdf } = await import("../export/pdf");
                 downloadQuotationPdf({
-                  ...exportInput, company, clientAddress: clientRecord?.address,
+                  ...exportInput, engine: await inlinePhotos(engine), company, clientAddress: clientRecord?.address,
                   draft: quote.status !== "approved" && quote.status !== "sent" && quote.status !== "won" && quote.status !== "completed",
                 });
                 setModal(null);
@@ -992,7 +995,7 @@ export function QuoteEditorPage() {
               className="list-row"
               onClick={async () => {
                 const { downloadQuoteWorkbook } = await import("../export/xlsx");
-                downloadQuoteWorkbook(exportInput);
+                await downloadQuoteWorkbook({ ...exportInput, engine: await inlinePhotos(engine) });
                 setModal(null);
               }}
             >

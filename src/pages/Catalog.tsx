@@ -7,7 +7,9 @@ import { Modal } from "../components/Modal";
 import { ImportDialog } from "../components/ImportDialog";
 import { AccuratePanel } from "../components/AccuratePanel";
 import { PendingItemsPanel } from "../components/PendingItemsPanel";
+import { PhotoCell } from "../components/PhotoCell";
 import { fmtDateTime, grp } from "@shared/format";
+import { catalogImageUrl } from "@shared/images";
 import type { CatalogItem, UnitFactor } from "@shared/types";
 import { cleanUnits, sameUom } from "@shared/uom";
 
@@ -51,6 +53,14 @@ export function CatalogPage() {
   const PAGE = 50;
 
   /** Manager confirms a COGS that moved >50% from its reference is real (shared/cogsCheck.ts). */
+  // Quotes show this photo for every line with the item's code.
+  const setPhoto = async (item: CatalogItem, image: string | undefined) => {
+    const query = `/catalog/image?code=${encodeURIComponent(item.code)}`;
+    const image_v = image ? (await api.put<{ image_v: number }>(query, { image })).image_v : undefined;
+    if (!image) await api.del(query);
+    setItems((xs) => xs.map((x) => (x.id === item.id ? { ...x, image_v } : x)));
+  };
+
   const verifyCogs = async (id: number) => {
     try {
       await api.post(`/catalog/${id}/verify-cogs`);
@@ -241,6 +251,7 @@ export function CatalogPage() {
               <table className="table">
                 <thead>
                   <tr>
+                    <th>Foto</th>
                     <th className="l">Kode</th>
                     <th className="l">Nama barang</th>
                     <th className="l">Kategori</th>
@@ -284,6 +295,14 @@ export function CatalogPage() {
                 <tbody>
                   {items.map((item) => (
                     <tr key={item.id} className={(seeCosts ? item.cogs > 0 : !item.cogs_problem) ? "" : "flagged"}>
+                      <td>
+                        <PhotoCell
+                          image={item.image_v ? catalogImageUrl(item.code, item.image_v) : undefined}
+                          name={item.name}
+                          readOnly={!can("edit_catalog")}
+                          onChange={(image) => setPhoto(item, image)}
+                        />
+                      </td>
                       <td className="l muted num">{item.code}</td>
                       <td className="l">
                         {item.name}

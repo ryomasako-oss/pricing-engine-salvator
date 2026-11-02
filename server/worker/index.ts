@@ -52,7 +52,8 @@ app.use(loadUser);
 // AUTH_LIMITER/ASSISTANT_LIMITER stay stricter for their own endpoints;
 // this just stops any one client from hammering D1 unchecked elsewhere.
 app.use("/api/*", async (c, next) => {
-  const { success } = await c.env.API_LIMITER.limit({ key: clientIp(c) });
+  const limiter = c.req.method === "GET" && c.req.path === "/api/catalog/image" ? c.env.IMAGE_LIMITER : c.env.API_LIMITER;
+  const { success } = await limiter.limit({ key: clientIp(c) });
   if (!success) return c.json({ error: "Terlalu banyak permintaan. Coba lagi sebentar." }, 429);
   await next();
 });

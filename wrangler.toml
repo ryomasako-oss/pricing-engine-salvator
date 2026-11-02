@@ -83,3 +83,11 @@ simple = { limit = 20, period = 60 }
 name = "API_LIMITER"
 namespace_id = "1003"
 simple = { limit = 600, period = 60 }
+
+# Catalog photos have their own, larger budget: a quote of 200 coded lines loads
+# 200 of them at once, and a whole office shares one IP. Each is a cached,
+# one-row read, so they must not use up the API_LIMITER budget for everything else.
+[[ratelimits]]
+name = "IMAGE_LIMITER"
+namespace_id = "1004"
+simple = { limit = 3000, period = 60 }

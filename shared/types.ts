@@ -62,6 +62,11 @@ export interface QuoteItem {
   /** Client ceiling price per unit — the quote may never exceed it. */
   rrp: number;
   role: ItemRole;
+  /**
+   * The catalog photo for this line's code (a URL, or a data URL for PDF and
+   * Excel). Display only: filled in by the browser, never saved with the quote.
+   */
+  image?: string;
   /** True when COGS was estimated rather than sourced from inventory. */
   estCogs?: boolean;
   /**
@@ -300,6 +305,8 @@ export interface CatalogItem {
   units?: UnitFactor[];
   /** Why this item must not be sold right now, or null. Set by the API. */
   cogs_problem?: string | null;
+  /** Version of the item's photo (see catalogImageUrl), absent when it has none. Set by the API. */
+  image_v?: number;
 }
 
 export interface UnitFactor {

@@ -30,6 +30,7 @@ import { catalogEntity } from "../accurate/sync";
 import { canSeeCosts, catalogItemsForViewer, problemsForViewer } from "../../staffView";
 import { cleanUnits, type ItemUnits } from "../../../shared/uom";
 import { chunks } from "../../sqlParams";
+import { IMAGE_DATA_URL, MAX_ITEM_IMAGE_CHARS } from "../../../shared/images";
 import type { CatalogItem, UnitFactor } from "../../../shared/types";
 import type { Env } from "../env";
 
@@ -52,6 +53,20 @@ async function unitsByCode(db: D1Database, codes: string[]): Promise<Map<string,
       if (!map.has(r.code)) map.set(r.code, []);
       map.get(r.code)!.push({ uom: r.uom, factor: r.factor });
     }
+  }
+  return map;
+}
+
+/** Photo version per code, for the given codes that have a photo. */
+async function imageVersions(db: D1Database, codes: string[]): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  for (const chunk of chunks(codes, CHUNK)) {
+    const rows = await all<{ code: string; v: number }>(
+      db,
+      `SELECT code, v FROM catalog_images WHERE code IN (${chunk.map(() => "?").join(",")})`,
+      ...chunk,
+    );
+    for (const r of rows) map.set(r.code.toUpperCase(), r.v);
   }
   return map;
 }
@@ -104,7 +119,8 @@ catalogRouter.get("/", async (c) => {
   );
   const codes = items.map((i) => i.code);
   const units = await unitsByCode(c.env.DB, codes);
-  const withUnits = items.map((i) => ({ ...i, units: units.get(i.code) ?? [] }));
+  const images = await imageVersions(c.env.DB, codes);
+  const withUnits = items.map((i) => ({ ...i, units: units.get(i.code) ?? [], image_v: images.get(i.code.toUpperCase()) }));
   const role = c.get("user")!.role;
   const stockAsOf = await get<{ value: string }>(c.env.DB, "SELECT value FROM settings WHERE key = ?", STOCK_AS_OF_KEY);
   return c.json({
@@ -112,6 +128,70 @@ catalogRouter.get("/", async (c) => {
     total: total?.n ?? 0,
     stockAsOf: stockAsOf?.value ?? null,
   });
+});
+
+/** Which of these codes have a photo: code -> version, for quote lines. */
+catalogRouter.post("/images", async (c) => {
+  const parsed = z
+    .object({ codes: z.array(z.string().trim().min(1).max(64)).max(2000) })
+    .safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
+  const codes = [...new Set(parsed.data.codes)];
+  const found = await imageVersions(c.env.DB, codes);
+  const images: Record<string, number> = {};
+  for (const code of codes) {
+    const v = found.get(code.toUpperCase());
+    if (v != null) images[code] = v;
+  }
+  return c.json({ images });
+});
+
+/** The photo itself. The URL carries ?v=, so the browser may keep it forever. */
+catalogRouter.get("/image", async (c) => {
+  const row = await get<{ image: string }>(c.env.DB, "SELECT image FROM catalog_images WHERE code = ?", c.req.query("code") ?? "");
+  if (!row) return c.json({ error: "Foto tidak ditemukan." }, 404);
+  const [head, data] = row.image.split(",", 2);
+  const bytes = Uint8Array.from(atob(data), (ch) => ch.charCodeAt(0));
+  return c.body(bytes, 200, {
+    "content-type": head.slice(5, head.indexOf(";")),
+    "cache-control": "private, max-age=31536000, immutable",
+  });
+});
+
+catalogRouter.put("/image", requirePermission("edit_catalog"), async (c) => {
+  const user = c.get("user")!;
+  const parsed = z
+    .object({
+      image: z
+        .string()
+        .max(MAX_ITEM_IMAGE_CHARS, "Foto terlalu besar. Pilih foto lain atau kompres dulu.")
+        .regex(IMAGE_DATA_URL, "Format foto harus PNG, JPEG, atau WEBP."),
+    })
+    .safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
+  const item = await get<{ id: number; code: string }>(
+    c.env.DB, "SELECT id, code FROM catalog_items WHERE code = ? COLLATE NOCASE", c.req.query("code") ?? "",
+  );
+  if (!item) return c.json({ error: "Barang tidak ada di katalog." }, 404);
+  const v = Date.now();
+  await run(
+    c.env.DB,
+    `INSERT INTO catalog_images(code, image, v, updated_by) VALUES(?, ?, ?, ?)
+     ON CONFLICT(code) DO UPDATE SET image = excluded.image, v = excluded.v,
+       updated_by = excluded.updated_by, updated_at = datetime('now')`,
+    item.code, parsed.data.image, v, user.id,
+  );
+  await audit(c.env.DB, user.id, "catalog", item.id, "image_set", { code: item.code });
+  return c.json({ code: item.code, image_v: v });
+});
+
+catalogRouter.delete("/image", requirePermission("edit_catalog"), async (c) => {
+  const user = c.get("user")!;
+  const code = c.req.query("code") ?? "";
+  const item = await get<{ id: number }>(c.env.DB, "SELECT id FROM catalog_items WHERE code = ? COLLATE NOCASE", code);
+  await run(c.env.DB, "DELETE FROM catalog_images WHERE code = ?", code);
+  await audit(c.env.DB, user.id, "catalog", item?.id ?? 0, "image_removed", { code });
+  return c.json({ ok: true });
 });
 
 /**
