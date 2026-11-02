@@ -5,7 +5,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { Hono } from "hono";
 import { D1DatabaseShim } from "../../scripts/d1-sqlite-shim.js";
-import { itemImageRouter, MAX_FULL_BYTES, MAX_THUMB_BYTES } from "./routes/itemImage";
+import { CACHE_SECONDS, itemImageRouter, MAX_FULL_BYTES, MAX_THUMB_BYTES } from "./routes/itemImage";
 
 /** R2 palsu dengan put/get/delete dan ETag. */
 function fakeR2() {
@@ -104,10 +104,11 @@ describe("upload gambar barang dari aplikasi", () => {
     expect(sqlite.prepare("SELECT code FROM item_images").all()).toEqual([]);
   });
 
-  it("gambar pengganti langsung terlihat: ETag dan no-cache, 304 bila belum berubah", async () => {
+  it("gambar boleh disimpan browser 5 menit, lalu ETag: 304 bila belum berubah, 200 bila diganti", async () => {
     await post("ATK-1", form(webp("lama"), webp("lama")));
     const first = await app.request("/api/item-image/ATK-1.webp", {}, env);
-    expect(first.headers.get("cache-control")).toBe("private, no-cache");
+    expect(CACHE_SECONDS).toBe(300);
+    expect(first.headers.get("cache-control")).toBe("private, max-age=300");
     const etag = first.headers.get("etag");
     const same = await app.request("/api/item-image/ATK-1.webp", { headers: { "If-None-Match": etag } }, env);
     expect(same.status).toBe(304);
