@@ -57,3 +57,10 @@ GOOGLE_SEND_AS_EMAIL=
 TWILIO_ACCOUNT_SID=
 TWILIO_AUTH_TOKEN=
 TWILIO_WHATSAPP_FROM=
+
+# Product images live in this folder, one file per catalog code:
+#   <kode>.webp and/or <kode>-thumb.webp
+# Leave it missing and the catalog simply shows no images. Copy images in with
+# `npm run import:images -- <folder>`. On Workers the images live in the
+# pricing-images R2 bucket instead (binding IMAGES in wrangler.toml).
+IMAGES_DIR=./data/images

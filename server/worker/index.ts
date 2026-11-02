@@ -10,6 +10,7 @@ import { loadUser } from "./auth";
 import { authRouter } from "./routes/auth";
 import { clientsRouter } from "./routes/clients";
 import { catalogRouter } from "./routes/catalog";
+import { itemImageRouter } from "./routes/itemImage";
 import { quotesRouter } from "./routes/quotes";
 import { approvalsRouter } from "./routes/approvals";
 import { assistantRouter, assistantEnabled } from "./routes/assistant";
@@ -62,6 +63,7 @@ app.get("/api/health", (c) => c.json({ ok: true, ai: assistantEnabled(c.env), ve
 app.route("/api/auth", authRouter);
 app.route("/api/clients", clientsRouter);
 app.route("/api/catalog", catalogRouter);
+app.route("/api/item-image", itemImageRouter);
 app.route("/api/quotes", quotesRouter);
 app.route("/api/approvals", approvalsRouter);
 app.route("/api/assistant", assistantRouter);
