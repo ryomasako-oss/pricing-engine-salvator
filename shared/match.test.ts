@@ -405,3 +405,17 @@ describe("lineFromCatalog toBase: a client's line goes on the quote in Accurate'
     expect(lineFromCatalog(boxed, 5, { uom: "PCS", rrp: 2800, toBase: true })).toMatchObject({ uom: "Pcs", qty: 5, rrp: 2800 });
   });
 });
+
+describe("lineFromCatalog marks where the ceiling came from (rrpDefault)", () => {
+  const pen = item(30, "P-3", "Pulpen", { cogs: 2000, list_price: 3000, units: [{ uom: "Box", factor: 12 }] });
+  it("a ceiling from the catalog, the last sale or COGS x 1,4 is the system's default", () => {
+    expect(lineFromCatalog(pen, 1).rrpDefault).toBe(true);
+    expect(lineFromCatalog({ ...pen, last_sale: { price: 2900, invoiceNo: "SI", date: "2026-10-01", ownClient: true } }, 1).rrpDefault).toBe(true);
+    expect(lineFromCatalog({ ...pen, list_price: 0 }, 1)).toMatchObject({ rrp: 2800, rrpDefault: true });
+  });
+  it("a price in the client's file is the client's ceiling, in every path", () => {
+    expect(lineFromCatalog(pen, 1, { rrp: 2500 }).rrpDefault).toBeUndefined();
+    expect(lineFromCatalog(pen, 2, { uom: "Box", rrp: 30000, toBase: true }).rrpDefault).toBeUndefined();
+    expect(lineFromCatalog(pen, 2, { uom: "Lusin", rrp: 9000, toBase: true }).rrpDefault).toBeUndefined();
+  });
+});

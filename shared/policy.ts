@@ -101,8 +101,9 @@ export function evaluatePolicy(
     });
   }
 
-  // A line with no ceiling at all (rrp 0) can't be "above" it: those are priced by hand.
-  const aboveCeiling = activeRows(engine).filter((r) => r.rrp > 0 && r.prices[scenario] > r.rrp);
+  // A line with no ceiling at all (rrp 0) can't be "above" it: those are priced by hand. Nor can one
+  // whose ceiling is the system's default rather than the client's (QuoteItem.rrpDefault).
+  const aboveCeiling = activeRows(engine).filter((r) => r.rrp > 0 && !r.rrpDefault && r.prices[scenario] > r.rrp);
   if (aboveCeiling.length) {
     breaches.push({
       code: "ABOVE_CEILING",

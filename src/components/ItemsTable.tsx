@@ -257,7 +257,7 @@ export function ItemsTable({
                         className="cell"
                         value={r.rrp}
                         disabled={readOnly}
-                        onCommit={(v) => onUpdate(r.id, { rrp: v })}
+                        onCommit={(v) => onUpdate(r.id, { rrp: v, rrpDefault: false })}
                         aria-label={`RRP ${r.name}`}
                       />
                     </td>
