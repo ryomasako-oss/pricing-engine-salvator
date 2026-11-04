@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_ASSUMPTIONS, computeEngine } from "./engine";
-import { quickPrice } from "./quickPrice";
+import { calibrateS2, quickPrice } from "./quickPrice";
 import type { QuoteItem } from "./types";
 
 const a = { ...DEFAULT_ASSUMPTIONS, opex: 0.08, includeLogistics: false, step: 50 };
@@ -46,5 +46,30 @@ describe("quickPrice (tombol cepat, Ryoma 2026-11-04)", () => {
     expect(r.items[1].manualPrice).toBeUndefined();
     expect(r.items[3].manualPrice).toBeUndefined();
     expect(r).toMatchObject({ changed: 2, skipped: 2 });
+  });
+});
+
+describe("calibrateS2 (overall margin in S2)", () => {
+  it("brings the S2 net margin to the target: client-capped lines stay at their ceiling, the others make up for it, LEADER keeps its price", () => {
+    const items = [
+      line({ id: "cap", cogs: 33784, rrp: 37838, qty: 5 }), // client ceiling: 3,6% at most
+      line({ id: "d1", cogs: 10000, rrp: 14000, qty: 18, rrpDefault: true }),
+      line({ id: "d2", cogs: 5508, rrp: 7712, qty: 18, rrpDefault: true }),
+      line({ id: "lead", cogs: 2000, rrp: 3000, qty: 10, role: "LEADER" }),
+    ];
+    const r = calibrateS2(items, a, [], 0.3);
+    expect(r.reached).toBe(true);
+    expect(r.achieved).toBeGreaterThanOrEqual(0.3);
+    expect(r.achieved).toBeLessThan(0.32); // the smallest margin that gets there, not the maximum
+    expect(r.items[0].manualPrice?.[1]).toBe(37838);
+    expect(r.items[3].manualPrice).toBeUndefined();
+    expect(r.margin).toBeGreaterThan(0.3); // the uncapped lines carry more than 30%
+    expect(r.items[1].manualPrice?.[0]).toBeNull(); // S1 untouched
+  });
+
+  it("reports how far it got when the target can't be reached", () => {
+    const r = calibrateS2([line({ cogs: 10000, rrp: 11000 })], a, [], 0.3);
+    expect(r.reached).toBe(false);
+    expect(r.achieved).toBeLessThan(0.3);
   });
 });

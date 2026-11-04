@@ -135,6 +135,8 @@ export function sanitizeActions(raw: unknown): Record<string, unknown>[] {
             : num && (a.value as number) >= 0;
       if (ok)
         out.push({ type: "item", no: a.no, field: a.field, value: a.value });
+    } else if (a.type === "margin" && (a.scope === "overall" || a.scope === "items") && num && (a.value as number) >= 0 && (a.value as number) < 0.95) {
+      out.push({ type: "margin", scope: a.scope, value: a.value });
     } else if (a.type === "scenario" && isScenarioActionValue(a.value)) {
       out.push({ type: "scenario", value: a.value });
     }
