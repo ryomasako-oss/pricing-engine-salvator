@@ -16,6 +16,7 @@ import { AccurateClient } from "../accurate/client";
 import { ITEM_FIELDS, RECEIPT_LIST_FIELDS } from "../accurate/mapping";
 import { cogsHistory } from "../accurate/cogsHistory";
 import { salesHistory } from "../accurate/salesHistory";
+import { lastSales, salesEnabled } from "../accurate/sales";
 import { applyHeldCosts, applyPurchaseCosts } from "../accurate/purchaseCost";
 import { loadReceiptState, receiptsEnabled, wibTimestamp } from "../accurate/receipts";
 import { sweepPending } from "./pendingItems";
@@ -376,7 +377,17 @@ accurateRouter.post("/apply-cogs", requirePermission("import_catalog"), requireP
       receiptsThrough: st.since_update,
     });
   }
-  return c.json({ ...result, receipts: { lastPassAt: st.last_pass_at, through: st.since_update, inProgress: !!st.pass_started_at } });
+  // The preview also shows each item's last selling price (any client, 12 months, below-COGS kept), to weigh the new COGS against.
+  const codes = result.dryRun && salesEnabled(c.env) ? [...result.changed, ...result.held].map((x) => x.code) : [];
+  const items = codes.length
+    ? await all<{ code: string; uom: string }>(c.env.DB, "SELECT code, uom FROM catalog_items WHERE code IN (SELECT value FROM json_each(?1))", JSON.stringify(codes))
+    : [];
+  const sold = Object.fromEntries(await lastSales(c.env.DB, entity, items.map((i) => ({ ...i, cogs: 0 })), ""));
+  return c.json({
+    ...result,
+    lastSales: sold,
+    receipts: { lastPassAt: st.last_pass_at, through: st.since_update, inProgress: !!st.pass_started_at },
+  });
 });
 
 /**

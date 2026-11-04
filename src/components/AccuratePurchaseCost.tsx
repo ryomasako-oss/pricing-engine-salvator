@@ -56,6 +56,22 @@ interface Preview {
   unchanged: number;
   skipped: Skip[];
   noReceipt: number;
+  /** Last sales-invoice price per catalog unit, by code (empty while SI sync is off). */
+  lastSales?: Record<string, { price: number; invoiceNo: string; date: string }>;
+}
+
+/** The last selling price beside the new COGS: red when the item last sold under it. */
+function LastSale({ sale, cogs }: { sale?: { price: number; invoiceNo: string; date: string }; cogs: number }) {
+  if (!sale) return <td className="muted">—</td>;
+  const under = sale.price < cogs;
+  return (
+    <td title={under ? "Terakhir dijual di bawah COGS baru" : undefined}>
+      <span style={under ? { color: "var(--danger)", fontWeight: 600 } : undefined}>{rp(sale.price)}</span>
+      <div className="muted">
+        {sale.invoiceNo} · {fmtDate(sale.date)}
+      </div>
+    </td>
+  );
 }
 
 /* Big jumps are listed first: they are the ones a manager should look at, and cogsCheck holds them anyway. */
@@ -191,6 +207,9 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
           <Link className="btn small ghost" to="/cogs-history">
             <Icon name="search" size={13} /> Cari riwayat COGS
           </Link>
+          <Link className="btn small ghost" to="/sales-history">
+            <Icon name="search" size={13} /> Cari riwayat SI
+          </Link>
           {preview && preview.changed.length > 0 && (
             <button className="btn small" disabled={!!busy} onClick={apply}>
               <Icon name="check" size={13} /> {busy === "apply" ? "Menerapkan…" : `Terapkan ${grp(preview.changed.length)} perubahan`}
@@ -255,6 +274,7 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
                       <th className="l">Nama</th>
                       <th>COGS sekarang</th>
                       <th>Pembelian terakhir</th>
+                      <th>Jual terakhir (SI)</th>
                       <th className="l">Kenapa ditahan</th>
                       <th className="l">Sumber</th>
                       <th />
@@ -270,12 +290,14 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
                         <td className="l">{h.name}</td>
                         <td>{h.from > 0 ? rp(h.from) : "kosong"}</td>
                         <td>{rp(h.to)}</td>
+                        <LastSale sale={preview.lastSales?.[h.code]} cogs={h.to} />
                         <td className="l">{h.reason}</td>
                         <td className="l muted">
                           {h.receiptNo} · {fmtDate(h.transDate)}
                         </td>
                         <td className="l">
-                          <Link to={`/cogs-history?q=${encodeURIComponent(h.code)}`}>Riwayat ›</Link>
+                          <Link to={`/cogs-history?q=${encodeURIComponent(h.code)}`}>COGS ›</Link>{" "}
+                          <Link to={`/sales-history?q=${encodeURIComponent(h.code)}`}>SI ›</Link>
                         </td>
                       </tr>
                     ))}
@@ -322,6 +344,7 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
                     <th>COGS sekarang</th>
                     <th>Pembelian terakhir</th>
                     <th>Selisih</th>
+                    <th>Jual terakhir (SI)</th>
                     <th className="l">Sumber</th>
                     <th />
                   </tr>
@@ -338,11 +361,13 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
                         <td style={Math.abs(j) > BIG_JUMP ? { color: "var(--danger)", fontWeight: 600 } : undefined}>
                           {Number.isFinite(j) ? `${j > 0 ? "+" : ""}${pct(j)}` : "baru"}
                         </td>
+                        <LastSale sale={preview.lastSales?.[c.code]} cogs={c.to} />
                         <td className="l muted">
                           {c.receiptNo} · {fmtDate(c.transDate)}
                         </td>
                         <td className="l">
-                          <Link to={`/cogs-history?q=${encodeURIComponent(c.code)}`}>Riwayat ›</Link>
+                          <Link to={`/cogs-history?q=${encodeURIComponent(c.code)}`}>COGS ›</Link>{" "}
+                          <Link to={`/sales-history?q=${encodeURIComponent(c.code)}`}>SI ›</Link>
                         </td>
                       </tr>
                     );
