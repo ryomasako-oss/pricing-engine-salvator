@@ -21,7 +21,7 @@
 
 import { batch, get, run, stmt } from "../../db.d1";
 import { AccurateClient, AccurateError, type AccurateCreds } from "./client";
-import { RECEIPT_LIST_FIELDS, mapReceipt, mapReceiptLines, updateKey, type StagedReceiptLine } from "./mapping";
+import { RECEIPT_LIST_FIELDS, mapReceipt, mapReceiptLines, updateKey, type StagedReceipt } from "./mapping";
 import type { Bindings } from "../env";
 import { catalogEntity, credsFor, syncConfig, type EntityKey } from "./sync";
 
@@ -51,6 +51,42 @@ export interface ReceiptConfig {
   /** First pass only: receipts dated on or after this day (dd/MM/yyyy). */
   since: string;
 }
+
+/**
+ * One kind of Accurate document whose lines are kept as history: goods receipts here, sales
+ * invoices in sales.ts. The pass, the cursor, the call budget and the sweep below are shared.
+ */
+export interface DocKind {
+  /** Cursor table, with the columns of accurate_receipt_state. */
+  stateTable: string;
+  linesTable: string;
+  /** The lines table's column holding the document's Accurate id. */
+  docColumn: string;
+  /** Accurate API prefix: "receive-item", "sales-invoice". */
+  path: string;
+  listFields: string;
+  mapDoc: (r: Record<string, unknown>) => StagedReceipt | null;
+  mapLines: (d: Record<string, unknown>) => unknown[];
+  /** INSERT OR REPLACE of the lines: ?1 entity, ?2 the JSON array mapLines returned. */
+  insertSql: string;
+}
+
+export const RECEIPTS: DocKind = {
+  stateTable: "accurate_receipt_state",
+  linesTable: "accurate_receipt_lines",
+  docColumn: "receipt_id",
+  path: "receive-item",
+  listFields: RECEIPT_LIST_FIELDS,
+  mapDoc: mapReceipt,
+  mapLines: mapReceiptLines,
+  insertSql: `INSERT OR REPLACE INTO accurate_receipt_lines(entity, receipt_id, line_id, receipt_no, trans_date,
+                                                         item_code, unit, quantity, unit_price, synced_at)
+           SELECT ?1, json_extract(j.value, '$.receiptId'), json_extract(j.value, '$.lineId'),
+                  json_extract(j.value, '$.receiptNo'), json_extract(j.value, '$.transDate'),
+                  json_extract(j.value, '$.itemCode'), json_extract(j.value, '$.unit'),
+                  json_extract(j.value, '$.quantity'), json_extract(j.value, '$.unitPrice'), datetime('now')
+             FROM json_each(?2) j WHERE true`,
+};
 
 export const receiptsEnabled = (env: Pick<Bindings, "ACCURATE_RECEIPTS_ENABLED">) => env.ACCURATE_RECEIPTS_ENABLED === "true";
 
@@ -115,7 +151,8 @@ export interface ReceiptStepResult {
  * paging shifts the offsets; deleting from such a partial list would drop a
  * receipt that still exists.
  */
-async function sweepReceipts(
+async function sweepDocs(
+  kind: DocKind,
   db: D1Database,
   entity: EntityKey,
   client: AccurateClient,
@@ -135,7 +172,7 @@ async function sweepReceipts(
   let page = ids.length ? Math.max(1, st.sweep_page) : 1;
 
   while (budgetLeft(1)) {
-    const res = await client.list("receive-item/list.do", {
+    const res = await client.list(`${kind.path}/list.do`, {
       fields: "id",
       "sp.page": page,
       "sp.pageSize": RECEIPT_SWEEP_PAGE_SIZE,
@@ -153,8 +190,8 @@ async function sweepReceipts(
     await batch(db, [
       stmt(
         db,
-        `DELETE FROM accurate_receipt_lines
-          WHERE entity = ?1 AND receipt_id NOT IN (SELECT value FROM json_each(?2))`,
+        `DELETE FROM ${kind.linesTable}
+          WHERE entity = ?1 AND ${kind.docColumn} NOT IN (SELECT value FROM json_each(?2))`,
         entity,
         JSON.stringify(ids),
       ),
@@ -167,29 +204,36 @@ async function sweepReceipts(
   return "progress";
 }
 
-export async function receiptStep(
+type StepOpts = { budget: number; deadline: number; fetchImpl?: typeof fetch; gapMs?: number };
+
+export const receiptStep = (db: D1Database, entity: EntityKey, creds: AccurateCreds, cfg: ReceiptConfig, opts: StepOpts) =>
+  docStep(RECEIPTS, db, entity, creds, cfg, opts);
+
+export async function docStep(
+  kind: DocKind,
   db: D1Database,
   entity: EntityKey,
   creds: AccurateCreds,
   cfg: ReceiptConfig,
-  opts: { budget: number; deadline: number; fetchImpl?: typeof fetch; gapMs?: number },
+  opts: StepOpts,
 ): Promise<ReceiptStepResult> {
-  await run(db, "INSERT OR IGNORE INTO accurate_receipt_state(entity) VALUES(?)", entity);
+  const T = kind.stateTable;
+  await run(db, `INSERT OR IGNORE INTO ${T}(entity) VALUES(?)`, entity);
   const lock = await run(
     db,
-    `UPDATE accurate_receipt_state SET locked_until = datetime('now', '+5 minutes')
+    `UPDATE ${T} SET locked_until = datetime('now', '+5 minutes')
       WHERE entity = ? AND (locked_until IS NULL OR locked_until < datetime('now'))`,
     entity,
   );
   if (!lock.meta.changes) return { outcome: "locked", calls: 0, lines: 0 };
 
-  let st = (await get<ReceiptState>(db, "SELECT * FROM accurate_receipt_state WHERE entity = ?", entity))!;
+  let st = (await get<ReceiptState>(db, `SELECT * FROM ${T} WHERE entity = ?`, entity))!;
   const setSql = (fields: Partial<ReceiptState>) => {
     st = { ...st, ...fields };
     const keys = Object.keys(fields);
     return stmt(
       db,
-      `UPDATE accurate_receipt_state SET ${keys.map((k) => `${k} = ?`).join(", ")} WHERE entity = ?`,
+      `UPDATE ${T} SET ${keys.map((k) => `${k} = ?`).join(", ")} WHERE entity = ?`,
       ...keys.map((k) => (fields as Record<string, string | number | null>)[k]),
       entity,
     );
@@ -221,7 +265,7 @@ export async function receiptStep(
 
     // Sweep before starting a pass, so its listing does not compete with detail calls
     // that are already near the tick's call budget.
-    if (sweepDue && (await sweepReceipts(db, entity, c, st, setSql, budgetLeft)) === "progress") {
+    if (sweepDue && (await sweepDocs(kind, db, entity, c, st, setSql, budgetLeft)) === "progress") {
       return { outcome: "progress", calls: c.calls, lines };
     }
 
@@ -248,25 +292,25 @@ export async function receiptStep(
     let finished = false;
     // A page listing plus at least one detail must fit, or the tick only re-lists.
     while (!finished && budgetLeft(2)) {
-      const res = await c.list("receive-item/list.do", {
-        fields: RECEIPT_LIST_FIELDS,
+      const res = await c.list(`${kind.path}/list.do`, {
+        fields: kind.listFields,
         ...filter,
         "sp.page": st.page,
         "sp.pageSize": cfg.pageSize,
         "sp.sort": "id|asc",
       });
-      const receipts = res.rows.map(mapReceipt).filter((x) => x !== null);
+      const receipts = res.rows.map(kind.mapDoc).filter((x) => x !== null);
 
       const done: number[] = [];
-      const fetched: StagedReceiptLine[] = [];
+      const fetched: unknown[] = [];
       let idx = st.row_idx;
       let maxUpdate = st.max_update;
       for (; idx < receipts.length; idx++) {
         const r = receipts[idx];
         if (r.received) {
           if (!budgetLeft(1)) break;
-          const d = await c.detail("receive-item/detail.do", { id: r.accurateId });
-          if (d) fetched.push(...mapReceiptLines(d));
+          const d = await c.detail(`${kind.path}/detail.do`, { id: r.accurateId });
+          if (d) fetched.push(...kind.mapLines(d));
         }
         done.push(r.accurateId);
         if (updateKey(r.lastUpdate) > updateKey(maxUpdate)) maxUpdate = r.lastUpdate;
@@ -301,23 +345,12 @@ export async function receiptStep(
       await batch(db, [
         stmt(
           db,
-          `DELETE FROM accurate_receipt_lines
-            WHERE entity = ?1 AND receipt_id IN (SELECT value FROM json_each(?2))`,
+          `DELETE FROM ${kind.linesTable}
+            WHERE entity = ?1 AND ${kind.docColumn} IN (SELECT value FROM json_each(?2))`,
           entity,
           JSON.stringify(done),
         ),
-        stmt(
-          db,
-          `INSERT OR REPLACE INTO accurate_receipt_lines(entity, receipt_id, line_id, receipt_no, trans_date,
-                                                         item_code, unit, quantity, unit_price, synced_at)
-           SELECT ?1, json_extract(j.value, '$.receiptId'), json_extract(j.value, '$.lineId'),
-                  json_extract(j.value, '$.receiptNo'), json_extract(j.value, '$.transDate'),
-                  json_extract(j.value, '$.itemCode'), json_extract(j.value, '$.unit'),
-                  json_extract(j.value, '$.quantity'), json_extract(j.value, '$.unitPrice'), datetime('now')
-             FROM json_each(?2) j WHERE true`,
-          entity,
-          JSON.stringify(fetched),
-        ),
+        stmt(db, kind.insertSql, entity, JSON.stringify(fetched)),
         setSql({ ...next, max_update: next.max_update ?? maxUpdate, receipts_seen: st.receipts_seen + done.length }),
       ]);
       lines += fetched.length;
@@ -332,7 +365,7 @@ export async function receiptStep(
     await batch(db, [setSql({ last_error: msg.slice(0, 500), last_error_at: new Date().toISOString() })]);
     return { outcome: "error", calls: client?.calls ?? 0, lines, error: msg };
   } finally {
-    await run(db, "UPDATE accurate_receipt_state SET locked_until = NULL WHERE entity = ?", entity);
+    await run(db, `UPDATE ${T} SET locked_until = NULL WHERE entity = ?`, entity);
   }
 }
 

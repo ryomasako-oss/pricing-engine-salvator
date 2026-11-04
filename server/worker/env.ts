@@ -41,6 +41,8 @@ export interface Bindings {
   ACCURATE_AUTO_NEW_ITEMS?: string;
   /** Goods receipts → COGS = harga pembelian terakhir (accurate/receipts.ts). Off unless "true". */
   ACCURATE_RECEIPTS_ENABLED?: string;
+  /** Sales invoices → accurate_sales_lines (accurate/sales.ts). Off unless "true". */
+  ACCURATE_SALES_ENABLED?: string;
   /** First pass only: receipts dated on or after this day, YYYY-MM-DD (default: one year back). */
   ACCURATE_RECEIPTS_SINCE?: string;
   ACCURATE_RECEIPTS_PAGE_SIZE?: string;
