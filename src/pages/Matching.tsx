@@ -3,7 +3,9 @@
    Quotation → Dari list klien for that client's next list (server/catalogMatch.ts).
    Managers also see how well the matcher is doing. */
 
+import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { Icon } from "../components/Icon";
 import { FamiliarityWorkbench } from "../components/FamiliarityWorkbench";
 import { MatchLearningPanel } from "../components/MatchLearningPanel";
 
@@ -19,6 +21,11 @@ export function MatchingPage() {
             berikutnya dari klien itu, termasuk lewat Quotation → Dari list klien, langsung cocok.
           </p>
         </div>
+        {can("view_costs") && (
+          <Link className="btn small ghost" to="/sales-history">
+            <Icon name="search" size={13} /> Riwayat penjualan (SI)
+          </Link>
+        )}
       </div>
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-body">
