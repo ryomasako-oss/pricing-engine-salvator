@@ -12,9 +12,10 @@ const meta: QuoteMeta = {
 };
 const company = { name: "PT Salvator Inti Pratama", brand: "", tagline: "", address: "Jakarta", phone: "", email: "", npwp: "", bank: "" };
 
-function pdfFor(n: number, over: Partial<QuoteMeta> = {}) {
+function pdfFor(n: number, over: Partial<QuoteMeta> = {}, image?: string) {
   const items: QuoteItem[] = Array.from({ length: n }, (_, i) => ({
     id: `i${i}`, lineNo: i + 1, code: `C${i}`, name: `Item nomor ${i + 1}`, uom: "Pcs", qty: 1, cogs: 1000, rrp: 2000, role: "CORE",
+    ...(image ? { image } : {}),
   }));
   return quotationPdf({
     engine: computeEngine(DEFAULT_ASSUMPTIONS, items, DEFAULT_REGIONS), meta: { ...meta, ...over }, assumptions: DEFAULT_ASSUMPTIONS,
@@ -57,6 +58,15 @@ describe("quotation PDF columns", () => {
     expect(has(d, "Qty")).toBe(true);
     expect(has(d, "Total per bulan")).toBe(true);
     expect(has(d, "Subtotal per bulan")).toBe(true);
+  });
+
+  it("adds a Foto column only when a line carries a photo", () => {
+    const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+    expect(has(pdfFor(2), "Foto")).toBe(false);
+    const d = pdfFor(2, {}, png);
+    expect(has(d, "Foto")).toBe(true);
+    expect(has(d, "Item nomor 1")).toBe(true);
+    expect(has(d, "Hormat kami,")).toBe(true);
   });
 
   it("drops only the line total when hideLineTotal is set", () => {

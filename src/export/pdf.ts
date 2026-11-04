@@ -101,6 +101,9 @@ export function quotationPdf(input: Input): jsPDF {
   // style table keyed by column index would put the right-align and bold on
   // the wrong column as soon as one is dropped.
   const cols = docColumns(meta);
+  const rows = offeredRows(engine.rows);
+  const hasPhotos = rows.some((r) => r.image);
+  const photoIndex = hasPhotos ? 1 : -1;
   type Col = { head: string; cell: (r: ComputedRow & { lineNo: number }) => string; style: Record<string, unknown> };
   const columns: Col[] = [
     { head: "No", cell: (r) => String(r.lineNo), style: { halign: "center", cellWidth: 26 } },
@@ -113,11 +116,39 @@ export function quotationPdf(input: Input): jsPDF {
   autoTable(doc, {
     startY: (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 14,
     head: [columns.map((c) => c.head)],
-    body: offeredRows(engine.rows).map((r) => columns.map((c) => c.cell(r))),
-    styles: { fontSize: 8.5, cellPadding: 4, lineColor: [238, 241, 244], lineWidth: 0.5 },
+    body: rows.map((r) => columns.map((c) => c.cell(r))),
+    styles: { fontSize: 8.5, cellPadding: 4, lineColor: [238, 241, 244], lineWidth: 0.5, ...(hasPhotos ? { minCellHeight: 34 } : {}) },
     headStyles: { fillColor: [246, 248, 250], textColor: [27, 37, 48], fontStyle: "bold" },
     columnStyles: Object.fromEntries(columns.map((c, i) => [i, c.style])),
     margin: { left: M, right: M },
+    didDrawCell: (data) => {
+      if (!hasPhotos || data.section !== "body" || data.column.index !== photoIndex) return;
+      const image = rows[data.row.index]?.image;
+      if (!image) return;
+      try {
+        const format = image.startsWith("data:image/png")
+          ? "PNG"
+          : image.startsWith("data:image/webp")
+            ? "WEBP"
+            : "JPEG";
+        const { width, height } = doc.getImageProperties(image);
+        const max = 28;
+        const scale = Math.min(max / width, max / height, 1);
+        const w = width * scale;
+        const h = height * scale;
+        doc.addImage(
+          image,
+          format,
+          data.cell.x + (data.cell.width - w) / 2,
+          data.cell.y + (data.cell.height - h) / 2,
+          w,
+          h,
+        );
+      } catch {
+        // A photo that failed to decode leaves the cell blank; the price
+        // document itself must still be produced.
+      }
+    },
   });
 
   const ppn = s.revenue * assumptions.ppn;

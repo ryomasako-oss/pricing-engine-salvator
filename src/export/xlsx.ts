@@ -1,7 +1,10 @@
 /* Exports the full working file: the client-facing lines plus the internal
-   margin analysis, assumptions, logistics and scenario comparison. */
+   margin analysis, assumptions, logistics and scenario comparison.
 
-import * as XLSX from "xlsx";
+   ExcelJS (not SheetJS) because the client-facing sheet embeds the product
+   photos the rep uploaded; SheetJS' community build cannot write images. */
+
+import ExcelJS from "exceljs";
 import { SCENARIOS } from "@shared/engine";
 import { shownCode } from "@shared/pendingItems";
 import { paymentLabel, warrantyLabel } from "@shared/terms";
@@ -21,23 +24,63 @@ interface Input {
 
 const money = "#,##0";
 const percent = "0.0%";
+const HEAD_FILL: ExcelJS.Fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE8F0F7" } };
 
-function applyFormat(sheet: XLSX.WorkSheet, columns: Record<string, string>): void {
-  const range = XLSX.utils.decode_range(sheet["!ref"] || "A1");
-  for (let r = range.s.r + 1; r <= range.e.r; r++) {
-    for (const [col, fmt] of Object.entries(columns)) {
-      const cell = sheet[`${col}${r + 1}`];
-      if (cell && typeof cell.v === "number") cell.z = fmt;
-    }
+/** Excel can draw JPEG and PNG; the uploader always produces JPEG. */
+function imageExtension(image: string): "jpeg" | "png" | null {
+  if (image.startsWith("data:image/png")) return "png";
+  if (/^data:image\/(jpeg|jpg);/.test(image)) return "jpeg";
+  return null;
+}
+
+function styleHeader(ws: ExcelJS.Worksheet): void {
+  ws.getRow(1).eachCell((cell) => {
+    cell.font = { bold: true };
+    cell.fill = HEAD_FILL;
+    cell.alignment = { vertical: "middle", wrapText: true };
+  });
+  ws.views = [{ state: "frozen", ySplit: 1 }];
+}
+
+function setWidths(ws: ExcelJS.Worksheet, widths: number[]): void {
+  widths.forEach((width, i) => {
+    ws.getColumn(i + 1).width = width;
+  });
+}
+
+/** The 1-based column of a header, or 0 when the sheet doesn't show it. */
+const columnOf = (header: string[], name: string) => header.indexOf(name) + 1;
+
+function styleMoney(row: ExcelJS.Row, columns: number[]): void {
+  for (const column of columns) {
+    if (column > 0) row.getCell(column).numFmt = money;
   }
 }
 
-export function quoteWorkbook(input: Input): XLSX.WorkBook {
-  const { engine, meta, assumptions, scenario, number, title, clientName } = input;
-  const wb = XLSX.utils.book_new();
+function stylePercent(row: ExcelJS.Row, columns: number[]): void {
+  for (const column of columns) {
+    if (column > 0) row.getCell(column).numFmt = percent;
+  }
+}
 
-  /* Client-facing sheet */
+export async function quoteWorkbook(input: Input): Promise<ExcelJS.Workbook> {
+  const { engine, meta, assumptions, scenario, number, title, clientName } = input;
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "Pricing Engine Salvator";
+
+  /* ---------- client-facing sheet ---------- */
   const cols = docColumns(meta);
+  const rows = offeredRows(engine.rows);
+  const hasPhotos = rows.some((r) => r.image);
+  const header = [
+    "No",
+    ...(hasPhotos ? ["Foto"] : []),
+    "Kode",
+    "Item",
+    "Satuan",
+    ...(cols.qty ? ["Qty"] : []),
+    "Harga satuan",
+    ...(cols.lineTotal ? ["Total per bulan"] : []),
   const quoteRows: Record<string, unknown>[] = offeredRows(engine.rows).map((r) => ({
     No: r.lineNo,
     Kode: shownCode(r.code),
@@ -89,68 +132,173 @@ export function quoteWorkbook(input: Input): XLSX.WorkBook {
     { wch: 14 },
     ...(cols.lineTotal || cols.totals ? [{ wch: 16 }] : []),
   ];
-  applyFormat(quoteSheet, cols.qty ? { E: money, F: money, G: money } : { E: money, F: money });
-  XLSX.utils.book_append_sheet(wb, quoteSheet, "Penawaran");
+  const noCol = columnOf(header, "No");
+  const photoCol = columnOf(header, "Foto");
+  const codeCol = columnOf(header, "Kode");
+  const itemCol = columnOf(header, "Item");
+  const uomCol = columnOf(header, "Satuan");
+  const qtyCol = columnOf(header, "Qty");
+  const priceCol = columnOf(header, "Harga satuan");
+  const lineTotalCol = columnOf(header, "Total per bulan");
+  // Without a visible line-total column the totals block still needs a value
+  // column, exactly as the old sheet did: unlabeled, one to the right of price.
+  const totalCol = lineTotalCol || priceCol + 1;
+  if (!lineTotalCol && cols.totals) header.push("");
 
-  /* Internal analysis */
-  const analysis = engine.rows.map((r) => ({
-    No: r.lineNo,
-    Ditahan: r.held ? holdInfo(r.holdReason).sheet : "",
-    Item: r.name,
-    Satuan: r.uom,
-    Qty: r.qty,
-    COGS: Math.round(r.cogs),
-    "COGS estimasi": r.estCogs ? "YA" : "",
-    "Landed cost": Math.round(r.landed),
-    RRP: Math.round(r.rrp),
-    Role: r.role,
-    "S1 harga": Math.round(r.prices[0]),
-    "S1 margin": r.margins[0],
-    "S1 status": r.status[0],
-    "S2 harga": Math.round(r.prices[1]),
-    "S2 margin": r.margins[1],
-    "S2 status": r.status[1],
-    "S3 harga": Math.round(r.prices[2]),
-    "S3 margin": r.margins[2],
-    "S3 status": r.status[2],
-    "Nilai terpilih/bln": Math.round(r.qty * r.prices[scenario]),
-  }));
-  const analysisSheet = XLSX.utils.json_to_sheet(analysis);
-  analysisSheet["!cols"] = [{ wch: 5 }, { wch: 42 }, ...Array(17).fill({ wch: 12 })];
-  applyFormat(analysisSheet, {
-    E: money, G: money, H: money, J: money, K: percent,
-    M: money, N: percent, P: money, Q: percent, S: money,
+  const quoteSheet = wb.addWorksheet("Penawaran");
+  quoteSheet.addRow(header);
+  styleHeader(quoteSheet);
+
+  const s = engine.scen[scenario];
+  const widthFor = (name: string): number =>
+    name === "No" ? 5
+      : name === "Foto" ? 6
+        : name === "Kode" ? 14
+          : name === "Item" ? 46
+            : name === "Satuan" ? 8
+              : name === "Qty" ? 10
+                : 14;
+  setWidths(quoteSheet, header.map((name) => widthFor(name)));
+  if (!lineTotalCol && cols.totals) quoteSheet.getColumn(totalCol).width = 16;
+
+  rows.forEach((r) => {
+    const values = new Array(header.length).fill(null) as ExcelJS.CellValue[];
+    values[noCol - 1] = r.lineNo;
+    values[codeCol - 1] = r.code;
+    values[itemCol - 1] = r.name;
+    values[uomCol - 1] = r.uom;
+    if (qtyCol) values[qtyCol - 1] = r.qty;
+    values[priceCol - 1] = Math.round(r.prices[scenario]);
+    if (lineTotalCol) values[lineTotalCol - 1] = Math.round(r.prices[scenario] * r.qty);
+
+    const row = quoteSheet.addRow(values);
+    if (hasPhotos) row.height = 32;
+    styleMoney(row, [qtyCol, priceCol, lineTotalCol].filter(Boolean));
+
+    if (hasPhotos && r.image) {
+      const extension = imageExtension(r.image);
+      if (extension) {
+        // Thumbnail only: the photo is already compressed to a small data URL.
+        const imageId = wb.addImage({ base64: r.image, extension });
+        quoteSheet.addImage(imageId, {
+          tl: { col: photoCol - 1 + 0.08, row: row.number - 1 + 0.06 },
+          ext: { width: 30, height: 30 },
+          editAs: "oneCell",
+        });
+      }
+    }
   });
-  XLSX.utils.book_append_sheet(wb, analysisSheet, "Analisis Internal");
 
-  /* Scenario comparison */
-  const compare = SCENARIOS.map((sc, i) => {
+  if (cols.totals) {
+    quoteSheet.addRow([]);
+    const totals: [string, number][] = [
+      ["Subtotal per bulan", s.revenue],
+      [`PPN ${(assumptions.ppn * 100).toFixed(0)}%`, s.revenue * assumptions.ppn],
+      ["Total per bulan termasuk PPN", s.revenue * (1 + assumptions.ppn)],
+      [`Nilai kontrak ${assumptions.months} bulan (belum PPN)`, s.annual],
+    ];
+    for (const [label, value] of totals) {
+      const values = new Array(header.length).fill(null) as ExcelJS.CellValue[];
+      values[itemCol - 1] = label;
+      values[totalCol - 1] = Math.round(value);
+      const row = quoteSheet.addRow(values);
+      row.getCell(totalCol).numFmt = money;
+      if (label === "Total per bulan termasuk PPN") row.font = { bold: true };
+    }
+  }
+
+  const addTermsRow = (item: string, satuan?: string, price?: string): void => {
+    const values = new Array(header.length).fill(null) as ExcelJS.CellValue[];
+    values[itemCol - 1] = item;
+    if (satuan != null) values[uomCol - 1] = satuan;
+    if (price != null) values[priceCol - 1] = price;
+    quoteSheet.addRow(values);
+  };
+
+  quoteSheet.addRow([]);
+  if (heldNote(engine.rows)) addTermsRow("Item menyusul", heldNote(engine.rows));
+  addTermsRow("Term of payment", paymentLabel(meta) || "—");
+  addTermsRow("Garansi", warrantyLabel(meta) || "—");
+  addTermsRow("Masa berlaku penawaran", `${meta.validity} hari`);
+  quoteSheet.addRow([]);
+  addTermsRow("Hormat kami,", undefined, "Disetujui oleh,");
+  addTermsRow("PT Salvator Inti Pratama", undefined, clientName);
+  quoteSheet.addRow([]);
+  quoteSheet.addRow([]);
+  quoteSheet.addRow([]);
+  addTermsRow(`(${meta.preparedBy || "Nama"})`, undefined, "Nama & jabatan: ______________");
+  addTermsRow("", undefined, "Tanggal: ______________");
+
+  /* ---------- internal margin analysis ---------- */
+  const analysisHeader = [
+    "No", "Ditahan", "Item", "Satuan", "Qty", "COGS", "COGS estimasi", "Landed cost", "RRP", "Role",
+    "S1 harga", "S1 margin", "S1 status", "S2 harga", "S2 margin", "S2 status",
+    "S3 harga", "S3 margin", "S3 status", "Nilai terpilih/bln",
+  ];
+  const analysisSheet = wb.addWorksheet("Analisis Internal");
+  analysisSheet.addRow(analysisHeader);
+  styleHeader(analysisSheet);
+  setWidths(analysisSheet, [5, 22, 42, 10, ...Array(16).fill(12)]);
+  for (const r of engine.rows) {
+    const row = analysisSheet.addRow([
+      r.lineNo,
+      r.held ? holdInfo(r.holdReason).sheet : "",
+      r.name,
+      r.uom,
+      r.qty,
+      Math.round(r.cogs),
+      r.estCogs ? "YA" : "",
+      Math.round(r.landed),
+      Math.round(r.rrp),
+      r.role,
+      Math.round(r.prices[0]),
+      r.margins[0],
+      r.status[0],
+      Math.round(r.prices[1]),
+      r.margins[1],
+      r.status[1],
+      Math.round(r.prices[2]),
+      r.margins[2],
+      r.status[2],
+      Math.round(r.qty * r.prices[scenario]),
+    ]);
+    styleMoney(row, [5, 6, 8, 9, 11, 14, 17, 20]);
+    stylePercent(row, [12, 15, 18]);
+  }
+
+  /* ---------- scenario comparison ---------- */
+  const compareHeader = [
+    "Skenario", "Aturan", "Revenue/bln", "Landed cost/bln", "Profit/bln", "Net margin",
+    "Nilai kontrak", "Hemat klien", "Hemat item leader", "Item di plafon",
+    "Margin terendah", "Item di bawah modal", "Terpilih",
+  ];
+  const compareSheet = wb.addWorksheet("Perbandingan");
+  compareSheet.addRow(compareHeader);
+  styleHeader(compareSheet);
+  setWidths(compareSheet, [22, 52, ...Array(11).fill(14)]);
+  SCENARIOS.forEach((sc, i) => {
     const x = engine.scen[i];
-    return {
-      Skenario: `${sc.key} ${sc.name}`,
-      Aturan: sc.rule,
-      "Revenue/bln": Math.round(x.revenue),
-      "Landed cost/bln": Math.round(x.landed),
-      "Profit/bln": Math.round(x.profit),
-      "Net margin": x.margin,
-      "Nilai kontrak": Math.round(x.annual),
-      "Hemat klien": x.savingsPct,
-      "Hemat item leader": x.leaderSavingsPct,
-      "Item di plafon": x.atCeiling,
-      "Margin terendah": x.lowestMargin,
-      "Item di bawah modal": x.belowCost,
-      Terpilih: i === scenario ? "YA" : "",
-    };
+    const row = compareSheet.addRow([
+      `${sc.key} ${sc.name}`,
+      sc.rule,
+      Math.round(x.revenue),
+      Math.round(x.landed),
+      Math.round(x.profit),
+      x.margin,
+      Math.round(x.annual),
+      x.savingsPct,
+      x.leaderSavingsPct,
+      x.atCeiling,
+      x.lowestMargin,
+      x.belowCost,
+      i === scenario ? "YA" : "",
+    ]);
+    styleMoney(row, [3, 4, 5, 7]);
+    stylePercent(row, [6, 8, 9, 11]);
   });
-  const compareSheet = XLSX.utils.json_to_sheet(compare);
-  compareSheet["!cols"] = [{ wch: 22 }, { wch: 52 }, ...Array(11).fill({ wch: 14 })];
-  applyFormat(compareSheet, {
-    C: money, D: money, E: money, F: percent, G: money, H: percent, I: percent, K: percent,
-  });
-  XLSX.utils.book_append_sheet(wb, compareSheet, "Perbandingan");
 
-  /* Assumptions and logistics */
-  const info = [
+  /* ---------- assumptions and logistics ---------- */
+  const info: [string, ExcelJS.CellValue][] = [
     ["Quotation", number],
     ["Judul", title],
     ["Klien", clientName],
@@ -172,19 +320,30 @@ export function quoteWorkbook(input: Input): XLSX.WorkBook {
     ["", ""],
     ["LOGISTIK PER REGION", ""],
     ["Region", "Share|Kirim/bln|Biaya/kirim|Biaya/bln|Modifier"],
-    ...engine.regions.map((r) => [
+    ...engine.regions.map((r): [string, string] => [
       r.name,
       `${(r.share * 100).toFixed(0)}%|${r.deliveries}|${Math.round(r.cost)}|${Math.round(r.monthlyCost)}|${(r.modifier * 100).toFixed(2)}%`,
     ]),
   ];
-  const infoSheet = XLSX.utils.aoa_to_sheet(info);
-  infoSheet["!cols"] = [{ wch: 30 }, { wch: 54 }];
-  XLSX.utils.book_append_sheet(wb, infoSheet, "Asumsi");
+  const infoSheet = wb.addWorksheet("Asumsi");
+  info.forEach(([label, value]) => {
+    const row = infoSheet.addRow([label, value]);
+    row.getCell(1).font = { bold: true };
+    row.getCell(2).alignment = { wrapText: true };
+  });
+  setWidths(infoSheet, [30, 54]);
 
   return wb;
 }
 
-export function downloadQuoteWorkbook(input: Input): void {
+export async function downloadQuoteWorkbook(input: Input): Promise<void> {
+  const wb = await quoteWorkbook(input);
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const safe = (input.number || "quotation").replace(/[^\w-]+/g, "-");
-  XLSX.writeFile(quoteWorkbook(input), `${safe}.xlsx`);
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `${safe}.xlsx`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
