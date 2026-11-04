@@ -108,7 +108,7 @@ export function llmError(err: unknown): Result {
 
 const SET_RATE_KEYS = new Set(["opex", "targetMargin", "leaderMargin", "profitDiscount", "rrpDiscount", "marginFloor", "ppn"]);
 const SET_INT_KEYS = new Set(["step", "months"]);
-const ITEM_FIELDS = new Set(["qty", "cogs", "rrp", "role"]);
+const ITEM_FIELDS = new Set(["qty", "cogs", "rrp", "role", "margin"]);
 const ROLES = new Set(["LEADER", "CORE", "PROFIT"]);
 
 /**
@@ -127,7 +127,13 @@ export function sanitizeActions(raw: unknown): Record<string, unknown>[] {
       else if (SET_INT_KEYS.has(a.key) && num && Number.isInteger(a.value) && (a.value as number) > 0) out.push({ type: "set", key: a.key, value: a.value });
       else if (a.key === "includeLogistics" && typeof a.value === "boolean") out.push({ type: "set", key: a.key, value: a.value });
     } else if (a.type === "item" && Number.isInteger(a.no) && typeof a.field === "string" && ITEM_FIELDS.has(a.field)) {
-      if (a.field === "role" ? typeof a.value === "string" && ROLES.has(a.value) : num && (a.value as number) >= 0)
+      const ok =
+        a.field === "role"
+          ? typeof a.value === "string" && ROLES.has(a.value)
+          : a.field === "margin"
+            ? num && (a.value as number) >= 0 && (a.value as number) < 0.95
+            : num && (a.value as number) >= 0;
+      if (ok)
         out.push({ type: "item", no: a.no, field: a.field, value: a.value });
     } else if (a.type === "scenario" && isScenarioActionValue(a.value)) {
       out.push({ type: "scenario", value: a.value });
