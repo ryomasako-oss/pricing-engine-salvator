@@ -261,7 +261,26 @@ export interface Client {
   delivery_terms: string;
   /** Accurate customerNo (e.g. C.00030), "" when not linked. */
   accurate_customer_no: string;
+  /** The client's tender format for the customer document, or null to print as standard (shared/docColumns.ts). */
+  doc_template: DocTemplate | null;
   created_at: string;
+}
+
+/** Line data a template column may show: only what a quote line already has (no photo: lines carry none). */
+export type DocColumnKey = "no" | "code" | "name" | "uom" | "qty" | "price" | "total" | "notes";
+
+/** A client's document template (Ryoma, 2026-11-04: "template per klien"). Plain text only, never HTML. */
+export interface DocTemplate {
+  /** Columns in print order with the client's own heading. Absent: the standard columns. */
+  columns?: { key: DocColumnKey; label: string }[];
+  /** Document title instead of "Penawaran Harga". */
+  title?: string;
+  /** Paragraph above the item table. */
+  opening?: string;
+  /** Paragraph after the terms, above the signatures. */
+  closing?: string;
+  /** false drops the subtotal / PPN / total block. Absent: shown. */
+  showTotals?: boolean;
 }
 
 export interface QuoteSnapshot {

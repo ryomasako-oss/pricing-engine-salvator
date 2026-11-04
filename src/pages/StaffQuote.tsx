@@ -284,6 +284,7 @@ export function StaffQuotePage() {
       company,
       clientName,
       clientAddress: clientRecord?.address,
+      template: clientRecord?.doc_template,
       number: quote.number,
       draft: !["approved", "sent", "won", "completed"].includes(quote.status),
     });
@@ -543,6 +544,7 @@ export function StaffQuotePage() {
               company={company}
               clientName={clientName}
               clientAddress={clientRecord?.address}
+              template={clientRecord?.doc_template}
               number={quote.number}
               showInternal={false}
               draft={!["approved", "sent", "won", "completed"].includes(quote.status)}

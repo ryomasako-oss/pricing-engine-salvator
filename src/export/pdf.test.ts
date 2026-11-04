@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import { DEFAULT_ASSUMPTIONS, DEFAULT_REGIONS, computeEngine } from "@shared/engine";
-import type { QuoteItem, QuoteMeta } from "@shared/types";
+import type { DocTemplate, QuoteItem, QuoteMeta } from "@shared/types";
 import { quotationPdf } from "./pdf";
 
 const meta: QuoteMeta = {
@@ -12,13 +12,14 @@ const meta: QuoteMeta = {
 };
 const company = { name: "PT Salvator Inti Pratama", brand: "", tagline: "", address: "Jakarta", phone: "", email: "", npwp: "", bank: "" };
 
-function pdfFor(n: number, over: Partial<QuoteMeta> = {}) {
+function pdfFor(n: number, over: Partial<QuoteMeta> = {}, template?: DocTemplate | null) {
   const items: QuoteItem[] = Array.from({ length: n }, (_, i) => ({
     id: `i${i}`, lineNo: i + 1, code: `C${i}`, name: `Item nomor ${i + 1}`, uom: "Pcs", qty: 1, cogs: 1000, rrp: 2000, role: "CORE",
+    notes: `Catatan ${i + 1}`,
   }));
   return quotationPdf({
     engine: computeEngine(DEFAULT_ASSUMPTIONS, items, DEFAULT_REGIONS), meta: { ...meta, ...over }, assumptions: DEFAULT_ASSUMPTIONS,
-    scenario: 0, company, clientName: "PT Klien", number: "Q-1", draft: false,
+    scenario: 0, company, clientName: "PT Klien", number: "Q-1", draft: false, template,
   });
 }
 
@@ -121,5 +122,73 @@ describe("quotation PDF after a partial sales Tolak", () => {
     expect(pagesWith(doc, "Kertas ditolak")).toEqual([]);
     expect(ops).toMatch(/item menyusul[^)]*Kertas ditolak/i);
     expect(engine.scen[0].revenue).toBe(engine.rows[0].prices[0] * 10);
+  });
+});
+
+describe("quotation PDF with a client document template", () => {
+  /** Left edge (x) of the first draw of this exact text, to read the column order. */
+  const xOf = (doc: ReturnType<typeof pdfFor>, text: string): number => {
+    const pages = (doc.internal as unknown as { pages: (string[] | undefined)[] }).pages;
+    for (const ops of pages) {
+      const op = ops?.find((o) => o.includes(`(${text})`));
+      const m = op && /([\d.]+) (-?[\d.]+) Td\n\(/.exec(op);
+      if (m) return Number(m[1]);
+    }
+    return NaN;
+  };
+  const order = (doc: ReturnType<typeof pdfFor>, heads: string[]) => [...heads].sort((a, b) => xOf(doc, a) - xOf(doc, b));
+  const STANDARD = ["No", "Item", "Satuan", "Qty", "Harga satuan", "Total per bulan"];
+
+  it("a quote whose client has no template prints the same columns, title and code line as before", () => {
+    for (const t of [undefined, null]) {
+      const d = pdfFor(2, {}, t);
+      expect(order(d, STANDARD)).toEqual(STANDARD);
+      expect(pagesWith(d, "PENAWARAN HARGA")).toEqual([1]);
+      expect(pagesWith(d, "Kode")).toEqual([]);
+      expect(pagesWith(d, "Catatan 1")).toEqual([]);
+      // The code still sits under the item name.
+      expect(xOf(d, "C0")).toBe(xOf(d, "Item nomor 1"));
+    }
+  });
+
+  it("prints the template's columns in its order and headings, its title and its text", () => {
+    const d = pdfFor(2, {}, {
+      columns: [
+        { key: "no", label: "No." }, { key: "name", label: "Uraian" }, { key: "qty", label: "Volume" },
+        { key: "price", label: "Harga Rp" }, { key: "code", label: "Kd" }, { key: "notes", label: "Spesifikasi" },
+      ],
+      title: "Surat Penawaran Tender",
+      opening: "Dengan hormat, bersama ini kami sampaikan penawaran.",
+      closing: "Demikian penawaran ini kami sampaikan.",
+    });
+    expect(order(d, ["Kd", "Spesifikasi", "Harga Rp", "Volume", "No.", "Uraian"])).toEqual(
+      ["No.", "Uraian", "Volume", "Harga Rp", "Kd", "Spesifikasi"],
+    );
+    expect(pagesWith(d, "SURAT PENAWARAN TENDER")).toEqual([1]);
+    expect(pagesWith(d, "PENAWARAN HARGA")).toEqual([]);
+    expect(pagesWith(d, "Dengan hormat, bersama ini kami sampaikan penawaran.")).toEqual([1]);
+    expect(pagesWith(d, "Demikian penawaran ini kami sampaikan.")).toEqual([1]);
+    expect(pagesWith(d, "Catatan 1")).toEqual([1]);
+    for (const gone of ["Qty", "Item", "Satuan"]) expect(pagesWith(d, gone), gone).toEqual([]);
+    // Totals block stays (showTotals absent); hideQty still wins over the template.
+    expect(pagesWith(d, "Subtotal per bulan")).toEqual([1]);
+    const plain = pdfFor(2, { hideQty: true }, { columns: [{ key: "name", label: "Uraian" }, { key: "qty", label: "Volume" }, { key: "price", label: "Harga" }] });
+    expect(pagesWith(plain, "Volume")).toEqual([]);
+    expect(pagesWith(plain, "Subtotal per bulan")).toEqual([]);
+  });
+
+  it("wraps a long tender title on the right half, above the client block", () => {
+    const title = "Surat Penawaran Harga Pengadaan Alat Tulis Kantor Tahun Anggaran 2027 Kantor Pusat";
+    const d = pdfFor(1, {}, { title });
+    expect(pagesWith(d, title.toUpperCase())).toEqual([]);
+    const ops = (d.internal as unknown as { pages: (string[] | undefined)[] }).pages[1]!;
+    const lines = ops.filter((o) => /\((SURAT|[A-Z0-9 ]*PUSAT)/.test(o));
+    expect(lines.length).toBeGreaterThan(1);
+    const W = d.internal.pageSize.getWidth();
+    const at = (o: string) => /([\d.]+) (-?[\d.]+) Td/.exec(o)!.slice(1).map(Number);
+    for (const o of lines) expect(at(o)[0], o).toBeGreaterThan(W / 2 - 5);
+    // PDF y grows upwards: the client block starts below the last title line.
+    const lowestTitle = Math.min(...lines.map((o) => at(o)[1]));
+    expect(bottomOffset(d, "Kepada")).toBeLessThan(lowestTitle - 10);
   });
 });

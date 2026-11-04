@@ -3,15 +3,16 @@
 
 import * as XLSX from "xlsx";
 import { SCENARIOS } from "@shared/engine";
-import { shownCode } from "@shared/pendingItems";
 import { paymentLabel, warrantyLabel } from "@shared/terms";
 import { heldNote, holdInfo, offeredRows } from "@shared/holds";
-import { docColumns } from "@shared/docColumns";
-import type { Assumptions, EngineResult, QuoteMeta, ScenarioIndex } from "@shared/types";
+import { DOC_COLUMN_LABELS, docCell, docLayout } from "@shared/docColumns";
+import type { Assumptions, DocColumnKey, DocTemplate, EngineResult, QuoteMeta, ScenarioIndex } from "@shared/types";
 
 interface Input {
   engine: EngineResult;
   meta: QuoteMeta;
+  /** The client's document template for the "Penawaran" sheet (shared/docColumns.ts). */
+  template?: DocTemplate | null;
   assumptions: Assumptions;
   scenario: ScenarioIndex;
   number: string;
@@ -37,59 +38,61 @@ export function quoteWorkbook(input: Input): XLSX.WorkBook {
   const wb = XLSX.utils.book_new();
 
   /* Client-facing sheet */
-  const cols = docColumns(meta);
-  const quoteRows: Record<string, unknown>[] = offeredRows(engine.rows).map((r) => ({
-    No: r.lineNo,
-    Kode: shownCode(r.code),
-    Item: r.name,
-    Satuan: r.uom,
-    ...(cols.qty ? { Qty: r.qty } : {}),
-    "Harga satuan": Math.round(r.prices[scenario]),
-    ...(cols.lineTotal ? { "Total per bulan": Math.round(r.prices[scenario] * r.qty) } : {}),
-  }));
+  const layout = docLayout(meta, input.template, "sheet");
+  const quoteRows: Record<string, unknown>[] = offeredRows(engine.rows).map((r) =>
+    Object.fromEntries(layout.columns.map((c) => {
+      const v = docCell(c.key, r, r.prices[scenario]);
+      return [c.label, c.key === "price" || c.key === "total" ? Math.round(v as number) : v];
+    })),
+  );
+  // The totals and footer rows go under the columns, found by key, so a
+  // template's headings carry them. Terms sit under the price when a template
+  // has no Satuan; totals without a total column get one, as with hideLineTotal.
+  const at = (key: DocColumnKey) => layout.columns.find((c) => c.key === key)?.label;
+  const L = {
+    item: at("name") ?? DOC_COLUMN_LABELS.name,
+    uom: at("uom") ?? at("price") ?? DOC_COLUMN_LABELS.uom,
+    price: at("price") ?? DOC_COLUMN_LABELS.price,
+    total: at("total") ?? DOC_COLUMN_LABELS.total,
+  };
   const s = engine.scen[scenario];
   quoteRows.push(
-    ...(cols.totals
+    ...(layout.totals
       ? [
-          {} as never,
-          { Item: "Subtotal per bulan", "Total per bulan": Math.round(s.revenue) } as never,
-          {
-            Item: `PPN ${(assumptions.ppn * 100).toFixed(0)}%`,
-            "Total per bulan": Math.round(s.revenue * assumptions.ppn),
-          } as never,
-          {
-            Item: "Total per bulan termasuk PPN",
-            "Total per bulan": Math.round(s.revenue * (1 + assumptions.ppn)),
-          } as never,
-          {
-            Item: `Nilai kontrak ${assumptions.months} bulan (belum PPN)`,
-            "Total per bulan": Math.round(s.annual),
-          } as never,
+          {},
+          { [L.item]: "Subtotal per bulan", [L.total]: Math.round(s.revenue) },
+          { [L.item]: `PPN ${(assumptions.ppn * 100).toFixed(0)}%`, [L.total]: Math.round(s.revenue * assumptions.ppn) },
+          { [L.item]: "Total per bulan termasuk PPN", [L.total]: Math.round(s.revenue * (1 + assumptions.ppn)) },
+          { [L.item]: `Nilai kontrak ${assumptions.months} bulan (belum PPN)`, [L.total]: Math.round(s.annual) },
         ]
       : []),
-    {} as never,
-    ...(heldNote(engine.rows) ? [{ Item: "Item menyusul", Satuan: heldNote(engine.rows) } as never] : []),
-    { Item: "Term of payment", Satuan: paymentLabel(meta) || "—" } as never,
-    { Item: "Garansi", Satuan: warrantyLabel(meta) || "—" } as never,
-    { Item: "Masa berlaku penawaran", Satuan: `${meta.validity} hari` } as never,
-    {} as never,
-    { Item: "Hormat kami,", "Harga satuan": "Disetujui oleh," } as never,
-    { Item: "PT Salvator Inti Pratama", "Harga satuan": clientName } as never,
-    {} as never,
-    {} as never,
-    {} as never,
-    { Item: `(${meta.preparedBy || "Nama"})`, "Harga satuan": "Nama & jabatan: ______________" } as never,
-    { "Harga satuan": "Tanggal: ______________" } as never,
+    {},
+    ...(heldNote(engine.rows) ? [{ [L.item]: "Item menyusul", [L.uom]: heldNote(engine.rows) }] : []),
+    { [L.item]: "Term of payment", [L.uom]: paymentLabel(meta) || "—" },
+    { [L.item]: "Garansi", [L.uom]: warrantyLabel(meta) || "—" },
+    { [L.item]: "Masa berlaku penawaran", [L.uom]: `${meta.validity} hari` },
+    ...(layout.closing ? [{}, { [L.item]: layout.closing }] : []),
+    {},
+    { [L.item]: "Hormat kami,", [L.price]: "Disetujui oleh," },
+    { [L.item]: "PT Salvator Inti Pratama", [L.price]: clientName },
+    {},
+    {},
+    {},
+    { [L.item]: `(${meta.preparedBy || "Nama"})`, [L.price]: "Nama & jabatan: ______________" },
+    { [L.price]: "Tanggal: ______________" },
   );
-  const quoteSheet = XLSX.utils.json_to_sheet(quoteRows);
-  // Hidden columns are absent, not blank, so the letters after "Satuan" shift left.
-  quoteSheet["!cols"] = [
-    { wch: 5 }, { wch: 14 }, { wch: 46 }, { wch: 8 },
-    ...(cols.qty ? [{ wch: 10 }] : []),
-    { wch: 14 },
-    ...(cols.lineTotal || cols.totals ? [{ wch: 16 }] : []),
-  ];
-  applyFormat(quoteSheet, cols.qty ? { E: money, F: money, G: money } : { E: money, F: money });
+  // A template's title and opening text go above the table; the standard sheet starts with the header row.
+  const headerRow = input.template ? (layout.opening ? 3 : 2) : 0;
+  const quoteSheet = XLSX.utils.aoa_to_sheet(input.template ? [[layout.title], ...(layout.opening ? [[layout.opening]] : [])] : []);
+  XLSX.utils.sheet_add_json(quoteSheet, quoteRows, { origin: { r: headerRow, c: 0 } });
+  // Hidden columns are absent, not blank, so the letters shift left: widths and formats follow the header row.
+  const WIDTH: Record<DocColumnKey, number> = { no: 5, code: 14, name: 46, uom: 8, qty: 10, price: 14, total: 16, notes: 30 };
+  const heads = (XLSX.utils.sheet_to_json(quoteSheet, { header: 1, range: headerRow })[0] ?? []) as string[];
+  quoteSheet["!cols"] = heads.map((h) => ({ wch: WIDTH[layout.columns.find((c) => c.label === h)?.key ?? "total"] }));
+  const moneyHeads = new Set([at("qty"), at("price"), L.total]);
+  applyFormat(quoteSheet, Object.fromEntries(
+    heads.flatMap((h, i) => (moneyHeads.has(h) ? [[XLSX.utils.encode_col(i), money]] : [])),
+  ));
   XLSX.utils.book_append_sheet(wb, quoteSheet, "Penawaran");
 
   /* Internal analysis */

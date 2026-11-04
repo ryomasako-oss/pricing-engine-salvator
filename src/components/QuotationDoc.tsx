@@ -4,10 +4,15 @@
 
 import { SCENARIOS } from "@shared/engine";
 import { fmtDate, grp, pct, rp } from "@shared/format";
-import type { Assumptions, EngineResult, QuoteMeta, ScenarioIndex } from "@shared/types";
+import type { Assumptions, ComputedRow, DocColumnKey, DocTemplate, EngineResult, QuoteMeta, ScenarioIndex } from "@shared/types";
 import { paymentLabel, warrantyLabel } from "@shared/terms";
 import { heldNote, offeredRows } from "@shared/holds";
-import { docColumns } from "@shared/docColumns";
+import { docCell, docLayout } from "@shared/docColumns";
+
+/** Cell alignment per column, by key so a client template can reorder them. */
+const ALIGN: Record<DocColumnKey, string> = {
+  no: "c", code: "l", name: "l", uom: "c", qty: "num", price: "num", total: "num", notes: "l",
+};
 
 export interface CompanyInfo {
   name: string;
@@ -29,6 +34,8 @@ interface Props {
   company: CompanyInfo;
   clientName: string;
   clientAddress?: string;
+  /** The client's document template (shared/docColumns.ts); absent shows the standard document. */
+  template?: DocTemplate | null;
   number: string;
   showInternal?: boolean;
   draft?: boolean;
@@ -42,11 +49,18 @@ export function QuotationDoc({
   company,
   clientName,
   clientAddress,
+  template,
   number,
   showInternal = true,
   draft,
 }: Props) {
-  const cols = docColumns(meta);
+  const layout = docLayout(meta, template, "print");
+  const cell = (key: DocColumnKey, r: ComputedRow) => {
+    if (key === "name") return <>{r.name}{layout.codeUnderName && r.code && <div className="muted small">{r.code}</div>}</>;
+    if (key === "price") return <strong>{grp(r.prices[scenario])}</strong>;
+    const v = docCell(key, r, r.prices[scenario]);
+    return typeof v === "number" && key !== "no" ? grp(v) : v;
+  };
   const s = engine.scen[scenario];
   const sc = SCENARIOS[scenario];
   const ppn = s.revenue * assumptions.ppn;
@@ -75,7 +89,7 @@ export function QuotationDoc({
           )}
         </div>
         <div>
-          <div className="quote-title">Penawaran Harga</div>
+          <div className="quote-title">{layout.title}</div>
           {draft && (
             <div className="small right" style={{ color: "#B42318", fontWeight: 600 }}>
               Draft — belum disetujui
@@ -118,39 +132,28 @@ export function QuotationDoc({
         )}
       </div>
 
+      {layout.opening && <p className="small" style={{ whiteSpace: "pre-line" }}>{layout.opening}</p>}
+
       <div className="table-wrap">
         <table className="table">
           <thead>
             <tr>
-              <th>No</th>
-              <th className="l">Item</th>
-              <th>Satuan</th>
-              {cols.qty && <th>Qty</th>}
-              <th>Harga satuan</th>
-              {cols.lineTotal && <th>Total per bulan</th>}
+              {layout.columns.map((c) => (
+                <th key={c.key} className={ALIGN[c.key] === "l" ? "l" : undefined}>{c.label}</th>
+              ))}
             </tr>
           </thead>
           <tbody>
             {offeredRows(engine.rows).map((r) => (
               <tr key={r.id}>
-                <td className="c">{r.lineNo}</td>
-                <td className="l">
-                  {r.name}
-                  {r.code && <div className="muted small">{r.code}</div>}
-                </td>
-                <td className="c">{r.uom}</td>
-                {cols.qty && <td className="num">{grp(r.qty)}</td>}
-                <td className="num">
-                  <strong>{grp(r.prices[scenario])}</strong>
-                </td>
-                {cols.lineTotal && <td className="num">{grp(r.prices[scenario] * r.qty)}</td>}
+                {layout.columns.map((c) => <td key={c.key} className={ALIGN[c.key]}>{cell(c.key, r)}</td>)}
               </tr>
             ))}
           </tbody>
         </table>
       </div>
 
-      {cols.totals && (
+      {layout.totals && (
       <div className="quote-totals">
         <div>
           <span>Subtotal per bulan</span>
@@ -179,6 +182,7 @@ export function QuotationDoc({
       </p>
       {meta.notes && <p className="small">{meta.notes}</p>}
       {heldNote(engine.rows) && <p className="small"><strong>Item menyusul:</strong> {heldNote(engine.rows)}</p>}
+      {layout.closing && <p className="small" style={{ whiteSpace: "pre-line" }}>{layout.closing}</p>}
 
       {/* Meeting 2026-10-05: room for a wet or digital signature on both sides. */}
       <div className="quote-sign">

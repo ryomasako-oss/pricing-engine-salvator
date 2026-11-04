@@ -487,7 +487,7 @@ export function QuoteEditorPage() {
 
   const exportInput = {
     engine, meta: snapshot.meta, assumptions: snapshot.assumptions, scenario,
-    number: quote.number, title: quote.title, clientName,
+    number: quote.number, title: quote.title, clientName, template: clientRecord?.doc_template,
   };
 
   return (
@@ -825,6 +825,7 @@ export function QuoteEditorPage() {
                       company={company}
                       clientName={clientName}
                       clientAddress={clientRecord?.address}
+                      template={clientRecord?.doc_template}
                       number={quote.number}
                       draft={quote.status !== "approved" && quote.status !== "sent" && quote.status !== "won" && quote.status !== "completed"}
                     />
