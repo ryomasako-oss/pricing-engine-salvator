@@ -43,6 +43,8 @@ export interface Bindings {
   ACCURATE_RECEIPTS_ENABLED?: string;
   /** Sales invoices → accurate_sales_lines (accurate/sales.ts). Off unless "true". */
   ACCURATE_SALES_ENABLED?: string;
+  /** Secret: recap recipients, comma-separated (accurateRecap.ts recapRecipients). Unset: managers and admins. */
+  ACCURATE_RECAP_TO?: string;
   /** First pass only: receipts dated on or after this day, YYYY-MM-DD (default: one year back). */
   ACCURATE_RECEIPTS_SINCE?: string;
   ACCURATE_RECEIPTS_PAGE_SIZE?: string;

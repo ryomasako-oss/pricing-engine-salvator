@@ -22,6 +22,19 @@ import { currentPolicy } from "./quoteService";
 import type { Bindings } from "./env";
 
 const LAST_KEY = "accurate_recap_last";
+
+/**
+ * ACCURATE_RECAP_TO (a Worker secret, so personal addresses stay out of git): who gets the recap,
+ * comma-separated, instead of every active manager and admin (Ryoma, 2026-11-04). It may name people
+ * without an account. Entries that aren't an address are dropped; unset or empty, the users decide.
+ */
+export function recapRecipients(raw: string | undefined): string[] {
+  const out: string[] = [];
+  for (const e of (raw ?? "").split(",").map((x) => x.trim().toLowerCase())) {
+    if (/^[^\s@,<>]+@[^\s@,<>]+\.[^\s@,<>]+$/.test(e) && !out.includes(e)) out.push(e);
+  }
+  return out.slice(0, MAX_RECIPIENTS);
+}
 /** Highest accurate_sales_lines.synced_at already reported under "dijual di bawah modal". */
 const BELOW_COST_KEY = "sales_below_cost_cursor";
 const wibDate = (now: Date) => new Date(now.getTime() + 7 * 3_600_000).toISOString().slice(0, 10);
@@ -111,11 +124,14 @@ export async function runAccurateRecap(
   const error = narrative ? undefined : String(reply.body.error ?? `Silvy ${reply.status}`);
 
   const mail = recapEmail(recap, narrative, opts.link);
-  const recipients = await all<{ email: string }>(
-    db,
-    `SELECT email FROM users WHERE role IN ('manager', 'admin') AND active = 1 AND email <> ''
-      ORDER BY role DESC, id LIMIT ${MAX_RECIPIENTS}`,
-  );
+  const listed = recapRecipients(env.ACCURATE_RECAP_TO);
+  const recipients = listed.length
+    ? listed.map((email) => ({ email }))
+    : await all<{ email: string }>(
+        db,
+        `SELECT email FROM users WHERE role IN ('manager', 'admin') AND active = 1 AND email <> ''
+          ORDER BY role DESC, id LIMIT ${MAX_RECIPIENTS}`,
+      );
   if (recipients.length) await opts.send(recipients.map((r) => r.email).join(", "), mail.subject, mail.html);
   await audit(db, null, "accurate", 0, "recap_sent", {
     date: today,
