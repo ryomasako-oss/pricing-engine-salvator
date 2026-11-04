@@ -2,6 +2,12 @@ name = "halokantor-pricing"
 compatibility_date = "2025-01-01"
 main = "server/worker/index.ts"
 
+# Run next to Google Cloud Singapore (2026-11-04). OCR and the Home chat call Gemini
+# from the Worker, and Gemini refuses some Cloudflare locations ("User location is
+# not supported for the API use", 400). Silvy already runs in gcp:asia-southeast1.
+[placement]
+region = "gcp:asia-southeast1"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "halokantor-pricing"
