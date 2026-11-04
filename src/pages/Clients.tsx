@@ -11,6 +11,7 @@ const EMPTY = {
   name: "", code: "", address: "", contact_name: "", contact_email: "",
   contact_phone: "", payment_terms: "30 hari setelah invoice",
   delivery_terms: "Franco Jakarta, jadwal mingguan",
+  accurate_customer_no: "",
 };
 
 /** Labels, and which of them a *new* client cannot go without (shared/clients.ts). */
@@ -20,6 +21,7 @@ const FIELDS: [keyof typeof EMPTY, string][] = [
   ["contact_phone", "No. HP"],
   ["contact_email", "Email"],
   ["code", "Kode klien"],
+  ["accurate_customer_no", "No. customer Accurate (C.xxxxx)"],
   ["payment_terms", "Termin pembayaran"],
   ["delivery_terms", "Ketentuan pengiriman"],
 ];

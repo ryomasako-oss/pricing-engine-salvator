@@ -251,6 +251,8 @@ export interface Client {
   contact_phone: string;
   payment_terms: string;
   delivery_terms: string;
+  /** Accurate customerNo (e.g. C.00030), "" when not linked. */
+  accurate_customer_no: string;
   created_at: string;
 }
 
@@ -302,6 +304,11 @@ export interface CatalogItem {
   image?: string | null;
   /** Why this item must not be sold right now, or null. Set by the API. */
   cogs_problem?: string | null;
+  /**
+   * The last sales invoice price per base unit, before PPN, for the default ceiling of a client's
+   * list (POST /catalog/match only): to that client if it has one, otherwise to any client.
+   */
+  last_sale?: { price: number; invoiceNo: string; date: string; ownClient: boolean } | null;
 }
 
 export interface UnitFactor {

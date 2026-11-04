@@ -27,6 +27,7 @@ import {
 import { cogsProblemsFor } from "../quoteService";
 import { sweepPending } from "./pendingItems";
 import { catalogEntity } from "../accurate/sync";
+import { lastSales, salesEnabled } from "../accurate/sales";
 import { canSeeCosts, catalogItemsForViewer, problemsForViewer } from "../../staffView";
 import { cleanUnits, type ItemUnits } from "../../../shared/uom";
 import { chunks } from "../../sqlParams";
@@ -181,7 +182,13 @@ catalogRouter.post("/match", async (c) => {
   const codes = referenced.map((i) => i.code);
   const body = matchResponse(results, referenced, await unitsByCode(c.env.DB, codes));
   const role = c.get("user")!.role;
-  return c.json({ ...body, items: catalogItemsForViewer(role, withProblems(body.items, await cogsProblemsFor(c.env.DB, codes))) });
+  // The price the client last paid is the default ceiling (accurate/sales.ts lastSales).
+  const sales = salesEnabled(c.env)
+    ? await lastSales(c.env.DB, catalogEntity(c.env), referenced, (await get<{ no: string }>(
+        c.env.DB, "SELECT accurate_customer_no AS no FROM clients WHERE id = ?", parsed.data.client_id ?? 0))?.no ?? "")
+    : new Map();
+  const items = body.items.map((i) => ({ ...i, last_sale: sales.get(i.code) ?? null }));
+  return c.json({ ...body, items: catalogItemsForViewer(role, withProblems(items, await cogsProblemsFor(c.env.DB, codes))) });
 });
 
 /** Which of these codes have a COGS that must not be sold on (shared/cogsCheck.ts). */

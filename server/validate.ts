@@ -116,6 +116,8 @@ export const clientSchema = z.object({
   contact_phone: z.string().max(64).default(""),
   payment_terms: z.string().max(200).default(""),
   delivery_terms: z.string().max(200).default(""),
+  /** Accurate customerNo (e.g. C.00030): the price this client last paid comes from its invoices. */
+  accurate_customer_no: z.string().trim().max(32).default(""),
 });
 
 export const catalogRowSchema = z.object({

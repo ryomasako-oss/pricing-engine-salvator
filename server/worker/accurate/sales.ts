@@ -15,7 +15,7 @@
 
 import { all, get, run } from "../../db.d1";
 import type { ReceiptLine } from "../../../shared/lastPurchaseCost";
-import { findBelowCost, type BelowCostResult, type CatalogFacts, type SalesLine } from "../../../shared/salesBelowCost";
+import { findBelowCost, netPerBaseUnit, type BelowCostResult, type CatalogFacts, type SalesLine } from "../../../shared/salesBelowCost";
 import { parseUnits } from "./purchaseCost";
 import { SALES_LIST_FIELDS, mapSalesInvoice, mapSalesLines } from "./mapping";
 import { docStep, receiptConfig, type DocKind, type ReceiptState } from "./receipts";
@@ -128,4 +128,55 @@ export async function salesBelowCostSince(
     if (!next || r.synced_at > next) next = r.synced_at;
   }
   return { result: findBelowCost(sales, receipts, catalog), cursor: next };
+}
+
+export type LastSale = { price: number; invoiceNo: string; date: string; ownClient: boolean };
+
+/**
+ * Default ceiling of a client's list (Ryoma, 2026-11-04): the net price per base unit on the latest
+ * invoice of the last 12 months, to this client (customerNo) if it bought the item, otherwise to
+ * anyone. A price under the item's current COGS is passed over, so a past loss doesn't pin the new
+ * quote below cost too. Only for items whose catalog unit is Accurate's base unit, as for COGS.
+ */
+export async function lastSales(
+  db: D1Database,
+  entity: EntityKey,
+  items: { code: string; uom: string; cogs: number }[],
+  customerNo: string,
+  now = new Date(),
+): Promise<Map<string, LastSale>> {
+  const out = new Map<string, LastSale>();
+  if (!items.length) return out;
+  const since = new Date(now.getTime() - 365 * 86_400_000).toISOString().slice(0, 10);
+  const rows = await all<SalesRow & { customer_no: string; accurate_uom: string }>(
+    db,
+    `SELECT s.invoice_no, s.trans_date, s.customer_no, s.item_code, s.unit_ratio, s.quantity, s.return_qty, s.sales_amount,
+            s.inclusive_tax, s.tax_rate, s.cash_discount, s.sub_total, COALESCE(NULLIF(i.uom, ''), 'Pcs') AS accurate_uom
+       FROM accurate_sales_lines s
+       JOIN accurate_items i ON i.entity = ?1 AND i.code = s.item_code
+      WHERE s.entity = ?1 AND s.trans_date >= ?2 AND s.item_code IN (SELECT value FROM json_each(?3))
+      ORDER BY s.trans_date DESC, s.invoice_id DESC, s.line_id DESC`,
+    entity,
+    since,
+    JSON.stringify(items.map((i) => i.code)),
+  );
+  const byCode = new Map(items.map((i) => [i.code, i]));
+  const anyClient = new Map<string, LastSale>();
+  for (const r of rows) {
+    const item = byCode.get(r.item_code);
+    if (!item || r.accurate_uom.trim().toLowerCase() !== item.uom.trim().toLowerCase()) continue;
+    const own = !!customerNo && r.customer_no === customerNo;
+    if (out.has(r.item_code) || (!own && anyClient.has(r.item_code))) continue;
+    const net = netPerBaseUnit({
+      invoiceNo: r.invoice_no, transDate: r.trans_date, customerName: "", itemCode: r.item_code, unit: "", unitRatio: r.unit_ratio,
+      quantity: r.quantity, returnQty: r.return_qty, salesAmount: r.sales_amount, inclusiveTax: r.inclusive_tax === 1,
+      taxRate: r.tax_rate, cashDiscount: r.cash_discount, subTotal: r.sub_total,
+    });
+    if (net === null || net <= 0 || (item.cogs > 0 && net < item.cogs)) continue;
+    const sale = { price: Math.round(net * 100) / 100, invoiceNo: r.invoice_no, date: r.trans_date, ownClient: own };
+    if (own) out.set(r.item_code, sale);
+    else anyClient.set(r.item_code, sale);
+  }
+  for (const [code, sale] of anyClient) if (!out.has(code)) out.set(code, sale);
+  return out;
 }
