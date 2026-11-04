@@ -63,3 +63,20 @@ describe("Silvy per-item margin (Ryoma, 2026-11-04)", () => {
     expect(sanitizeActions([{ type: "item", no: 1, field: "margin", value: 0.95 }, { type: "item", no: 1, field: "margin", value: -0.1 }])).toEqual([]);
   });
 });
+
+describe("Silvy per-item margin and the ceiling's source", () => {
+  const one = (over: Record<string, unknown>) =>
+    ({ ...snapshot, assumptions: { ...DEFAULT_ASSUMPTIONS, opex: 0, includeLogistics: false, step: 50 },
+       items: [{ id: "1", lineNo: 1, code: "B", name: "Gunting", uom: "Pcs", qty: 1, cogs: 7850, rrp: 10000, role: "CORE", ...over }] }) as unknown as QuoteSnapshot;
+
+  it("passes a default ceiling to reach the margin", () => {
+    const { snapshot: next, labels } = applyActions([{ type: "item", no: 1, field: "margin", value: 0.3 }] as never, one({ rrpDefault: true }));
+    expect(next.items[0].manualPrice).toEqual([11250, null, null]);
+    expect(labels[0]).not.toContain("mentok");
+  });
+
+  it("a ceiling Silvy sets is the client's from then on", () => {
+    const { snapshot: next } = applyActions([{ type: "item", no: 1, field: "rrp", value: 12000 }] as never, one({ rrpDefault: true }));
+    expect(next.items[0].rrpDefault).toBe(false);
+  });
+});

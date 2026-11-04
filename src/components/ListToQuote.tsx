@@ -310,7 +310,7 @@ export function ListToQuote({
         // (no code, so the server does not hold it); without one it waits for Accurate.
         const p = Math.round(Number(item.list_price) || 0);
         return p > 0
-          ? { ...line, code: "", rrp: p, manualPrice: [p, p, p] }
+          ? { ...line, code: "", rrp: p, rrpDefault: false, manualPrice: [p, p, p] }
           : { ...line, held: true, holdReason: "new_item" as const };
       }
       // A catalog item with a bad COGS goes on the quote held (server/cogsCheck.ts):

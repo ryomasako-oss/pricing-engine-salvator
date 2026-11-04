@@ -27,7 +27,8 @@ const stored: QuoteItem = {
 describe("mergeStaffItems", () => {
   it("keeps the stored cost, role and manual price; takes qty, ceiling and notes", () => {
     const r = mergeStaffItems([stored], [{ id: "a", code: "PEN", name: "x", qty: 4, rrp: 2800, notes: "n" }], catalog);
-    expect(r).toEqual({ items: [{ ...stored, qty: 4, rrp: 2800, notes: "n" }] });
+    // A ceiling the rep typed is the client's: a margin target may not pass it (rrpDefault false).
+    expect(r).toEqual({ items: [{ ...stored, qty: 4, rrp: 2800, rrpDefault: false, notes: "n" }] });
   });
 
   it("keeps the stored ceiling when a rep sends rrp 0 for an existing line", () => {

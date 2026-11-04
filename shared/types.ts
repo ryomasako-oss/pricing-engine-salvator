@@ -65,6 +65,12 @@ export interface QuoteItem {
   /** True when COGS was estimated rather than sourced from inventory. */
   estCogs?: boolean;
   /**
+   * The ceiling is the system's default (last sales invoice, catalog price, COGS x 1,4), not a price
+   * the client stated, so a margin target may price above it (Ryoma, 2026-11-04). Any RRP a person
+   * sets clears it. Absent: treated as the client's ceiling, as every quote before this was.
+   */
+  rrpDefault?: boolean;
+  /**
    * Manual price override per scenario. A non-null entry wins over the
    * engine's computed price for that scenario, but is still clamped to RRP.
    */

@@ -48,6 +48,12 @@ export const SCENARIOS = [
   },
 ];
 
+/** The price that gives `landed` this margin, rounded up to `step` the way the engine rounds. */
+export function priceForMargin(landed: number, margin: number, step: number): number {
+  const s = Math.max(1, finite(step, 1) || 1);
+  return Math.ceil(clean(finite(landed) / (1 - Math.min(0.999, finite(margin))) / s)) * s;
+}
+
 export const DEFAULT_ASSUMPTIONS: Assumptions = {
   opex: 0.08,
   targetMargin: 0.25,

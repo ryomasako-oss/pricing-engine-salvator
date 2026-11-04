@@ -359,6 +359,12 @@ export function matchLines<T extends MatchableItem>(
   return lines.map((line, i) => matchLine(line, i, idx, aliases, rejected));
 }
 
+/** A ceiling the client stated: it caps the line, and a margin target may not pass it. */
+const clientCeiling = (line: QuoteItem, rrp: number): QuoteItem => {
+  const { rrpDefault: _default, ...rest } = line;
+  return { ...rest, rrp };
+};
+
 /**
  * The quote line for a catalog item: built in the item's base unit with the
  * catalog's COGS and list price, then converted to the requested unit with
@@ -392,8 +398,10 @@ export function lineFromCatalog(
     // list price: a missing number is 0, never NaN (which reaches the server
     // as null and fails validation).
     cogs: Math.round(Number(item.cogs) || 0),
-    // The price the client last paid (a sales invoice), else the master's list price.
+    // The price the client last paid (a sales invoice), else the master's list price. Not the
+    // client's own ceiling, so a margin target may go above it (rrpDefault).
     rrp: Math.round(Number(item.last_sale?.price) || Number(item.list_price) || (Number(item.cogs) || 0) * 1.4),
+    rrpDefault: true,
     role: "CORE",
     estCogs: !(item.cogs > 0),
     // Where the cost came from, so a draft can follow a corrected catalog (server/cogsCheck.ts).
@@ -406,11 +414,12 @@ export function lineFromCatalog(
   const factor = to ? unitFactor({ baseUom, units: item.units ?? [] }, to) : undefined;
   // No ratio for the client's unit: it counts as one base unit (Ryoma, 2026-11-04). The rep confirms it
   // in the review (unitAssumed in shared/uom.ts), so 1 PAK of 12 never goes out as 1 PCS unseen.
-  if (opts.toBase && to && !factor) return opts.rrp && opts.rrp > 0 ? { ...base, rrp: Math.round(opts.rrp) } : base;
+  if (opts.toBase && to && !factor) return opts.rrp && opts.rrp > 0 ? clientCeiling(base, Math.round(opts.rrp)) : base;
   if (opts.toBase && factor) {
     // Floor: a ceiling rounded up per Pcs would add up to more than the client's price per Box.
-    return { ...base, qty: qty * factor, ...(opts.rrp && opts.rrp > 0 ? { rrp: Math.floor(opts.rrp / factor) } : {}) };
+    const line = { ...base, qty: qty * factor };
+    return opts.rrp && opts.rrp > 0 ? clientCeiling(line, Math.floor(opts.rrp / factor)) : line;
   }
   const line = to && !sameUom(to, baseUom) ? changeLineUom(base, to, { baseUom, units: item.units ?? [] }) : base;
-  return opts.rrp && opts.rrp > 0 ? { ...line, rrp: Math.round(opts.rrp) } : line;
+  return opts.rrp && opts.rrp > 0 ? clientCeiling(line, Math.round(opts.rrp)) : line;
 }

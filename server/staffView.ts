@@ -121,7 +121,7 @@ export function mergeStaffItems(
       const rrp = inLineUnits(line.rrp, line.valuesUom, next, units, !unitChanged);
       const price = inLineUnits(line.price, line.valuesUom, next, units, !unitChanged);
       // Same rule as a new line: a rep can't clear the ceiling (rrp 0 prices the line at Rp 0).
-      if (rrp != null && rrp > 0) next = { ...next, rrp: Math.round(rrp) };
+      if (rrp != null && rrp > 0) next = { ...next, rrp: Math.round(rrp), rrpDefault: false };
       if (price != null) next = withManualPrice(next, scenario, price);
     } else {
       const rows = catalog.get(normalizeCode(line.code)) ?? [];
@@ -133,7 +133,7 @@ export function mergeStaffItems(
       const units = { baseUom: cat.uom || "Pcs", units: cat.units ?? [] };
       const rrp = inLineUnits(line.rrp, line.valuesUom, next, units, true);
       const price = inLineUnits(line.price, line.valuesUom, next, units, true);
-      if (rrp != null && rrp > 0) next = { ...next, rrp: Math.round(rrp) };
+      if (rrp != null && rrp > 0) next = { ...next, rrp: Math.round(rrp), rrpDefault: false };
       if (price != null) next = withManualPrice(next, scenario, price);
     }
     out.push({ ...next, lineNo: i + 1 });

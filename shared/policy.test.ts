@@ -219,3 +219,10 @@ describe("held lines are left out of every policy check", () => {
     expect(evaluatePolicy(engine, 0, DEFAULT_POLICY)).toEqual(evaluatePolicy(empty, 0, DEFAULT_POLICY));
   });
 });
+
+describe("ABOVE_CEILING and a default ceiling (rrpDefault, Ryoma 2026-11-04)", () => {
+  it("does not fire above a ceiling the system filled in", () => {
+    const e = computeEngine(A(), [item({ cogs: 1000, rrp: 2000, rrpDefault: true, manualPrice: [2600, null, null] })], []);
+    expect(evaluatePolicy(e, 0, DEFAULT_POLICY).some((x) => x.code === "ABOVE_CEILING")).toBe(false);
+  });
+});
