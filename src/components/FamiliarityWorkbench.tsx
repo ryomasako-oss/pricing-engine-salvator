@@ -9,6 +9,7 @@
    ../familiarityApi.ts. */
 
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
@@ -424,6 +425,8 @@ function WorkbenchRow({
       : { text: "Sudah dibereskan", cls: "green" }
     : STATUS_LABEL[row.match.status];
   const now = currentPairing(row);
+  const { can } = useAuth();
+  const pairedCode = r?.code || now.candidate?.code;
   // Correcting: the pairing in place now is not an answer to offer.
   const offered = pillsFor(row, editing);
 
@@ -451,6 +454,12 @@ function WorkbenchRow({
               <button className="btn small ghost" onClick={onEdit} disabled={busy}>
                 Koreksi
               </button>
+              {/* New tab: the rows being worked on here stay as they are. */}
+              {can("view_costs") && pairedCode && (
+                <Link className="small" to={`/sales-history?q=${encodeURIComponent(pairedCode)}`} target="_blank">
+                  Riwayat SI ›
+                </Link>
+              )}
             </div>
             {error && <span className="notice error small">{error}</span>}
           </div>

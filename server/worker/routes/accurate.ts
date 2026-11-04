@@ -15,6 +15,7 @@ import { zodMessage } from "../../validate";
 import { AccurateClient } from "../accurate/client";
 import { ITEM_FIELDS, RECEIPT_LIST_FIELDS } from "../accurate/mapping";
 import { cogsHistory } from "../accurate/cogsHistory";
+import { salesHistory } from "../accurate/salesHistory";
 import { applyHeldCosts, applyPurchaseCosts } from "../accurate/purchaseCost";
 import { loadReceiptState, receiptsEnabled, wibTimestamp } from "../accurate/receipts";
 import { sweepPending } from "./pendingItems";
@@ -329,6 +330,17 @@ accurateRouter.get("/cogs-history", requirePermission("view_costs"), async (c) =
     await cogsHistory(c.env.DB, catalogEntity(c.env), {
       q: (c.req.query("q") ?? "").trim().slice(0, 100),
       onlyPending: c.req.query("pending") === "1",
+      page: Number.isInteger(page) && page > 0 ? page : 1,
+    }),
+  );
+});
+
+/** Riwayat penjualan (SI) per barang (read-only), for checking a match against what was sold. Gated like Riwayat COGS. */
+accurateRouter.get("/sales-history", requirePermission("view_costs"), async (c) => {
+  const page = Number(c.req.query("page"));
+  return c.json(
+    await salesHistory(c.env.DB, catalogEntity(c.env), {
+      q: (c.req.query("q") ?? "").trim().slice(0, 100),
       page: Number.isInteger(page) && page > 0 ? page : 1,
     }),
   );

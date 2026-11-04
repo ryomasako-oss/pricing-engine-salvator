@@ -18,6 +18,7 @@ import { ChatDock } from "./components/ChatDock";
 import { FixTasksPage } from "./pages/FixTasks";
 import { MatchingPage } from "./pages/Matching";
 import { CogsHistoryPage } from "./pages/CogsHistory";
+import { SalesHistoryPage } from "./pages/SalesHistory";
 import type { Approval } from "@shared/types";
 import type { Permission } from "@shared/permissions";
 
@@ -184,6 +185,14 @@ export function App() {
           element={
             <RequirePermission permission="view_costs">
               <CogsHistoryPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/sales-history"
+          element={
+            <RequirePermission permission="view_costs">
+              <SalesHistoryPage />
             </RequirePermission>
           }
         />

@@ -43,6 +43,12 @@ const seed = [
     ([code, name, uom, cogs, price]) =>
       `INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock, source) VALUES(${lit(code)}, ${lit(name)}, ${lit(uom)}, ${cogs}, ${price}, 10, 'e2e');`,
   ),
+  // Riwayat penjualan (SI): an item only e2e/sales-history.spec.ts reads, so no other spec's list or ceiling sees it.
+  `INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock, source) VALUES('ZQSI-1', 'ZQSI PELUMAS RANTAI', 'Btl', 9000, 12000, 10, 'e2e');`,
+  `INSERT INTO accurate_sales_lines(entity, invoice_id, line_id, invoice_no, trans_date, customer_no, customer_name, item_code,
+     detail_name, unit, unit_ratio, quantity, sales_amount, sub_total) VALUES
+   ('PT', 9001, 1, 'SI.2026.10.09001', '2026-10-20', 'C.09001', 'PT Zqsi Klien', 'ZQSI-1', 'zqsi oli rantai 800ml', 'BOX', 12, 2, 288000, 288000),
+   ('PT', 9002, 1, 'SI.2026.09.09002', '2026-09-02', 'C.09001', 'PT Zqsi Klien', 'ZQSI-1', 'ZQSI PELUMAS RANTAI', 'Btl', 1, 5, 62500, 62500);`,
   // As if a completed Accurate run had refreshed the stock (server/worker/accurate/stock.ts).
   `INSERT INTO settings(key, value) VALUES('accurate_stock_as_of', '2026-10-30T01:00:00.000Z');`,
 ].join("\n");

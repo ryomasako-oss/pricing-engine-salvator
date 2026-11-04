@@ -74,6 +74,9 @@ export function CogsHistoryPage() {
             menampilkan; untuk mengubah COGS pakai "COGS dari harga pembelian terakhir" di Katalog.
           </p>
         </div>
+        <Link className="btn small ghost" to="/sales-history">
+          <Icon name="search" size={13} /> Riwayat penjualan (SI)
+        </Link>
       </div>
 
       <div className="card">
