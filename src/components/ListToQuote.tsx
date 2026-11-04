@@ -93,6 +93,7 @@ export function ListToQuote({
   const toast = useToast();
   // Staff see the price the server will charge instead of COGS (PE-1).
   const seeCosts = useAuth().can("view_costs");
+  const skipReview = useAuth().can("skip_match_review");
   const [clientId, setClientId] = useState<number | "">(initial?.clientId ?? "");
   const [list, setList] = useState(clients);
   const [adding, setAdding] = useState(false);
@@ -354,7 +355,7 @@ export function ListToQuote({
     return r.request.uom ? !!unitAssumed(r.request.uom, item) : packUnitNeedsCheck(r.request.name, item);
   };
   const settled = (r: Row) => r.confirmed && (!unitCheck(r) || r.unitOk);
-  // Staff must confirm every match before the quote exists; a manager/admin (view_costs) may create it
+  // Staff must confirm every match before the quote exists; a manager/admin (skip_match_review) may create it
   // with some unconfirmed and fix them in the editor, where every line is editable.
   const pending = rows?.filter((r) => r.chosen != null && !settled(r)).length ?? 0;
   // Waiting for Accurate = a "barang baru" without a typed price; with one it is a manual line on the document.
@@ -455,7 +456,7 @@ export function ListToQuote({
           <>
             <span className="grow muted small">
               {used} item masuk{skipped ? ` · ${skipped} menyusul (belum ada di katalog; tetap tampil di quotation, dicatat di Perlu diperbaiki)` : ""}
-              {pending ? (seeCosts ? ` · ${pending} belum dicek (bisa diedit di quotation)` : ` · ${pending} perlu dicek dulu`) : ""}
+              {pending ? (skipReview ? ` · ${pending} belum dicek (bisa diedit di quotation)` : ` · ${pending} perlu dicek dulu`) : ""}
               {heldCount ? ` · ${heldCount} ditahan (COGS dicek manajer)` : ""}
             </span>
             {initial ? (
@@ -469,7 +470,7 @@ export function ListToQuote({
             <button className="btn" onClick={() => setSending(true)} disabled={busy || saving || sending}>
               <Icon name="send" size={14} /> Kirim ke PIC…
             </button>
-            <button className="btn primary" onClick={create} disabled={busy || saving || !rows?.length || (pending > 0 && !seeCosts) || !title.trim()}>
+            <button className="btn primary" onClick={create} disabled={busy || saving || !rows?.length || (pending > 0 && !skipReview) || !title.trim()}>
               {busy ? "Membuat…" : `Buat quotation (${used} item${skipped ? ` + ${skipped} menyusul` : ""})`}
             </button>
           </>
