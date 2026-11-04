@@ -362,3 +362,36 @@ describe("lineFromCatalog reads the unit from the client's wording", () => {
   });
 });
 
+
+describe("lineFromCatalog toBase: a client's line goes on the quote in Accurate's smallest unit", () => {
+  const boxed = item(9, "PB", "PULPEN BOX", { cogs: 2000, list_price: 3000, units: [{ uom: "Box", factor: 12 }] });
+  const artline = item(80801321, "80801321", "ARTLINE EK-660 HIGHLIGHTER GREEN", { cogs: 3750, list_price: 6000, units: [{ uom: "LSN", factor: 12 }] });
+
+  it("a unit from the list column: qty times the ratio, COGS per base unit, ceiling divided", () => {
+    expect(lineFromCatalog(boxed, 2, { uom: "box", rrp: 30000, toBase: true })).toMatchObject({ uom: "Pcs", qty: 24, cogs: 2000, rrp: 2500 });
+  });
+
+  it("a unit read from the wording", () => {
+    const line = lineFromCatalog(artline, 173, { rrp: 70680, requestName: "Artline Highlighter EK-660 Hijau ( isi 12/Lusin )", toBase: true });
+    expect(line).toMatchObject({ uom: "Pcs", qty: 2076, cogs: 3750, rrp: 5890 });
+    expect(line.priceUom).toBeUndefined();
+  });
+
+  it("the ceiling is floored, so qty x price never passes the client's price per Box", () => {
+    const line = lineFromCatalog(boxed, 1, { uom: "Box", rrp: 25000, toBase: true });
+    expect(line.rrp).toBe(2083);
+    expect(line.rrp * 12).toBeLessThanOrEqual(25000);
+  });
+
+  it("no client ceiling: the catalog list price per base unit stays", () => {
+    expect(lineFromCatalog(boxed, 2, { uom: "Box", toBase: true })).toMatchObject({ uom: "Pcs", qty: 24, rrp: 3000 });
+  });
+
+  it("an unknown ratio keeps the client's unit and qty, with the warning", () => {
+    expect(lineFromCatalog(boxed, 3, { uom: "Lusin", rrp: 9000, toBase: true })).toMatchObject({ uom: "Lusin", qty: 3, priceUom: "Pcs", rrp: 9000 });
+  });
+
+  it("already the base unit: unchanged", () => {
+    expect(lineFromCatalog(boxed, 5, { uom: "PCS", rrp: 2800, toBase: true })).toMatchObject({ uom: "Pcs", qty: 5, rrp: 2800 });
+  });
+});
