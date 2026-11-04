@@ -68,14 +68,20 @@ export function quotationPdf(input: Input): jsPDF {
   doc.setFont("helvetica", "bold");
   doc.setFontSize(15);
   doc.setTextColor(30, 37, 48);
-  doc.text(layout.title.toUpperCase(), W - M, 56, { align: "right" });
+  // A tender title can be long: wrapped on the right half so it never runs into the logo or off the page.
+  const titleLines = doc.splitTextToSize(layout.title.toUpperCase(), W / 2 - M) as string[];
+  titleLines.forEach((line, i) => doc.text(line, W - M, 56 + i * 17, { align: "right" }));
+  let titleBottom = 56 + (titleLines.length - 1) * 17;
   if (draft) {
     doc.setFontSize(9);
     doc.setTextColor(180, 35, 24);
-    doc.text("DRAFT — belum disetujui", W - M, 70, { align: "right" });
+    doc.text("DRAFT — belum disetujui", W - M, titleBottom + 14, { align: "right" });
+    titleBottom += 14;
   }
 
-  const top = headerBottom + 14 + companyLines.length * 11 + 14;
+  // Only a wrapped title can push the client block down; a one-line title leaves it where it always was.
+  const companyBottom = headerBottom + 14 + companyLines.length * 11 + 14;
+  const top = titleLines.length > 1 ? Math.max(companyBottom, titleBottom + 14) : companyBottom;
   doc.setDrawColor(220, 226, 232);
   doc.line(M, top, W - M, top);
 
@@ -121,7 +127,8 @@ export function quotationPdf(input: Input): jsPDF {
     qty: { halign: "right", cellWidth: 58 },
     price: { halign: "right", cellWidth: 76, fontStyle: "bold" },
     total: { halign: "right", cellWidth: 84 },
-    notes: { cellWidth: 110 },
+    // Auto width, shared with the item name, so a template using every column still leaves the name room.
+    notes: {},
   };
   const cell = (key: DocColumnKey, r: ComputedRow): string => {
     if (key === "name" && layout.codeUnderName && shownCode(r.code)) return `${r.name}\n${shownCode(r.code)}`;

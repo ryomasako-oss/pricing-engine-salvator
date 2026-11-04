@@ -176,4 +176,19 @@ describe("quotation PDF with a client document template", () => {
     expect(pagesWith(plain, "Volume")).toEqual([]);
     expect(pagesWith(plain, "Subtotal per bulan")).toEqual([]);
   });
+
+  it("wraps a long tender title on the right half, above the client block", () => {
+    const title = "Surat Penawaran Harga Pengadaan Alat Tulis Kantor Tahun Anggaran 2027 Kantor Pusat";
+    const d = pdfFor(1, {}, { title });
+    expect(pagesWith(d, title.toUpperCase())).toEqual([]);
+    const ops = (d.internal as unknown as { pages: (string[] | undefined)[] }).pages[1]!;
+    const lines = ops.filter((o) => /\((SURAT|[A-Z0-9 ]*PUSAT)/.test(o));
+    expect(lines.length).toBeGreaterThan(1);
+    const W = d.internal.pageSize.getWidth();
+    const at = (o: string) => /([\d.]+) (-?[\d.]+) Td/.exec(o)!.slice(1).map(Number);
+    for (const o of lines) expect(at(o)[0], o).toBeGreaterThan(W / 2 - 5);
+    // PDF y grows upwards: the client block starts below the last title line.
+    const lowestTitle = Math.min(...lines.map((o) => at(o)[1]));
+    expect(bottomOffset(d, "Kepada")).toBeLessThan(lowestTitle - 10);
+  });
 });
