@@ -7,7 +7,8 @@ import { api } from "../api";
 import { useToast } from "../context/ToastContext";
 import { Icon } from "./Icon";
 import { Rich } from "./Rich";
-import { pct, uid } from "@shared/format";
+import { computeEngine } from "@shared/engine";
+import { grp, pct, uid } from "@shared/format";
 import { isScenarioActionValue } from "@shared/silvyDocs";
 import type { Assumptions, QuoteSnapshot, ScenarioIndex } from "@shared/types";
 
@@ -69,6 +70,10 @@ function describe(action: AssistantAction, snapshot: QuoteSnapshot): string {
   }
   if (action.type === "item") {
     const item = snapshot.items.find((i) => i.lineNo === Number(action.no));
+    if (action.field === "margin") {
+      const v = Number(action.value);
+      return `${item?.name ?? `Baris ${action.no}`}: margin ${pct(v > 1 ? v / 100 : v)}`;
+    }
     return `${item?.name ?? `Baris ${action.no}`}: ${action.field} jadi ${action.value}`;
   }
   if (action.type === "scenario") return `Pakai skenario S${action.value}`;
@@ -416,6 +421,23 @@ export function applyActions(
         labels.push(`${item.name}: ${action.field} jadi ${v}`);
         (item as unknown as Record<string, number>)[String(action.field)] = v;
         if (action.field === "cogs") item.estCogs = false;
+      } else if (action.field === "margin") {
+        // One line's margin (Ryoma, 2026-11-04): its price in the chosen scenario becomes
+        // landed / (1 - margin), rounded up like the engine, never above the client's ceiling.
+        let m = Number(action.value);
+        if (!Number.isFinite(m)) continue;
+        if (m > 1) m = m / 100;
+        if (m < 0 || m >= 0.95) continue;
+        const landed = computeEngine(assumptions, items, snapshot.regions ?? []).rows[items.indexOf(item)]?.landed ?? 0;
+        if (!(landed > 0)) continue; // no COGS: no margin to price from
+        const step = Math.max(1, Number(assumptions.step) || 1);
+        const target = Math.ceil(landed / (1 - m) / step - 1e-9) * step;
+        const rrp = Math.round(Number(item.rrp) || 0);
+        const price = rrp > 0 ? Math.min(target, rrp) : target;
+        const manual = [...(item.manualPrice ?? [null, null, null])];
+        manual[scenario] = price;
+        item.manualPrice = manual;
+        labels.push(`${item.name}: margin ${pct(m)}, harga ${grp(price)}${price < target ? ` (mentok harga maksimal ${grp(rrp)})` : ""}`);
       }
     } else if (action.type === "scenario") {
       const v = Number(action.value);
