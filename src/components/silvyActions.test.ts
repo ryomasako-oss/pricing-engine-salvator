@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { sanitizeActions } from "../../agent-service/src/silvy/handlers";
 import { applyActions } from "./AssistantPanel";
-import { DEFAULT_ASSUMPTIONS } from "@shared/engine";
+import { DEFAULT_ASSUMPTIONS, computeEngine } from "@shared/engine";
 import type { QuoteSnapshot } from "@shared/types";
 
 const snapshot = {
@@ -78,5 +78,46 @@ describe("Silvy per-item margin and the ceiling's source", () => {
   it("a ceiling Silvy sets is the client's from then on", () => {
     const { snapshot: next } = applyActions([{ type: "item", no: 1, field: "rrp", value: 12000 }] as never, one({ rrpDefault: true }));
     expect(next.items[0].rrpDefault).toBe(false);
+  });
+});
+
+describe("Silvy margin actions: overall (S2) and every item (S1)", () => {
+  const quote = {
+    ...snapshot,
+    assumptions: { ...DEFAULT_ASSUMPTIONS, opex: 0.08, includeLogistics: false, step: 50 },
+    items: [
+      { id: "1", lineNo: 1, code: "A", name: "Kertas", uom: "Rim", qty: 5, cogs: 33784, rrp: 37838, role: "CORE" },
+      { id: "2", lineNo: 2, code: "B", name: "Lakban", uom: "Roll", qty: 18, cogs: 10000, rrp: 14000, role: "CORE", rrpDefault: true },
+      { id: "3", lineNo: 3, code: "C", name: "Cutter", uom: "Pcs", qty: 10, cogs: 1500, rrp: 2000, role: "CORE", rrpDefault: true },
+    ],
+  } as unknown as QuoteSnapshot;
+
+  it("overall 30% calibrates S2 and switches to it", () => {
+    const kept = sanitizeActions([{ type: "margin", scope: "overall", value: 0.3 }]);
+    expect(kept).toEqual([{ type: "margin", scope: "overall", value: 0.3 }]);
+    const { snapshot: next, labels } = applyActions(kept as never, quote);
+    expect(next.scenario).toBe(1);
+    expect(computeEngine(next.assumptions, next.items, []).scen[1].margin).toBeGreaterThanOrEqual(0.3);
+    expect(next.items[0].manualPrice?.[1]).toBe(37838); // the client's ceiling holds
+    expect(labels[0]).toMatch(/^S2 margin keseluruhan 30/);
+  });
+
+  it("every item 30% prices S1 from COGS and switches to it", () => {
+    const kept = sanitizeActions([{ type: "margin", scope: "items", value: 0.3 }]);
+    const { snapshot: next, labels } = applyActions(kept as never, quote);
+    expect(next.scenario).toBe(0);
+    const rows = computeEngine(next.assumptions, next.items, []).rows;
+    expect(rows[1].margins[0]).toBeGreaterThanOrEqual(0.3);
+    expect(rows[2].margins[0]).toBeGreaterThanOrEqual(0.3);
+    expect(next.items[0].manualPrice?.[0]).toBe(37838);
+    expect(labels[0]).toBe("S1 setiap barang margin 30,0%: 3 baris, 1 mentok di plafon klien");
+  });
+
+  it("the agent drops a margin action without a known scope or in range value", () => {
+    expect(sanitizeActions([
+      { type: "margin", scope: "all", value: 0.3 },
+      { type: "margin", scope: "overall", value: 0.95 },
+      { type: "margin", scope: "items", value: "30%" },
+    ])).toEqual([]);
   });
 });

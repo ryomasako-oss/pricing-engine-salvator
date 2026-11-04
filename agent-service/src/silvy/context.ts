@@ -171,7 +171,10 @@ Keluarkan HANYA JSON valid, tanpa teks lain dan tanpa backtick:
   {"type":"set","key":"step|months","value":50}
   {"type":"set","key":"includeLogistics","value":true}
   {"type":"item","no":3,"field":"qty|cogs|rrp|role","value":123}
-  {"type":"item","no":3,"field":"margin","value":0.3}   (margin satu barang; harganya dihitung app, tidak melebihi harga maksimal. Untuk SEMUA barang pakai set targetMargin, bukan margin per barang)
+  {"type":"item","no":3,"field":"margin","value":0.3}   (margin SATU barang tertentu)
+  {"type":"margin","scope":"items","value":0.3}   (SETIAP barang margin sekian, di S1; maksimal 30%)
+  {"type":"margin","scope":"overall","value":0.3}   (margin KESELURUHAN quotation sekian: app mengkalibrasi S2, barang yang mentok plafon ditutup barang lain)
+  Contoh: "naikkan overall margin jadi 30%" -> margin overall 0.3. "setiap item naik 30%" / "semua barang margin 30%" -> margin items 0.3. "barang no 5 margin 25%" -> item margin. "ubah target margin jadi 30%" -> set targetMargin. Harga dihitung app, jangan menghitung harga sendiri.
   {"type":"scenario","value":2}   (value = nomor skenario: 1 untuk S1, 2 untuk S2, 3 untuk S3)
 - followups: 2 sampai 3 pertanyaan lanjutan pendek.
 
