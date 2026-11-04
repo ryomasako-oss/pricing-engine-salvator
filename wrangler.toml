@@ -63,6 +63,10 @@ ACCURATE_AUTO_NEW_ITEMS = "true"
 # the ~50 changed in a day. First pass reads receipts dated on/after
 # ACCURATE_RECEIPTS_SINCE. Set "false" to stop.
 ACCURATE_RECEIPTS_ENABLED = "true"
+# Sales invoices (accurate/sales.ts): SI last 12 months for ceilings and the recap's
+# "dijual di bawah modal". Runs in the receipts tick when receipts are idle. Needs
+# migration 0027. Turned on by Ryoma, 2026-11-04. Set "false" to stop.
+ACCURATE_SALES_ENABLED = "true"
 # ACCURATE_RECEIPTS_SINCE is how far back the FIRST pass reads, by transaction
 # date; left unset, it is one year. A year gave 3.231 receipts and left 3.749
 # catalog items without a purchase price, but 98% of those hold no stock in

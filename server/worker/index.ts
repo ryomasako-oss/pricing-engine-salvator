@@ -26,6 +26,7 @@ import { DIGEST_CRON, runFixDigest } from "./fixDigest";
 import { appLink, notifyEmail } from "./notify";
 import { runAccurateRecap } from "./accurateRecap";
 import { RECEIPTS_CRON, receiptsTick } from "./accurate/receipts";
+import { salesTick } from "./accurate/sales";
 import { syncTick } from "./accurate/sync";
 import { clientIp, type Bindings, type Env } from "./env";
 
@@ -124,10 +125,14 @@ async function scheduled(controller: ScheduledController, env: Bindings, ctx: Ex
   }
   if (controller.cron === RECEIPTS_CRON) {
     ctx.waitUntil(
-      receiptsTick(env, { deadlineMs: 25_000 }).then(
-        (r) => r && r.outcome !== "idle" && console.log("[accurate] receipts", JSON.stringify(r)),
-        (err) => console.error("[accurate] receipts failed:", err),
-      ),
+      receiptsTick(env, { deadlineMs: 25_000 })
+        .then(async (r) => {
+          if (r && r.outcome !== "idle") return console.log("[accurate] receipts", JSON.stringify(r));
+          // Sales invoices only when receipts left the tick's call budget untouched.
+          const s = await salesTick(env, { deadlineMs: 25_000 });
+          if (s && s.outcome !== "idle") console.log("[accurate] sales", JSON.stringify(s));
+        })
+        .catch((err) => console.error("[accurate] receipts/sales failed:", err)),
     );
     return;
   }

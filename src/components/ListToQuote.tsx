@@ -599,6 +599,12 @@ export function ListToQuote({
                             .join(" · ") || "—"}
                         </div>
                         {readUnit && <div className="muted small">Satuan dibaca dari teks: {readUnit}. COGS dihitung per {readUnit}.</div>}
+                        {chosenItem?.last_sale && !row.request.rrp && (
+                          <div className="muted small">
+                            Harga maksimal dari {chosenItem.last_sale.invoiceNo} ({chosenItem.last_sale.date}), harga terakhir ke{" "}
+                            {chosenItem.last_sale.ownClient ? "klien ini" : "klien lain"}
+                          </div>
+                        )}
                         {pack.conflict && chosenItem && (
                           <div className="small" style={{ color: "var(--warn)" }}>
                             ⚠ Teks menyebut isi {pack.conflict.text} per {pack.conflict.word}, katalog mencatat 1 {pack.conflict.word} = {pack.conflict.catalog}. Satuan tidak diubah: COGS dihitung per {chosenItem.uom || "Pcs"}. Periksa satuan dan rasio.

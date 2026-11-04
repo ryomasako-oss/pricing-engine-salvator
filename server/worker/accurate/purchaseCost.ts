@@ -96,7 +96,7 @@ const LINES_SQL = `
     JOIN accurate_items i ON i.entity = ?1 AND i.code = r.item_code
    WHERE r.rn <= ${HISTORY_RECEIPTS + 1}`;
 
-const parseUnits = (s: string): UnitFactor[] => {
+export const parseUnits = (s: string): UnitFactor[] => {
   try {
     const v = JSON.parse(s);
     return Array.isArray(v) ? v : [];
