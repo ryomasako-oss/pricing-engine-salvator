@@ -5,8 +5,10 @@
    "Modal" is the cost on the date of the invoice, not today's COGS: the last
    goods receipt on or before the invoice date (lastPurchaseCost), so a price
    rise after a sale doesn't make an old invoice look like a loss. Both sides
-   are before PPN: Accurate's receipt unitPrice already is, and an invoice
-   with inclusive prices is taken out of PPN here.
+   are before PPN: Accurate's receipt unitPrice already is, and so is an
+   invoice line's salesAmount, even on an invoice with inclusive prices
+   (SI.2025.11.00014: 4 PCS at 60.000 incl. PPN has salesAmount 216.216,43 =
+   240.000 / 1,11). Dividing it by 1,11 again made those lines 11% too cheap.
 
    Pure: the lines come from accurate_sales_lines / accurate_receipt_lines. */
 
@@ -24,7 +26,7 @@ export interface SalesLine {
   unitRatio: number;
   quantity: number;
   returnQty: number;
-  /** Line total after the item discount, as Accurate sends it. */
+  /** Line total after the item discount and before PPN, as Accurate sends it, inclusive invoice or not. */
   salesAmount: number;
   inclusiveTax: boolean;
   /** PPN %, e.g. 11. */
@@ -42,8 +44,7 @@ export function netPerBaseUnit(l: SalesLine): number | null {
   const qty = l.quantity * (l.unitRatio > 0 ? l.unitRatio : 1);
   if (!(qty > 0) || l.returnQty >= l.quantity) return null;
   const cash = l.subTotal > 0 ? Math.min(1, Math.max(0, l.cashDiscount / l.subTotal)) : 0;
-  const tax = l.inclusiveTax ? 1 + Math.max(0, l.taxRate) / 100 : 1;
-  return (l.salesAmount * (1 - cash)) / tax / qty;
+  return (l.salesAmount * (1 - cash)) / qty;
 }
 
 export interface CatalogFacts {

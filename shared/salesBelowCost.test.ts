@@ -18,9 +18,15 @@ describe("netPerBaseUnit", () => {
     expect(netPerBaseUnit(spiva)).toBeCloseTo(6520.83, 2);
   });
 
-  it("takes PPN out of an inclusive invoice and spreads the invoice discount", () => {
-    // 111.000 incl. 11% = 100.000 before PPN; a 10% invoice discount leaves 90.000 for 10 PCS.
-    const l = { ...spiva, unitRatio: 1, quantity: 10, salesAmount: 111_000, inclusiveTax: true, cashDiscount: 11_100, subTotal: 111_000 };
+  it("an inclusive invoice's salesAmount is already before PPN: not divided again", () => {
+    // SI.2025.11.00014 line 101460, as synced on 4 Nov: 4 PCS at 60.000 incl. 11% PPN.
+    const l = { ...spiva, unitRatio: 1, quantity: 4, salesAmount: 216_216.432432, inclusiveTax: true, subTotal: 2_757_000 };
+    expect(netPerBaseUnit(l)).toBeCloseTo(54_054.11, 2); // 60.000 / 1,11
+  });
+
+  it("spreads the invoice discount over the lines", () => {
+    // A 10% invoice discount on 100.000 for 10 PCS leaves 9.000 each.
+    const l = { ...spiva, unitRatio: 1, quantity: 10, salesAmount: 100_000, cashDiscount: 10_000, subTotal: 100_000 };
     expect(netPerBaseUnit(l)).toBeCloseTo(9000, 6);
   });
 
