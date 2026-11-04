@@ -3,7 +3,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { D1DatabaseShim } from "../../scripts/d1-sqlite-shim";
-import { runAccurateRecap } from "./accurateRecap";
+import { recapRecipients, runAccurateRecap } from "./accurateRecap";
 import { countQueries, PAID_PLAN } from "./accurate/testing";
 import type { Bindings } from "./env";
 
@@ -243,5 +243,32 @@ describe("runAccurateRecap: dijual di bawah modal (Ryoma, 2026-11-04)", () => {
     const sent: string[] = [];
     await runAccurateRecap(env(db), { now: NOW, link: "x", fetchImpl: fakeSilvy({ status: 200, body: { content: "x" } }).impl, send: async (_t, _s, html) => void sent.push(html) });
     expect(sent[0]).not.toContain("di bawah modal");
+  });
+});
+
+describe("recap recipients (ACCURATE_RECAP_TO, Ryoma 2026-11-04)", () => {
+  it("sends only to the listed addresses, someone without an account included", async () => {
+    const { sqlite, db } = freshDb();
+    seed(sqlite);
+    const to: string[] = [];
+    await runAccurateRecap(env(db, { ACCURATE_RECAP_TO: " Tamu@Contoh.com, ryoma@salvator.co.id ,bukan-email, ryoma@salvator.co.id" }), {
+      now: NOW, link: "x", fetchImpl: fakeSilvy({ status: 200, body: { content: "x" } }).impl, send: async (t) => void to.push(t),
+    });
+    expect(to).toEqual(["tamu@contoh.com, ryoma@salvator.co.id"]);
+  });
+
+  it("falls back to every active manager and admin when unset or empty", async () => {
+    for (const over of [{}, { ACCURATE_RECAP_TO: " , " }] as Partial<Bindings>[]) {
+      const { sqlite, db } = freshDb();
+      seed(sqlite);
+      const to: string[] = [];
+      await runAccurateRecap(env(db, over), { now: NOW, link: "x", fetchImpl: fakeSilvy({ status: 200, body: { content: "x" } }).impl, send: async (t) => void to.push(t) });
+      expect(to).toEqual(["hesti@x, ryoma@x"]);
+    }
+  });
+
+  it("drops what isn't an address and caps the list", () => {
+    expect(recapRecipients("a@b.co, <x@y.z>, c d@e.f, , a@b.co")).toEqual(["a@b.co"]);
+    expect(recapRecipients(Array.from({ length: 15 }, (_, i) => `u${i}@x.id`).join(","))).toHaveLength(10);
   });
 });
