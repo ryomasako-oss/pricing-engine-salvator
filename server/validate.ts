@@ -39,6 +39,8 @@ export const itemSchema = z.object({
   manualPrice: z.array(z.number().nullable()).length(3).optional(),
   notes: z.string().max(500).optional(),
   priceUom: z.string().max(32).optional(),
+  /** A client's request with no catalog item and no price (list-to-quote); applyHolds keeps it held. */
+  unmatched: z.boolean().optional(),
 });
 
 /** One extra unit of a catalog item: `factor` base units per `uom`. */

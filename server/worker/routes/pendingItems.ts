@@ -10,6 +10,7 @@ import {
   CLOSE_LINKED_TASKS_SQL,
   CLOSE_NEW_ITEM_TASK_SQL,
   CODE_TAKEN_SQL,
+  LIVE_TWIN_SQL,
   GET_PENDING_SQL,
   INSERT_NEW_ITEM_TASK_SQL,
   INSERT_PENDING_SQL,
@@ -47,6 +48,10 @@ pendingItemsRouter.post("/", async (c) => {
   // The same name in the catalog means the item exists: use it instead of asking for a twin.
   const twin = await get<{ code: string; name: string }>(c.env.DB, "SELECT code, name FROM catalog_items WHERE lower(trim(name)) = lower(trim(?)) LIMIT 1", name);
   if (twin) return c.json({ error: `Barang ini sudah ada di katalog: ${twin.code} (${twin.name}). Pakai yang itu.`, existing: twin }, 409);
+  if (!code) {
+    const dup = await get<PendingItem>(c.env.DB, LIVE_TWIN_SQL, name);
+    if (dup) return c.json({ item: dup });
+  }
   let id = 0;
   // A blank code is numbered inside the INSERT; two requests at once can pick the same number, so the loser takes the next.
   for (let attempt = 0; !id; attempt++) {

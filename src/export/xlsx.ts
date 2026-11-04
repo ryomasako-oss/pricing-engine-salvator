@@ -3,6 +3,7 @@
 
 import * as XLSX from "xlsx";
 import { SCENARIOS } from "@shared/engine";
+import { shownCode } from "@shared/pendingItems";
 import { paymentLabel, warrantyLabel } from "@shared/terms";
 import { heldNote, holdInfo, offeredRows } from "@shared/holds";
 import { docColumns } from "@shared/docColumns";
@@ -39,7 +40,7 @@ export function quoteWorkbook(input: Input): XLSX.WorkBook {
   const cols = docColumns(meta);
   const quoteRows: Record<string, unknown>[] = offeredRows(engine.rows).map((r) => ({
     No: r.lineNo,
-    Kode: r.code,
+    Kode: shownCode(r.code),
     Item: r.name,
     Satuan: r.uom,
     ...(cols.qty ? { Qty: r.qty } : {}),

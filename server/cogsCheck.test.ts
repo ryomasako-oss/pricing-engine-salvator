@@ -121,3 +121,13 @@ describe("applyHolds review follow-ups", () => {
     expect(applyHolds(draft([typed]), new Map(), catalog(catalogItem())).items[0]).toEqual(typed);
   });
 });
+
+describe("applyHolds keeps a client's request that has no catalog item", () => {
+  it("holds a codeless 'unmatched' line, and only that kind of codeless line", () => {
+    const asked = line({ code: "", unmatched: true });
+    const plain = line({ id: "l2", code: "", held: true, holdReason: "sales" });
+    const [a, b] = applyHolds(draft([asked, plain]), new Map(), new Map()).items;
+    expect([a.held, a.holdReason]).toEqual([true, "unmatched"]);
+    expect(b.held).toBeUndefined();
+  });
+});

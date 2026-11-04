@@ -19,6 +19,7 @@ import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { grp } from "@shared/format";
+import { shownCode } from "@shared/pendingItems";
 import { lineFromCatalog, type MatchResult, type RequestLine } from "@shared/match";
 import { choicesFromRows, codesToFetch, restoreRows, type Draft } from "@shared/listDrafts";
 import type { CatalogItem, Client, QuoteItem } from "@shared/types";
@@ -275,7 +276,24 @@ export function ListToQuote({
     if (!rows) return [];
     return rows.map((r) => {
       const item = r.chosen != null ? items.get(r.chosen) : undefined;
-      if (!item) return null;
+      // Nothing chosen: the client's own line stays on the quote, held, so all of their list shows.
+      if (!item) {
+        return {
+          id: `req-${Math.random().toString(36).slice(2, 9)}`,
+          lineNo: 0,
+          code: "",
+          name: r.request.name,
+          uom: r.request.uom?.trim() || "Pcs",
+          qty: Math.max(1, Number(r.request.qty) || 1),
+          cogs: 0,
+          rrp: 0,
+          role: "CORE" as const,
+          estCogs: true,
+          unmatched: true,
+          held: true,
+          holdReason: "unmatched" as const,
+        };
+      }
       // A PO without a unit column still says "(isi 12/Lusin)" in the name: read it, so the ceiling
       // (per lusin) is set against the cost per lusin, not per piece. "Tanpa qty" rows stay in the base unit.
       const line = lineFromCatalog(item, r.request.qty ?? 1, {
@@ -285,7 +303,14 @@ export function ListToQuote({
       });
       // "Barang baru" is not in the catalog yet, so its line waits for Accurate
       // (shared/pendingItems.ts). The server holds it on every read as well.
-      if (item.source === "pending") return { ...line, held: true, holdReason: "new_item" as const };
+      if (item.source === "pending") {
+        // With a typed price the line goes on the document now as a plain manual line
+        // (no code, so the server does not hold it); without one it waits for Accurate.
+        const p = Math.round(Number(item.list_price) || 0);
+        return p > 0
+          ? { ...line, code: "", rrp: p, manualPrice: [p, p, p] }
+          : { ...line, held: true, holdReason: "new_item" as const };
+      }
       // A catalog item with a bad COGS goes on the quote held (server/cogsCheck.ts):
       // not offered or totalled until a manager checks it, but not forgotten.
       return item.cogs_problem ? { ...line, held: true } : line;
@@ -299,7 +324,7 @@ export function ListToQuote({
   useEffect(() => {
     if (seeCosts || !rows) return;
     const send = lines
-      .map((l, i) => l && { id: `r${i}`, code: l.code, name: l.name, qty: l.qty, uom: l.uom, rrp: l.rrp })
+      .map((l, i) => l && l.holdReason !== "unmatched" && { id: `r${i}`, code: l.code, name: l.name, qty: l.qty, uom: l.uom, rrp: l.rrp })
       .filter(Boolean);
     if (!send.length) return setPrices({});
     let live = true;
@@ -326,10 +351,14 @@ export function ListToQuote({
   };
   const settled = (r: Row) => r.confirmed && (!unitCheck(r) || r.unitOk);
   const pending = rows?.filter((r) => r.chosen != null && !settled(r)).length ?? 0;
-  const isPending = (r: Row) => (r.chosen != null ? items.get(r.chosen)?.source === "pending" : false);
+  // Waiting for Accurate = a "barang baru" without a typed price; with one it is a manual line on the document.
+  const isPending = (r: Row) => {
+    const it = r.chosen != null ? items.get(r.chosen) : undefined;
+    return it?.source === "pending" && !(Number(it.list_price) > 0);
+  };
   const heldCount = rows?.filter((r) => blockedOf(r) || isPending(r)).length ?? 0;
-  const used = lines.filter(Boolean).length;
-  // Rows left out by choice (or with nothing found).
+  const used = lines.filter((l) => l && l.holdReason !== "unmatched").length;
+  // Rows with no item and no price: they stay on the quote as "menyusul" (held) and in Perlu diperbaiki.
   const skipped = (rows?.length ?? 0) - used;
 
 
@@ -342,7 +371,7 @@ export function ListToQuote({
       // with the quote, in the same request), so nothing the client asked for
       // is silently dropped.
       const unmatched = rows
-        .filter((_, i) => !lines[i])
+        .filter((row) => row.chosen == null)
         .map((row) => ({
           name: row.request.name.slice(0, 300),
           qty: Math.max(0, Number(row.request.qty) || 0),
@@ -419,7 +448,7 @@ export function ListToQuote({
         rows ? (
           <>
             <span className="grow muted small">
-              {used} item masuk{skipped ? ` · ${skipped} tidak dipakai (dicatat di Perlu diperbaiki)` : ""}
+              {used} item masuk{skipped ? ` · ${skipped} menyusul (belum ada di katalog; tetap tampil di quotation, dicatat di Perlu diperbaiki)` : ""}
               {pending ? ` · ${pending} perlu dicek dulu` : ""}
               {heldCount ? ` · ${heldCount} ditahan (COGS dicek manajer)` : ""}
             </span>
@@ -434,8 +463,8 @@ export function ListToQuote({
             <button className="btn" onClick={() => setSending(true)} disabled={busy || saving || sending}>
               <Icon name="send" size={14} /> Kirim ke PIC…
             </button>
-            <button className="btn primary" onClick={create} disabled={busy || saving || !used || pending > 0 || !title.trim()}>
-              {busy ? "Membuat…" : `Buat quotation (${used} item)`}
+            <button className="btn primary" onClick={create} disabled={busy || saving || !rows?.length || pending > 0 || !title.trim()}>
+              {busy ? "Membuat…" : `Buat quotation (${used} item${skipped ? ` + ${skipped} menyusul` : ""})`}
             </button>
           </>
         ) : (
@@ -560,7 +589,7 @@ export function ListToQuote({
                 // "— tidak dipakai —" over a row that does have an item.
                 update(at, { chosen: item.id, confirmed: true, unitOk: false, extra: [...rows[at].extra, item.id] });
                 setNewItemRow(null);
-                toast(`"${item.name}" diminta ke Accurate. Barisnya ditahan sampai barangnya dibuat.`);
+                toast(`"${item.name}" diminta ke Accurate. Kalau harga jual diisi, baris langsung masuk dokumen; kalau tidak, ditahan sampai barangnya dibuat.`);
               }}
             />
           )}
@@ -634,7 +663,7 @@ export function ListToQuote({
                               const score = scoreOf.get(id);
                               return (
                                 <option key={id} value={id}>
-                                  {it.name} ({it.code}){score != null && score < 1 ? ` · ${Math.round(score * 100)}%` : ""}
+                                  {it.name}{shownCode(it.code) ? ` (${shownCode(it.code)})` : ""}{score != null && score < 1 ? ` · ${Math.round(score * 100)}%` : ""}
                                   {it.cogs_problem ? " · COGS bermasalah" : ""}
                                 </option>
                               );

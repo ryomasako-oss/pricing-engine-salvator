@@ -18,7 +18,7 @@ export function heldNote(rows: { held?: boolean; holdReason?: HoldReason; name: 
 }
 
 /** Why a line is held (QuoteItem.holdReason); a line without one is held for its COGS. */
-export type HoldReason = "cogs" | "sales" | "new_item" | "new_item_cancelled";
+export type HoldReason = "cogs" | "sales" | "new_item" | "new_item_cancelled" | "unmatched";
 
 export interface HoldInfo {
   /** Badge text and colour on a held line. */
@@ -62,6 +62,15 @@ const HOLD_INFO: Record<HoldReason, HoldInfo> = {
     flag: "Menunggu Accurate: barang baru belum ada di katalog, tidak ikut total",
     sheet: "Ya (barang baru, menunggu Accurate)",
     how: "Menunggu Accurate: barang baru yang belum ada di katalog. Baris ini tidak ikut penawaran dan tidak perlu dicek.",
+  },
+  unmatched: {
+    badge: "Menyusul",
+    tone: "blue",
+    manager: "Permintaan klien yang belum ada di katalog dan belum diberi harga. Tidak ikut total dan dokumen; ditulis sebagai item menyusul. Pilih item katalog atau isi harga untuk memasukkannya.",
+    staff: "Belum ada di katalog dan belum ada harganya. Tidak ikut total dan dokumen; ditulis sebagai item menyusul.",
+    flag: "Menyusul: belum ada di katalog dan belum berharga, tidak ikut total",
+    sheet: "Ya (belum ada di katalog, menyusul)",
+    how: "Menyusul: belum ada di katalog dan belum berharga. Baris ini tidak ikut penawaran dan tidak perlu dicek.",
   },
   new_item_cancelled: {
     badge: "Dibatalkan",
