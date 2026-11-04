@@ -34,12 +34,6 @@ di bawah modal, dan ambang nilai yang wajib disetujui. Pelanggaran memblokir
 persetujuan otomatis dan melempar penawaran ke antrean manajer. Penolakan wajib
 disertai alasan. Setiap perubahan status tercatat di jejak audit.
 
-**Foto produk di katalog.** Setiap item katalog bisa diberi satu foto (JPG,
-PNG, atau WEBP) dari halaman Katalog oleh yang berhak mengubah katalog. Foto
-dikompres di browser dan disimpan per kode barang, jadi tetap ada setelah
-katalog diimpor ulang. Setiap baris quotation dengan kode itu otomatis
-menampilkannya di halaman dokumen, print, PDF, dan Excel yang dikirim ke klien.
-
 **Data nyata, bukan angka contoh.** Harga pokok diimpor dari laporan *Nilai
 Persediaan* Accurate (COGS per unit = nilai barang masuk ÷ kuantitas barang
 masuk), harga jual acuan dari *Daftar Barang dan Jasa*. Daftar permintaan klien

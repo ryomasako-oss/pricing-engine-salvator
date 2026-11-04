@@ -53,10 +53,6 @@ export function QuotationDoc({
   const validUntil = new Date(
     new Date(meta.date).getTime() + (meta.validity || 30) * 86400000,
   );
-  const rows = offeredRows(engine.rows);
-  // The photo column only exists when at least one line has one, so a quote
-  // without photos keeps exactly the old document width.
-  const showPhotos = rows.some((r) => r.image);
 
   return (
     <div className="quote-doc print-area" style={{ ["--c" as string]: sc.color }}>
@@ -127,7 +123,6 @@ export function QuotationDoc({
           <thead>
             <tr>
               <th>No</th>
-              {showPhotos && <th>Foto</th>}
               <th className="l">Item</th>
               <th>Satuan</th>
               {cols.qty && <th>Qty</th>}
@@ -136,18 +131,9 @@ export function QuotationDoc({
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
+            {offeredRows(engine.rows).map((r) => (
               <tr key={r.id}>
                 <td className="c">{r.lineNo}</td>
-                {showPhotos && (
-                  <td className="c">
-                    {r.image ? (
-                      <img className="quote-thumb" src={r.image} alt={`Foto ${r.name}`} />
-                    ) : (
-                      <span className="muted small">—</span>
-                    )}
-                  </td>
-                )}
                 <td className="l">
                   {r.name}
                   {r.code && <div className="muted small">{r.code}</div>}
