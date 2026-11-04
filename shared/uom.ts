@@ -196,3 +196,13 @@ export function uomChoices(managed: string[], units: ItemUnits | undefined, curr
   // so the line's own spelling wins ("Pcs" on the line vs "PCS" from Accurate).
   return out.map((u) => (sameUom(u, current) ? current : u));
 }
+
+/**
+ * The client's unit that a list line counted as one base unit because the item has no ratio for it
+ * (shared/match.ts lineFromCatalog toBase), or undefined. The review asks the rep to confirm it.
+ */
+export function unitAssumed(asked: string | undefined, item: { uom?: string; units?: UnitFactor[] }): string | undefined {
+  const u = asked?.trim();
+  if (!u) return undefined;
+  return unitFactor({ baseUom: item.uom || "Pcs", units: item.units ?? [] }, u) === undefined ? u : undefined;
+}

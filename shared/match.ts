@@ -40,7 +40,7 @@
 import { normalizeCode } from "./duplicates.js";
 import type { CatalogItem, QuoteItem } from "./types.js";
 import { REJECTED_PENALTY, isRejectedPair, type Rejected } from "./matchLearning.js";
-import { changeLineUom, readPackUnit, sameUom } from "./uom.js";
+import { changeLineUom, readPackUnit, sameUom, unitFactor } from "./uom.js";
 
 export interface RequestLine {
   code?: string;
@@ -368,7 +368,17 @@ export function matchLines<T extends MatchableItem>(
 export function lineFromCatalog(
   item: CatalogItem,
   qty: number,
-  opts: { uom?: string; rrp?: number; /** The client's wording, read for a pack unit ("isi 12/Lusin") when they gave no unit. */ requestName?: string } = {},
+  opts: {
+    uom?: string;
+    rrp?: number;
+    /** The client's wording, read for a pack unit ("isi 12/Lusin") when they gave no unit. */
+    requestName?: string;
+    /**
+     * A client's list: the line goes on the quote in Accurate's smallest unit (Ryoma, 2026-11-03).
+     * 2 Box of 12 becomes 24 Pcs at the catalog COGS, and the client's ceiling per Box is divided by 12.
+     */
+    toBase?: boolean;
+  } = {},
 ): QuoteItem {
   const baseUom = item.uom || "Pcs";
   const base: QuoteItem = {
@@ -393,6 +403,14 @@ export function lineFromCatalog(
   // unit dropdown recognises it.
   const asked = opts.uom?.trim() || (opts.requestName ? readPackUnit(opts.requestName, item).uom : undefined);
   const to = asked && (item.units ?? []).find((u) => sameUom(u.uom, asked))?.uom || asked;
+  const factor = to ? unitFactor({ baseUom, units: item.units ?? [] }, to) : undefined;
+  // No ratio for the client's unit: it counts as one base unit (Ryoma, 2026-11-04). The rep confirms it
+  // in the review (unitAssumed in shared/uom.ts), so 1 PAK of 12 never goes out as 1 PCS unseen.
+  if (opts.toBase && to && !factor) return opts.rrp && opts.rrp > 0 ? { ...base, rrp: Math.round(opts.rrp) } : base;
+  if (opts.toBase && factor) {
+    // Floor: a ceiling rounded up per Pcs would add up to more than the client's price per Box.
+    return { ...base, qty: qty * factor, ...(opts.rrp && opts.rrp > 0 ? { rrp: Math.floor(opts.rrp / factor) } : {}) };
+  }
   const line = to && !sameUom(to, baseUom) ? changeLineUom(base, to, { baseUom, units: item.units ?? [] }) : base;
   return opts.rrp && opts.rrp > 0 ? { ...line, rrp: Math.round(opts.rrp) } : line;
 }
