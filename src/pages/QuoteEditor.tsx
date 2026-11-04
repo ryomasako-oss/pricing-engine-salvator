@@ -24,6 +24,7 @@ import { Icon } from "../components/Icon";
 import { Modal, ConfirmModal } from "../components/Modal";
 import { Rich } from "../components/Rich";
 import { ItemsTable } from "../components/ItemsTable";
+import { QuickPriceBar } from "../components/QuickPriceBar";
 import { changeLineUom, priceUnitOf, toBaseUnit, type ItemUnits } from "@shared/uom";
 import { QuotationDoc, type CompanyInfo } from "../components/QuotationDoc";
 import { CatalogPicker } from "../components/CatalogPicker";
@@ -604,6 +605,24 @@ export function QuoteEditorPage() {
                   groups={duplicateGroups}
                   readOnly={readOnly}
                   onMerge={mergeAllDuplicates}
+                />
+              )}
+              {tab === "items" && !readOnly && engine && (
+                <QuickPriceBar
+                  items={snapshot.items}
+                  rows={engine.rows}
+                  scenario={scenario}
+                  step={snapshot.assumptions.step}
+                  onApply={(r, label) => {
+                    update({ items: r.items });
+                    toast(
+                      `${label}: ${r.changed} baris` +
+                        (r.capped ? `, ${r.capped} mentok di plafon klien` : "") +
+                        (r.skipped ? `, ${r.skipped} dilewati (ditahan / tanpa COGS / tanpa plafon)` : "") +
+                        ".",
+                      "success",
+                    );
+                  }}
                 />
               )}
               {tab === "items" && (
