@@ -24,7 +24,7 @@ import { shownCode } from "@shared/pendingItems";
 import { lineFromCatalog, type MatchResult, type RequestLine } from "@shared/match";
 import { choicesFromRows, codesToFetch, restoreRows, type Draft } from "@shared/listDrafts";
 import type { CatalogItem, Client, QuoteItem } from "@shared/types";
-import { packUnitNeedsCheck, readPackUnit, sameUom, uomWarning } from "@shared/uom";
+import { packUnitNeedsCheck, readPackUnit, sameUom, unitAssumed, uomWarning } from "@shared/uom";
 import { Icon } from "./Icon";
 import { ClientQuickAdd } from "./ClientQuickAdd";
 import { Modal } from "./Modal";
@@ -349,7 +349,9 @@ export function ListToQuote({
   // and the catalog's ratios change over time: the rep confirms it once per row, whatever the matcher thought.
   const unitCheck = (r: Row) => {
     const item = r.chosen != null ? items.get(r.chosen) : undefined;
-    return !!item && !r.request.uom && !r.request.noQty && packUnitNeedsCheck(r.request.name, item);
+    if (!item || r.request.noQty) return false;
+    // A unit without a ratio was counted as one base unit: the rep says whether that's right.
+    return r.request.uom ? !!unitAssumed(r.request.uom, item) : packUnitNeedsCheck(r.request.name, item);
   };
   const settled = (r: Row) => r.confirmed && (!unitCheck(r) || r.unitOk);
   const pending = rows?.filter((r) => r.chosen != null && !settled(r)).length ?? 0;
@@ -630,6 +632,11 @@ export function ListToQuote({
                             .join(" · ") || "—"}
                         </div>
                         {readUnit && <div className="muted small">Satuan dibaca dari teks: {readUnit}.</div>}
+                        {chosenItem && unitAssumed(row.request.uom, chosenItem) && (
+                          <div className="small" style={{ color: "var(--warn)" }}>
+                            ⚠ Rasio {row.request.uom} belum ada di katalog: dianggap 1 {row.request.uom} = 1 {chosenItem.uom || "Pcs"}. Kalau isinya lebih, ubah qty atau isi rasionya di Katalog.
+                          </div>
+                        )}
                         {line && chosenItem && !line.priceUom && line.qty !== (row.request.qty ?? 1) && (
                           <div className="muted small">
                             Dikonversi ke satuan terkecil: {grp(row.request.qty ?? 1)} {row.request.uom || readUnit} = {grp(line.qty)} {line.uom}

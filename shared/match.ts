@@ -404,7 +404,9 @@ export function lineFromCatalog(
   const asked = opts.uom?.trim() || (opts.requestName ? readPackUnit(opts.requestName, item).uom : undefined);
   const to = asked && (item.units ?? []).find((u) => sameUom(u.uom, asked))?.uom || asked;
   const factor = to ? unitFactor({ baseUom, units: item.units ?? [] }, to) : undefined;
-  // An unknown ratio can't move the qty: the line keeps the client's unit with the priceUom warning below.
+  // No ratio for the client's unit: it counts as one base unit (Ryoma, 2026-11-04). The rep confirms it
+  // in the review (unitAssumed in shared/uom.ts), so 1 PAK of 12 never goes out as 1 PCS unseen.
+  if (opts.toBase && to && !factor) return opts.rrp && opts.rrp > 0 ? { ...base, rrp: Math.round(opts.rrp) } : base;
   if (opts.toBase && factor) {
     // Floor: a ceiling rounded up per Pcs would add up to more than the client's price per Box.
     return { ...base, qty: qty * factor, ...(opts.rrp && opts.rrp > 0 ? { rrp: Math.floor(opts.rrp / factor) } : {}) };

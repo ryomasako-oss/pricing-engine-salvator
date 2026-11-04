@@ -1,3 +1,4 @@
+import { unitAssumed } from "./uom";
 import { describe, expect, it } from "vitest";
 import { lineFromCatalog, matchLines, normalizeText, similarity, splitPackText, tokens } from "./match";
 import type { CatalogItem } from "./types";
@@ -387,8 +388,17 @@ describe("lineFromCatalog toBase: a client's line goes on the quote in Accurate'
     expect(lineFromCatalog(boxed, 2, { uom: "Box", toBase: true })).toMatchObject({ uom: "Pcs", qty: 24, rrp: 3000 });
   });
 
-  it("an unknown ratio keeps the client's unit and qty, with the warning", () => {
-    expect(lineFromCatalog(boxed, 3, { uom: "Lusin", rrp: 9000, toBase: true })).toMatchObject({ uom: "Lusin", qty: 3, priceUom: "Pcs", rrp: 9000 });
+  it("an unknown ratio counts the client's unit as one base unit (Ryoma, 2026-11-04)", () => {
+    const line = lineFromCatalog(boxed, 3, { uom: "Lusin", rrp: 9000, toBase: true });
+    expect(line).toMatchObject({ uom: "Pcs", qty: 3, cogs: 2000, rrp: 9000 });
+    expect(line.priceUom).toBeUndefined();
+  });
+
+  it("unitAssumed names the client's unit that had no ratio, and nothing for a known or base unit", () => {
+    expect(unitAssumed("Lusin", boxed)).toBe("Lusin");
+    expect(unitAssumed("box", boxed)).toBeUndefined();
+    expect(unitAssumed("PCS", boxed)).toBeUndefined();
+    expect(unitAssumed(undefined, boxed)).toBeUndefined();
   });
 
   it("already the base unit: unchanged", () => {
