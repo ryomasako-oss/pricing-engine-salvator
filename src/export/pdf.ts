@@ -6,11 +6,11 @@ import autoTable from "jspdf-autotable";
 import { SCENARIOS } from "@shared/engine";
 import { shownCode } from "@shared/pendingItems";
 import { fmtDate, grp, pct } from "@shared/format";
-import type { Assumptions, ComputedRow, EngineResult, QuoteMeta, ScenarioIndex } from "@shared/types";
+import type { Assumptions, ComputedRow, DocColumnKey, DocTemplate, EngineResult, QuoteMeta, ScenarioIndex } from "@shared/types";
 import type { CompanyInfo } from "../components/QuotationDoc";
 import { paymentLabel, warrantyLabel } from "@shared/terms";
 import { heldNote, offeredRows } from "@shared/holds";
-import { docColumns } from "@shared/docColumns";
+import { docCell, docLayout } from "@shared/docColumns";
 
 interface Input {
   engine: EngineResult;
@@ -20,6 +20,8 @@ interface Input {
   company: CompanyInfo;
   clientName: string;
   clientAddress?: string;
+  /** The client's document template (shared/docColumns.ts); absent prints the standard document. */
+  template?: DocTemplate | null;
   number: string;
   draft: boolean;
 }
@@ -30,6 +32,7 @@ const MUTED: [number, number, number] = [102, 115, 132];
 export function quotationPdf(input: Input): jsPDF {
   const { engine, meta, assumptions, scenario, company, clientName, number, draft } = input;
   const s = engine.scen[scenario];
+  const layout = docLayout(meta, input.template, "print");
   const doc = new jsPDF({ unit: "pt", format: "a4" });
   const W = doc.internal.pageSize.getWidth();
   const M = 40;
@@ -65,7 +68,7 @@ export function quotationPdf(input: Input): jsPDF {
   doc.setFont("helvetica", "bold");
   doc.setFontSize(15);
   doc.setTextColor(30, 37, 48);
-  doc.text("PENAWARAN HARGA", W - M, 56, { align: "right" });
+  doc.text(layout.title.toUpperCase(), W - M, 56, { align: "right" });
   if (draft) {
     doc.setFontSize(9);
     doc.setTextColor(180, 35, 24);
@@ -97,31 +100,47 @@ export function quotationPdf(input: Input): jsPDF {
     ],
   });
 
-  // Columns are described once, with their own styles, then filtered: a
-  // style table keyed by column index would put the right-align and bold on
-  // the wrong column as soon as one is dropped.
-  const cols = docColumns(meta);
-  type Col = { head: string; cell: (r: ComputedRow & { lineNo: number }) => string; style: Record<string, unknown> };
-  const columns: Col[] = [
-    { head: "No", cell: (r) => String(r.lineNo), style: { halign: "center", cellWidth: 26 } },
-    { head: "Item", cell: (r) => (shownCode(r.code) ? `${r.name}\n${shownCode(r.code)}` : r.name), style: {} },
-    { head: "Satuan", cell: (r) => r.uom, style: { halign: "center", cellWidth: 48 } },
-    ...(cols.qty ? [{ head: "Qty", cell: (r: ComputedRow) => grp(r.qty), style: { halign: "right", cellWidth: 58 } }] : []),
-    { head: "Harga satuan", cell: (r) => grp(r.prices[scenario]), style: { halign: "right", cellWidth: 76, fontStyle: "bold" } },
-    ...(cols.lineTotal ? [{ head: "Total per bulan", cell: (r: ComputedRow) => grp(r.prices[scenario] * r.qty), style: { halign: "right", cellWidth: 84 } }] : []),
-  ];
+  let tableY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 14;
+  if (layout.opening) {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(30, 37, 48);
+    const lines = doc.splitTextToSize(layout.opening, W - M * 2) as string[];
+    doc.text(lines, M, tableY + 4);
+    tableY += lines.length * 11 + 6;
+  }
+
+  // Each column keeps its own style, looked up by key: a style table keyed by
+  // column index would put the right-align and bold on the wrong column as
+  // soon as one is dropped or a client template reorders them.
+  const STYLE: Record<DocColumnKey, Record<string, unknown>> = {
+    no: { halign: "center", cellWidth: 26 },
+    code: { cellWidth: 58 },
+    name: {},
+    uom: { halign: "center", cellWidth: 48 },
+    qty: { halign: "right", cellWidth: 58 },
+    price: { halign: "right", cellWidth: 76, fontStyle: "bold" },
+    total: { halign: "right", cellWidth: 84 },
+    notes: { cellWidth: 110 },
+  };
+  const cell = (key: DocColumnKey, r: ComputedRow): string => {
+    if (key === "name" && layout.codeUnderName && shownCode(r.code)) return `${r.name}\n${shownCode(r.code)}`;
+    const v = docCell(key, r, r.prices[scenario]);
+    return typeof v === "number" && key !== "no" ? grp(v) : String(v);
+  };
+  const columns = layout.columns;
   autoTable(doc, {
-    startY: (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 14,
-    head: [columns.map((c) => c.head)],
-    body: offeredRows(engine.rows).map((r) => columns.map((c) => c.cell(r))),
+    startY: tableY,
+    head: [columns.map((c) => c.label)],
+    body: offeredRows(engine.rows).map((r) => columns.map((c) => cell(c.key, r))),
     styles: { fontSize: 8.5, cellPadding: 4, lineColor: [238, 241, 244], lineWidth: 0.5 },
     headStyles: { fillColor: [246, 248, 250], textColor: [27, 37, 48], fontStyle: "bold" },
-    columnStyles: Object.fromEntries(columns.map((c, i) => [i, c.style])),
+    columnStyles: Object.fromEntries(columns.map((c, i) => [i, STYLE[c.key]])),
     margin: { left: M, right: M },
   });
 
   const ppn = s.revenue * assumptions.ppn;
-  if (cols.totals) autoTable(doc, {
+  if (layout.totals) autoTable(doc, {
     startY: (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10,
     // Keep the totals together: a subtotal stranded alone at the foot of a
     // page reads as a mistake on a document going to a client.
@@ -166,6 +185,14 @@ export function quotationPdf(input: Input): jsPDF {
     const notes = doc.splitTextToSize(meta.notes, W - M * 2) as string[];
     doc.text(notes, M, y + 6);
     y += notes.length * 10 + 6;
+  }
+
+  if (layout.closing) {
+    doc.setFontSize(9);
+    doc.setTextColor(30, 37, 48);
+    const lines = doc.splitTextToSize(layout.closing, W - M * 2) as string[];
+    doc.text(lines, M, y + 12);
+    y += lines.length * 11 + 12;
   }
 
   // Signature block (meeting 2026-10-05): room for a wet or digital signature

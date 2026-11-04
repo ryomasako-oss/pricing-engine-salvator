@@ -1,5 +1,7 @@
 /* Zod schemas guarding everything that crosses the API boundary. */
 import { clientKey } from "../shared/clients.js";
+import { DOC_COLUMN_KEYS } from "../shared/docColumns.js";
+import type { DocColumnKey } from "../shared/types.js";
 
 import { z } from "zod";
 
@@ -106,6 +108,26 @@ export const companySchema = z.object({
     .default(""),
 });
 
+/** A client's document template (shared/docColumns.ts): only line data that exists, plain text, short. */
+export const docTemplateSchema = z.object({
+  columns: z
+    .array(z.object({
+      key: z.enum(DOC_COLUMN_KEYS as [DocColumnKey, ...DocColumnKey[]]),
+      label: z.string().trim().min(1, "Nama kolom tidak boleh kosong.").max(40),
+    }))
+    .min(1)
+    .max(DOC_COLUMN_KEYS.length)
+    .refine((cs) => new Set(cs.map((c) => c.key)).size === cs.length, "Setiap kolom hanya boleh dipakai sekali.")
+    // Unique headings: the Excel sheet keys its cells by heading.
+    .refine((cs) => new Set(cs.map((c) => c.label.toLowerCase())).size === cs.length, "Nama kolom tidak boleh sama.")
+    .refine((cs) => cs.some((c) => c.key === "name") && cs.some((c) => c.key === "price"), "Kolom Item dan Harga satuan wajib ada.")
+    .optional(),
+  title: z.string().trim().max(80).optional(),
+  opening: z.string().trim().max(2000).optional(),
+  closing: z.string().trim().max(2000).optional(),
+  showTotals: z.boolean().optional(),
+}).strict();
+
 export const clientSchema = z.object({
   name: z
     .string()
@@ -121,6 +143,8 @@ export const clientSchema = z.object({
   delivery_terms: z.string().max(200).default(""),
   /** Accurate customerNo (e.g. C.00030): the price this client last paid comes from its invoices. */
   accurate_customer_no: z.string().trim().max(32).default(""),
+  /** null clears the template; absent leaves it as it is. */
+  doc_template: docTemplateSchema.nullable().optional(),
 });
 
 export const catalogRowSchema = z.object({

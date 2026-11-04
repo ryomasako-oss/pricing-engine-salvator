@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as XLSX from "xlsx";
 import { DEFAULT_ASSUMPTIONS, DEFAULT_REGIONS, computeEngine } from "@shared/engine";
-import type { QuoteItem, QuoteMeta } from "@shared/types";
+import type { DocTemplate, QuoteItem, QuoteMeta } from "@shared/types";
 import { quoteWorkbook } from "./xlsx";
 
 const meta: QuoteMeta = {
@@ -11,10 +11,10 @@ const items: QuoteItem[] = [
   { id: "a", lineNo: 1, code: "A", name: "Pulpen", uom: "Pcs", qty: 10, cogs: 1000, rrp: 2000, role: "CORE" },
 ];
 
-function sheetFor(over: Partial<QuoteMeta>) {
+function sheetFor(over: Partial<QuoteMeta>, template?: DocTemplate | null) {
   const wb = quoteWorkbook({
     engine: computeEngine(DEFAULT_ASSUMPTIONS, items, DEFAULT_REGIONS), meta: { ...meta, ...over }, assumptions: DEFAULT_ASSUMPTIONS,
-    scenario: 0, number: "Q-1", title: "T", clientName: "PT Klien",
+    scenario: 0, number: "Q-1", title: "T", clientName: "PT Klien", template,
   } as Parameters<typeof quoteWorkbook>[0]);
   return wb.Sheets["Penawaran"];
 }
@@ -40,5 +40,39 @@ describe("quote workbook columns", () => {
     const text = JSON.stringify(XLSX.utils.sheet_to_json(s));
     expect(text).not.toContain("Subtotal");
     expect(text).not.toContain("Nilai kontrak");
+  });
+});
+
+describe("quote workbook with a client document template", () => {
+  it("without a template the sheet is the same as before: header in row 1, widths per column", () => {
+    for (const t of [undefined, null]) {
+      const s = sheetFor({}, t);
+      expect(headers(s)).toEqual(["No", "Kode", "Item", "Satuan", "Qty", "Harga satuan", "Total per bulan"]);
+      expect(s["!cols"]?.map((c) => c.wch)).toEqual([5, 14, 46, 8, 10, 14, 16]);
+    }
+    expect(sheetFor({ hideLineTotal: true })["!cols"]?.map((c) => c.wch)).toEqual([5, 14, 46, 8, 10, 14, 16]);
+    expect(sheetFor({ hideQty: true })["!cols"]?.map((c) => c.wch)).toEqual([5, 14, 46, 8, 14]);
+  });
+
+  it("uses the template's headings and order, title and opening above, totals under its total column", () => {
+    const s = sheetFor({}, {
+      columns: [
+        { key: "no", label: "No." }, { key: "name", label: "Uraian" }, { key: "price", label: "Harga (Rp)" },
+        { key: "qty", label: "Volume" }, { key: "total", label: "Jumlah" },
+      ],
+      title: "Surat Penawaran",
+      opening: "Dengan hormat,",
+    });
+    const rows = XLSX.utils.sheet_to_json(s, { header: 1, blankrows: true }) as unknown[][];
+    expect(rows[0]).toEqual(["Surat Penawaran"]);
+    expect(rows[1]).toEqual(["Dengan hormat,"]);
+    expect(rows[3]).toEqual(["No.", "Uraian", "Harga (Rp)", "Volume", "Jumlah"]);
+    expect(rows[4][1]).toBe("Pulpen");
+    // Subtotal row: its label under Uraian, its value under Jumlah (E), formatted as money; no stray column.
+    const sub = rows.findIndex((r) => r?.[1] === "Subtotal per bulan");
+    expect(sub).toBeGreaterThan(4);
+    expect(s[`E${sub + 1}`].z).toBe("#,##0");
+    expect(s[`C5`].z).toBe("#,##0");
+    expect(Math.max(...rows.map((r) => r?.length ?? 0))).toBe(5);
   });
 });
