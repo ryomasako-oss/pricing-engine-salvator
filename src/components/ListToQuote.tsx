@@ -19,6 +19,7 @@ import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { grp } from "@shared/format";
+import { shownCode } from "@shared/pendingItems";
 import { lineFromCatalog, type MatchResult, type RequestLine } from "@shared/match";
 import { choicesFromRows, codesToFetch, restoreRows, type Draft } from "@shared/listDrafts";
 import type { CatalogItem, Client, QuoteItem } from "@shared/types";
@@ -285,7 +286,14 @@ export function ListToQuote({
       });
       // "Barang baru" is not in the catalog yet, so its line waits for Accurate
       // (shared/pendingItems.ts). The server holds it on every read as well.
-      if (item.source === "pending") return { ...line, held: true, holdReason: "new_item" as const };
+      if (item.source === "pending") {
+        // With a typed price the line goes on the document now as a plain manual line
+        // (no code, so the server does not hold it); without one it waits for Accurate.
+        const p = Math.round(Number(item.list_price) || 0);
+        return p > 0
+          ? { ...line, code: "", rrp: p, manualPrice: [p, p, p] }
+          : { ...line, held: true, holdReason: "new_item" as const };
+      }
       // A catalog item with a bad COGS goes on the quote held (server/cogsCheck.ts):
       // not offered or totalled until a manager checks it, but not forgotten.
       return item.cogs_problem ? { ...line, held: true } : line;
@@ -326,7 +334,11 @@ export function ListToQuote({
   };
   const settled = (r: Row) => r.confirmed && (!unitCheck(r) || r.unitOk);
   const pending = rows?.filter((r) => r.chosen != null && !settled(r)).length ?? 0;
-  const isPending = (r: Row) => (r.chosen != null ? items.get(r.chosen)?.source === "pending" : false);
+  // Waiting for Accurate = a "barang baru" without a typed price; with one it is a manual line on the document.
+  const isPending = (r: Row) => {
+    const it = r.chosen != null ? items.get(r.chosen) : undefined;
+    return it?.source === "pending" && !(Number(it.list_price) > 0);
+  };
   const heldCount = rows?.filter((r) => blockedOf(r) || isPending(r)).length ?? 0;
   const used = lines.filter(Boolean).length;
   // Rows left out by choice (or with nothing found).
@@ -560,7 +572,7 @@ export function ListToQuote({
                 // "— tidak dipakai —" over a row that does have an item.
                 update(at, { chosen: item.id, confirmed: true, unitOk: false, extra: [...rows[at].extra, item.id] });
                 setNewItemRow(null);
-                toast(`"${item.name}" diminta ke Accurate. Barisnya ditahan sampai barangnya dibuat.`);
+                toast(`"${item.name}" diminta ke Accurate. Kalau harga jual diisi, baris langsung masuk dokumen; kalau tidak, ditahan sampai barangnya dibuat.`);
               }}
             />
           )}
@@ -634,7 +646,7 @@ export function ListToQuote({
                               const score = scoreOf.get(id);
                               return (
                                 <option key={id} value={id}>
-                                  {it.name} ({it.code}){score != null && score < 1 ? ` · ${Math.round(score * 100)}%` : ""}
+                                  {it.name}{shownCode(it.code) ? ` (${shownCode(it.code)})` : ""}{score != null && score < 1 ? ` · ${Math.round(score * 100)}%` : ""}
                                   {it.cogs_problem ? " · COGS bermasalah" : ""}
                                 </option>
                               );

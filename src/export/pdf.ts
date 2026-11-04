@@ -4,6 +4,7 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { SCENARIOS } from "@shared/engine";
+import { shownCode } from "@shared/pendingItems";
 import { fmtDate, grp, pct } from "@shared/format";
 import type { Assumptions, ComputedRow, EngineResult, QuoteMeta, ScenarioIndex } from "@shared/types";
 import type { CompanyInfo } from "../components/QuotationDoc";
@@ -103,7 +104,7 @@ export function quotationPdf(input: Input): jsPDF {
   type Col = { head: string; cell: (r: ComputedRow & { lineNo: number }) => string; style: Record<string, unknown> };
   const columns: Col[] = [
     { head: "No", cell: (r) => String(r.lineNo), style: { halign: "center", cellWidth: 26 } },
-    { head: "Item", cell: (r) => (r.code ? `${r.name}\n${r.code}` : r.name), style: {} },
+    { head: "Item", cell: (r) => (shownCode(r.code) ? `${r.name}\n${shownCode(r.code)}` : r.name), style: {} },
     { head: "Satuan", cell: (r) => r.uom, style: { halign: "center", cellWidth: 48 } },
     ...(cols.qty ? [{ head: "Qty", cell: (r: ComputedRow) => grp(r.qty), style: { halign: "right", cellWidth: 58 } }] : []),
     { head: "Harga satuan", cell: (r) => grp(r.prices[scenario]), style: { halign: "right", cellWidth: 76, fontStyle: "bold" } },
