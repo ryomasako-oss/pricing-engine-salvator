@@ -27,7 +27,8 @@ import {
 import { cogsProblemsFor } from "../quoteService";
 import { sweepPending } from "./pendingItems";
 import { catalogEntity } from "../accurate/sync";
-import { lastSales, salesEnabled } from "../accurate/sales";
+import { lastSales, salesEnabled, salesNameMap } from "../accurate/sales";
+import { normalizeText } from "../../../shared/match";
 import { canSeeCosts, catalogItemsForViewer, problemsForViewer } from "../../staffView";
 import { cleanUnits, type ItemUnits } from "../../../shared/uom";
 import { chunks } from "../../sqlParams";
@@ -178,14 +179,20 @@ catalogRouter.post("/match", async (c) => {
   // Pairings the reps already corrected away never come back as a certainty
   // (shared/matchLearning.ts). Read across clients: a bad guess is usually bad for all.
   const rejected = rejectedMap(await all<{ text: string; suggested: string }>(c.env.DB, REJECTED_SQL));
-  const { results, referenced } = runMatch(parsed.data, catalog, aliases, rejected);
+  // How the sales team invoiced each wording (accurate/sales.ts salesNameMap), for this client first.
+  const customerNo = parsed.data.client_id
+    ? ((await get<{ no: string }>(c.env.DB, "SELECT accurate_customer_no AS no FROM clients WHERE id = ?", parsed.data.client_id))?.no ?? "")
+    : "";
+  const siNames = salesEnabled(c.env)
+    ? await salesNameMap(c.env.DB, catalogEntity(c.env), parsed.data.lines.map((l) => normalizeText(l.name)), customerNo)
+    : undefined;
+  const { results, referenced } = runMatch(parsed.data, catalog, aliases, rejected, siNames);
   const codes = referenced.map((i) => i.code);
   const body = matchResponse(results, referenced, await unitsByCode(c.env.DB, codes));
   const role = c.get("user")!.role;
   // The price the client last paid is the default ceiling (accurate/sales.ts lastSales).
   const sales = salesEnabled(c.env)
-    ? await lastSales(c.env.DB, catalogEntity(c.env), referenced, (await get<{ no: string }>(
-        c.env.DB, "SELECT accurate_customer_no AS no FROM clients WHERE id = ?", parsed.data.client_id ?? 0))?.no ?? "")
+    ? await lastSales(c.env.DB, catalogEntity(c.env), referenced, customerNo)
     : new Map();
   const items = body.items.map((i) => ({ ...i, last_sale: sales.get(i.code) ?? null }));
   return c.json({ ...body, items: catalogItemsForViewer(role, withProblems(items, await cogsProblemsFor(c.env.DB, codes))) });

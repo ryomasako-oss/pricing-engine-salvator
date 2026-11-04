@@ -717,6 +717,12 @@ export function ListToQuote({
                         {row.result.via === "alias" && (
                           <div className="muted small">Dari pilihan sebelumnya untuk istilah ini</div>
                         )}
+                        {row.result.via === "si" && (
+                          <div className="muted small">
+                            Dari faktur penjualan: nama ini pernah difakturkan sebagai barang ini
+                            {row.result.status === "review" ? " (ke klien lain, cek dulu)" : " ke klien ini"}
+                          </div>
+                        )}
                         {warn && <div className="small" style={{ color: "var(--warn)" }}>⚠ {warn}</div>}
                         {blockedOf(row) && (
                           <div className="small" style={{ color: "var(--warn)" }}>

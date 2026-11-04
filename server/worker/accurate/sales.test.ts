@@ -4,6 +4,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { D1DatabaseShim } from "../../../scripts/d1-sqlite-shim";
 import { mapSalesInvoice, mapSalesLines } from "./mapping";
+import { normalizeText } from "../../../shared/match";
 import { RECEIPT_SWEEP_EVERY_PASSES, docStep, type ReceiptConfig } from "./receipts";
 import { SALES } from "./sales";
 import { fakeAccurate, type FakeReceipt } from "./testing";
@@ -25,7 +26,7 @@ type FakeInvoice = FakeReceipt & { customer: Record<string, unknown>; [k: string
 const INVOICES: FakeInvoice[] = [
   { id: 95001, number: "SI.2026.10.00297", transDate: "26/10/2026", lastUpdate: "03/11/2026 12:19:06", status: "OUTSTANDING",
     approvalStatus: "APPROVED", customer: mestika, inclusiveTax: false, tax1Rate: 11, cashDiscount: 0, subTotal: 2_504_000,
-    detailItem: [{ id: 146851, item: { no: "100003" }, itemUnit: { name: "BOX" }, unitRatio: 24, quantity: 16, returnQuantity: 0,
+    detailItem: [{ id: 146851, item: { no: "100003" }, detailName: "Spiva Mineral Water 500ML", itemUnit: { name: "BOX" }, unitRatio: 24, quantity: 16, returnQuantity: 0,
       unitPrice: 156_500, salesAmount: 2_504_000 }] },
   { id: 95002, number: "SI.2026.10.00298", transDate: "27/10/2026", lastUpdate: "27/10/2026 09:00:00", status: "OUTSTANDING",
     approvalStatus: "UNAPPROVED", customer: mestika, detailItem: [{ id: 1, item: { no: "100003" }, quantity: 1, salesAmount: 1 }] },
@@ -53,7 +54,8 @@ describe("sales invoice mapping", () => {
   it("keeps the money fields as Accurate sends them, with the customer and the unit ratio", () => {
     expect(mapSalesLines(INVOICES[0] as unknown as Record<string, unknown>)).toEqual([{
       invoiceId: 95001, lineId: 146851, invoiceNo: "SI.2026.10.00297", transDate: "2026-10-26", customerNo: "C.00030",
-      customerName: "MESTIKA MAKMUR PERSADA JAYA, PT.", itemCode: "100003", unit: "BOX", unitRatio: 24, quantity: 16,
+      customerName: "MESTIKA MAKMUR PERSADA JAYA, PT.", itemCode: "100003", detailName: "Spiva Mineral Water 500ML",
+      nameKey: normalizeText("Spiva Mineral Water 500ML"), unit: "BOX", unitRatio: 24, quantity: 16,
       returnQty: 0, salesAmount: 2_504_000, inclusiveTax: 0, taxRate: 11, cashDiscount: 0, subTotal: 2_504_000,
     }]);
   });
@@ -70,6 +72,9 @@ describe("sales invoice sync (docStep with SALES)", () => {
     const { sqlite, db } = freshDb();
     const fake = fakeAccurate({ items: [], stock: {}, salesInvoices: INVOICES });
     await runPass(db, fake.impl, 3);
+    expect(sqlite.prepare("SELECT detail_name, name_key FROM accurate_sales_lines WHERE invoice_id = 95001").get()).toEqual({
+      detail_name: "Spiva Mineral Water 500ML", name_key: normalizeText("Spiva Mineral Water 500ML"),
+    });
     expect(sqlite.prepare("SELECT invoice_no, item_code, customer_no, unit_ratio, inclusive_tax FROM accurate_sales_lines ORDER BY invoice_id").all()).toEqual([
       { invoice_no: "SI.2026.10.00297", item_code: "100003", customer_no: "C.00030", unit_ratio: 24, inclusive_tax: 0 },
       { invoice_no: "SI.2026.11.00001", item_code: "A1", customer_no: "C.00099", unit_ratio: 1, inclusive_tax: 1 },

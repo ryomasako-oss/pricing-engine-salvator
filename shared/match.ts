@@ -66,7 +66,7 @@ export interface Candidate {
 export interface MatchResult {
   index: number;
   status: MatchStatus;
-  via: "code" | "alias" | "name" | null;
+  via: "code" | "alias" | "si" | "name" | null;
   /** Best candidate first; at most MAX_ALTERNATIVES. Empty when nothing scored. */
   candidates: Candidate[];
 }
@@ -75,6 +75,11 @@ export interface MatchResult {
 export interface AliasMaps {
   client: Map<string, string>;
   global: Map<string, string>;
+  /**
+   * Wording the sales team invoiced an item as (Accurate sales invoices, last 12 months) -> its code;
+   * `own`: invoiced under that name to this client (server/worker/accurate/sales.ts salesNameMap).
+   */
+  si?: Map<string, { code: string; own: boolean }>;
 }
 
 export type MatchableItem = Pick<CatalogItem, "id" | "code" | "name">;
@@ -334,6 +339,18 @@ export function matchLine<T extends MatchableItem>(
   if (byAlias) {
     const rest = scored.filter((c) => c.id !== byAlias.id).slice(0, MAX_ALTERNATIVES - 1);
     return { index, status: "exact", via: "alias", candidates: [{ id: byAlias.id, score: 1 }, ...rest] };
+  }
+
+  // The client's wording is how the item was invoiced (Ryoma, 2026-11-04). To this client it settles
+  // the line; to another client it is the first suggestion, checked. A person's decision on this
+  // wording (an alias, or "barang baru" in Latih pencocokan) always wins over an invoice.
+  const decided = aliases.client.has(text) || aliases.global.has(text);
+  const sale = decided ? undefined : aliases.si?.get(text);
+  const bySale = sale ? catalog.byCode.get(normalizeCode(sale.code)) : undefined;
+  if (sale && bySale) {
+    const rest = scored.filter((c) => c.id !== bySale.id).slice(0, MAX_ALTERNATIVES - 1);
+    const status: MatchStatus = sale.own && !isRejectedPair(rejected, text, bySale.code) ? "match" : "review";
+    return { index, status, via: "si", candidates: [{ id: bySale.id, score: 1 }, ...rest] };
   }
 
   const top = scored.slice(0, MAX_ALTERNATIVES);

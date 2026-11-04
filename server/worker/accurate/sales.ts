@@ -31,12 +31,13 @@ export const SALES: DocKind = {
   mapDoc: mapSalesInvoice,
   mapLines: mapSalesLines,
   insertSql: `INSERT OR REPLACE INTO accurate_sales_lines(entity, invoice_id, line_id, invoice_no, trans_date, customer_no,
-                customer_name, item_code, unit, unit_ratio, quantity, return_qty, sales_amount, inclusive_tax,
-                tax_rate, cash_discount, sub_total, synced_at)
+                customer_name, item_code, detail_name, name_key, unit, unit_ratio, quantity, return_qty, sales_amount,
+                inclusive_tax, tax_rate, cash_discount, sub_total, synced_at)
               SELECT ?1, json_extract(j.value, '$.invoiceId'), json_extract(j.value, '$.lineId'),
                      json_extract(j.value, '$.invoiceNo'), json_extract(j.value, '$.transDate'),
                      json_extract(j.value, '$.customerNo'), json_extract(j.value, '$.customerName'),
-                     json_extract(j.value, '$.itemCode'), json_extract(j.value, '$.unit'),
+                     json_extract(j.value, '$.itemCode'), json_extract(j.value, '$.detailName'),
+                     json_extract(j.value, '$.nameKey'), json_extract(j.value, '$.unit'),
                      json_extract(j.value, '$.unitRatio'), json_extract(j.value, '$.quantity'),
                      json_extract(j.value, '$.returnQty'), json_extract(j.value, '$.salesAmount'),
                      json_extract(j.value, '$.inclusiveTax'), json_extract(j.value, '$.taxRate'),
@@ -178,5 +179,52 @@ export async function lastSales(
     else anyClient.set(r.item_code, sale);
   }
   for (const [code, sale] of anyClient) if (!out.has(code)) out.set(code, sale);
+  return out;
+}
+
+/**
+ * Sales-invoice wording -> catalog code, for matching a client's list (shared/match.ts AliasMaps.si).
+ * Only wordings asked for (`keys`, normalizeText of each line), last 12 months. A wording invoiced to
+ * this client (customerNo) as exactly one code is `own`; otherwise the code it was invoiced as most
+ * often, to anyone. A wording split evenly between codes says nothing and is left out.
+ */
+export async function salesNameMap(
+  db: D1Database,
+  entity: EntityKey,
+  keys: string[],
+  customerNo: string,
+  now = new Date(),
+): Promise<Map<string, { code: string; own: boolean }>> {
+  const out = new Map<string, { code: string; own: boolean }>();
+  const wanted = [...new Set(keys.filter(Boolean))];
+  if (!wanted.length) return out;
+  const since = new Date(now.getTime() - 365 * 86_400_000).toISOString().slice(0, 10);
+  const rows = await all<{ name_key: string; item_code: string; own: number; n: number }>(
+    db,
+    `SELECT name_key, item_code, customer_no = ?4 AND ?4 <> '' AS own, COUNT(*) AS n
+       FROM accurate_sales_lines
+      WHERE entity = ?1 AND trans_date >= ?2 AND name_key IN (SELECT value FROM json_each(?3))
+      GROUP BY name_key, item_code, own`,
+    entity,
+    since,
+    JSON.stringify(wanted),
+    customerNo,
+  );
+  const pick = (list: { item_code: string; n: number }[]) => {
+    const counts = new Map<string, number>();
+    for (const r of list) counts.set(r.item_code, (counts.get(r.item_code) ?? 0) + r.n);
+    const sorted = [...counts].sort((a, b) => b[1] - a[1]);
+    return sorted.length && (sorted.length === 1 || sorted[0][1] > sorted[1][1]) ? sorted[0][0] : undefined;
+  };
+  for (const key of wanted) {
+    const mine = rows.filter((r) => r.name_key === key && r.own === 1);
+    const ownCodes = new Set(mine.map((r) => r.item_code));
+    if (ownCodes.size === 1) {
+      out.set(key, { code: [...ownCodes][0], own: true });
+      continue;
+    }
+    const code = pick(rows.filter((r) => r.name_key === key));
+    if (code) out.set(key, { code, own: false });
+  }
   return out;
 }
