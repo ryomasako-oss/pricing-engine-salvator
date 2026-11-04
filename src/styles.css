@@ -221,7 +221,7 @@ a { color: var(--navy); }
 .hk-nav { display: flex; gap: 2px; align-items: center; background: var(--soft); border-radius: 999px; padding: 3px; }
 .hk-nav a {
   display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px;
-  text-decoration: none; color: var(--muted); font-weight: 550; font-size: 13px;
+  text-decoration: none; color: var(--muted); font-weight: 550; font-size: 13px; white-space: nowrap;
   transition: background .15s, color .15s;
 }
 .hk-nav a:hover { color: var(--ink); }
@@ -622,22 +622,26 @@ input[type=checkbox] { accent-color: var(--navy); width: 17px; height: 17px; fle
 .search-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .search-bar .input { max-width: 320px; min-width: 180px; }
 
+/* Managers' nine menu items don't fit beside brand and account on a laptop: the nav
+   gets its own row and scrolls sideways, so nothing is ever pushed off the screen. */
+@media (max-width: 1500px) {
+  .hk-top { flex-wrap: wrap; row-gap: 8px; }
+  .hk-brand { min-width: 0; flex: 1; }
+  .hk-nav {
+    order: 3; width: 100%; overflow-x: auto; justify-content: safe center;
+    scrollbar-width: none; -webkit-overflow-scrolling: touch;
+  }
+  .hk-nav::-webkit-scrollbar { display: none; }
+}
 @media (max-width: 1080px) {
   .editor { grid-template-columns: 1fr; }
   .editor-side { position: static; max-height: none; }
 }
 @media (max-width: 720px) {
   .hk-main { padding: 14px; }
-  .hk-top { padding: 8px 12px; flex-wrap: wrap; row-gap: 8px; }
-  /* Brand and account stay on the first row; the nav wraps onto its own row
-     and scrolls sideways, so nothing is ever pushed off the screen. */
-  .hk-brand { min-width: 0; flex: 1; }
+  .hk-top { padding: 8px 12px; }
   .hk-title, .hk-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .hk-nav {
-    order: 3; width: 100%; overflow-x: auto; justify-content: space-between;
-    scrollbar-width: none; -webkit-overflow-scrolling: touch;
-  }
-  .hk-nav::-webkit-scrollbar { display: none; }
+  .hk-nav { justify-content: space-between; }
   .hk-nav a { padding: 6px 10px; }
   .hk-nav a span.label { font-size: 12px; }
   .hide-sm { display: none; }
