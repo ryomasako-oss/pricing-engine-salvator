@@ -6,6 +6,7 @@
 
 import ExcelJS from "exceljs";
 import { SCENARIOS } from "@shared/engine";
+import { shownCode } from "@shared/pendingItems";
 import { paymentLabel, warrantyLabel } from "@shared/terms";
 import { heldNote, holdInfo, offeredRows } from "@shared/holds";
 import { docColumns } from "@shared/docColumns";
@@ -80,6 +81,56 @@ export async function quoteWorkbook(input: Input): Promise<ExcelJS.Workbook> {
     ...(cols.qty ? ["Qty"] : []),
     "Harga satuan",
     ...(cols.lineTotal ? ["Total per bulan"] : []),
+  const quoteRows: Record<string, unknown>[] = offeredRows(engine.rows).map((r) => ({
+    No: r.lineNo,
+    Kode: shownCode(r.code),
+    Item: r.name,
+    Satuan: r.uom,
+    ...(cols.qty ? { Qty: r.qty } : {}),
+    "Harga satuan": Math.round(r.prices[scenario]),
+    ...(cols.lineTotal ? { "Total per bulan": Math.round(r.prices[scenario] * r.qty) } : {}),
+  }));
+  const s = engine.scen[scenario];
+  quoteRows.push(
+    ...(cols.totals
+      ? [
+          {} as never,
+          { Item: "Subtotal per bulan", "Total per bulan": Math.round(s.revenue) } as never,
+          {
+            Item: `PPN ${(assumptions.ppn * 100).toFixed(0)}%`,
+            "Total per bulan": Math.round(s.revenue * assumptions.ppn),
+          } as never,
+          {
+            Item: "Total per bulan termasuk PPN",
+            "Total per bulan": Math.round(s.revenue * (1 + assumptions.ppn)),
+          } as never,
+          {
+            Item: `Nilai kontrak ${assumptions.months} bulan (belum PPN)`,
+            "Total per bulan": Math.round(s.annual),
+          } as never,
+        ]
+      : []),
+    {} as never,
+    ...(heldNote(engine.rows) ? [{ Item: "Item menyusul", Satuan: heldNote(engine.rows) } as never] : []),
+    { Item: "Term of payment", Satuan: paymentLabel(meta) || "—" } as never,
+    { Item: "Garansi", Satuan: warrantyLabel(meta) || "—" } as never,
+    { Item: "Masa berlaku penawaran", Satuan: `${meta.validity} hari` } as never,
+    {} as never,
+    { Item: "Hormat kami,", "Harga satuan": "Disetujui oleh," } as never,
+    { Item: "PT Salvator Inti Pratama", "Harga satuan": clientName } as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    { Item: `(${meta.preparedBy || "Nama"})`, "Harga satuan": "Nama & jabatan: ______________" } as never,
+    { "Harga satuan": "Tanggal: ______________" } as never,
+  );
+  const quoteSheet = XLSX.utils.json_to_sheet(quoteRows);
+  // Hidden columns are absent, not blank, so the letters after "Satuan" shift left.
+  quoteSheet["!cols"] = [
+    { wch: 5 }, { wch: 14 }, { wch: 46 }, { wch: 8 },
+    ...(cols.qty ? [{ wch: 10 }] : []),
+    { wch: 14 },
+    ...(cols.lineTotal || cols.totals ? [{ wch: 16 }] : []),
   ];
   const noCol = columnOf(header, "No");
   const photoCol = columnOf(header, "Foto");

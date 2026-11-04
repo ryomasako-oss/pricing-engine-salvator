@@ -171,6 +171,7 @@ Keluarkan HANYA JSON valid, tanpa teks lain dan tanpa backtick:
   {"type":"set","key":"step|months","value":50}
   {"type":"set","key":"includeLogistics","value":true}
   {"type":"item","no":3,"field":"qty|cogs|rrp|role","value":123}
+  {"type":"item","no":3,"field":"margin","value":0.3}   (margin satu barang; harganya dihitung app, tidak melebihi harga maksimal. Untuk SEMUA barang pakai set targetMargin, bukan margin per barang)
   {"type":"scenario","value":2}   (value = nomor skenario: 1 untuk S1, 2 untuk S2, 3 untuk S3)
 - followups: 2 sampai 3 pertanyaan lanjutan pendek.
 

@@ -74,6 +74,8 @@ export interface QuoteItem {
    * engine's computed price for that scenario, but is still clamped to RRP.
    */
   manualPrice?: (number | null)[];
+  /** A client's request with no catalog item and no price yet (list-to-quote): held until it gets a code or a price. */
+  unmatched?: boolean;
   notes?: string;
   /**
    * The unit cogs/rrp/manualPrice are actually expressed in, set only when a
@@ -94,7 +96,7 @@ export interface QuoteItem {
    * "barang baru" still waiting to be created in Accurate (shared/pendingItems.ts);
    * or "new_item_cancelled" — that request was cancelled. Set by the server only.
    */
-  holdReason?: "cogs" | "sales" | "new_item" | "new_item_cancelled";
+  holdReason?: "cogs" | "sales" | "new_item" | "new_item_cancelled" | "unmatched";
   /**
    * The catalog COGS (in this line's unit) that `cogs` was copied from, set by
    * lineFromCatalog. While `cogs` still equals it the cost is the catalog's,
@@ -256,6 +258,8 @@ export interface Client {
   contact_phone: string;
   payment_terms: string;
   delivery_terms: string;
+  /** Accurate customerNo (e.g. C.00030), "" when not linked. */
+  accurate_customer_no: string;
   created_at: string;
 }
 
@@ -303,6 +307,8 @@ export interface CatalogItem {
   updated_at: string;
   /** Extra units and how many base units (`uom`) each holds, e.g. Box = 24. */
   units?: UnitFactor[];
+  /** Data Hub thumbnail (served via /api/hub-media); null otherwise. */
+  image?: string | null;
   /** Why this item must not be sold right now, or null. Set by the API. */
   cogs_problem?: string | null;
   /** Version of the item's photo (see catalogImageUrl), absent when it has none. Set by the API. */

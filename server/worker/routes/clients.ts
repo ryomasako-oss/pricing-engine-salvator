@@ -29,10 +29,10 @@ clientsRouter.post("/", async (c) => {
   const info = await run(
     c.env.DB,
     `INSERT INTO clients(name, code, address, contact_name, contact_email, contact_phone,
-                         payment_terms, delivery_terms)
-     VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
+                         payment_terms, delivery_terms, accurate_customer_no)
+     VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     d.name, d.code, d.address, d.contact_name, d.contact_email, d.contact_phone,
-    d.payment_terms, d.delivery_terms,
+    d.payment_terms, d.delivery_terms, d.accurate_customer_no,
   );
   const id = Number(info.meta.last_row_id);
   await audit(c.env.DB, user.id, "client", id, "created", { name: d.name });
@@ -54,9 +54,9 @@ clientsRouter.put("/:id", async (c) => {
   await run(
     c.env.DB,
     `UPDATE clients SET name = ?, code = ?, address = ?, contact_name = ?, contact_email = ?,
-            contact_phone = ?, payment_terms = ?, delivery_terms = ? WHERE id = ?`,
+            contact_phone = ?, payment_terms = ?, delivery_terms = ?, accurate_customer_no = ? WHERE id = ?`,
     d.name, d.code, d.address, d.contact_name, d.contact_email, d.contact_phone,
-    d.payment_terms, d.delivery_terms, id,
+    d.payment_terms, d.delivery_terms, d.accurate_customer_no, id,
   );
   await audit(c.env.DB, user.id, "client", id, "updated", { name: d.name });
   const client = await get<Client>(c.env.DB, "SELECT * FROM clients WHERE id = ?", id);

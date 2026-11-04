@@ -17,7 +17,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   try {
     response = await fetch(`/api${path}`, {
       credentials: "include",
-      headers: init.body ? { "Content-Type": "application/json" } : undefined,
+      headers: init.body && !(init.body instanceof FormData) ? { "Content-Type": "application/json" } : undefined,
       ...init,
     });
   } catch {
@@ -47,6 +47,8 @@ export const api = {
   get: <T,>(path: string) => request<T>(path),
   post: <T,>(path: string, body?: unknown) =>
     request<T>(path, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) }),
+  /** Unggah berkas (FormData); Content-Type diisi browser beserta batasnya. */
+  upload: <T,>(path: string, form: FormData) => request<T>(path, { method: "POST", body: form }),
   put: <T,>(path: string, body?: unknown) =>
     request<T>(path, { method: "PUT", body: body === undefined ? undefined : JSON.stringify(body) }),
   patch: <T,>(path: string, body?: unknown) =>

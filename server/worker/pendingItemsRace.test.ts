@@ -59,3 +59,16 @@ describe("POST /pending-items/:id/submit when the request is cancelled before th
     expect(sqlite.prepare("SELECT COUNT(*) AS n FROM fix_tasks WHERE kind = 'new_item' AND status = 'open'").get()).toEqual({ n: 0 });
   });
 });
+
+describe("POST /pending-items with a name that is already requested", () => {
+  it("returns the live request instead of taking a new BARU number", async () => {
+    const { sqlite, db } = freshDb();
+    const call = appFor(db);
+    const first = await call("POST", "/api/pending-items", { name: "Pulpen Faster C600", uom: "Pak" });
+    const again = await call("POST", "/api/pending-items", { name: "  pulpen faster c600 ", uom: "Pak" });
+    expect(first.status).toBe(201);
+    expect(again.status).toBe(200);
+    expect(again.json.item.id).toBe(first.json.item.id);
+    expect(sqlite.prepare("SELECT COUNT(*) AS n FROM pending_items").get()).toEqual({ n: 1 });
+  });
+});

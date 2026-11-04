@@ -39,6 +39,8 @@ export const itemSchema = z.object({
   manualPrice: z.array(z.number().nullable()).length(3).optional(),
   notes: z.string().max(500).optional(),
   priceUom: z.string().max(32).optional(),
+  /** A client's request with no catalog item and no price (list-to-quote); applyHolds keeps it held. */
+  unmatched: z.boolean().optional(),
 });
 
 /** One extra unit of a catalog item: `factor` base units per `uom`. */
@@ -116,6 +118,8 @@ export const clientSchema = z.object({
   contact_phone: z.string().max(64).default(""),
   payment_terms: z.string().max(200).default(""),
   delivery_terms: z.string().max(200).default(""),
+  /** Accurate customerNo (e.g. C.00030): the price this client last paid comes from its invoices. */
+  accurate_customer_no: z.string().trim().max(32).default(""),
 });
 
 export const catalogRowSchema = z.object({

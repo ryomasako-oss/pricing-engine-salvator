@@ -1,5 +1,6 @@
+import { unitAssumed } from "./uom";
 import { describe, expect, it } from "vitest";
-import { lineFromCatalog, matchLines, normalizeText, similarity, tokens } from "./match";
+import { lineFromCatalog, matchLines, normalizeText, similarity, splitPackText, tokens } from "./match";
 import type { CatalogItem } from "./types";
 
 const item = (id: number, code: string, name: string, over: Partial<CatalogItem> = {}): CatalogItem => ({
@@ -194,5 +195,213 @@ describe("lineFromCatalog records the catalog COGS it copied", () => {
     expect(lineFromCatalog(pen, 1).catalogCogs).toBe(1000);
     expect(lineFromCatalog(pen, 1, { uom: "Box" }).catalogCogs).toBe(12000);
     expect(lineFromCatalog(item(21, "P-2", "Kosong", { cogs: 0 }), 1).catalogCogs).toBeUndefined();
+  });
+});
+
+/** Nama katalog sungguhan dari PO PT Primajaya (2026-11-02): 30 baris, 11 jatuh ke "none" padahal barangnya ada. */
+describe("PO klien: kemasan di kurung, nomor part, istilah Indonesia", () => {
+  const PO_CATALOG = [
+    item(100034, "100034", "JOYKO BINDER CLIP NO.105"),
+    item(100644, "100644", "JOYKO BINDER CLIP NO.107"),
+    item(100381, "100381", "JOYKO BINDER CLIP NO.155"),
+    item(100646, "100646", "JOYKO BINDER CLIP NO.200"),
+    item(103379, "103379", "JOYKO BINDER CLIP NO.280"),
+    item(100382, "100382", "JOYKO BINDER CLIP NO.300"),
+    item(80801930, "80801930", "JOYKO TRIGONAL CLIP NO.1"),
+    item(5000, "ATK-0005", "JOYKO Trigonal Clip No.1 (isi 10 ktk)"),
+    item(100225, "100225", "JOYKO CORRECTION TAPE CT-522"),
+    item(102654, "102654", "JOYKO CT-595 CORRECTION TAPE"),
+    item(80800915, "80800915", "DELKO CLOTH TAPE 24MM X 12M BLACK"),
+    item(101885, "101885", "JOYKO GLUE STICK GS-25 GR"),
+    item(101551, "101551", "JOYKO STAMP PAD NO.2"),
+    item(101552, "101552", "JOYKO STAMP PAD NO.0"),
+    item(100851, "100851", "JOYKO STAMP PAD INK SPI-12 BLUE"),
+    item(100852, "100852", "JOYKO STAMP PAD INK SPI-12 RED"),
+  ];
+  const run = (name: string, code?: string) => matchLines([{ name, code }], PO_CATALOG)[0];
+
+  it("memisahkan kemasan di kurung dari nama barang", () => {
+    expect(splitPackText("Binder Clip Joyko No. 105 (1 Gross @12 Pack)")).toEqual({ core: "Binder Clip Joyko No. 105  ", pack: "(1 Gross @12 Pack)" });
+    expect(splitPackText("Artline EK-660 Hijau ( isi 12/Lusin )").pack).toBe("( isi 12/Lusin )");
+    expect(splitPackText("Bantalan Stempel Joyko No. 2 (15.8 cm x 10.4 cm)").pack).toBe("(15.8 cm x 10.4 cm)");
+    // Detail barang di kurung tetap.
+    for (const keep of ["Stamp Pad Ink SPI-12 (Blue)", "Pelubang Kertas (Besar)", "Correction Pen Re-Type (Tipe X Set)"]) {
+      expect(splitPackText(keep)).toEqual({ core: keep, pack: "" });
+    }
+  });
+
+  it("kemasan tidak lagi menghukum: binder clip PO cocok otomatis ke nomornya", () => {
+    const lines = [
+      ["Binder Clip Joyko No. 105 (1 Gross @12 Pack)", 100034],
+      ["Binder Clip Joyko No. 107 (1 Gross @12 Pack)", 100644],
+      ["Binder Clip Joyko No.155 (1 Gross @12 Pack)", 100381],
+      ["Binder Clip Joyko No.200 (1 Gross @12 Pack)", 100646],
+      ["Binder Clip Joyko No.280 (1 box @6 PCS)", 103379],
+      ["Binder Clip Joyko No. 300 (1 box @6 PCS)", 100382],
+    ] as const;
+    for (const [name, id] of lines) {
+      const r = run(name);
+      expect(r.status).toBe("match");
+      expect(r.candidates[0].id).toBe(id);
+    }
+  });
+
+  it("nomor yang berbeda tidak tertukar walau kemasannya sama", () => {
+    expect(run("Binder Clip Joyko No. 105 (1 Gross @12 Pack)").candidates[0].id).not.toBe(100644);
+  });
+
+  it("kemasan membantu barang yang menyebutnya, dan menang atas barang kembar yang tidak", () => {
+    expect(run("JOYKO Trigonal Clip No.1 (isi 10 ktk)").candidates[0].id).toBe(5000);
+    expect(run("JOYKO Trigonal Clip No.1").candidates[0].id).toBe(80801930);
+  });
+
+  it("detail barang di kurung tetap membedakan (Blue vs Red)", () => {
+    expect(run("Tinta Stamp Pad Ink Joyko SPI-12 (Blue)").candidates[0].id).toBe(100851);
+    expect(run("Tinta Stamp Pad Ink Joyko SPI-12 (Red)").candidates[0].id).toBe(100852);
+  });
+
+  it("glue stick dengan teks kemasan tidak jatuh ke none", () => {
+    const r = run("Joyko Glue Stick GS-25 isi 25 gram ( isi 12/lusin)");
+    expect(r.status).not.toBe("none");
+    expect(r.candidates[0].id).toBe(101885);
+  });
+
+  it("nomor part yang tercetak di PO dan ada di nama katalog mengangkat barangnya, hanya sampai review", () => {
+    const withPart = run("Correction Tape Joyko 12M", "CT-522");
+    expect(withPart.candidates[0].id).toBe(100225);
+    expect(withPart.status).toBe("review");
+    // Nomor yang tidak ada di mana pun, atau terlalu pendek/tanpa angka, tidak mengubah apa-apa.
+    expect(run("Correction Tape Joyko 12M", "XYZ-999")).toEqual(run("Correction Tape Joyko 12M"));
+    expect(run("Correction Tape Joyko 12M", "CT")).toEqual(run("Correction Tape Joyko 12M"));
+  });
+
+  it("nomor part tidak mengangkat barang yang namanya sama sekali beda", () => {
+    const r = run("Lakban Bening 2 inch", "CT-522");
+    expect(r.candidates.map((c) => c.id)).not.toContain(100225);
+  });
+
+  it("Bantalan Stempel = Stamp Pad, dan ukuran di kurung tidak menggugurkan", () => {
+    const r = run("Bantalan Stempel Besar Joyko No. 2 (15.8 cm x 10.4 cm)");
+    expect(r.status).toBe("review");
+    expect(r.candidates[0].id).toBe(101551);
+  });
+});
+
+describe("lebar dalam inci dibaca juga sebagai milimeter", () => {
+  const TAPES = [
+    item(102324, "102324", 'NACHI ISOLASI HITAM (3/4") 19MM X 20 METER'),
+    item(101637, "101637", "NACHI CLOTH TAPE HITAM 72MM x 12M"),
+    item(100890, "100890", 'DAIMARU LAKBAN BENING 2"'),
+    item(101553, "101553", 'DAIMARU LAKBAN HITAM 2"'),
+    item(9001, "9001", "DAIMARU LAKBAN COKLAT 2 INCH"),
+    item(9002, "9002", 'DAIMARU LAKBAN BENING 3"'),
+  ];
+  const top = (name: string) => matchLines([{ name }], TAPES)[0];
+
+  it("tanda inci menghasilkan angka inci dan ukuran mm-nya sebagai pilihan; pecahan jadi satu token", () => {
+    expect(tokens('Lakban 3"')).toContain("3|72mm");
+    expect(tokens("Lakban 2 inch")).toContain("2|48mm");
+    expect(tokens('Isolasi (3/4") 19MM')).toEqual(expect.arrayContaining(["3/4|19mm", "19mm"]));
+    expect(tokens('Isolasi (3/4") 19MM')).not.toContain("3");
+    // Ukuran inci yang tidak lazim untuk lakban tetap angka biasa.
+    expect(tokens('Bracket TV 65"')).toContain("65");
+    // Kunci alias memakai normalizeText, yang tidak berubah.
+    expect(normalizeText('Lakban 3"')).toBe("lakban 3");
+  });
+
+  it('Nachi Lakban Hitam 3" menuju kain 72MM, bukan isolasi 3/4"', () => {
+    expect(top('Nachi Lakban Hitam 3"').candidates[0].id).toBe(101637);
+  });
+
+  it('pecahan 3/4" tidak ikut cocok dengan lebar 3"', () => {
+    expect(top('Nachi Isolasi Hitam 3/4"').candidates[0].id).toBe(102324);
+  });
+
+  it("inci, mm, dan tulisan inch saling menemukan", () => {
+    expect(top("Lakban Daimaru Bening 48mm").candidates[0].id).toBe(100890);
+    expect(top("Lakban Daimaru Bening 2 inch").candidates[0].id).toBe(100890);
+    expect(top('Lakban Daimaru Bening 3"').candidates[0].id).toBe(9002);
+  });
+
+  it('cara lama tetap jalan: 2" cocok dengan "2 INCH" di nama katalog dan lebar lain tidak tertukar', () => {
+    expect(top('Lakban Daimaru Coklat 2"').candidates[0].id).toBe(9001);
+    expect(top('Lakban Daimaru Hitam 2"')).toMatchObject({ status: "match" });
+    expect(top('Lakban Daimaru Hitam 2"').candidates[0].id).toBe(101553);
+    expect(top('Lakban Daimaru Bening 2"').candidates[0].id).toBe(100890);
+  });
+});
+
+describe("lineFromCatalog reads the unit from the client's wording", () => {
+  const artline = item(80801321, "80801321", "ARTLINE EK-660 HIGHLIGHTER GREEN", { cogs: 3750, list_price: 6000, units: [{ uom: "CRT", factor: 576 }, { uom: "LSN", factor: 12 }] });
+  const binder = item(100381, "100381", "JOYKO BINDER CLIP NO.155", { uom: "LSN", cogs: 5105.42, list_price: 6000, units: [{ uom: "GRS", factor: 12 }] });
+  const glue = item(101885, "101885", "JOYKO GLUE STICK GS-25 GR", { cogs: 5000, list_price: 6000, units: [] });
+  const pen = item(100850, "100850", "JOYKO PULPEN GEL GP-189 OVAL GEL 0.5mm BLUE", { cogs: 2200, list_price: 3000, units: [{ uom: "LSN", factor: 12 }] });
+
+  it("a per-lusin price is set against the cost per lusin, not per piece", () => {
+    const line = lineFromCatalog(artline, 173, { rrp: 70680, requestName: "Artline Highlighter EK-660 Hijau ( isi 12/Lusin )" });
+    expect(line).toMatchObject({ uom: "LSN", qty: 173, cogs: 45000, rrp: 70680 });
+  });
+
+  it("a per-gross price against the cost per gross", () => {
+    const line = lineFromCatalog(binder, 30, { rrp: 70034, requestName: "Binder Clip Joyko No.155 (1 Gross @12 Pack)" });
+    // The base cost is rounded to whole rupiah first (5105.42 -> 5105), as before.
+    expect(line).toMatchObject({ uom: "GRS", cogs: 61260, rrp: 70034 });
+  });
+
+  it("an explicit unit from the list wins over the wording", () => {
+    expect(lineFromCatalog(artline, 5, { uom: "Pcs", requestName: "Artline (isi 12/Lusin)" })).toMatchObject({ uom: "Pcs", cogs: 3750 });
+  });
+
+  it("the wording and the catalog disagree on the count: nothing is converted", () => {
+    const wrong = item(1, "X1", "ARTLINE X", { cogs: 3750, units: [{ uom: "LSN", factor: 6 }] });
+    expect(lineFromCatalog(wrong, 10, { rrp: 70680, requestName: "Artline X (isi 12/Lusin)" })).toMatchObject({ uom: "Pcs", cogs: 3750 });
+  });
+
+  it("nothing written about a pack, or a unit the item lacks, changes nothing", () => {
+    expect(lineFromCatalog(pen, 75, { rrp: 26600, requestName: "Pena Oval Joyko Gel 0,5 mm Biru" })).toMatchObject({ uom: "Pcs", cogs: 2200 });
+    expect(lineFromCatalog(glue, 62, { rrp: 53078, requestName: "Joyko Glue Stick GS-25 isi 25 gram ( isi 12/lusin)" })).toMatchObject({ uom: "Pcs", cogs: 5000 });
+  });
+});
+
+
+describe("lineFromCatalog toBase: a client's line goes on the quote in Accurate's smallest unit", () => {
+  const boxed = item(9, "PB", "PULPEN BOX", { cogs: 2000, list_price: 3000, units: [{ uom: "Box", factor: 12 }] });
+  const artline = item(80801321, "80801321", "ARTLINE EK-660 HIGHLIGHTER GREEN", { cogs: 3750, list_price: 6000, units: [{ uom: "LSN", factor: 12 }] });
+
+  it("a unit from the list column: qty times the ratio, COGS per base unit, ceiling divided", () => {
+    expect(lineFromCatalog(boxed, 2, { uom: "box", rrp: 30000, toBase: true })).toMatchObject({ uom: "Pcs", qty: 24, cogs: 2000, rrp: 2500 });
+  });
+
+  it("a unit read from the wording", () => {
+    const line = lineFromCatalog(artline, 173, { rrp: 70680, requestName: "Artline Highlighter EK-660 Hijau ( isi 12/Lusin )", toBase: true });
+    expect(line).toMatchObject({ uom: "Pcs", qty: 2076, cogs: 3750, rrp: 5890 });
+    expect(line.priceUom).toBeUndefined();
+  });
+
+  it("the ceiling is floored, so qty x price never passes the client's price per Box", () => {
+    const line = lineFromCatalog(boxed, 1, { uom: "Box", rrp: 25000, toBase: true });
+    expect(line.rrp).toBe(2083);
+    expect(line.rrp * 12).toBeLessThanOrEqual(25000);
+  });
+
+  it("no client ceiling: the catalog list price per base unit stays", () => {
+    expect(lineFromCatalog(boxed, 2, { uom: "Box", toBase: true })).toMatchObject({ uom: "Pcs", qty: 24, rrp: 3000 });
+  });
+
+  it("an unknown ratio counts the client's unit as one base unit (Ryoma, 2026-11-04)", () => {
+    const line = lineFromCatalog(boxed, 3, { uom: "Lusin", rrp: 9000, toBase: true });
+    expect(line).toMatchObject({ uom: "Pcs", qty: 3, cogs: 2000, rrp: 9000 });
+    expect(line.priceUom).toBeUndefined();
+  });
+
+  it("unitAssumed names the client's unit that had no ratio, and nothing for a known or base unit", () => {
+    expect(unitAssumed("Lusin", boxed)).toBe("Lusin");
+    expect(unitAssumed("box", boxed)).toBeUndefined();
+    expect(unitAssumed("PCS", boxed)).toBeUndefined();
+    expect(unitAssumed(undefined, boxed)).toBeUndefined();
+  });
+
+  it("already the base unit: unchanged", () => {
+    expect(lineFromCatalog(boxed, 5, { uom: "PCS", rrp: 2800, toBase: true })).toMatchObject({ uom: "Pcs", qty: 5, rrp: 2800 });
   });
 });

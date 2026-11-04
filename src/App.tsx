@@ -17,6 +17,7 @@ import { ChatProvider } from "./context/ChatContext";
 import { ChatDock } from "./components/ChatDock";
 import { FixTasksPage } from "./pages/FixTasks";
 import { MatchingPage } from "./pages/Matching";
+import { CogsHistoryPage } from "./pages/CogsHistory";
 import type { Approval } from "@shared/types";
 import type { Permission } from "@shared/permissions";
 
@@ -178,6 +179,14 @@ export function App() {
         <Route path="/perbaikan" element={<FixTasksPage />} />
         <Route path="/pencocokan" element={<MatchingPage />} />
         <Route path="/catalog" element={<CatalogPage />} />
+        <Route
+          path="/cogs-history"
+          element={
+            <RequirePermission permission="view_costs">
+              <CogsHistoryPage />
+            </RequirePermission>
+          }
+        />
         <Route path="/clients" element={<ClientsPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/quotes" replace />} />

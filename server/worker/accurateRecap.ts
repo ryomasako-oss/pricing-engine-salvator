@@ -14,6 +14,7 @@ import { forwardToSilvy, silvyConfigFrom } from "../silvy";
 import { applyPurchaseCosts } from "./accurate/purchaseCost";
 import { loadReceiptState, receiptsEnabled } from "./accurate/receipts";
 import { reconcileCounts } from "./accurate/reconcile";
+import { salesBelowCostSince, salesEnabled } from "./accurate/sales";
 import { catalogEntity } from "./accurate/sync";
 import { audit } from "./audit";
 import { MAX_RECIPIENTS } from "./fixDigest";
@@ -21,6 +22,8 @@ import { currentPolicy } from "./quoteService";
 import type { Bindings } from "./env";
 
 const LAST_KEY = "accurate_recap_last";
+/** Highest accurate_sales_lines.synced_at already reported under "dijual di bawah modal". */
+const BELOW_COST_KEY = "sales_below_cost_cursor";
 const wibDate = (now: Date) => new Date(now.getTime() + 7 * 3_600_000).toISOString().slice(0, 10);
 
 export type RecapOutcome =
@@ -78,6 +81,8 @@ export async function runAccurateRecap(
         topNegative: negative.results as { code: string; name: string; qty: number }[],
       }
     : null;
+  // Invoice lines since the last recap, not the last day: the first backfill spans several days.
+  const below = salesEnabled(env) ? await salesBelowCostSince(db, entity, (await getSetting(db, BELOW_COST_KEY, "")) || null) : null;
   const recap = buildRecap({
     now: opts.now,
     entity,
@@ -87,10 +92,12 @@ export async function runAccurateRecap(
     newItems,
     sync,
     stock,
+    belowCost: below?.result ?? null,
   });
 
   // Marked before Silvy and the send, like the fix digest: a missed email beats a double one.
   await setSetting(db, LAST_KEY, today);
+  if (below?.cursor) await setSetting(db, BELOW_COST_KEY, below.cursor);
   if (recapIsEmpty(recap)) return { skipped: "nothing-to-report" };
 
   const reply = await forwardToSilvy(

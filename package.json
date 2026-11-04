@@ -9,6 +9,7 @@
     "dev:server": "wrangler dev --local --port 8787",
     "dev:web": "vite",
     "build": "vite build",
+    "import:images": "tsx scripts/import-images.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "tsx scripts/test-approval-workflow.ts",

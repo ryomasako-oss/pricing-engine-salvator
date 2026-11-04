@@ -5,6 +5,9 @@ import { useToast } from "../context/ToastContext";
 import { Icon } from "../components/Icon";
 import { Modal } from "../components/Modal";
 import { ImportDialog } from "../components/ImportDialog";
+import { Thumb } from "../components/Thumb";
+import { ItemImageEditor } from "../components/ItemImageEditor";
+import { BulkImageUpload } from "../components/BulkImageUpload";
 import { AccuratePanel } from "../components/AccuratePanel";
 import { PendingItemsPanel } from "../components/PendingItemsPanel";
 import { PhotoCell } from "../components/PhotoCell";
@@ -21,6 +24,7 @@ interface Stats {
   total: number;
   priced: number;
   withList: number;
+  withImage: number;
   updated: string | null;
 }
 
@@ -41,9 +45,10 @@ export function CatalogPage() {
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(0);
   const [sortBy, setSortBy] = useState<"name" | "stock" | "cogs" | "list_price">("name");
+  const [imageFilter, setImageFilter] = useState<"all" | "with" | "without">("all");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState<null | "inventory" | "master" | "full" | "fullMerge">(null);
+  const [modal, setModal] = useState<null | "inventory" | "master" | "full" | "fullMerge" | "images">(null);
   const [editing, setEditing] = useState<EditingItem | null>(null);
   const [uomOptions, setUomOptions] = useState<string[]>([]);
   const [addingUom, setAddingUom] = useState(false);
@@ -79,6 +84,7 @@ export function CatalogPage() {
       offset: String(page * PAGE),
       sortBy,
       sortDir,
+      ...(imageFilter === "all" ? {} : { image: imageFilter }),
     });
     api
       .get<{ items: CatalogItem[]; total: number; stockAsOf: string | null }>(`/catalog?${params}`)
@@ -90,7 +96,7 @@ export function CatalogPage() {
       .catch((e) => toast(e.message, "error"))
       .finally(() => setLoading(false));
     api.get<{ stats: Stats }>("/catalog/stats").then((r) => setStats(r.stats)).catch(() => undefined);
-  }, [query, page, sortBy, sortDir, toast]);
+  }, [query, page, sortBy, sortDir, imageFilter, toast]);
 
   const openEditing = (item: EditingItem) => {
     setAddingUom(false);
@@ -151,6 +157,11 @@ export function CatalogPage() {
             >
               <Icon name="download" size={15} /> Unduh template katalog
             </button>
+            {can("edit_catalog") && (
+              <button className="btn" onClick={() => setModal("images")}>
+                <Icon name="upload" size={15} /> Unggah gambar massal
+              </button>
+            )}
             <button className="btn" onClick={() => setModal("inventory")}>
               <Icon name="box" size={15} /> Impor inventory (COGS)
             </button>
@@ -181,6 +192,11 @@ export function CatalogPage() {
           <div className="kpi">
             <div className="label">Item di katalog</div>
             <div className="value num">{grp(stats.total)}</div>
+          </div>
+          <div className="kpi">
+            <div className="label">Sudah bergambar</div>
+            <div className="value num">{grp(stats.withImage)}</div>
+            <div className="foot">dari {grp(stats.total)} item</div>
           </div>
           <div className="kpi">
             <div className="label">Punya harga pokok</div>
@@ -229,6 +245,20 @@ export function CatalogPage() {
             }}
             aria-label="Cari katalog"
           />
+          <select
+            className="select"
+            style={{ maxWidth: 190 }}
+            value={imageFilter}
+            onChange={(e) => {
+              setImageFilter(e.target.value as "all" | "with" | "without");
+              setPage(0);
+            }}
+            aria-label="Filter gambar"
+          >
+            <option value="all">Gambar: semua</option>
+            <option value="with">Sudah ada gambar</option>
+            <option value="without">Belum ada gambar</option>
+          </select>
           <span className="muted small">
             {grp(total)} item cocok{stockAsOf && ` · stok Accurate per ${fmtDateTime(stockAsOf)}`}
           </span>
@@ -305,7 +335,10 @@ export function CatalogPage() {
                       </td>
                       <td className="l muted num">{item.code}</td>
                       <td className="l">
-                        {item.name}
+                        <div className="with-thumb">
+                          <Thumb src={item.image} alt={item.name} />
+                          <span className="grow">{item.name}</span>
+                        </div>
                         {item.cogs_problem && (!seeCosts || item.cogs > 0) && (
                           <div className="small" style={{ color: "var(--danger)" }}>
                             ⚠ {item.cogs_problem}. Tidak bisa dipakai di penawaran.
@@ -381,6 +414,8 @@ export function CatalogPage() {
           </>
         )}
       </div>
+
+      {modal === "images" && <BulkImageUpload onClose={() => setModal(null)} onDone={load} />}
 
       {modal === "inventory" && (
         <ImportDialog
@@ -559,6 +594,13 @@ export function CatalogPage() {
                 onChange={(e) => setEditing({ ...editing, name: e.target.value })}
               />
             </label>
+            {editing.id && can("edit_catalog") && (
+              <ItemImageEditor
+                code={editing.code}
+                image={items.find((i) => i.id === editing.id)?.image ?? null}
+                onChanged={load}
+              />
+            )}
             <div className="field-grid">
               <label className="field">
                 <span>Satuan dasar</span>

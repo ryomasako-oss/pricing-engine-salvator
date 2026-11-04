@@ -64,7 +64,7 @@ export function fakeAccurate(opts: {
   moveHost?: boolean;
   receipts?: FakeReceipt[];
   /** Sales invoices; left out, the sales-invoice endpoints answer like a token without that scope. */
-  salesInvoices?: (Omit<FakeReceipt, "status"> & { customer: Record<string, unknown> })[];
+  salesInvoices?: (FakeReceipt & { customer: Record<string, unknown>; [k: string]: unknown })[];
 }) {
   const log: string[] = [];
   let moved = false;
@@ -109,8 +109,14 @@ export function fakeAccurate(opts: {
     if (url.pathname.includes("/sales-invoice/")) {
       if (!opts.salesInvoices) return json({ s: false, d: ["Anda tidak memiliki akses: sales_invoice_view"] }, 403);
       if (url.pathname.endsWith("/list.do")) {
-        const since = url.searchParams.get("filter.lastUpdate.val");
-        return page(opts.salesInvoices.filter((x) => !since || sortKey(x.lastUpdate) >= sortKey(since)), url);
+        const q = url.searchParams;
+        const since = (k: string) => q.get(`filter.${k}.val`);
+        const rows = opts.salesInvoices
+          .filter((x) => !since("lastUpdate") || sortKey(x.lastUpdate) >= sortKey(since("lastUpdate")!))
+          .filter((x) => !since("transDate") || sortKey(x.transDate) >= sortKey(since("transDate")!));
+        // The sync lists by id ascending; the probe's newest-first listing keeps the given order.
+        if (q.get("sp.sort") === "id|asc") rows.sort((a, b) => a.id - b.id);
+        return page(rows, url);
       }
       const id = Number(url.searchParams.get("id"));
       const inv = opts.salesInvoices.find((x) => x.id === id || x.number === url.searchParams.get("number"));

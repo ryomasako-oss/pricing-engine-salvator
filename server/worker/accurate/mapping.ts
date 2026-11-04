@@ -176,3 +176,68 @@ export function mapReceiptLines(d: Row): StagedReceiptLine[] {
   });
   return out;
 }
+
+/* ---------- Sales invoices (Faktur Penjualan), accurate/sales.ts ---------- */
+
+export const SALES_LIST_FIELDS = "id,number,transDate,lastUpdate,status,approvalStatus";
+
+/** An invoice is read when it is approved; a draft or a rejected one never billed anything. */
+export function mapSalesInvoice(r: Row): StagedReceipt | null {
+  const accurateId = num(r.id);
+  if (!accurateId) return null;
+  const off = [str(r.status), str(r.approvalStatus)].some((v) => NOT_RECEIVED.has(v.toUpperCase()));
+  return { accurateId, number: str(r.number), lastUpdate: str(r.lastUpdate), received: !off };
+}
+
+export interface StagedSalesLine {
+  invoiceId: number;
+  lineId: number;
+  invoiceNo: string;
+  transDate: string;
+  customerNo: string;
+  customerName: string;
+  itemCode: string;
+  unit: string;
+  unitRatio: number;
+  quantity: number;
+  returnQty: number;
+  salesAmount: number;
+  inclusiveTax: 0 | 1;
+  taxRate: number;
+  cashDiscount: number;
+  subTotal: number;
+}
+
+/** A /sales-invoice/detail.do "d" object → its item lines, money as Accurate sent it. */
+export function mapSalesLines(d: Row): StagedSalesLine[] {
+  const invoiceId = num(d.id);
+  const transDate = isoDate(d.transDate);
+  if (!invoiceId || !transDate) return [];
+  const customer = (d.customer ?? {}) as Row;
+  const lines = Array.isArray(d.detailItem) ? (d.detailItem as Row[]) : [];
+  const out: StagedSalesLine[] = [];
+  lines.forEach((l, i) => {
+    const item = (l.item ?? {}) as Row;
+    const itemCode = str(l.itemNo) || str(item.no);
+    if (!itemCode) return;
+    out.push({
+      invoiceId,
+      lineId: num(l.id) || i + 1,
+      invoiceNo: str(d.number),
+      transDate,
+      customerNo: str(customer.customerNo),
+      customerName: str(customer.name),
+      itemCode,
+      unit: nameOf(l.itemUnitName, l.itemUnit) || str(l.unitName),
+      unitRatio: num(l.unitRatio) > 0 ? num(l.unitRatio) : 1,
+      quantity: num(l.quantity),
+      returnQty: Math.max(0, num(l.returnQuantity)),
+      salesAmount: Math.max(0, num(l.salesAmount)),
+      inclusiveTax: d.inclusiveTax === true ? 1 : 0,
+      taxRate: Math.max(0, num(d.tax1Rate)),
+      cashDiscount: Math.max(0, num(d.cashDiscount)),
+      subTotal: Math.max(0, num(d.subTotal)),
+    });
+  });
+  return out;
+}
