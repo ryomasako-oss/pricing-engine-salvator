@@ -11,6 +11,7 @@
    hanya memuat PROMPT_CHANGES/PROMPT_SKIPS baris teratas plus cek silang yang
    tidak nol (~400-600 token masuk). Tabel lengkap di email dibuat sistem. */
 
+import type { BelowCostResult, BelowCostRow } from "./salesBelowCost.js";
 import { CHECKS, CHECK_KEYS, type CheckKey, type ReconcileCounts } from "./accurateReconcile.js";
 
 /** Rows in the email tables. */
@@ -86,6 +87,22 @@ export interface AccurateRecap {
    * (server/worker/accurate/stock.ts). Absent until the first refresh, and from an older app.
    */
   stock?: RecapStock;
+  /**
+   * Sales invoice lines (synced since the previous recap) sold under the purchase price of their
+   * date (shared/salesBelowCost.ts). Absent while the sales sync is off, and from an older app.
+   */
+  belowCost?: RecapBelowCost;
+}
+
+export interface RecapBelowCost {
+  checked: number;
+  count: number;
+  unknownCost: number;
+  doubtfulCost: number;
+  /** Sum of every line's loss, not only the listed ones. */
+  lossTotal: number;
+  /** Biggest loss first, at most TOP_N. */
+  top: BelowCostRow[];
 }
 
 /** Items listed under "stok minus" in the email; Silvy reads the first PROMPT_SKIPS. */
@@ -127,6 +144,7 @@ export function buildRecap(input: {
   newItems?: { code: string; name: string }[];
   sync?: { last_success_at: string | null; last_error: string | null } | null;
   stock?: RecapStock | null;
+  belowCost?: BelowCostResult | null;
 }): AccurateRecap {
   const p = input.preview;
   const changed = p?.changed ?? [];
@@ -180,12 +198,24 @@ export function buildRecap(input: {
         }
       : {}),
     ...(input.stock ? { stock: input.stock } : {}),
+    ...(input.belowCost
+      ? {
+          belowCost: {
+            checked: input.belowCost.checked,
+            count: input.belowCost.below.length,
+            unknownCost: input.belowCost.unknownCost,
+            doubtfulCost: input.belowCost.doubtfulCost,
+            lossTotal: input.belowCost.below.reduce((t, b) => t + b.lossTotal, 0),
+            top: input.belowCost.below.slice(0, TOP_N),
+          },
+        }
+      : {}),
   };
 }
 
 /** Nothing for a manager to act on: no email that day. */
 export const recapIsEmpty = (r: AccurateRecap) =>
-  r.cogs.changed === 0 && r.cogs.held === 0 && r.cogs.skipped === 0 && !r.newItems?.added && !r.checks.some((c) => c.notify && c.count > 0) && !r.receipts.inProgress && !r.sync?.stuck;
+  r.cogs.changed === 0 && r.cogs.held === 0 && r.cogs.skipped === 0 && !r.newItems?.added && !r.checks.some((c) => c.notify && c.count > 0) && !r.receipts.inProgress && !r.sync?.stuck && !r.belowCost?.count;
 
 const grp = (n: number) => Math.round(Number(n) || 0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 const rp = (n: number) => `Rp ${grp(n)}`;
@@ -245,6 +275,11 @@ export function recapPrompt(r: AccurateRecap): string {
     lines.push(`Stok katalog (posisi Accurate ${fmtWib(s.asOf)} WIB): ada stok ${grp(s.inStock)}, habis ${grp(s.empty)}, minus ${grp(s.negative)}`);
     for (const n of s.topNegative.slice(0, PROMPT_SKIPS)) lines.push(`- stok minus ${n.code} ${n.name}: ${grp(n.qty)}`);
   }
+  if (r.belowCost?.count) {
+    const b = r.belowCost;
+    lines.push(`Faktur penjualan di bawah modal hari faktur (baris SI baru): ${grp(b.count)} dari ${grp(b.checked)} dicek, total rugi ${rp(b.lossTotal)}`);
+    for (const x of b.top.slice(0, PROMPT_SKIPS)) lines.push(`- ${x.invoiceNo} ${x.code} ${x.name} ke ${x.customerName}: jual ${rp(x.net)}, modal ${rp(x.cost)}`);
+  }
   const checks = r.checks.filter((c) => c.count > 0);
   if (checks.length) {
     lines.push("Cek silang katalog vs Accurate (yang tidak nol):");
@@ -297,7 +332,8 @@ export function recapEmail(
     (r.cogs.bigJumps ? `, ${grp(r.cogs.bigJumps)} lonjakan >50%` : "") +
     (r.cogs.held ? `, ${grp(r.cogs.held)} ditahan` : "") +
     (r.cogs.skipped ? `, ${grp(r.cogs.skipped)} dilewati` : "") +
-    (r.newItems?.added ? `, ${grp(r.newItems.added)} barang baru` : "");
+    (r.newItems?.added ? `, ${grp(r.newItems.added)} barang baru` : "") +
+    (r.belowCost?.count ? `, ${grp(r.belowCost.count)} faktur di bawah modal` : "");
   const parts: string[] = [];
   parts.push(
     narrative
@@ -325,6 +361,34 @@ export function recapEmail(
             `<table style="border-collapse:collapse;font-size:13px"><tr>${th("Kode")}${th("Nama")}${th("Stok", true)}</tr>` +
             s.topNegative.map((n) => `<tr>${td(esc(n.code))}${td(esc(n.name))}${td(`<strong style="color:#c0392b">${grp(n.qty)}</strong>`, true)}</tr>`).join("") +
             `</table>`
+          : "") +
+        `</div>`,
+    );
+  }
+  if (r.belowCost && (r.belowCost.count || r.belowCost.unknownCost || r.belowCost.doubtfulCost)) {
+    const b = r.belowCost;
+    parts.push(
+      `<div style="border:1px solid #c0392b;border-radius:6px;padding:8px 12px;margin:12px 0">` +
+        `<h3 style="margin:4px 0">Dijual di bawah modal (${grp(b.count)})</h3>` +
+        `<p><small>Baris faktur penjualan (SI) yang masuk sejak rekap sebelumnya. Harga jual setelah diskon dan sebelum PPN, ` +
+        `dibandingkan dengan harga beli dari RI terakhir sebelum tanggal faktur. ${grp(b.checked)} baris dicek` +
+        (b.count ? `, total rugi <strong style="color:#c0392b">${esc(rp(b.lossTotal))}</strong>` : "") +
+        `.</small></p>` +
+        (b.top.length
+          ? `<table style="border-collapse:collapse;font-size:13px"><tr>${th("Faktur")}${th("Klien")}${th("Kode")}${th("Nama")}${th("Jual / satuan", true)}${th("Modal / satuan", true)}${th("Rugi", true)}</tr>` +
+            b.top
+              .map((x) =>
+                `<tr>${td(`${esc(x.invoiceNo)}<br><small>${esc(x.transDate)}</small>`)}${td(esc(x.customerName))}${td(esc(x.code))}${td(esc(x.name))}` +
+                `${td(esc(rp(x.net)), true)}${td(`${esc(rp(x.cost))}<br><small>${esc(x.receiptNo)}</small>`, true)}${td(`<strong style="color:#c0392b">${esc(rp(x.lossTotal))}</strong>`, true)}</tr>`,
+              )
+              .join("") +
+            `</table>` +
+            (b.count > b.top.length ? `<p><small>${b.top.length} rugi terbesar dari ${grp(b.count)} ditampilkan.</small></p>` : "")
+          : "") +
+        (b.unknownCost || b.doubtfulCost
+          ? `<p><small>Tidak dihitung: ${grp(b.unknownCost)} tanpa RI sebelum tanggal faktur (modal tidak diketahui)` +
+            (b.doubtfulCost ? `, ${grp(b.doubtfulCost)} dengan modal meragukan (harga RI 3x harga jual atau lebih; cek RI-nya)` : "") +
+            `.</small></p>`
           : "") +
         `</div>`,
     );

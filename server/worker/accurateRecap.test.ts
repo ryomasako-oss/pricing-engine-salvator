@@ -199,3 +199,49 @@ describe("runAccurateRecap (rekap Accurate pagi, Silvy)", () => {
     expect(after.html).toContain("Posisi per 16/10/2026 07:30 WIB");
   });
 });
+
+describe("runAccurateRecap: dijual di bawah modal (Ryoma, 2026-11-04)", () => {
+  function seedSales(sqlite: DatabaseSync, syncedAt: string) {
+    // B1 Spidol: RI 2 Jun at 30.000 per Lusin = 2.500 per Pcs. Sold at 2.000 (loss) and at 3.000 (fine).
+    sqlite.exec(`UPDATE accurate_items SET units = '[{"uom":"Lusin","factor":12}]' WHERE code = 'B1'`);
+    sqlite.exec(`INSERT INTO accurate_sales_lines(entity, invoice_id, line_id, invoice_no, trans_date, customer_no, customer_name, item_code,
+                   unit, unit_ratio, quantity, sales_amount, inclusive_tax, tax_rate, sub_total, synced_at) VALUES
+      ('PT', 1, 1, 'SI.2026.06.00010', '2026-06-05', 'C.00030', 'MESTIKA', 'B1', 'Lusin', 12, 2, 48000, 0, 11, 48000, '${syncedAt}'),
+      ('PT', 2, 1, 'SI.2026.06.00011', '2026-06-06', 'C.00031', 'AGRINESIA', 'B1', 'Pcs', 1, 10, 30000, 0, 11, 30000, '${syncedAt}'),
+      ('PT', 3, 1, 'SI.2026.05.00001', '2026-05-01', 'C.00031', 'AGRINESIA', 'B1', 'Pcs', 1, 10, 1000, 0, 11, 1000, '${syncedAt}')`);
+  }
+
+  it("emails the lines sold under that day's purchase price, once", async () => {
+    const { sqlite, db } = freshDb();
+    seed(sqlite);
+    seedSales(sqlite, "2026-10-15 20:00:00");
+    const sent: { subject: string; html: string }[] = [];
+    const silvy = fakeSilvy({ status: 200, body: { content: "Ada penjualan rugi." } });
+    const send = async (_t: string, subject: string, html: string) => void sent.push({ subject, html });
+    await runAccurateRecap(env(db, { ACCURATE_SALES_ENABLED: "true" }), { now: NOW, link: "x", fetchImpl: silvy.impl, send });
+
+    expect(sent[0].subject).toContain("1 faktur di bawah modal");
+    expect(sent[0].html).toContain("SI.2026.06.00010");
+    expect(sent[0].html).toContain("Rp 2.000"); // 48.000 / 24 Pcs
+    expect(sent[0].html).toContain("Rp 12.000"); // (2.500 - 2.000) x 24
+    expect(sent[0].html).not.toContain("SI.2026.06.00011"); // 3.000 per Pcs is above cost
+    // Before any receipt: unknown cost, not a loss.
+    expect(sent[0].html).not.toContain("SI.2026.05.00001");
+    expect(sent[0].html).toContain("1 tanpa RI sebelum tanggal faktur");
+    expect(silvy.calls[0].body.recap.belowCost).toMatchObject({ count: 1, checked: 2, unknownCost: 1, lossTotal: 12000 });
+
+    // The next morning, with no new invoice lines, the same loss is not reported again.
+    const next = await runAccurateRecap(env(db, { ACCURATE_SALES_ENABLED: "true" }), { now: new Date("2026-10-17T01:00:00Z"), link: "x", fetchImpl: silvy.impl, send });
+    expect(sent.at(-1)!.html).not.toContain("SI.2026.06.00010");
+    expect(next).not.toEqual({ skipped: "already-sent-today" });
+  });
+
+  it("is left out while the sales sync is off", async () => {
+    const { sqlite, db } = freshDb();
+    seed(sqlite);
+    seedSales(sqlite, "2026-10-15 20:00:00");
+    const sent: string[] = [];
+    await runAccurateRecap(env(db), { now: NOW, link: "x", fetchImpl: fakeSilvy({ status: 200, body: { content: "x" } }).impl, send: async (_t, _s, html) => void sent.push(html) });
+    expect(sent[0]).not.toContain("di bawah modal");
+  });
+});

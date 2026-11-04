@@ -13,7 +13,10 @@
    Off unless ACCURATE_SALES_ENABLED = "true".
    ============================================================ */
 
-import { get, run } from "../../db.d1";
+import { all, get, run } from "../../db.d1";
+import type { ReceiptLine } from "../../../shared/lastPurchaseCost";
+import { findBelowCost, type BelowCostResult, type CatalogFacts, type SalesLine } from "../../../shared/salesBelowCost";
+import { parseUnits } from "./purchaseCost";
 import { SALES_LIST_FIELDS, mapSalesInvoice, mapSalesLines } from "./mapping";
 import { docStep, receiptConfig, type DocKind, type ReceiptState } from "./receipts";
 import { catalogEntity, credsFor, syncConfig, type EntityKey } from "./sync";
@@ -60,4 +63,69 @@ export async function salesTick(env: Bindings, opts: { deadlineMs: number; fetch
     fetchImpl: opts.fetchImpl,
     gapMs: opts.gapMs,
   });
+}
+
+interface SalesRow {
+  invoice_no: string; trans_date: string; customer_name: string; item_code: string; unit: string; unit_ratio: number;
+  quantity: number; return_qty: number; sales_amount: number; inclusive_tax: number; tax_rate: number;
+  cash_discount: number; sub_total: number; synced_at: string;
+  name: string; catalog_uom: string; list_price: number; accurate_uom: string; units: string;
+}
+
+/**
+ * Invoice lines synced after `cursor` (null: all of them, the first recap after the backfill),
+ * compared with the purchase price of their date. Two reads: the new lines with their catalog and
+ * Accurate units, then the receipt lines of only those items. `cursor` is the highest synced_at seen,
+ * for the next recap; an edited invoice is re-synced and so reported again.
+ */
+export async function salesBelowCostSince(
+  db: D1Database,
+  entity: EntityKey,
+  cursor: string | null,
+): Promise<{ result: BelowCostResult; cursor: string | null }> {
+  const rows = await all<SalesRow>(
+    db,
+    `SELECT s.invoice_no, s.trans_date, s.customer_name, s.item_code, s.unit, s.unit_ratio, s.quantity, s.return_qty,
+            s.sales_amount, s.inclusive_tax, s.tax_rate, s.cash_discount, s.sub_total, s.synced_at,
+            c.name, c.uom AS catalog_uom, c.list_price, COALESCE(NULLIF(i.uom, ''), 'Pcs') AS accurate_uom, i.units
+       FROM accurate_sales_lines s
+       JOIN catalog_items c ON c.code = s.item_code
+       JOIN accurate_items i ON i.entity = ?1 AND i.code = s.item_code
+      WHERE s.entity = ?1 AND s.synced_at > ?2`,
+    entity,
+    cursor ?? "",
+  );
+  const codes = [...new Set(rows.map((r) => r.item_code))];
+  const receipts = new Map<string, ReceiptLine[]>();
+  if (codes.length) {
+    const ri = await all<{ item_code: string; receipt_id: number; line_id: number; receipt_no: string; trans_date: string; unit: string; quantity: number; unit_price: number }>(
+      db,
+      `SELECT item_code, receipt_id, line_id, receipt_no, trans_date, unit, quantity, unit_price
+         FROM accurate_receipt_lines
+        WHERE entity = ?1 AND unit_price > 0 AND quantity > 0 AND item_code IN (SELECT value FROM json_each(?2))`,
+      entity,
+      JSON.stringify(codes),
+    );
+    for (const r of ri) {
+      const line = { receiptId: r.receipt_id, lineId: r.line_id, receiptNo: r.receipt_no, transDate: r.trans_date, unit: r.unit, quantity: r.quantity, unitPrice: r.unit_price };
+      const list = receipts.get(r.item_code);
+      if (list) list.push(line);
+      else receipts.set(r.item_code, [line]);
+    }
+  }
+  const catalog = new Map<string, CatalogFacts>();
+  const sales: SalesLine[] = [];
+  let next = cursor;
+  for (const r of rows) {
+    if (!catalog.has(r.item_code)) {
+      catalog.set(r.item_code, { name: r.name, uom: r.catalog_uom, listPrice: r.list_price, baseUom: r.accurate_uom, units: parseUnits(r.units) });
+    }
+    sales.push({
+      invoiceNo: r.invoice_no, transDate: r.trans_date, customerName: r.customer_name, itemCode: r.item_code, unit: r.unit,
+      unitRatio: r.unit_ratio, quantity: r.quantity, returnQty: r.return_qty, salesAmount: r.sales_amount,
+      inclusiveTax: r.inclusive_tax === 1, taxRate: r.tax_rate, cashDiscount: r.cash_discount, subTotal: r.sub_total,
+    });
+    if (!next || r.synced_at > next) next = r.synced_at;
+  }
+  return { result: findBelowCost(sales, receipts, catalog), cursor: next };
 }
