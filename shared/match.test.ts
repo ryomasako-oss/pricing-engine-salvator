@@ -1,6 +1,6 @@
 import { unitAssumed } from "./uom";
 import { describe, expect, it } from "vitest";
-import { lineFromCatalog, matchLines, normalizeText, similarity, splitPackText, tokens } from "./match";
+import { lineFromCatalog, matchLines, normalizeText, similarity, splitPackText, tokens, type AliasMaps } from "./match";
 import type { CatalogItem } from "./types";
 
 const item = (id: number, code: string, name: string, over: Partial<CatalogItem> = {}): CatalogItem => ({
@@ -417,5 +417,32 @@ describe("lineFromCatalog marks where the ceiling came from (rrpDefault)", () =>
     expect(lineFromCatalog(pen, 1, { rrp: 2500 }).rrpDefault).toBeUndefined();
     expect(lineFromCatalog(pen, 2, { uom: "Box", rrp: 30000, toBase: true }).rrpDefault).toBeUndefined();
     expect(lineFromCatalog(pen, 2, { uom: "Lusin", rrp: 9000, toBase: true }).rrpDefault).toBeUndefined();
+  });
+});
+
+describe("matching by sales-invoice wording (AliasMaps.si, Ryoma 2026-11-04)", () => {
+  const cat = [item(1, "100003", "SPIVA MINERAL WATER 500ML"), item(2, "100002", "SPIVA MINERAL WATER 330ML"), item(3, "200001", "AIR MINERAL LAIN")];
+  const key = normalizeText("Aqua botol kecil dus");
+  const maps = (si: Map<string, { code: string; own: boolean }>, over: Partial<AliasMaps> = {}): AliasMaps => ({ client: new Map(), global: new Map(), si, ...over });
+  const run = (m: AliasMaps, rejected?: Map<string, Set<string>>) => matchLines([{ name: "Aqua botol kecil dus", qty: 1 }], cat, m, rejected)[0];
+
+  it("invoiced to this client under that wording: settled, via si", () => {
+    const r = run(maps(new Map([[key, { code: "100002", own: true }]])));
+    expect(r).toMatchObject({ status: "match", via: "si" });
+    expect(r.candidates[0].id).toBe(2);
+  });
+
+  it("invoiced to another client: the first suggestion, still checked", () => {
+    expect(run(maps(new Map([[key, { code: "100002", own: false }]])))).toMatchObject({ status: "review", via: "si", candidates: [{ id: 2 }] });
+  });
+
+  it("a person's decision on the wording wins: an alias, or a 'no item' decision", () => {
+    const si = new Map([[key, { code: "100002", own: true }]]);
+    expect(run(maps(si, { client: new Map([[key, "100003"]]) }))).toMatchObject({ via: "alias", candidates: [{ id: 1 }] });
+    expect(run(maps(si, { global: new Map([[key, ""]]) })).via).not.toBe("si");
+  });
+
+  it("a pairing reps already corrected away from is only suggested", () => {
+    expect(run(maps(new Map([[key, { code: "100002", own: true }]])), new Map([[key, new Set(["100002"])]]))).toMatchObject({ status: "review", via: "si" });
   });
 });

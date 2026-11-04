@@ -93,8 +93,9 @@ export function runMatch(
   catalog: CatalogItem[],
   aliases: AliasRow[],
   rejected?: Map<string, Set<string>>,
+  si?: AliasMaps["si"],
 ): { results: MatchResult[]; referenced: CatalogItem[] } {
-  const results = matchLines(input.lines, catalog, aliasMaps(aliases, input.client_id), rejected);
+  const results = matchLines(input.lines, catalog, { ...aliasMaps(aliases, input.client_id), si }, rejected);
   const ids = new Set(results.flatMap((r) => r.candidates.map((c) => c.id)));
   return { results, referenced: catalog.filter((it) => ids.has(it.id)) };
 }

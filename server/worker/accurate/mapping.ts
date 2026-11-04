@@ -3,6 +3,7 @@
    objects (unit1: { name }), depending on endpoint and the `fields`
    requested, so every read accepts both shapes. */
 
+import { normalizeText } from "../../../shared/match";
 import { cleanUnits } from "../../../shared/uom";
 import type { UnitFactor } from "../../../shared/types";
 
@@ -197,6 +198,9 @@ export interface StagedSalesLine {
   customerNo: string;
   customerName: string;
   itemCode: string;
+  /** What the sales team typed on the invoice line, and its normalizeText key. */
+  detailName: string;
+  nameKey: string;
   unit: string;
   unitRatio: number;
   quantity: number;
@@ -228,6 +232,8 @@ export function mapSalesLines(d: Row): StagedSalesLine[] {
       customerNo: str(customer.customerNo),
       customerName: str(customer.name),
       itemCode,
+      detailName: str(l.detailName),
+      nameKey: normalizeText(str(l.detailName)),
       unit: nameOf(l.itemUnitName, l.itemUnit) || str(l.unitName),
       unitRatio: num(l.unitRatio) > 0 ? num(l.unitRatio) : 1,
       quantity: num(l.quantity),
