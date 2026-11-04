@@ -10,6 +10,7 @@ import {
   CLOSE_LINKED_TASKS_SQL,
   CLOSE_NEW_ITEM_TASK_SQL,
   CODE_TAKEN_SQL,
+  LIVE_TWIN_SQL,
   GET_PENDING_SQL,
   INSERT_NEW_ITEM_TASK_SQL,
   INSERT_PENDING_SQL,
@@ -50,6 +51,13 @@ pendingItemsRouter.post("/", (req: AuthedRequest, res) => {
   if (twin) {
     res.status(409).json({ error: `Barang ini sudah ada di katalog: ${twin.code} (${twin.name}). Pakai yang itu.`, existing: twin });
     return;
+  }
+  if (!code) {
+    const dup = get<PendingItem>(LIVE_TWIN_SQL, name);
+    if (dup) {
+      res.json({ item: dup });
+      return;
+    }
   }
   let id = 0;
   // A blank code is numbered inside the INSERT; two requests at once can pick the same number, so the loser takes the next.

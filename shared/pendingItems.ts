@@ -41,6 +41,9 @@ export const AUTO_CODE_PREFIX = "BARU-";
 /** "BARU-0007" and the like are only ever given out by the numbering, never typed. */
 export const isAutoCode = (code: string): boolean => /^BARU-\d+$/i.test(code.trim());
 
+/** The code to show people: the temporary BARU-… number means nothing to them. */
+export const shownCode = (code: string): string => (isAutoCode(code) ? "" : code);
+
 export interface PendingItem {
   id: number;
   code: string;

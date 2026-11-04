@@ -37,6 +37,9 @@ export const listPendingSql = (scoped: boolean) =>
 
 export const GET_PENDING_SQL = `${SELECT} WHERE p.id = ?`;
 
+/** A live request with the same name: asking again reuses it instead of taking a new BARU number. */
+export const LIVE_TWIN_SQL = `${SELECT} WHERE lower(trim(p.name)) = lower(trim(?)) AND p.status IN ('draft', 'submitted') ORDER BY p.id LIMIT 1`;
+
 /** Is this code already taken by a catalog item or another live request? (one row means yes) */
 export const CODE_TAKEN_SQL = `
   SELECT 'catalog' AS where_ FROM catalog_items WHERE lower(trim(code)) = ?1

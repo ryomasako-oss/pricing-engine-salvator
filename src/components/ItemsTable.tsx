@@ -4,6 +4,7 @@
 import { useMemo, useState } from "react";
 import { SCENARIOS } from "@shared/engine";
 import { grp, pct } from "@shared/format";
+import { shownCode } from "@shared/pendingItems";
 import type { ComputedRow, EngineResult, ItemRole, QuoteItem, ScenarioIndex } from "@shared/types";
 import { uomChoices, uomWarning, type ItemUnits } from "@shared/uom";
 import { Icon } from "./Icon";
@@ -195,9 +196,9 @@ export function ItemsTable({
                           aria-label={`Nama item baris ${r.lineNo}`}
                         />
                       )}
-                      {(r.code || r.estCogs) && (
+                      {(shownCode(r.code) || r.estCogs) && (
                         <div className="muted small">
-                          {[r.code, r.estCogs ? "COGS estimasi" : ""].filter(Boolean).join(" · ")}
+                          {[shownCode(r.code), r.estCogs ? "COGS estimasi" : ""].filter(Boolean).join(" · ")}
                         </div>
                       )}
                       {r.held && (

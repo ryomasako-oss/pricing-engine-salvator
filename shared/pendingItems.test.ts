@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { heldNote, holdInfo } from "./holds";
-import { CANCELLED_ITEM_PROBLEM, PENDING_ITEM_PROBLEM, isAutoCode, isPendingItemProblem, newItemTaskDetail, pendingHoldReason } from "./pendingItems";
+import { CANCELLED_ITEM_PROBLEM, PENDING_ITEM_PROBLEM, isAutoCode, shownCode, isPendingItemProblem, newItemTaskDetail, pendingHoldReason } from "./pendingItems";
 
 describe("holdInfo", () => {
   it("keeps the wording of the two older reasons, and a line without a reason is a COGS hold", () => {
@@ -59,5 +59,12 @@ describe("newItemTaskDetail", () => {
   it("leaves out what wasn't given", () => {
     const d = newItemTaskDetail({ code: "X", name: "Y", uom: "Pcs", proposed_price: 0, note: "", requested_by_name: null });
     expect(d).not.toMatch(/Perkiraan|Catatan|Diminta/);
+  });
+});
+
+describe("shownCode", () => {
+  it("hides the temporary BARU number and keeps a real code", () => {
+    expect(shownCode("BARU-0007")).toBe("");
+    expect(shownCode("100038")).toBe("100038");
   });
 });
