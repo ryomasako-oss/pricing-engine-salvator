@@ -343,11 +343,16 @@ describe("POST /api/accurate/apply-cogs", () => {
     const env = { DB: db } as unknown as Env["Bindings"];
     const post = (body: unknown) =>
       app.request("/api/accurate/apply-cogs", { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" } }, env);
+    const postSales = (body: unknown) =>
+      app.request("/api/accurate/apply-cogs", { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" } }, {
+        ...env,
+        ACCURATE_SALES_ENABLED: "true",
+      } as typeof env);
     const get = (p: string) => app.request(p, {}, env);
     const postHeld = (body: unknown) =>
       app.request("/api/accurate/apply-held-cogs", { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" } }, env);
     const cogs = () => Object.fromEntries((sqlite.prepare("SELECT code, cogs FROM catalog_items").all() as { code: string; cogs: number }[]).map((r) => [r.code, r.cogs]));
-    return { sqlite, post, postHeld, get, cogs };
+    return { sqlite, post, postSales, postHeld, get, cogs };
   }
 
   it("waits for a complete receipts pass", async () => {
@@ -372,6 +377,8 @@ describe("POST /api/accurate/apply-cogs", () => {
       ["C1", "uom_mismatch"], // catalog keeps Box, Accurate's base unit is Pcs
     ]);
     expect(preview.noReceipt).toBe(1);
+    // Off: no sales-invoice prices.
+    expect(preview.lastSales).toEqual({});
 
     const applied = await post({ dryRun: false });
     expect(applied.status).toBe(200);
@@ -384,6 +391,20 @@ describe("POST /api/accurate/apply-cogs", () => {
     const again = (await (await post({ dryRun: false })).json()) as any;
     expect(again.changed).toEqual([]);
     expect(again.unchanged).toBe(2);
+  });
+
+  it("shows each previewed item's last selling price from the sales invoices, even under the new COGS", async () => {
+    const { sqlite, postSales } = setup();
+    sqlite.exec("INSERT INTO accurate_receipt_state(entity, last_pass_at, since_update) VALUES ('PT', '2026-10-15T08:00:00Z', '03/06/2026 10:00:00')");
+    const recent = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
+    const older = new Date(Date.now() - 60 * 86_400_000).toISOString().slice(0, 10);
+    sqlite.exec(`INSERT INTO accurate_sales_lines(entity, invoice_id, line_id, invoice_no, trans_date, customer_no, item_code, unit, unit_ratio, quantity, sales_amount, sub_total) VALUES
+      ('PT', 1, 1, 'SI.A', '${older}', 'C.1', 'A1', 'Pcs', 1, 10, 150000, 150000),
+      ('PT', 2, 1, 'SI.B', '${recent}', 'C.2', 'A1', 'Box', 12, 1, 96000, 96000),
+      ('PT', 3, 1, 'SI.C', '${recent}', 'C.2', 'N1', 'Pcs', 1, 1, 1000, 1000)`);
+    const preview = (await (await postSales({})).json()) as any;
+    // Newest invoice, per catalog unit: 96.000 per Box of 12 = 8.000, under the new COGS 10.000 and still shown.
+    expect(preview.lastSales).toEqual({ A1: { price: 8000, invoiceNo: "SI.B", date: recent, ownClient: false } });
   });
 
   it("holds back a change too far off instead of writing it (audit 16 Okt: a pack recorded as 1 PCS)", async () => {
