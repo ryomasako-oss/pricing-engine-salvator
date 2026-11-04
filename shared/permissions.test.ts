@@ -17,8 +17,15 @@ describe("permissions", () => {
         "edit_all_quotes",
         "view_audit",
         "view_costs",
+        "skip_match_review",
       ]),
     );
+  });
+
+  it("only managers and admins may create a quote from a list with unconfirmed rows", () => {
+    expect(hasPermission("rep", "skip_match_review")).toBe(false);
+    expect(hasPermission("manager", "skip_match_review")).toBe(true);
+    expect(hasPermission("admin", "skip_match_review")).toBe(true);
   });
 
   it("only managers and admins see cost data (PE-1)", () => {
