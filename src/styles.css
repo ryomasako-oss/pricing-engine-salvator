@@ -354,28 +354,6 @@ a { color: var(--navy); }
 .table tbody tr.flagged:hover { background: var(--flag-bg-hover); }
 .table tr.clickable { cursor: pointer; }
 
-/* Product photo per quote line: thumbnail when present, upload tile when not. */
-.quote-photo-cell { position: relative; display: inline-flex; align-items: center; justify-content: center; min-width: 40px; }
-.photo-input { display: none; }
-.quote-photo, .photo-add {
-  width: 40px; height: 40px; border-radius: 8px; display: flex; align-items: center; justify-content: center;
-  overflow: hidden; background: var(--soft); border: 1px solid var(--rule);
-}
-.quote-photo { cursor: pointer; }
-.quote-photo img { width: 100%; height: 100%; object-fit: contain; background: #fff; display: block; }
-.photo-add {
-  flex-direction: column; gap: 1px; border-style: dashed; border-color: var(--border-dashed);
-  color: var(--muted); font-size: 9.5px; cursor: pointer;
-}
-.photo-add:hover { border-color: var(--navy); color: var(--navy); }
-.photo-busy { position: absolute; inset: 0; background: rgba(255, 255, 255, .65); }
-.photo-remove {
-  position: absolute; top: -5px; right: -5px; width: 16px; height: 16px; padding: 0;
-  border: 1px solid var(--rule); border-radius: 50%; background: var(--sheet); color: var(--muted);
-  display: grid; place-items: center; cursor: pointer;
-}
-.photo-remove:hover { color: var(--danger); border-color: var(--danger-rule); }
-
 /* Selected-scenario column highlight. Mixes the scenario's accent color
    (--c, set inline per cell) into the current surface color rather than
    using a fixed light tint, so it stays legible in both themes. */
@@ -586,7 +564,6 @@ input[type=checkbox] { accent-color: var(--navy); width: 17px; height: 17px; fle
 .quote-top { display: flex; justify-content: space-between; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid #DCE2E8; }
 .wordmark { font-weight: 800; font-size: 22px; color: #1F3A5F; letter-spacing: -.03em; }
 .quote-logo { max-height: 44px; max-width: 220px; object-fit: contain; margin-bottom: 6px; }
-.quote-thumb { width: 46px; height: 46px; object-fit: contain; border-radius: 6px; border: 1px solid #DCE2E8; background: #fff; display: block; margin: 0 auto; break-inside: avoid; }
 .quote-title { font-weight: 750; font-size: 18px; color: var(--c); text-align: right; }
 .quote-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; background: #F6F8FA; border-radius: 10px; padding: 11px; margin: 13px 0; }
 .quote-meta div { display: flex; flex-direction: column; }

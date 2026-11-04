@@ -19,7 +19,6 @@ export interface Bindings {
   AUTH_LIMITER: RateLimit;
   ASSISTANT_LIMITER: RateLimit;
   API_LIMITER: RateLimit;
-  IMAGE_LIMITER: RateLimit;
   APP_URL?: string;
   GOOGLE_SERVICE_ACCOUNT_EMAIL?: string;
   GOOGLE_PRIVATE_KEY?: string;

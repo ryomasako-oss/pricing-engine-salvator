@@ -9,7 +9,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ApiError, api } from "../api";
-import { inlinePhotos, useCatalogImages, withPhotos } from "../catalogImages";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { useUnsavedGuard } from "../context/UnsavedGuardContext";
@@ -123,7 +122,6 @@ export function StaffQuotePage() {
   const { user } = useAuth();
   const [detail, setDetail] = useState<Detail | null>(null);
   const [lines, setLines] = useState<StaffLine[]>([]);
-  const photos = useCatalogImages(lines.map((l) => l.code));
   const [meta, setMeta] = useState<QuoteMeta | null>(null);
   const [pricing, setPricing] = useState<StaffPricing | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -274,14 +272,13 @@ export function StaffQuotePage() {
   const clientRecord = clients.find((c) => c.id === quote.client_id);
   const outcome = policyOutcome(detail.policy.breaches);
   const missing = missingTerms(meta);
-  const docInput = staffDocInput({ items: withPhotos(lines, photos), pricing, scenario: quote.scenario });
+  const docInput = staffDocInput({ items: lines, pricing, scenario: quote.scenario });
   const isResponsible = quote.created_by === user?.id || quote.assigned_to === user?.id;
 
-  const exportPdf = async () =>
+  const exportPdf = () =>
     company &&
     downloadQuotationPdf({
       ...docInput,
-      engine: await inlinePhotos(docInput.engine),
       meta,
       scenario: quote.scenario,
       company,
