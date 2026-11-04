@@ -8,13 +8,16 @@ import { useToast } from "../context/ToastContext";
 import { Icon } from "./Icon";
 import { Rich } from "./Rich";
 import { computeEngine, priceForMargin } from "@shared/engine";
+import { calibrateS2, quickPrice } from "@shared/quickPrice";
 import { grp, pct, uid } from "@shared/format";
 import { isScenarioActionValue } from "@shared/silvyDocs";
 import type { Assumptions, QuoteSnapshot, ScenarioIndex } from "@shared/types";
 
 export interface AssistantAction {
-  type: "set" | "item" | "scenario";
+  type: "set" | "item" | "scenario" | "margin";
   key?: string;
+  /** margin: "overall" (S2 net margin, calibrated) or "items" (every line in S1). */
+  scope?: string;
   no?: number;
   field?: string;
   value: unknown;
@@ -77,6 +80,11 @@ function describe(action: AssistantAction, snapshot: QuoteSnapshot): string {
     return `${item?.name ?? `Baris ${action.no}`}: ${action.field} jadi ${action.value}`;
   }
   if (action.type === "scenario") return `Pakai skenario S${action.value}`;
+  if (action.type === "margin") {
+    const v = Number(action.value);
+    const p = pct(v > 1 ? v / 100 : v);
+    return action.scope === "overall" ? `Margin keseluruhan ${p} (kalibrasi S2)` : `Setiap barang margin ${p} (S1)`;
+  }
   return "Perubahan tidak dikenali";
 }
 
@@ -439,6 +447,32 @@ export function applyActions(
         manual[scenario] = price;
         item.manualPrice = manual;
         labels.push(`${item.name}: margin ${pct(m)}, harga ${grp(price)}${price < target ? ` (mentok harga maksimal ${grp(rrp)})` : ""}`);
+      }
+    } else if (action.type === "margin" && (action.scope === "overall" || action.scope === "items")) {
+      let m = Number(action.value);
+      if (!Number.isFinite(m)) continue;
+      if (m > 1) m = m / 100;
+      if (m < 0 || m >= 0.95) continue;
+      if (action.scope === "overall") {
+        // Cross-subsidise to an overall margin: S2 (shared/quickPrice.ts calibrateS2).
+        const r = calibrateS2(items, assumptions, snapshot.regions ?? [], m);
+        r.items.forEach((it, i) => (items[i] = it));
+        scenario = 1;
+        labels.push(
+          r.reached
+            ? `S2 margin keseluruhan ${pct(r.achieved)}: barang non-leader margin ${pct(r.margin)}`
+            : `S2 margin keseluruhan baru ${pct(r.achieved)} (target ${pct(m)} tidak tercapai: banyak barang mentok di plafon klien)`,
+        );
+      } else {
+        // Every line to the margin in S1, like the quick button from COGS (30% at most).
+        const r = quickPrice(items, computeEngine(assumptions, items, snapshot.regions ?? []).rows, 0, "cogs", m, assumptions.step);
+        r.items.forEach((it, i) => (items[i] = it));
+        scenario = 0;
+        labels.push(
+          `S1 setiap barang margin ${pct(Math.min(m, 0.3))}: ${r.changed} baris` +
+            (r.capped ? `, ${r.capped} mentok di plafon klien` : "") +
+            (r.skipped ? `, ${r.skipped} dilewati` : ""),
+        );
       }
     } else if (action.type === "scenario") {
       const v = Number(action.value);
