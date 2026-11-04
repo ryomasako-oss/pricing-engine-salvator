@@ -70,6 +70,8 @@ export interface QuoteItem {
    * engine's computed price for that scenario, but is still clamped to RRP.
    */
   manualPrice?: (number | null)[];
+  /** A client's request with no catalog item and no price yet (list-to-quote): held until it gets a code or a price. */
+  unmatched?: boolean;
   notes?: string;
   /**
    * The unit cogs/rrp/manualPrice are actually expressed in, set only when a
@@ -90,7 +92,7 @@ export interface QuoteItem {
    * "barang baru" still waiting to be created in Accurate (shared/pendingItems.ts);
    * or "new_item_cancelled" — that request was cancelled. Set by the server only.
    */
-  holdReason?: "cogs" | "sales" | "new_item" | "new_item_cancelled";
+  holdReason?: "cogs" | "sales" | "new_item" | "new_item_cancelled" | "unmatched";
   /**
    * The catalog COGS (in this line's unit) that `cogs` was copied from, set by
    * lineFromCatalog. While `cogs` still equals it the cost is the catalog's,

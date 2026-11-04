@@ -90,6 +90,8 @@ export function applyHolds<T extends { status: string; items: QuoteItem[] }>(
     // holdReason goes with held: a line sales rejected is offered again once
     // the quote is reopened, unless its COGS is the problem.
     items: quote.items.map(({ held: _h, holdReason: _r, ...it }) => {
+      // A client's request with no catalog item and no price (list-to-quote): kept on the quote, held, until someone picks an item.
+      if (it.unmatched && !it.code) return { ...it, held: true, holdReason: "unmatched" as const };
       if (it.code && problems.has(it.code)) {
         // A code that is only a "barang baru" waits for Accurate (or was cancelled), not for a manager's COGS check.
         const reason = pendingHoldReason(problems.get(it.code));
