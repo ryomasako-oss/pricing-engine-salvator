@@ -26,6 +26,9 @@ export interface Bindings {
   TWILIO_ACCOUNT_SID?: string;
   TWILIO_AUTH_TOKEN?: string;
   TWILIO_WHATSAPP_FROM?: string;
+  /* Silvy on Telegram (routes/telegram.ts). Both unset = the webhook answers 404. */
+  TELEGRAM_BOT_TOKEN?: string;
+  TELEGRAM_WEBHOOK_SECRET?: string;
   /** Bucket gambar barang (R2). Kosong = katalog tanpa gambar, lihat shared/itemImages.ts. */
   IMAGES?: R2Bucket;
   /* Accurate Online (API Token auth). Set with `wrangler secret put`. One
