@@ -101,12 +101,12 @@ export function FixTasksPage() {
 
       <div className="card">
         <div className="card-head">
-          <div className="tabs">
+          <div className="tabs" role="group" aria-label="Filter perbaikan">
             {([
               ["open", "Terbuka"],
               ["done", "Selesai"],
             ] as const).map(([key, label]) => (
-              <button key={key} className={status === key ? "on" : ""} onClick={() => setStatus(key)}>
+              <button key={key} className={status === key ? "on" : ""} aria-pressed={status === key} onClick={() => setStatus(key)}>
                 {label}
               </button>
             ))}

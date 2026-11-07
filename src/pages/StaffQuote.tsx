@@ -19,7 +19,6 @@ import { type CompanyInfo, QuotationDoc } from "../components/QuotationDoc";
 import { StatusChip } from "../components/pricing";
 import { TermsBox } from "../components/TermsBox";
 import { UomCell } from "../components/UomCell";
-import { downloadQuotationPdf } from "../export/pdf";
 import { SalesReviewBanner, SalesReviewImport, salesImportMessage, type SalesReviewRecord } from "../components/SalesReview";
 import { WorkflowButtons } from "./QuoteEditor";
 import { DEFAULT_ASSUMPTIONS } from "@shared/engine";
@@ -275,8 +274,10 @@ export function StaffQuotePage() {
   const docInput = staffDocInput({ items: lines, pricing, scenario: quote.scenario });
   const isResponsible = quote.created_by === user?.id || quote.assigned_to === user?.id;
 
-  const exportPdf = () =>
-    company &&
+  const exportPdf = async () => {
+    if (!company) return;
+    // jsPDF is large; load it only when someone actually exports.
+    const { downloadQuotationPdf } = await import("../export/pdf");
     downloadQuotationPdf({
       ...docInput,
       meta,
@@ -288,6 +289,7 @@ export function StaffQuotePage() {
       number: quote.number,
       draft: !["approved", "sent", "won", "completed"].includes(quote.status),
     });
+  };
 
   return (
     <main className="hk-main">
