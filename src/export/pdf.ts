@@ -10,7 +10,7 @@ import type { Assumptions, ComputedRow, DocColumnKey, DocTemplate, EngineResult,
 import type { CompanyInfo } from "../components/QuotationDoc";
 import { paymentLabel, warrantyLabel } from "@shared/terms";
 import { heldNote, offeredRows } from "@shared/holds";
-import { docCell, docLayout } from "@shared/docColumns";
+import { docCell, docLayout, docTotals } from "@shared/docColumns";
 
 interface Input {
   engine: EngineResult;
@@ -146,8 +146,8 @@ export function quotationPdf(input: Input): jsPDF {
     margin: { left: M, right: M },
   });
 
-  const ppn = s.revenue * assumptions.ppn;
-  if (layout.totals) autoTable(doc, {
+  const totals = docTotals(layout, s, assumptions);
+  if (totals.length) autoTable(doc, {
     startY: (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10,
     // Keep the totals together: a subtotal stranded alone at the foot of a
     // page reads as a mistake on a document going to a client.
@@ -156,14 +156,9 @@ export function quotationPdf(input: Input): jsPDF {
     styles: { fontSize: 9.5, cellPadding: 3 },
     columnStyles: { 0: { halign: "right", cellWidth: 260 }, 1: { halign: "right", cellWidth: 112, fontStyle: "bold" } },
     margin: { left: W - M - 372, right: M },
-    body: [
-      ["Subtotal per bulan", "Rp " + grp(s.revenue)],
-      [`PPN ${pct(assumptions.ppn, 0)}`, "Rp " + grp(ppn)],
-      ["Total per bulan", "Rp " + grp(s.revenue + ppn)],
-      [`Nilai kontrak ${assumptions.months} bulan (belum PPN)`, "Rp " + grp(s.annual)],
-    ],
+    body: totals.map((row) => [row.label, "Rp " + grp(row.value)]),
     didParseCell: (data) => {
-      if (data.row.index === 2) data.cell.styles.fontStyle = "bold";
+      if (totals[data.row.index]?.key === "monthly") data.cell.styles.fontStyle = "bold";
     },
   });
 

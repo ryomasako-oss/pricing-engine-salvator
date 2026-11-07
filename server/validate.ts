@@ -74,6 +74,7 @@ export const metaSchema = z.object({
   warrantyNote: z.string().max(200).optional(),
   hideQty: z.boolean().optional(),
   hideLineTotal: z.boolean().optional(),
+  hideTotalRows: z.array(z.enum(["subtotal", "ppn", "monthly", "contract"])).max(4).optional(),
 });
 
 export const snapshotSchema = z.object({

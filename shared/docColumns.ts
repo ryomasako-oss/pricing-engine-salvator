@@ -8,8 +8,9 @@
    three cannot drift. The quote's own options can only hide more: hideQty and
    hideLineTotal still drop those columns (and the totals) from a template. */
 
+import { pct } from "./format";
 import { shownCode } from "./pendingItems";
-import type { ComputedRow, DocColumnKey, DocTemplate, QuoteMeta } from "./types";
+import type { Assumptions, ComputedRow, DocColumnKey, DocTemplate, QuoteMeta, ScenarioResult, TotalRowKey } from "./types";
 
 export interface DocColumns {
   qty: boolean;
@@ -44,9 +45,14 @@ const STANDARD: Record<"print" | "sheet", DocColumnKey[]> = {
   sheet: ["no", "code", "name", "uom", "qty", "price", "total"],
 };
 
+/** The totals block, top to bottom. Each row can be left off a quote on its own (meta.hideTotalRows). */
+export const TOTAL_ROW_KEYS: TotalRowKey[] = ["subtotal", "ppn", "monthly", "contract"];
+
 export interface DocLayout {
   columns: { key: DocColumnKey; label: string }[];
+  /** True when at least one total row is printed. */
   totals: boolean;
+  totalRows: TotalRowKey[];
   title: string;
   opening: string;
   closing: string;
@@ -55,7 +61,7 @@ export interface DocLayout {
 }
 
 export function docLayout(
-  meta: Pick<QuoteMeta, "hideQty" | "hideLineTotal">,
+  meta: Pick<QuoteMeta, "hideQty" | "hideLineTotal" | "hideTotalRows">,
   template: DocTemplate | null | undefined,
   target: "print" | "sheet",
 ): DocLayout {
@@ -66,9 +72,12 @@ export function docLayout(
   const base = picked.length
     ? picked.map((c) => ({ key: c.key, label: c.label.trim() || DOC_COLUMN_LABELS[c.key] }))
     : STANDARD[target].map((key) => ({ key, label: DOC_COLUMN_LABELS[key] }));
+  const hidden = meta.hideTotalRows ?? [];
+  const totalRows = cols.totals && t.showTotals !== false ? TOTAL_ROW_KEYS.filter((k) => !hidden.includes(k)) : [];
   return {
     columns: base.filter((c) => (c.key !== "qty" || cols.qty) && (c.key !== "total" || cols.lineTotal)),
-    totals: cols.totals && t.showTotals !== false,
+    totals: totalRows.length > 0,
+    totalRows,
     title: t.title?.trim() || DEFAULT_DOC_TITLE,
     opening: t.opening?.trim() ?? "",
     closing: t.closing?.trim() ?? "",
@@ -88,4 +97,19 @@ export function docCell(key: DocColumnKey, r: ComputedRow, price: number): strin
     case "total": return price * r.qty;
     case "notes": return r.notes ?? "";
   }
+}
+
+/** The printed total rows with their labels and values, so preview, PDF and Excel add up the same way. */
+export function docTotals(
+  layout: Pick<DocLayout, "totalRows">,
+  s: Pick<ScenarioResult, "revenue" | "annual">,
+  assumptions: Pick<Assumptions, "ppn" | "months">,
+): { key: TotalRowKey; label: string; value: number }[] {
+  const all: Record<TotalRowKey, [string, number]> = {
+    subtotal: ["Subtotal per bulan", s.revenue],
+    ppn: [`PPN ${pct(assumptions.ppn, 0)}`, s.revenue * assumptions.ppn],
+    monthly: ["Total per bulan", s.revenue * (1 + assumptions.ppn)],
+    contract: [`Nilai kontrak ${assumptions.months} bulan (belum PPN)`, s.annual],
+  };
+  return layout.totalRows.map((key) => ({ key, label: all[key][0], value: all[key][1] }));
 }
