@@ -67,14 +67,14 @@ export function ApprovalsPage() {
 
       <div className="card">
         <div className="card-head">
-          <div className="tabs">
+          <div className="tabs" role="group" aria-label="Filter persetujuan">
             {([
               ["pending", "Menunggu"],
               ["approved", "Disetujui"],
               ["rejected", "Ditolak"],
               ["all", "Semua"],
             ] as const).map(([key, label]) => (
-              <button key={key} className={filter === key ? "on" : ""} onClick={() => setFilter(key)}>
+              <button key={key} className={filter === key ? "on" : ""} aria-pressed={filter === key} onClick={() => setFilter(key)}>
                 {label}
               </button>
             ))}

@@ -33,7 +33,6 @@ export function PasswordInput({
         onClick={() => setVisible((v) => !v)}
         aria-label={visible ? "Sembunyikan kata sandi" : "Lihat kata sandi"}
         aria-pressed={visible}
-        tabIndex={-1}
       >
         <Icon name={visible ? "eye-off" : "eye"} size={16} />
       </button>

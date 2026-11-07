@@ -578,7 +578,7 @@ export function QuoteEditorPage() {
         <div className="editor-main">
           <div className="card">
             <div className="card-head">
-              <div className="tabs">
+              <div className="tabs" role="group" aria-label="Bagian penawaran">
                 {([
                   ["items", "Item"],
                   ["breakdown", "Penjelasan"],
@@ -587,7 +587,7 @@ export function QuoteEditorPage() {
                   ["document", "Dokumen"],
                   ["history", "Riwayat"],
                 ] as const).map(([key, label]) => (
-                  <button key={key} className={tab === key ? "on" : ""} onClick={() => setTab(key)}>
+                  <button key={key} className={tab === key ? "on" : ""} aria-pressed={tab === key} onClick={() => setTab(key)}>
                     {label}
                   </button>
                 ))}

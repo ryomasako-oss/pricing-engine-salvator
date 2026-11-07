@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
@@ -198,9 +198,9 @@ export function DashboardPage() {
 
       <div className="card">
         <div className="card-head">
-          <div className="tabs">
+          <div className="tabs" role="group" aria-label="Filter status penawaran">
             {FILTERS.map((f) => (
-              <button key={f.key} className={filter === f.key ? "on" : ""} onClick={() => setFilter(f.key)}>
+              <button key={f.key} className={filter === f.key ? "on" : ""} aria-pressed={filter === f.key} onClick={() => setFilter(f.key)}>
                 {f.label}
               </button>
             ))}
@@ -261,7 +261,11 @@ export function DashboardPage() {
                 {visible.map((q) => (
                   <tr key={q.id} className="clickable" onClick={() => navigate(`/quotes/${q.id}`)}>
                     <td className="l num nowrap">
-                      {q.number}
+                      {/* The row is clickable for mouse users; the link is what keyboard
+                          and screen-reader users (and ctrl/middle-click) can reach. */}
+                      <Link to={`/quotes/${q.id}`} className="row-link" onClick={(e) => e.stopPropagation()}>
+                        {q.number}
+                      </Link>
                       {q.rev_no > 1 && <span className="badge grey" style={{ marginLeft: 5 }}>rev {q.rev_no}</span>}
                     </td>
                     <td className="l">{q.title}</td>
