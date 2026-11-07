@@ -247,7 +247,11 @@ export interface QuoteMeta {
   hideQty?: boolean;
   /** Customer document without the per-line total column. */
   hideLineTotal?: boolean;
+  /** Rows of the totals block left off the customer document (subtotal, PPN, total per bulan, contract value). */
+  hideTotalRows?: TotalRowKey[];
 }
+
+export type TotalRowKey = "subtotal" | "ppn" | "monthly" | "contract";
 
 export interface Client {
   id: number;

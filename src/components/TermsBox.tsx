@@ -3,10 +3,17 @@
    warranty go on the customer's document and are required to submit;
    the margin is the internal target and never printed. */
 
-import type { QuoteMeta } from "@shared/types";
+import type { QuoteMeta, TotalRowKey } from "@shared/types";
 import { missingTerms, splitPaymentTerms } from "@shared/terms";
 
 /** Empty input -> null (not set); otherwise the number. */
+const TOTAL_ROWS: [TotalRowKey, string][] = [
+  ["subtotal", "Subtotal per bulan"],
+  ["ppn", "PPN"],
+  ["monthly", "Total per bulan"],
+  ["contract", "Nilai kontrak"],
+];
+
 const numOrNull = (v: string): number | null => (v.trim() === "" ? null : Number(v));
 
 export function TermsBox({
@@ -24,6 +31,7 @@ export function TermsBox({
   onTargetMargin?: (value: number) => void;
 }) {
   const missing = missingTerms(meta);
+  const hiddenRows = meta.hideTotalRows ?? [];
   const required = (field: "paymentDays" | "warrantyYears") =>
     meta[field] == null ? { "aria-invalid": true as const, className: "input invalid" } : { className: "input" };
 
@@ -124,6 +132,23 @@ export function TermsBox({
           />
           <span>Tampilkan total per baris</span>
         </label>
+      </div>
+      <div className="row" style={{ gap: 18, flexWrap: "wrap", marginTop: 8, opacity: meta.hideQty ? 0.5 : 1 }}>
+        <span className="muted small">Baris total:</span>
+        {TOTAL_ROWS.map(([key, label]) => (
+          <label key={key} className="row" style={{ gap: 6 }}>
+            <input
+              type="checkbox"
+              checked={!meta.hideQty && !hiddenRows.includes(key)}
+              disabled={!!meta.hideQty}
+              onChange={(e) => {
+                const next = e.target.checked ? hiddenRows.filter((k) => k !== key) : [...hiddenRows, key];
+                onMeta({ hideTotalRows: next.length ? next : undefined });
+              }}
+            />
+            <span>{label}</span>
+          </label>
+        ))}
       </div>
       {meta.hideQty && (
         <p className="muted small" style={{ margin: "6px 0 0" }}>

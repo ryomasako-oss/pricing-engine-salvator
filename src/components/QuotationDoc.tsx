@@ -7,7 +7,7 @@ import { fmtDate, grp, pct, rp } from "@shared/format";
 import type { Assumptions, ComputedRow, DocColumnKey, DocTemplate, EngineResult, QuoteMeta, ScenarioIndex } from "@shared/types";
 import { paymentLabel, warrantyLabel } from "@shared/terms";
 import { heldNote, offeredRows } from "@shared/holds";
-import { docCell, docLayout } from "@shared/docColumns";
+import { docCell, docLayout, docTotals } from "@shared/docColumns";
 
 /** Cell alignment per column, by key so a client template can reorder them. */
 const ALIGN: Record<DocColumnKey, string> = {
@@ -63,7 +63,6 @@ export function QuotationDoc({
   };
   const s = engine.scen[scenario];
   const sc = SCENARIOS[scenario];
-  const ppn = s.revenue * assumptions.ppn;
   const validUntil = new Date(
     new Date(meta.date).getTime() + (meta.validity || 30) * 86400000,
   );
@@ -154,24 +153,14 @@ export function QuotationDoc({
       </div>
 
       {layout.totals && (
-      <div className="quote-totals">
-        <div>
-          <span>Subtotal per bulan</span>
-          <span className="num">{rp(s.revenue)}</span>
+        <div className="quote-totals">
+          {docTotals(layout, s, assumptions).map((row) => (
+            <div key={row.key} className={row.key === "monthly" ? "grand" : undefined}>
+              <span>{row.label}</span>
+              <span className="num">{rp(row.value)}</span>
+            </div>
+          ))}
         </div>
-        <div>
-          <span>PPN {pct(assumptions.ppn, 0)}</span>
-          <span className="num">{rp(ppn)}</span>
-        </div>
-        <div className="grand">
-          <span>Total per bulan</span>
-          <span className="num">{rp(s.revenue + ppn)}</span>
-        </div>
-        <div>
-          <span>Nilai kontrak {assumptions.months} bulan (belum PPN)</span>
-          <span className="num">{rp(s.annual)}</span>
-        </div>
-      </div>
       )}
 
       <p className="small muted">

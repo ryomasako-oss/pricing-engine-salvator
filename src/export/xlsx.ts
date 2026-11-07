@@ -5,7 +5,7 @@ import * as XLSX from "xlsx";
 import { SCENARIOS } from "@shared/engine";
 import { paymentLabel, warrantyLabel } from "@shared/terms";
 import { heldNote, holdInfo, offeredRows } from "@shared/holds";
-import { DOC_COLUMN_LABELS, docCell, docLayout } from "@shared/docColumns";
+import { DOC_COLUMN_LABELS, docCell, docLayout, docTotals } from "@shared/docColumns";
 import type { Assumptions, DocColumnKey, DocTemplate, EngineResult, QuoteMeta, ScenarioIndex } from "@shared/types";
 
 interface Input {
@@ -60,10 +60,11 @@ export function quoteWorkbook(input: Input): XLSX.WorkBook {
     ...(layout.totals
       ? [
           {},
-          { [L.item]: "Subtotal per bulan", [L.total]: Math.round(s.revenue) },
-          { [L.item]: `PPN ${(assumptions.ppn * 100).toFixed(0)}%`, [L.total]: Math.round(s.revenue * assumptions.ppn) },
-          { [L.item]: "Total per bulan termasuk PPN", [L.total]: Math.round(s.revenue * (1 + assumptions.ppn)) },
-          { [L.item]: `Nilai kontrak ${assumptions.months} bulan (belum PPN)`, [L.total]: Math.round(s.annual) },
+          // The sheet spells out that the monthly total includes PPN; the printed block shows it by order.
+          ...docTotals(layout, s, assumptions).map((row) => ({
+            [L.item]: row.key === "monthly" ? "Total per bulan termasuk PPN" : row.label,
+            [L.total]: Math.round(row.value),
+          })),
         ]
       : []),
     {},

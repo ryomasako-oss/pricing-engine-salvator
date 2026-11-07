@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DOC_COLUMN_KEYS, docCell, docColumns, docLayout } from "./docColumns";
+import { DOC_COLUMN_KEYS, docCell, docColumns, docLayout, docTotals } from "./docColumns";
 import type { ComputedRow, DocTemplate } from "./types";
 
 describe("docColumns", () => {
@@ -12,6 +12,32 @@ describe("docColumns", () => {
   it("hiding qty also hides line totals and the totals block, which depend on it", () => {
     expect(docColumns({ hideQty: true })).toEqual({ qty: false, lineTotal: false, totals: false });
     expect(docColumns({ hideQty: true, hideLineTotal: false })).toEqual({ qty: false, lineTotal: false, totals: false });
+  });
+});
+
+describe("docLayout: total rows one by one", () => {
+  const s = { revenue: 1000, annual: 12000 };
+  const a = { ppn: 0.11, months: 12 };
+  it("prints all four rows by default, in order", () => {
+    const l = docLayout({}, null, "print");
+    expect(l.totalRows).toEqual(["subtotal", "ppn", "monthly", "contract"]);
+    expect(docTotals(l, s, a)).toEqual([
+      { key: "subtotal", label: "Subtotal per bulan", value: 1000 },
+      { key: "ppn", label: "PPN 11%", value: 110 },
+      { key: "monthly", label: "Total per bulan", value: 1110 },
+      { key: "contract", label: "Nilai kontrak 12 bulan (belum PPN)", value: 12000 },
+    ]);
+  });
+  it("drops only the rows the quote hides", () => {
+    const l = docLayout({ hideTotalRows: ["contract"] }, null, "print");
+    expect(l.totalRows).toEqual(["subtotal", "ppn", "monthly"]);
+    expect(l.totals).toBe(true);
+    expect(docLayout({ hideTotalRows: ["monthly", "contract"] }, null, "sheet").totalRows).toEqual(["subtotal", "ppn"]);
+  });
+  it("hiding every row hides the block; hiding qty or a template without totals still wins", () => {
+    expect(docLayout({ hideTotalRows: ["subtotal", "ppn", "monthly", "contract"] }, null, "print").totals).toBe(false);
+    expect(docLayout({ hideQty: true }, null, "print").totalRows).toEqual([]);
+    expect(docLayout({}, { showTotals: false }, "print").totalRows).toEqual([]);
   });
 });
 
