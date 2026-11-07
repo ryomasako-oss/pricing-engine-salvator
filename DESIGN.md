@@ -1,7 +1,7 @@
 ---
 version: alpha
 name: Halokantor-Ledger
-description: A B2B quotation and pricing-control system built on a paper-and-ink palette — a warm off-white worksheet surface, deep navy as the single authority color, and three named scenario colors (S1 teal-navy, S2 teal, S3 violet) that let a sales rep compare Full Margin, Cross Subsidise, and RRP Discount pricing at a glance. Numbers are always tabular, status is always a pill, and every screen reads like a well-kept ledger rather than a dashboard — calm, dense, and trustworthy enough to send a client a quote from.
+description: A B2B quotation and pricing-control system built on a paper-and-ink palette — a warm off-white worksheet surface, deep navy as the brand color, Apple blue as the single action color, and three named scenario colors (S1 teal-navy, S2 teal, S3 violet) that let a sales rep compare Full Margin, Cross Subsidise, and RRP Discount pricing at a glance. Numbers are always tabular, status is always a pill, and every screen reads like a well-kept ledger rather than a dashboard — calm, dense, and trustworthy enough to send a client a quote from.
 
 colors:
   paper: "#F1F4F7"
@@ -9,6 +9,8 @@ colors:
   ink: "#1B2530"
   navy: "#1F3A5F"
   navy-dark: "#18304F"
+  action: "#0071E3"
+  action-dark: "#0058B0"
   muted: "#667384"
   rule: "#DCE2E8"
   soft: "#F6F8FA"
@@ -110,13 +112,13 @@ spacing:
 
 components:
   btn-primary:
-    backgroundColor: "{colors.navy}"
+    backgroundColor: "{colors.action}"
     textColor: "#ffffff"
     typography: "{typography.button}"
     rounded: "{rounded.pill}"
     padding: 7px 14px
   btn-primary-hover:
-    backgroundColor: "{colors.navy-dark}"
+    backgroundColor: "{colors.action-dark}"
     textColor: "#ffffff"
     typography: "{typography.button}"
     rounded: "{rounded.pill}"
@@ -185,7 +187,7 @@ components:
 
 ## Overview
 
-Pricing Engine Salvator is a working document, not a marketing surface — a sales rep opens it to build a quotation, a manager opens it to decide whether to approve one. The design language follows from that job: a warm paper-grey (`{colors.paper}` `#F1F4F7`) canvas holds white sheet-like cards (`{colors.sheet}`), everything sits on hairline rules instead of shadows, and the only saturated color that means "action" or "authority" is deep navy (`{colors.navy}` `#1F3A5F`). Numbers always render tabular so columns of harga pokok, margin, and RRP line up like a real ledger.
+Pricing Engine Salvator is a working document, not a marketing surface — a sales rep opens it to build a quotation, a manager opens it to decide whether to approve one. The design language follows from that job: a warm paper-grey (`{colors.paper}` `#F1F4F7`) canvas holds white sheet-like cards (`{colors.sheet}`), everything sits on hairline rules instead of shadows, and color has two jobs that never swap: deep navy (`{colors.navy}` `#1F3A5F`) means "this is Salvator" and blue (`{colors.action}` `#0071E3`) means "you can click this." Numbers always render tabular so columns of harga pokok, margin, and RRP line up like a real ledger.
 
 The one deliberate flourish is the **three-scenario system**. Every quotation computes S1 Full Margin, S2 Cross Subsidise, and S3 RRP Discount side by side, and each gets a fixed identity color — steel blue, teal, violet — that never changes meaning anywhere in the app: a left border on a card, a fill on a meter, a rule under a total. A rep should be able to tell which scenario a number belongs to without reading the label.
 
@@ -193,7 +195,7 @@ Status is communicated entirely through pill-shaped chips with a consistent sema
 
 **Key characteristics:**
 - Paper-grey workspace (`{colors.paper}`) with white sheet cards — a ledger, not a slide deck.
-- One authority color: navy. It is the only color allowed on a primary button or an active nav item.
+- Two color roles: navy for brand surfaces (top bar, logo, Silvy, quotation wordmark), blue for actions (primary buttons, links, focus, selected tabs).
 - Fixed scenario identity: S1 steel-blue, S2 teal, S3 violet — consistent across cards, meters, and quote totals.
 - Tabular numerals (`tnum`) on every price, margin, and quantity cell — the quiet financial-document signal.
 - Semantic four-color system (danger / warn / ok / neutral) reused across badges, notices, and status chips — never invented ad hoc.
@@ -203,8 +205,12 @@ Status is communicated entirely through pill-shaped chips with a consistent sema
 ## Colors
 
 ### Authority & Brand
-- **Navy** (`{colors.navy}` — `#1F3A5F`): The single action color. Primary buttons, active nav state, focus rings, links, the quotation wordmark.
-- **Navy Dark** (`{colors.navy-dark}` — `#18304F`): Hover/pressed state for navy.
+- **Navy** (`{colors.navy}` — `#1F3A5F`, CSS `--brand`): Brand surfaces only — the top bar (light mode), the logo, Silvy's avatar, the quotation wordmark. Never a button.
+- **Navy Dark** (`{colors.navy-dark}` — `#18304F`): Pressed/darker brand surface.
+- **Action blue** (`{colors.action}` — `#0071E3`, CSS `--action` / `--action-fill`): The single action color. Primary buttons, links, focus rings, selected tabs and nav items, chip selection.
+- **Action Dark** (`{colors.action-dark}` — `#0058B0`): Hover/pressed state for action blue.
+- **Never put an action-blue control directly on navy** (2.45:1). Controls on the top bar use the `--bar-*` tokens (white text, white focus ring); the selected nav item sits on a white pill.
+- **Dark mode:** navy against dark surfaces is 1.5:1, so the top bar becomes the normal dark surface and navy survives as the logo and avatar fill (`#2B4F7E`). Filled buttons use deeper fills (`--action-fill` `#0B66C9`) so white text stays above 4.5:1.
 - **Ink** (`{colors.ink}` — `#1B2530`): Default text. Near-black, never pure black — softer on a paper background.
 - **Muted** (`{colors.muted}` — `#667384`): Secondary text, captions, table headers, helper copy.
 
@@ -300,7 +306,7 @@ The **scenario card**'s asymmetric radius — sharp on the left where the 3px sc
 ## Components
 
 ### Buttons
-**`btn-primary`** — the only filled button. Navy background, white text, pill radius, `7px 14px` padding. Hover darkens to `{colors.navy-dark}`.
+**`btn-primary`** — the only filled button. Action-blue background, white text, pill radius, `7px 14px` padding. Hover darkens to `{colors.action-dark}`.
 **`btn-ghost`** — default/secondary action: transparent background, 1px `{colors.rule}` border, hovers to `{colors.soft}`.
 **`btn-danger`** — white background, `{colors.danger}` text and border-tint, hovers to `{colors.danger-bg}`. Reserved for reject/delete.
 Small variant drops padding to `4px 10px` for inline table actions.
@@ -312,7 +318,7 @@ Small variant drops padding to `4px 10px` for inline table actions.
 **`quote-document`** — the client-facing artifact: white, `{rounded.xl}`, 22px padding, 4px top border tinted to the winning scenario's color — the one place scenario color appears outside the editor.
 
 ### Tables
-Sticky, right-aligned headers on `{colors.soft}`; rows separated by hairline `#EEF1F4`; hover tint `#FAFBFC`; policy-flagged rows tint `#FFF9EC`. Editable price cells (`data-cell`) get their own soft fill, switch to white with a navy border on focus, and an amber tint (`cell.est`) when a value is system-estimated rather than sourced from Accurate.
+Sticky, right-aligned headers on `{colors.soft}`; rows separated by hairline `#EEF1F4`; hover tint `#FAFBFC`; policy-flagged rows tint `#FFF9EC`. Editable price cells (`data-cell`) get their own soft fill, switch to white with an action-blue border on focus, and an amber tint (`cell.est`) when a value is system-estimated rather than sourced from Accurate.
 
 **Unit (UOM) cells** follow the same rules: the unit select is a plain data-entry `cell` (like Role), in a left-aligned column right after Qty, so a row reads "20 Pak". A flag about the unit goes *under* the value as an amber `badge` ("Tanpa rasio", full reason in the tooltip), exactly like "Di plafon" under a scenario price. Any action on it is a tiny `icon-btn`, never inline link text. One shared component (`UomCell`) renders this in both the items table and the catalog picker. Unit conversions shown as data ("1 Box = 24 Pcs") are grey badges, and always name both units.
 
@@ -320,7 +326,7 @@ Sticky, right-aligned headers on `{colors.soft}`; rows separated by hairline `#E
 **`status-chip`** — pill, 11–12px/650, one of six fixed states: draft (grey), submitted (amber), approved (green), rejected (red), sent (blue), won (filled green). **`badge`** — smaller square-radius sibling used inline in text/tables for the same six-color semantic vocabulary.
 
 ### Forms
-**`text-input`** — white, `{rounded.md}` 9px, 1px rule border, focuses to a navy border. Field labels are `{typography.caption}` in `{colors.muted}`, sitting above the input, never inside it as placeholder-only text for anything the rep must double-check (price overrides, client names).
+**`text-input`** — white, `{rounded.md}` 9px, 1px `--field-rule` border (3:1 against the card), focuses to an action-blue border. Field labels are `{typography.caption}` in `{colors.muted}`, sitting above the input, never inside it as placeholder-only text for anything the rep must double-check (price overrides, client names).
 
 ### Signature Components
 **Meter bar** — a 4px pill track showing a scenario's margin or discount as a percentage fill in that scenario's identity color. Appears inside every scenario card; the fastest way to eyeball "which option is healthiest."
@@ -330,14 +336,16 @@ Sticky, right-aligned headers on `{colors.soft}`; rows separated by hairline `#E
 ## Do's and Don'ts
 
 ### Do
-- Reserve `{colors.navy}` for the one primary action per view — links and active states may reuse it, but only one filled button per screen region.
+- Reserve `{colors.action}` for the one primary action per view — links and active states may reuse it, but only one filled button per screen region.
+- Keep `{colors.navy}` for identity: if it isn't the bar, the logo, Silvy, or the quotation wordmark, it probably shouldn't be navy.
 - Keep scenario colors S1/S2/S3 fixed everywhere they appear — a rep should learn the color once and never have it mean something else.
 - Render every price, margin, and quantity cell with `font-feature-settings: "tnum"`.
 - Use the four-color semantic set (danger/warn/ok/neutral) for all status communication — don't invent a fifth color for a new state.
 - Apply Level-2 shadow only to things that float above the page (modals, toasts) — keep everything else flat with rules.
 
 ### Don't
-- Don't add a second accent color "for variety" — the system's calm comes from navy being the only saturated action color.
+- Don't add a third accent color "for variety" — the system's calm comes from navy meaning brand and blue meaning action, and nothing else.
+- Don't use navy for a button or blue for a brand surface — the two roles never swap.
 - Don't reassign scenario colors per-screen (e.g. S1 in blue on one page, teal on another).
 - Don't use the yellow marker as a generic highlight; it means "best value," full stop.
 - Don't drop button radius below pill-shape or swap it for sharp corners — pill chrome vs. squarer cards is the system's shape contrast.

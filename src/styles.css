@@ -16,8 +16,8 @@
   --sheet: #FFFFFF;
   --field: #FFFFFF;
   --ink: #1C1C1E;
-  --navy: #0071E3;
-  --navy-dark: #0058B0;
+  --action: #0071E3;
+  --action-dark: #0058B0;
   --muted: #6E6E73;
   --rule: rgba(60, 60, 67, 0.29);
   --soft: rgba(120, 120, 128, 0.12);
@@ -45,13 +45,27 @@
   /* Filled surfaces behind white text (primary/success buttons, solid chips,
      toasts, the nav count). Separate from the accent text colors so dark mode
      can keep bright accents for text and deep fills behind white (4.5:1+). */
-  --navy-fill: #0071E3;
-  --navy-fill-hover: #0058B0;
+  --action-fill: #0071E3;
+  --action-fill-hover: #0058B0;
   --ok-fill: #1F7A3D;
   --danger-fill: #D70015;
   --on-fill: #FFFFFF;
   /* Input edges need 3:1 against the surface (WCAG 1.4.11); --rule is a hairline. */
   --field-rule: #8A8A8E;
+
+  /* Two colour roles. --brand (navy) says "this is Salvator": the top bar, the
+     logo, Silvy's avatar, the quotation wordmark. --action (blue) says "you can
+     click this": buttons, links, focus, selected tabs. Never put an --action
+     control directly on a --brand surface (2.45:1); use the --bar-* tokens. */
+  --brand: #1F3A5F;
+  --brand-fill: #1F3A5F;
+  --bar-bg: #1F3A5F;
+  --bar-ink: #FFFFFF;
+  --bar-muted: rgba(255, 255, 255, 0.72);
+  --bar-soft: rgba(255, 255, 255, 0.12);
+  --bar-rule: transparent;
+  --logo-bg: #FFFFFF;
+  --logo-ink: #1F3A5F;
 
   --track: #E2E6EA;
   --flag-bg: #FFF6E0;
@@ -74,8 +88,8 @@
   --sheet: #1C1C1E;
   --field: #2C2C2E;
   --ink: #F2F2F7;
-  --navy: #3399FF;
-  --navy-dark: #0A84FF;
+  --action: #3399FF;
+  --action-dark: #0A84FF;
   --muted: #98989D;
   --rule: rgba(84, 84, 88, 0.6);
   --soft: rgba(120, 120, 128, 0.24);
@@ -99,12 +113,21 @@
   --ok: #4ADE80;
   --ok-bg: rgba(48, 209, 88, 0.16);
 
-  --navy-fill: #0B66C9;
-  --navy-fill-hover: #0A5BB5;
+  --action-fill: #0B66C9;
+  --action-fill-hover: #0A5BB5;
   --ok-fill: #1F7A3D;
   --danger-fill: #C9302C;
   --on-fill: #FFFFFF;
   --field-rule: #7C7C80;
+  --brand: #1F3A5F;
+  --brand-fill: #2B4F7E;
+  --bar-bg: rgba(28, 28, 30, 0.72);
+  --bar-ink: #F2F2F7;
+  --bar-muted: #98989D;
+  --bar-soft: rgba(120, 120, 128, 0.24);
+  --bar-rule: rgba(84, 84, 88, 0.6);
+  --logo-bg: #2B4F7E;
+  --logo-ink: #FFFFFF;
 
   --track: #3A3A3C;
   --flag-bg: rgba(255, 159, 10, 0.14);
@@ -130,8 +153,8 @@
     --sheet: #1C1C1E;
     --field: #2C2C2E;
     --ink: #F2F2F7;
-    --navy: #3399FF;
-    --navy-dark: #0A84FF;
+    --action: #3399FF;
+    --action-dark: #0A84FF;
     --muted: #98989D;
     --rule: rgba(84, 84, 88, 0.6);
     --soft: rgba(120, 120, 128, 0.24);
@@ -155,12 +178,21 @@
     --ok: #4ADE80;
     --ok-bg: rgba(48, 209, 88, 0.16);
 
-    --navy-fill: #0B66C9;
-    --navy-fill-hover: #0A5BB5;
+    --action-fill: #0B66C9;
+    --action-fill-hover: #0A5BB5;
     --ok-fill: #1F7A3D;
     --danger-fill: #C9302C;
     --on-fill: #FFFFFF;
     --field-rule: #7C7C80;
+    --brand: #1F3A5F;
+    --brand-fill: #2B4F7E;
+    --bar-bg: rgba(28, 28, 30, 0.72);
+    --bar-ink: #F2F2F7;
+    --bar-muted: #98989D;
+    --bar-soft: rgba(120, 120, 128, 0.24);
+    --bar-rule: rgba(84, 84, 88, 0.6);
+    --logo-bg: #2B4F7E;
+    --logo-ink: #FFFFFF;
 
     --track: #3A3A3C;
     --flag-bg: rgba(255, 159, 10, 0.14);
@@ -194,9 +226,9 @@ body {
 
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
-a { color: var(--navy); }
+a { color: var(--action); }
 
-:focus-visible { outline: 2px solid var(--navy); outline-offset: 2px; border-radius: 6px; }
+:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; border-radius: 6px; }
 
 .num { font-variant-numeric: tabular-nums; }
 .muted { color: var(--muted); }
@@ -230,27 +262,34 @@ a { color: var(--navy); }
 
 .hk-top {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 10px 20px; background: var(--blur-bg); border-bottom: 1px solid var(--rule);
+  padding: 10px 20px; background: var(--bar-bg); color: var(--bar-ink); border-bottom: 1px solid var(--bar-rule);
   position: sticky; top: 0; z-index: 30;
   backdrop-filter: saturate(1.6) blur(20px);
   -webkit-backdrop-filter: saturate(1.6) blur(20px);
 }
 .hk-brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: inherit; }
 .hk-logo {
-  width: 32px; height: 32px; border-radius: 9px; background: var(--navy-fill); color: var(--on-fill);
+  width: 32px; height: 32px; border-radius: 9px; background: var(--logo-bg); color: var(--logo-ink);
   display: grid; place-items: center; font-weight: 700; font-size: 17px; letter-spacing: -.04em;
 }
 .hk-title { font-weight: 650; font-size: 14.5px; letter-spacing: -.01em; }
-.hk-sub { font-size: 11.5px; color: var(--muted); }
+.hk-sub { font-size: 11.5px; color: var(--bar-muted); }
 
-.hk-nav { display: flex; gap: 2px; align-items: center; background: var(--soft); border-radius: 999px; padding: 3px; }
+.hk-nav { display: flex; gap: 2px; align-items: center; background: var(--bar-soft); border-radius: 999px; padding: 3px; }
 .hk-nav a {
   display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px;
-  text-decoration: none; color: var(--muted); font-weight: 550; font-size: 13px; white-space: nowrap;
+  text-decoration: none; color: var(--bar-muted); font-weight: 550; font-size: 13px; white-space: nowrap;
   transition: background .15s, color .15s;
 }
-.hk-nav a:hover { color: var(--ink); }
-.hk-nav a.active { background: var(--sheet); color: var(--navy); font-weight: 650; box-shadow: var(--shadow); }
+.hk-nav a:hover { color: var(--bar-ink); }
+/* Things on the bar take bar colours: grey text and the blue focus ring would
+   disappear on navy. */
+.hk-top .muted { color: var(--bar-muted); }
+.hk-top .badge.grey { background: var(--bar-soft); color: var(--bar-ink); }
+.hk-top .icon-btn { color: var(--bar-muted); }
+.hk-top .icon-btn:hover { background: var(--bar-soft); color: var(--bar-ink); }
+.hk-top :focus-visible { outline-color: var(--bar-ink); }
+.hk-nav a.active { background: var(--sheet); color: var(--action); font-weight: 650; box-shadow: var(--shadow); }
 .hk-nav .count {
   background: var(--danger-fill); color: var(--on-fill); border-radius: 999px; font-size: 10.5px;
   padding: 0 5px; min-width: 17px; text-align: center; font-weight: 700;
@@ -289,28 +328,28 @@ a { color: var(--navy); }
 .btn:hover:not(:disabled) { background: var(--rule); }
 .btn:active:not(:disabled) { transform: scale(.97); }
 .btn:disabled { opacity: .45; cursor: not-allowed; }
-.btn.primary { background: var(--navy-fill); border-color: var(--navy-fill); color: var(--on-fill); }
-.btn.primary:hover:not(:disabled) { background: var(--navy-fill-hover); }
+.btn.primary { background: var(--action-fill); border-color: var(--action-fill); color: var(--on-fill); }
+.btn.primary:hover:not(:disabled) { background: var(--action-fill-hover); }
 .btn.danger { color: var(--danger); background: var(--danger-bg); }
 .btn.danger:hover:not(:disabled) { background: var(--danger-rule); }
 .btn.success { background: var(--ok-fill); border-color: var(--ok-fill); color: var(--on-fill); }
 .btn.success:hover:not(:disabled) { filter: brightness(.9); }
 .btn.ghost { background: transparent; border-color: var(--rule); }
-.btn.ghost:hover:not(:disabled) { background: var(--soft); border-color: var(--navy); }
+.btn.ghost:hover:not(:disabled) { background: var(--soft); border-color: var(--action); }
 .btn.small { padding: 5px 11px; font-size: 12px; }
 .btn.block { width: 100%; }
 
 .icon-btn { border: 0; background: transparent; border-radius: 999px; padding: 7px; display: grid; place-items: center; color: var(--muted); transition: background .15s, color .15s; }
 .icon-btn:hover { background: var(--soft); color: var(--ink); }
 
-.link-btn { border: 0; background: none; color: var(--navy); font-weight: 600; font-size: 12.5px; padding: 2px 4px; display: inline-flex; gap: 4px; align-items: center; }
+.link-btn { border: 0; background: none; color: var(--action); font-weight: 600; font-size: 12.5px; padding: 2px 4px; display: inline-flex; gap: 4px; align-items: center; }
 .link-btn:hover { text-decoration: underline; }
 
 .input, .select, .textarea {
   border: 1px solid var(--field-rule); border-radius: 10px; padding: 8px 11px; background: var(--field);
   color: var(--ink); width: 100%; transition: border-color .15s, background .15s;
 }
-.input:focus, .select:focus, .textarea:focus { border-color: var(--navy); outline: none; }
+.input:focus, .select:focus, .textarea:focus { border-color: var(--action); outline: none; }
 .textarea { resize: vertical; }
 .password-field { position: relative; display: flex; }
 .password-field .input { padding-right: 36px; }
@@ -378,7 +417,7 @@ a { color: var(--navy); }
 .table tbody tr.flagged:hover { background: var(--flag-bg-hover); }
 .table tr.clickable { cursor: pointer; }
 .row-link { color: inherit; font-weight: 600; text-decoration: none; }
-.row-link:hover, tr.clickable:hover .row-link { color: var(--navy); text-decoration: underline; }
+.row-link:hover, tr.clickable:hover .row-link { color: var(--action); text-decoration: underline; }
 
 /* Selected-scenario column highlight. Mixes the scenario's accent color
    (--c, set inline per cell) into the current surface color rather than
@@ -391,7 +430,7 @@ a { color: var(--navy); }
   padding: 4px 6px; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink);
 }
 .cell:hover { border-color: var(--rule); }
-.cell:focus { border-color: var(--navy); background: var(--field); outline: 0; }
+.cell:focus { border-color: var(--action); background: var(--field); outline: 0; }
 .cell.l { text-align: left; width: 100%; min-width: 120px; }
 /* A badge (+ optional tiny action) under a cell's value, like "Di plafon". */
 .cell-sub { display: flex; align-items: center; gap: 2px; margin-top: 3px; white-space: nowrap; }
@@ -505,7 +544,7 @@ select.cell { text-align: left; width: 88px; }
 .lever input[type=range]::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; background: var(--sheet); border: 2px solid var(--c); cursor: pointer; }
 .toggle { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
 .toggle > span { white-space: nowrap; }
-input[type=checkbox] { accent-color: var(--navy); width: 17px; height: 17px; flex: none; }
+input[type=checkbox] { accent-color: var(--action); width: 17px; height: 17px; flex: none; }
 
 /* ---------------- editor layout ---------------- */
 
@@ -525,7 +564,7 @@ input[type=checkbox] { accent-color: var(--navy); width: 17px; height: 17px; fle
   font-size: 12.5px; font-weight: 600; color: var(--muted); flex: none; white-space: nowrap;
   transition: background .15s, color .15s;
 }
-.tabs button.on { background: var(--sheet); color: var(--navy); box-shadow: var(--shadow); }
+.tabs button.on { background: var(--sheet); color: var(--action); box-shadow: var(--shadow); }
 
 .status-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .status-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 650; border-radius: 999px; padding: 4px 11px; }
@@ -536,7 +575,7 @@ input[type=checkbox] { accent-color: var(--navy); width: 17px; height: 17px; fle
 .status-sent { background: var(--s1-bg); color: var(--badge-blue); }
 .status-won { background: var(--ok-fill); color: var(--on-fill); }
 .status-lost { background: var(--soft); color: var(--muted); }
-.status-completed { background: var(--navy-fill); color: var(--on-fill); }
+.status-completed { background: var(--action-fill); color: var(--on-fill); }
 
 /* ---------------- assistant ---------------- */
 
@@ -553,8 +592,8 @@ input[type=checkbox] { accent-color: var(--navy); width: 17px; height: 17px; fle
 .rich h4 { margin: 12px 0 4px; font-size: 13.5px; font-weight: 700; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .chip { border: 1px solid var(--rule); background: var(--field); border-radius: 999px; padding: 5px 11px; font-size: 12px; text-align: left; }
-.chip:hover { border-color: var(--navy); background: var(--s1-bg); }
-.chip.on { border-color: var(--navy); background: var(--s1-bg); color: var(--ink); font-weight: 600; }
+.chip:hover { border-color: var(--action); background: var(--s1-bg); }
+.chip.on { border-color: var(--action); background: var(--s1-bg); color: var(--ink); font-weight: 600; }
 .fix-row { display: flex; gap: 12px; justify-content: space-between; align-items: flex-start; padding: 12px; border: 1px solid var(--rule); border-radius: 12px; background: var(--sheet); }
 .fix-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .fix-item { overflow-wrap: anywhere; }
@@ -565,10 +604,10 @@ input[type=checkbox] { accent-color: var(--navy); width: 17px; height: 17px; fle
 }
 .composer { display: flex; align-items: flex-end; gap: 8px; border-top: 1px solid var(--rule); padding: 10px; }
 .composer textarea { flex: 1; border: 1px solid var(--field-rule); background: var(--field); border-radius: 14px; padding: 8px 10px; resize: none; max-height: 110px; }
-.send { width: 38px; height: 38px; border-radius: 12px; border: 0; background: var(--navy-fill); color: var(--on-fill); display: grid; place-items: center; flex: none; }
+.send { width: 38px; height: 38px; border-radius: 12px; border: 0; background: var(--action-fill); color: var(--on-fill); display: grid; place-items: center; flex: none; }
 .send:disabled { background: var(--disabled); cursor: not-allowed; }
 .dots { display: inline-flex; gap: 4px; }
-.dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--navy); opacity: .3; animation: dot 1s infinite; }
+.dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--action); opacity: .3; animation: dot 1s infinite; }
 .dots i:nth-child(2) { animation-delay: .15s; }
 .dots i:nth-child(3) { animation-delay: .3s; }
 @keyframes dot { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
@@ -578,15 +617,15 @@ input[type=checkbox] { accent-color: var(--navy); width: 17px; height: 17px; fle
 
 /* Silvy identity: a navy monogram (the one authority color), no new accent. */
 .silvy-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--rule); flex-wrap: wrap; }
-.silvy-mono { width: 28px; height: 28px; border-radius: 50%; background: var(--navy-fill); color: var(--on-fill); display: grid; place-items: center; font-weight: 750; font-size: 13px; flex: none; }
+.silvy-mono { width: 28px; height: 28px; border-radius: 50%; background: var(--brand-fill); color: var(--on-fill); display: grid; place-items: center; font-weight: 750; font-size: 13px; flex: none; }
 .silvy-id { display: flex; flex-direction: column; min-width: 0; flex: 1; line-height: 1.25; }
 .silvy-tabs { flex: 1 1 100%; }
 .silvy-tabs button { flex: 1; text-align: center; }
 .silvy-sources { margin: 6px 0 0; font-size: 11.5px; font-weight: 550; color: var(--muted); }
 .silvy-docs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .silvy-doc { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 9px 11px; border: 1px solid var(--rule); border-radius: 12px; background: var(--field); }
-.silvy-doc:hover:not(:disabled) { border-color: var(--navy); background: var(--s1-bg); }
-.silvy-doc.on { border-color: var(--navy); box-shadow: inset 0 0 0 1px var(--navy); }
+.silvy-doc:hover:not(:disabled) { border-color: var(--action); background: var(--s1-bg); }
+.silvy-doc.on { border-color: var(--action); box-shadow: inset 0 0 0 1px var(--action); }
 .silvy-doc:disabled { opacity: .6; cursor: not-allowed; }
 .silvy-docout { border: 1px solid var(--rule); border-radius: 12px; background: var(--sheet); padding: 12px; font-size: 13px; }
 @media (max-width: 420px) { .silvy-docs { grid-template-columns: 1fr; } }
@@ -597,7 +636,7 @@ input[type=checkbox] { accent-color: var(--navy); width: 17px; height: 17px; fle
 
 .quote-doc { border: 1px solid #DCE2E8; border-radius: 14px; padding: 22px; background: #fff; color: #1B2530; border-top: 4px solid var(--c); }
 .quote-top { display: flex; justify-content: space-between; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid #DCE2E8; }
-.wordmark { font-weight: 800; font-size: 22px; color: #1F3A5F; letter-spacing: -.03em; }
+.wordmark { font-weight: 800; font-size: 22px; color: var(--brand); letter-spacing: -.03em; }
 .quote-logo { max-height: 44px; max-width: 220px; object-fit: contain; margin-bottom: 6px; }
 .quote-title { font-weight: 750; font-size: 18px; color: var(--c); text-align: right; }
 .quote-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; background: #F6F8FA; border-radius: 10px; padding: 11px; margin: 13px 0; }
@@ -623,8 +662,8 @@ input[type=checkbox] { accent-color: var(--navy); width: 17px; height: 17px; fle
 .kpi .value { font-size: 22px; font-weight: 700; letter-spacing: -.02em; margin-top: 3px; }
 .kpi .foot { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
 
-.drop { display: grid; grid-template-columns: auto 1fr; gap: 10px 12px; align-items: start; border: 1.5px dashed var(--border-dashed); border-radius: 16px; padding: 16px; color: var(--navy); }
-.drop.drag { border-color: var(--navy); background: var(--s1-bg); }
+.drop { display: grid; grid-template-columns: auto 1fr; gap: 10px 12px; align-items: start; border: 1.5px dashed var(--border-dashed); border-radius: 16px; padding: 16px; color: var(--action); }
+.drop.drag { border-color: var(--action); background: var(--s1-bg); }
 .drop > div { color: var(--ink); }
 .drop p { margin: 4px 0 0; }
 .drop .btn { grid-column: 2; justify-self: start; }
@@ -713,11 +752,11 @@ input[type=checkbox] { accent-color: var(--navy); width: 17px; height: 17px; fle
 .chat-fab {
   position: fixed; right: 20px; bottom: 20px; z-index: 50;
   width: 52px; height: 52px; border-radius: 50%; border: 0;
-  background: var(--navy-fill); color: var(--on-fill); display: grid; place-items: center;
+  background: var(--action-fill); color: var(--on-fill); display: grid; place-items: center;
   box-shadow: var(--shadow-lg); cursor: pointer;
 }
-.chat-fab:hover { background: var(--navy-fill-hover); }
-.chat-fab-dot { position: absolute; top: 12px; right: 12px; width: 9px; height: 9px; border-radius: 50%; background: var(--marker); border: 2px solid var(--navy); }
+.chat-fab:hover { background: var(--action-fill-hover); }
+.chat-fab-dot { position: absolute; top: 12px; right: 12px; width: 9px; height: 9px; border-radius: 50%; background: var(--marker); border: 2px solid var(--action); }
 .chat-dock {
   position: fixed; right: 20px; bottom: 84px; z-index: 50;
   width: min(420px, calc(100vw - 24px)); height: min(580px, calc(100vh - 110px));

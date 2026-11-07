@@ -205,7 +205,7 @@ export function Lever({
         disabled={disabled}
         style={{
           ["--fill" as string]: `${((value - lever.min) / (lever.max - lever.min)) * 100}%`,
-          ["--c" as string]: lever.color || "#1F3A5F",
+          ["--c" as string]: lever.color || "var(--brand)",
         }}
         onChange={(e) => onChange(Number(e.target.value))}
       />
