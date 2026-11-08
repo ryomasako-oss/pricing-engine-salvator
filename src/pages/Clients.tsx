@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
@@ -133,14 +133,19 @@ export function ClientsPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
 
+  // Only the newest load may write: an older, slower request must not overwrite it.
+  const loadSeq = useRef(0);
   const load = useCallback(() => {
+    const seq = ++loadSeq.current;
     setLoading(true);
     setLoadError(null);
     api
       .get<{ clients: Client[] }>("/clients")
-      .then((r) => setClients(r.clients))
-      .catch((e) => setLoadError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setLoading(false));
+      .then((r) => {
+        if (seq === loadSeq.current) setClients(r.clients);
+      })
+      .catch((e) => seq === loadSeq.current && setLoadError(e instanceof Error ? e.message : String(e)))
+      .finally(() => seq === loadSeq.current && setLoading(false));
   }, [toast]);
 
   useEffect(load, [load]);

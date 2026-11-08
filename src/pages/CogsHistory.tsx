@@ -105,7 +105,7 @@ export function CogsHistoryPage() {
             <span>Hanya yang COGS-nya beda dari RI terakhir</span>
           </label>
           <span className="grow" />
-          {data && <span className="muted small num">{grp(data.total)} barang</span>}
+          {data && !loadError && <span className="muted small num">{grp(data.total)} barang</span>}
         </div>
       </div>
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { LoadError } from "../components/LoadError";
@@ -56,14 +56,19 @@ export function ApprovalsPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  // Only the newest load may write: an older, slower request must not overwrite it.
+  const loadSeq = useRef(0);
   const load = useCallback(() => {
+    const seq = ++loadSeq.current;
     setLoading(true);
     setLoadError(null);
     const get = (d: Decision) => api.get<{ approvals: ApprovalRow[] }>(`/approvals?decision=${d}`).then((r) => r.approvals);
     Promise.all([get("pending"), get("approved"), get("rejected")])
-      .then(([pending, approved, rejected]) => setLists({ pending, approved, rejected }))
-      .catch((e) => setLoadError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setLoading(false));
+      .then(([pending, approved, rejected]) => {
+        if (seq === loadSeq.current) setLists({ pending, approved, rejected });
+      })
+      .catch((e) => seq === loadSeq.current && setLoadError(e instanceof Error ? e.message : String(e)))
+      .finally(() => seq === loadSeq.current && setLoading(false));
   }, [toast]);
 
   useEffect(load, [load]);
@@ -97,7 +102,7 @@ export function ApprovalsPage() {
         </button>
       </div>
 
-      {!loading && (
+      {!loading && !loadError && (
         <div className="kpi-grid">
           <div className={`kpi${pending.length ? " tone-warn" : ""}`}>
             <div className="label">Nilai tertahan / bulan</div>
@@ -129,7 +134,7 @@ export function ApprovalsPage() {
           {TABS.map(([key, label]) => (
             <button key={key} className={filter === key ? "on" : ""} aria-pressed={filter === key} onClick={() => setFilter(key)}>
               {label}
-              {!loading && <span className="tab-count num">{count(key)}</span>}
+              {!loading && !loadError && <span className="tab-count num">{count(key)}</span>}
             </button>
           ))}
         </div>

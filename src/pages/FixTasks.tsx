@@ -1,7 +1,7 @@
 /* "Perlu diperbaiki" (shared/fixTasks.ts): what didn't make it into an
    offer, oldest first, until someone fixes it and says what they did. */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { LoadError } from "../components/LoadError";
@@ -55,14 +55,19 @@ export function FixTasksPage() {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
 
+  // Only the newest load may write: an older, slower request must not overwrite it.
+  const loadSeq = useRef(0);
   const load = useCallback(() => {
+    const seq = ++loadSeq.current;
     setLoading(true);
     setLoadError(null);
     api
       .get<{ tasks: TaskRow[] }>(`/fix-tasks?status=${status}`)
-      .then((r) => setRows(r.tasks))
-      .catch((e) => setLoadError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setLoading(false));
+      .then((r) => {
+        if (seq === loadSeq.current) setRows(r.tasks);
+      })
+      .catch((e) => seq === loadSeq.current && setLoadError(e instanceof Error ? e.message : String(e)))
+      .finally(() => seq === loadSeq.current && setLoading(false));
   }, [status, toast]);
   useEffect(load, [load]);
 
@@ -133,6 +138,7 @@ export function FixTasksPage() {
             onChange={(e) => setQuery(e.target.value)}
             aria-label="Cari perbaikan"
           />
+          {!loadError && (
           <div className="chips" role="group" aria-label="Jenis perbaikan">
             <button className={`chip ${kind === "all" ? "on" : ""}`} aria-pressed={kind === "all"} onClick={() => setKind("all")}>
               Semua ({grp(rows.length)})
@@ -144,6 +150,7 @@ export function FixTasksPage() {
               </button>
             ))}
           </div>
+          )}
         </div>
 
         {loadError ? (

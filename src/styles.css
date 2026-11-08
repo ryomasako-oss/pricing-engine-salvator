@@ -1108,6 +1108,7 @@ a.btn, a.btn:hover { text-decoration: none; }
   .table.stack td.stack-action { grid-column: 2; grid-row: 1; order: -1; align-self: start; justify-content: flex-end; }
   .table.stack td .cell { width: 140px; max-width: 55%; }
   .table.stack td.stack-title .cell { width: 100%; max-width: none; }
+  .table.stack td > div .cell { max-width: none; }
   /* Cards scroll with the page; a nested scroll box would hide all but the first. */
   .table-wrap.scroll:has(> .table.stack), .ltq-table:has(> .table.stack) { max-height: none; }
   .table.stack td.empty-row { display: block; text-align: left; }

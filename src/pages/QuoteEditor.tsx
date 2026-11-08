@@ -143,7 +143,9 @@ export function QuoteEditorPage() {
         api.get<QuoteDetail>(`/quotes/${quoteId}`),
         api.get<{ review: SalesReviewRecord | null }>(`/quotes/${quoteId}/sales-review`).catch(() => ({ review: null })),
       ]);
-      setDetail(d);
+      // Edits kept: keep the version they were made on, so a save still gets the 409 if
+      // someone else changed the quote meanwhile (instead of silently overwriting it).
+      setDetail((prev) => (keepEdits && dirtyRef.current && prev ? { ...d, quote: { ...d.quote, version: prev.quote.version } } : d));
       setSalesReview(sr.review);
       // Submits and sales checks add "Perlu diperbaiki" tasks: refresh the nav count.
       window.dispatchEvent(new Event("fix-tasks-changed"));

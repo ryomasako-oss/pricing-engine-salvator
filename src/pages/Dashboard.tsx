@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
@@ -92,7 +92,10 @@ export function DashboardPage() {
     setSearchParams(next, { replace: true });
   };
 
+  // Only the newest load may write: an older, slower request must not overwrite it.
+  const loadSeq = useRef(0);
   const load = useCallback(() => {
+    const seq = ++loadSeq.current;
     setLoading(true);
     setLoadError(null);
     // Every status comes back (the list is not paged), so the tabs filter and
@@ -102,9 +105,11 @@ export function DashboardPage() {
     if (userIdFilter) params.set("user_id", userIdFilter);
     api
       .get<{ quotes: QuoteRow[] }>(`/quotes?${params}`)
-      .then((r) => setQuotes(r.quotes))
-      .catch((e) => setLoadError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setLoading(false));
+      .then((r) => {
+        if (seq === loadSeq.current) setQuotes(r.quotes);
+      })
+      .catch((e) => seq === loadSeq.current && setLoadError(e instanceof Error ? e.message : String(e)))
+      .finally(() => seq === loadSeq.current && setLoading(false));
   }, [mine, userIdFilter, toast]);
 
   useEffect(load, [load]);
@@ -168,6 +173,7 @@ export function DashboardPage() {
         </div>
       </div>
 
+      {!loadError && (
       <div className="overview">
         <RoleTasks
           // From the whole list, not the search box: a typed search must not hide work.
@@ -215,6 +221,7 @@ export function DashboardPage() {
           </dl>
         </section>
       </div>
+      )}
 
       <div className="dash-row">
         <ListDrafts drafts={drafts} onOpen={setOpenDraft} onChanged={loadDrafts} />
@@ -235,7 +242,7 @@ export function DashboardPage() {
           {FILTERS.map((f) => (
             <button key={f.key} className={filter === f.key ? "on" : ""} aria-pressed={filter === f.key} onClick={() => setFilter(f.key)}>
               {f.label}
-              {!loading && <span className="tab-count num">{counts[f.key] ?? 0}</span>}
+              {!loading && !loadError && <span className="tab-count num">{counts[f.key] ?? 0}</span>}
             </button>
           ))}
         </div>
@@ -260,7 +267,7 @@ export function DashboardPage() {
               <span>Punya saya</span>
           </label>
           <span className="grow" />
-          {!loading && <span className="muted small num">{visible.length} quotation</span>}
+          {!loading && !loadError && <span className="muted small num">{visible.length} quotation</span>}
         </div>
 
         {loadError ? (

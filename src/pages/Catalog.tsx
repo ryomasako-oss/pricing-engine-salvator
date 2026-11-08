@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
@@ -69,7 +69,10 @@ export function CatalogPage() {
     }
   };
 
+  // Only the newest load may write: an older, slower request must not overwrite it.
+  const loadSeq = useRef(0);
   const load = useCallback(() => {
+    const seq = ++loadSeq.current;
     setLoading(true);
     setLoadError(null);
     const params = new URLSearchParams({
@@ -83,12 +86,13 @@ export function CatalogPage() {
     api
       .get<{ items: CatalogItem[]; total: number; stockAsOf: string | null }>(`/catalog?${params}`)
       .then((r) => {
+        if (seq !== loadSeq.current) return;
         setItems(r.items);
         setTotal(r.total);
         setStockAsOf(r.stockAsOf);
       })
-      .catch((e) => setLoadError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setLoading(false));
+      .catch((e) => seq === loadSeq.current && setLoadError(e instanceof Error ? e.message : String(e)))
+      .finally(() => seq === loadSeq.current && setLoading(false));
     api.get<{ stats: Stats }>("/catalog/stats").then((r) => setStats(r.stats)).catch(() => undefined);
   }, [query, page, sortBy, sortDir, imageFilter, toast]);
 
@@ -257,7 +261,7 @@ export function CatalogPage() {
             <option value="without">Belum ada gambar</option>
           </select>
           <span className="grow" />
-          <span className="muted small">
+          <span className="muted small" hidden={!!loadError}>
             {grp(total)} item cocok{stockAsOf && ` · stok Accurate per ${fmtDateTime(stockAsOf)}`}
           </span>
         </div>

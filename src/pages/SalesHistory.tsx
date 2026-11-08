@@ -102,7 +102,7 @@ export function SalesHistoryPage() {
             aria-label="Cari riwayat penjualan"
           />
           <span className="grow" />
-          {data && <span className="muted small num">{grp(data.total)} barang terjual</span>}
+          {data && !loadError && <span className="muted small num">{grp(data.total)} barang terjual</span>}
         </div>
       </div>
 
