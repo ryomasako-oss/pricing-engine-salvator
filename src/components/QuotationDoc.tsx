@@ -131,7 +131,7 @@ export function QuotationDoc({
         )}
       </div>
 
-      {layout.opening && <p className="small" style={{ whiteSpace: "pre-line" }}>{layout.opening}</p>}
+      {layout.opening && <p className="small pre-line">{layout.opening}</p>}
 
       <div className="table-wrap">
         <table className="table">
@@ -171,7 +171,7 @@ export function QuotationDoc({
       </p>
       {meta.notes && <p className="small">{meta.notes}</p>}
       {heldNote(engine.rows) && <p className="small"><strong>Item menyusul:</strong> {heldNote(engine.rows)}</p>}
-      {layout.closing && <p className="small" style={{ whiteSpace: "pre-line" }}>{layout.closing}</p>}
+      {layout.closing && <p className="small pre-line">{layout.closing}</p>}
 
       {/* Meeting 2026-10-05: room for a wet or digital signature on both sides. */}
       <div className="quote-sign">

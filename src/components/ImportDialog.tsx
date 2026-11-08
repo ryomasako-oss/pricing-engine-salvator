@@ -3,7 +3,6 @@
 
 import { useRef, useState } from "react";
 import { Modal } from "./Modal";
-import { Icon } from "./Icon";
 import type { ImportReport } from "../import/parsers";
 
 interface Props {
@@ -60,7 +59,6 @@ export function ImportDialog({ title, description, accept = ".xlsx,.xls,.csv", o
           void handle(e.dataTransfer.files?.[0]);
         }}
       >
-        <Icon name="upload" size={24} />
         <div>
           <strong>Tarik file ke sini atau pilih dari komputer</strong>
           <div className="muted small">{description}</div>
@@ -86,7 +84,6 @@ export function ImportDialog({ title, description, accept = ".xlsx,.xls,.csv", o
             <ul className="breach-list" style={{ marginTop: 10 }}>
               {result.report.notes.map((n, i) => (
                 <li key={i} className="breach warn">
-                  <Icon name="clock" size={14} />
                   <span>{n}</span>
                 </li>
               ))}

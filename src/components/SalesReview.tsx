@@ -96,7 +96,7 @@ export function SalesReviewImport({
         </>
       }
     >
-      <div className="col" style={{ gap: 12 }}>
+      <div className="form-stack">
         <label className="field">
           <span>File Excel</span>
           <input
@@ -136,14 +136,14 @@ export function SalesReviewImport({
             {rejected.length > 0 && (
               <div>
                 <strong className="small">Ditolak sales:</strong>
-                <ul className="small" style={{ margin: "4px 0 0", paddingLeft: 18 }}>
+                <ul className="small notice-list">
                   {rejected.map((l) => (
                     <li key={l.id}>
                       Baris {l.lineNo} {l.name} — {l.reason || <em>tanpa alasan</em>}
                     </li>
                   ))}
                 </ul>
-                <p className="muted small" style={{ marginTop: 6 }}>
+                <p className="note">
                   {allRejected
                     ? "Semua baris ditolak: quotation kembali jadi draft (revisi baru) untuk manajer."
                     : "Baris yang ACC tetap disetujui dan bisa langsung dikirim ke klien. Baris yang ditolak keluar dari dokumen sebagai item menyusul dan masuk Perlu diperbaiki. Kalau sisanya jadi melanggar kebijakan, manajer diminta menyetujui ulang."}
@@ -164,9 +164,9 @@ export function SalesReviewBanner({ quote, review }: { quote: Quote; review: Sal
   if (review.rejected > 0 && quote.status === "draft" && review.rev_no === quote.rev_no - 1) {
     const rejected = review.lines.filter((l) => l.decision === "tolak");
     return (
-      <div className="notice error" style={{ marginBottom: 12 }}>
+      <div className="notice error gap-below">
         <strong>Ditolak sales ({by}, {fmtDateTime(review.created_at)}):</strong>
-        <ul style={{ margin: "4px 0 0", paddingLeft: 18 }}>
+        <ul className="notice-list">
           {rejected.map((l) => (
             <li key={l.id}>
               Baris {l.lineNo} {l.name} — {l.reason}
@@ -180,12 +180,12 @@ export function SalesReviewBanner({ quote, review }: { quote: Quote; review: Sal
   if (review.rejected > 0 && review.rev_no === quote.rev_no && quote.status !== "draft") {
     const rejected = review.lines.filter((l) => l.decision === "tolak");
     return (
-      <div className="notice warn" style={{ marginBottom: 12 }}>
+      <div className="notice warn gap-below">
         <strong>
           Dicek sales ({by}, {fmtDateTime(review.created_at)}): {review.lines.length - rejected.length} baris ACC,{" "}
           {rejected.length} menyusul.
         </strong>
-        <ul style={{ margin: "4px 0 0", paddingLeft: 18 }}>
+        <ul className="notice-list">
           {rejected.map((l) => (
             <li key={l.id}>
               Baris {l.lineNo} {l.name} — {l.reason}
@@ -200,7 +200,7 @@ export function SalesReviewBanner({ quote, review }: { quote: Quote; review: Sal
   }
   if (review.rejected === 0 && review.rev_no === quote.rev_no) {
     return (
-      <p className="notice ok" style={{ marginBottom: 12 }}>
+      <p className="notice ok gap-below">
         Sudah dicek sales ({by}, {fmtDateTime(review.created_at)}): semua {review.lines.length} baris ACC.
       </p>
     );

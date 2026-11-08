@@ -3,7 +3,6 @@
 
 import type { DuplicateGroup } from "@shared/duplicates";
 import { Modal } from "./Modal";
-import { Icon } from "./Icon";
 
 /** "2 produk muncul lebih dari sekali", naming possible matches separately. */
 const headline = (groups: DuplicateGroup[], tail: string) => {
@@ -23,7 +22,7 @@ function GroupRow({ group, fresh }: { group: DuplicateGroup; fresh?: Set<string>
   return (
     <li>
       <strong>{group.name}</strong>
-      {group.nameOnly && <span className="badge amber" style={{ marginLeft: 6 }}>kemungkinan</span>}
+      {group.nameOnly && <span className="badge amber rev-badge">kemungkinan</span>}
       {" — "}{lineList(group, fresh)}
       {group.nameOnly && (
         <div className="small">
@@ -51,7 +50,6 @@ export function DuplicateBanner({
   return (
     <div className="notice warn dup-banner" role="status">
       <div className="row" style={{ alignItems: "flex-start", gap: 10 }}>
-        <Icon name="alert" size={15} />
         <div className="grow">
           <div style={{ fontWeight: 600 }}>
             {headline(groups, "muncul lebih dari sekali")} di quotation ini
@@ -102,7 +100,7 @@ export function DuplicateAddModal({
       <ul className="dup-list">
         {groups.map((g) => <GroupRow key={g.key} group={g} fresh={incomingIds} />)}
       </ul>
-      <p className="muted small" style={{ marginTop: 12 }}>
+      <p className="note">
         {mergeable
           ? "Gabungkan menjumlahkan qty ke baris yang sudah ada; COGS, plafon, peran, dan harga manual baris itu tidak berubah. "
           : ""}

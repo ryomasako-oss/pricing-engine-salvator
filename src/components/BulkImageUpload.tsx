@@ -3,7 +3,6 @@ import { api } from "../api";
 import { useToast } from "../context/ToastContext";
 import { BULK_STATE_LABEL, codesToCheck, planRows, type BulkRow } from "../lib/bulkImagePlan";
 import { uploadItemImage } from "../lib/itemImageUpload";
-import { Icon } from "./Icon";
 import { Modal } from "./Modal";
 
 const MAX_FILES = 1000;
@@ -98,12 +97,12 @@ export function BulkImageUpload({ onClose, onDone }: { onClose: () => void; onDo
         <>
           <button className="btn ghost" onClick={close}>{finished ? "Tutup" : "Batal"}</button>
           <button className="btn primary" disabled={sending || checking || sendable.length === 0 || finished} onClick={send}>
-            <Icon name="upload" size={14} /> {sending ? "Mengirim…" : `Kirim ${sendable.length} gambar`}
+            {sending ? "Mengirim…" : `Kirim ${sendable.length} gambar`}
           </button>
         </>
       }
     >
-      <div className="col" style={{ gap: 12 }}>
+      <div className="form-stack">
         <input ref={filesInput} type="file" accept="image/*" multiple hidden onChange={(e) => choose(e.target.files)} />
         <input
           ref={folderInput}
@@ -117,10 +116,10 @@ export function BulkImageUpload({ onClose, onDone }: { onClose: () => void; onDo
         />
         <div className="row-wrap" style={{ gap: 8 }}>
           <button className="btn" disabled={sending || checking} onClick={() => filesInput.current?.click()}>
-            <Icon name="plus" size={14} /> Pilih berkas
+            Pilih berkas
           </button>
           <button className="btn" disabled={sending || checking} onClick={() => folderInput.current?.click()}>
-            <Icon name="box" size={14} /> Pilih folder
+            Pilih folder
           </button>
           <span className="muted small">JPG, PNG, atau WebP; diperkecil otomatis. Maksimum {MAX_FILES} berkas sekali pilih.</span>
         </div>

@@ -47,13 +47,13 @@ for (const theme of THEMES) {
 
       const lakban = page.getByRole("row", { name: /ZQP-1/ });
       await expect(lakban).toContainText("SI.2026.10.00010");
-      await expect(lakban.getByText("Rp 13.500")).not.toHaveAttribute("style", /danger/);
+      await expect(lakban.getByText("Rp 13.500")).not.toHaveClass(/text-err/);
       await expect(lakban.getByRole("link", { name: "SI ›" })).toHaveAttribute("href", "/sales-history?q=ZQP-1");
       await expect(page.getByRole("row", { name: /ZQP-2/ }).getByRole("cell", { name: "—" })).toBeVisible();
 
       // Sold at 9.000, the RI says 74.750: the sale is under the would-be COGS.
       const tisu = page.getByRole("row", { name: /ZQP-3/ });
-      await expect(tisu.getByText("Rp 9.000")).toHaveAttribute("style", /danger/);
+      await expect(tisu.getByText("Rp 9.000")).toHaveClass(/text-err/);
       await expectReadable(tisu.getByText("Rp 9.000"));
       await page.getByRole("columnheader", { name: "Jual terakhir (SI)" }).first().scrollIntoViewIfNeeded();
       await page.screenshot({ path: `test-results/cogs-preview-sales-${theme}.png`, fullPage: true });

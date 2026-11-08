@@ -10,7 +10,6 @@ import type { CatalogItem, QuoteItem } from "@shared/types";
 import { lineFromCatalog } from "@shared/match";
 import { uomChoices, uomWarning } from "@shared/uom";
 import { Modal } from "./Modal";
-import { Icon } from "./Icon";
 import { UomCell } from "./UomCell";
 import { Thumb } from "./Thumb";
 import { NewItemForm } from "./NewItemForm";
@@ -125,7 +124,7 @@ export function CatalogPicker({
         </>
       }
     >
-      <div className="search-bar" style={{ marginBottom: 10 }}>
+      <div className="search-bar">
         <input
           className="input"
           autoFocus
@@ -139,7 +138,7 @@ export function CatalogPicker({
           <span className="small">Hanya yang punya COGS</span>
         </label>
         <button className="btn small ghost" onClick={() => setCreating(true)}>
-          <Icon name="plus" size={13} /> Barang baru
+          Barang baru
         </button>
       </div>
 
@@ -147,18 +146,17 @@ export function CatalogPicker({
         <div className="loading"><span className="dots"><i /><i /><i /></span> Mencari…</div>
       ) : items.length === 0 ? (
         <div className="empty">
-          <Icon name="box" size={26} />
           <h3>Tidak ada yang cocok</h3>
           <p>
             Barangnya belum ada? Buat sebagai <strong>Barang baru</strong>: barisnya ditahan sampai barangnya dibuat di
             Accurate, quotation lainnya tetap jalan.
           </p>
           <button className="btn small" onClick={() => setCreating(true)}>
-            <Icon name="plus" size={13} /> Barang baru{query.trim() ? `: ${query.trim()}` : ""}
+            Barang baru{query.trim() ? `: ${query.trim()}` : ""}
           </button>
         </div>
       ) : (
-        <div className="table-wrap" style={{ maxHeight: "52vh" }}>
+        <div className="table-wrap scroll">
           <table className="table">
             <thead>
               <tr>
@@ -180,16 +178,16 @@ export function CatalogPicker({
                     <div className="with-thumb">
                       <Thumb src={item.image} alt={item.name} />
                       <div className="grow">
-                        <div style={{ fontWeight: 550 }}>{item.name}</div>
+                        <div className="cell-title">{item.name}</div>
                         <div className="muted small">
                           {item.code}
                           {item.category ? ` · ${item.category}` : ""}
                           {existingCodes.has(normalizeCode(item.code)) && (
-                            <span className="badge amber" style={{ marginLeft: 6 }}>sudah ada</span>
+                            <span className="badge amber rev-badge">sudah ada</span>
                           )}
                         </div>
                         {item.cogs_problem && (
-                          <div className="small" style={{ color: "var(--warn)" }}>⚠ {item.cogs_problem}. Masuk sebagai baris ditahan sampai dicek manajer.</div>
+                          <div className="cell-warn">{item.cogs_problem}. Masuk sebagai baris ditahan sampai dicek manajer.</div>
                         )}
                       </div>
                     </div>

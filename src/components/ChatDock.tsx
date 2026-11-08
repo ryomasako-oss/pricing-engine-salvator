@@ -13,7 +13,7 @@ export function ChatDock() {
         <section className="chat-dock card" aria-label="Chat dengan Silvy">
           <div className="card-head">
             <h2>Silvy · asisten penawaran</h2>
-            <div className="row" style={{ gap: 6 }}>
+            <div className="picker-row">
               {messages.length > 0 && (
                 <button className="btn small ghost" onClick={reset} disabled={busy}>Baru</button>
               )}

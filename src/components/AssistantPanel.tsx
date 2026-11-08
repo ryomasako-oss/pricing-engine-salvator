@@ -225,7 +225,7 @@ export function AssistantPanel({
     return (
       <div className="card-body">
         <p className="notice info">
-          <Icon name="spark" size={14} /> Silvy belum aktif. Isi <code>SILVY_URL</code> dan{" "}
+          Silvy belum aktif. Isi <code>SILVY_URL</code> dan{" "}
           <code>SILVY_SHARED_SECRET</code> di server lalu mulai ulang aplikasi.
         </p>
       </div>
@@ -282,7 +282,7 @@ export function AssistantPanel({
           )}
           {docOut && !docBusy && (
             <div className="silvy-docout">
-              <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+              <div className="row-between">
                 <strong>{docs[docOut.kind]?.title}</strong>
                 <button className="btn small ghost" onClick={() => void copyDoc()}>Salin</button>
               </div>

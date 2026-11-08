@@ -202,21 +202,8 @@ export function QuoteEditorPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lineCodes]);
 
-  // Warn before leaving with unsaved edits.
-  useEffect(() => {
-    const handler = (e: BeforeUnloadEvent) => {
-      if (dirty) e.preventDefault();
-    };
-    window.addEventListener("beforeunload", handler);
-    return () => window.removeEventListener("beforeunload", handler);
-  }, [dirty]);
-
-  // Same, but for in-app navigation (NavLink clicks), which beforeunload can't see.
-  useUnsavedGuard(
-    dirty
-      ? () => window.confirm("Ada perubahan yang belum disimpan. Tinggalkan halaman ini?")
-      : null,
-  );
+  // Unsaved edits: asked before any in-app navigation (incl. Back) and before unload.
+  useUnsavedGuard(dirty);
 
   const update = useCallback((patch: Partial<QuoteSnapshot>) => {
     setSnapshot((s) => {
@@ -270,6 +257,7 @@ export function QuoteEditorPage() {
   /** True once the server has the snapshot; a later action must not run on false. */
   const save = useCallback(async (): Promise<boolean> => {
     if (!snapshot || !detail) return false;
+    const sent = JSON.stringify(snapshot);
     setSaving(true);
     try {
       const r = await api.put<{ quote: Quote }>(`/quotes/${quoteId}`, {
@@ -279,8 +267,12 @@ export function QuoteEditorPage() {
       });
       // The next save must send the version this one produced, or it reads as a conflict.
       setDetail((d) => d && { ...d, quote: { ...d.quote, version: r.quote.version } });
-      saved.current = JSON.stringify(snapshot);
-      setDirty(false);
+      saved.current = sent;
+      // Edits typed while the request was in flight are not in `sent`: they stay unsaved.
+      setSnapshot((cur) => {
+        setDirty(JSON.stringify(cur) !== sent);
+        return cur;
+      });
       toast("Tersimpan", "success");
       return true;
     } catch (e) {
@@ -491,20 +483,17 @@ export function QuoteEditorPage() {
   };
 
   return (
-    <main className="hk-main wide">
+    <main className="hk-main wide page-stack">
       <div className="hk-page-head">
         <div>
           <button
             className="link-btn"
-            onClick={() => {
-              if (dirty && !window.confirm("Ada perubahan yang belum disimpan. Tinggalkan halaman ini?")) return;
-              navigate("/quotes");
-            }}
+            onClick={() => navigate("/quotes")}
           >
             <Icon name="back" size={14} /> Semua quotation
           </button>
-          <h1 style={{ marginTop: 4 }}>{quote.title}</h1>
-          <div className="status-bar" style={{ marginTop: 6 }}>
+          <h1>{quote.title}</h1>
+          <div className="status-bar">
             <span className="num muted">{quote.number}</span>
             {quote.rev_no > 1 && <span className="badge grey">revisi {quote.rev_no}</span>}
             <StatusChip status={quote.status} />
@@ -518,16 +507,16 @@ export function QuoteEditorPage() {
 
         <div className="row-wrap">
           {!readOnly && (
-            <button className="btn primary" onClick={() => void save()} disabled={!dirty || saving}>
+            <button className="btn" onClick={() => void save()} disabled={!dirty || saving}>
               {saving ? "Menyimpan…" : dirty ? "Simpan" : "Tersimpan"}
             </button>
           )}
           <button className="btn" onClick={() => setModal({ kind: "export" })}>
-            <Icon name="download" size={15} /> Ekspor
+            Ekspor
           </button>
           {quote.status === "approved" && (quote.created_by === user?.id || quote.assigned_to === user?.id || can("edit_all_quotes")) && (
             <button className="btn" onClick={() => setModal({ kind: "sales-import" })}>
-              <Icon name="upload" size={15} /> Import cek sales
+              Import cek sales
             </button>
           )}
           {can("decide_quotes") && (
@@ -543,7 +532,7 @@ export function QuoteEditorPage() {
                 }
               }}
             >
-              <Icon name="shield" size={15} /> Alihkan
+              Alihkan
             </button>
           )}
           <WorkflowButtons
@@ -561,14 +550,14 @@ export function QuoteEditorPage() {
 
       <SalesReviewBanner quote={quote} review={salesReview} />
       {quote.status === "rejected" && quote.decision_note && (
-        <p className="notice error" style={{ marginBottom: 12 }}>
+        <p className="notice error">
           <strong>Ditolak{quote.approved_by_name ? ` oleh ${quote.approved_by_name}` : ""}:</strong>{" "}
           {quote.decision_note} — buka kembali sebagai revisi baru untuk memperbaikinya.
         </p>
       )}
       {readOnly && quote.status !== "rejected" && (
-        <p className="notice info" style={{ marginBottom: 12 }}>
-          <Icon name="shield" size={13} /> Quotation berstatus{" "}
+        <p className="notice info">
+          Quotation berstatus{" "}
           <strong>{quote.status}</strong> terkunci agar angka yang sudah disetujui tidak berubah
           diam-diam. Gunakan <strong>Buka revisi baru</strong> untuk mengubahnya.
         </p>
@@ -577,7 +566,7 @@ export function QuoteEditorPage() {
       <div className="editor">
         <div className="editor-main">
           <div className="card">
-            <div className="card-head">
+            <div className="card-head tab-head">
               <div className="tabs" role="group" aria-label="Bagian penawaran">
                 {([
                   ["items", "Item"],
@@ -593,8 +582,11 @@ export function QuoteEditorPage() {
                 ))}
               </div>
               {tab === "items" && !readOnly && (
-                <button className="btn small" onClick={() => setModal({ kind: "import" })}>
-                  <Icon name="upload" size={14} /> Impor daftar klien
+                <button
+                  className="btn small"
+                  onClick={() => setModal({ kind: snapshot.items.length ? "import-confirm" : "import" })}
+                >
+                  Impor daftar klien
                 </button>
               )}
             </div>
@@ -654,7 +646,7 @@ export function QuoteEditorPage() {
               )}
 
               {tab === "assumptions" && (
-                <div className="col" style={{ gap: 18 }}>
+                <div className="form-stack">
                   <div className="lever-grid">
                     {LEVERS.map((l) => (
                       <Lever
@@ -705,7 +697,7 @@ export function QuoteEditorPage() {
 
               {tab === "delivery" && (
                 <div>
-                  <label className="toggle" style={{ marginBottom: 12 }}>
+                  <label className="toggle gap-below">
                     <input
                       type="checkbox"
                       disabled={readOnly}
@@ -730,7 +722,7 @@ export function QuoteEditorPage() {
               )}
 
               {tab === "document" && (
-                <div className="col" style={{ gap: 14 }}>
+                <div className="form-stack">
                   <div className="field-grid no-print">
                     <label className="field">
                       <span>Klien</span>
@@ -866,7 +858,7 @@ export function QuoteEditorPage() {
                 selected={scenario}
                 onSelect={readOnly ? undefined : (i: ScenarioIndex) => update({ scenario: i })}
               />
-              <p className="muted small" style={{ margin: "10px 2px 0" }}>
+              <p className="muted small side-note">
                 {SCENARIOS[scenario].rule}
               </p>
             </div>
@@ -884,7 +876,7 @@ export function QuoteEditorPage() {
             <div className="card-body tight">
               <BreachList breaches={breaches} />
               {policy && (
-                <p className="muted small" style={{ marginTop: 10, marginBottom: 0 }}>
+                <p className="muted small side-note">
                   Batas: net margin {pct(policy.minNetMargin)}, diskon basket {pct(policy.maxBasketDiscount)},
                   nilai wajib persetujuan {rp(policy.approvalValueThreshold)}.
                 </p>
@@ -894,7 +886,7 @@ export function QuoteEditorPage() {
 
           <div className="card">
             <div className="card-head">
-              <h2><Icon name="spark" size={14} /> Silvy · asisten harga</h2>
+              <h2>Silvy · asisten harga</h2>
             </div>
             <AssistantPanel
               snapshot={snapshot}
@@ -951,21 +943,27 @@ export function QuoteEditorPage() {
         );
       })()}
 
+      {modal?.kind === "import-confirm" && (
+        <ConfirmModal
+          title="Ganti semua item?"
+          confirmLabel="Ya, pilih file"
+          message={
+            <p>
+              Impor akan mengganti semua {snapshot.items.length} item di quotation ini, termasuk COGS/RRP
+              yang sudah diisi manual, dengan isi file yang baru.
+            </p>
+          }
+          onConfirm={() => setModal({ kind: "import" })}
+          onClose={() => setModal(null)}
+        />
+      )}
+
       {modal?.kind === "import" && (
         <ImportDialog
           title="Impor daftar item klien"
           description="Excel atau CSV berisi nama item, qty, dan plafon harga. Kalau plafon ditulis per kota, yang dipakai harga terendah."
           onClose={() => setModal(null)}
           onFile={async (file) => {
-            if (
-              snapshot.items.length > 0 &&
-              !window.confirm(
-                `Ini akan mengganti semua ${snapshot.items.length} item yang sudah ada di quotation ini ` +
-                  "(termasuk COGS/RRP yang sudah kamu isi manual) dengan isi file yang baru. Lanjutkan?",
-              )
-            ) {
-              throw new Error("Impor dibatalkan.");
-            }
             // Loaded on demand: the spreadsheet parser is a large dependency.
             const { parseClientList } = await import("../import/parsers");
             const { items, report } = await parseClientList(file);
@@ -1096,7 +1094,7 @@ export function QuoteEditorPage() {
           }
         >
           {missingTerms(snapshot.meta).length > 0 && (
-            <div className="notice error" style={{ marginBottom: 12 }}>
+            <div className="notice error gap-below">
               {missingTermsMessage(missingTerms(snapshot.meta))}{" "}
               <button
                 className="btn small"
@@ -1110,13 +1108,13 @@ export function QuoteEditorPage() {
             </div>
           )}
           {cogsBlocked && cogsBlocked.length > 0 && (
-            <div className={`notice ${cogsBlocked.length === snapshot.items.length ? "error" : "warn"}`} style={{ marginBottom: 12 }}>
+            <div className={`notice ${cogsBlocked.length === snapshot.items.length ? "error" : "warn"} gap-below`}>
               <strong>
                 {cogsBlocked.length === snapshot.items.length
                   ? "Semua item ditahan, jadi belum ada yang bisa diajukan:"
                   : `${cogsBlocked.length} item ditahan dan tidak ikut penawaran sampai COGS-nya dicek:`}
               </strong>
-              <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+              <ul className="notice-list">
                 {cogsBlocked.map((l) => (
                   <li key={l.lineNo}>
                     Baris {l.lineNo} {l.name}: {l.problem}
@@ -1127,7 +1125,7 @@ export function QuoteEditorPage() {
             </div>
           )}
           <BreachList breaches={breaches} />
-          <p className="muted small" style={{ marginTop: 12 }}>
+          <p className="note">
             {blocked.length
               ? "Karena ada pelanggaran kebijakan, quotation ini wajib disetujui manajer sebelum bisa dikirim."
               : can("decide_quotes")
@@ -1209,20 +1207,19 @@ export function WorkflowButtons({
     case "draft":
     case "rejected":
       return mine ? (
-        <button className="btn success" onClick={onSubmit}>
-          <Icon name="check" size={15} />
+        <button className="btn primary" onClick={onSubmit}>
           {blocked ? "Ajukan ke manajer" : "Ajukan"}
         </button>
       ) : null;
     case "submitted":
       if (!mine) {
-        return <span className="pill warn"><Icon name="clock" size={13} /> Menunggu manajer</span>;
+        return <span className="pill warn">Menunggu manajer</span>;
       }
       return (
         <>
           {canManage && (
-            <button className="btn success" onClick={onDecide}>
-              <Icon name="shield" size={15} /> Putuskan
+            <button className="btn primary" onClick={onDecide}>
+              Putuskan
             </button>
           )}
           <button className="btn ghost" onClick={onReopen}>Buka revisi baru</button>
@@ -1232,7 +1229,7 @@ export function WorkflowButtons({
       return mine ? (
         <>
           <button className="btn" onClick={() => onStatus("sent")}>
-            <Icon name="send" size={15} /> Tandai terkirim
+            Tandai terkirim
           </button>
           <button className="btn ghost" onClick={onReopen}>Buka revisi baru</button>
         </>
@@ -1249,7 +1246,7 @@ export function WorkflowButtons({
       return mine ? (
         <>
           <button className="btn" onClick={() => onStatus("completed")}>
-            <Icon name="check" size={15} /> Tandai selesai
+            Tandai selesai
           </button>
           <button className="btn ghost" onClick={onReopen}>Buka revisi baru</button>
         </>
@@ -1307,7 +1304,7 @@ function DecideModal({
         </>
       }
     >
-      <div className="kpi-grid" style={{ marginBottom: 14 }}>
+      <div className="kpi-grid gap-below">
         <div className="kpi">
           <div className="label">Nilai per bulan</div>
           <div className="value num">{rp(s.revenue)}</div>
@@ -1323,9 +1320,9 @@ function DecideModal({
       </div>
 
       <BreachList breaches={breaches} />
-      {selfBlocked && <p className="muted small" style={{ marginTop: 8 }}>{SELF_APPROVE_HINT}</p>}
+      {selfBlocked && <p className="note">{SELF_APPROVE_HINT}</p>}
 
-      <label className="field" style={{ marginTop: 14 }}>
+      <label className="field note-block">
         <span>Catatan keputusan {clean ? "(opsional)" : "(wajib jika menolak)"}</span>
         <textarea
           className="textarea"
@@ -1378,7 +1375,7 @@ function ReassignModal({
           ))}
         </select>
       </label>
-      <label className="field" style={{ marginTop: 14 }}>
+      <label className="field note-block">
         <span>Catatan (opsional)</span>
         <textarea
           className="textarea"
@@ -1402,22 +1399,22 @@ function HistoryTab({
   canRestore: boolean;
 }) {
   return (
-    <div className="col" style={{ gap: 20 }}>
+    <div className="form-stack">
       <section>
-        <h3 style={{ margin: "0 0 8px", fontSize: 13.5 }}>Persetujuan</h3>
+        <h3 className="subhead">Persetujuan</h3>
         {detail.approvals.length === 0 ? (
           <p className="muted small">Belum pernah diajukan.</p>
         ) : (
           <ul className="list">
             {detail.approvals.map((a) => (
               <li key={a.id}>
-                <div className="list-row" style={{ cursor: "default", alignItems: "flex-start" }}>
+                <div className="list-row static top">
                   <span
                     className={`badge ${a.decision === "approved" ? "green" : a.decision === "rejected" ? "red" : "amber"}`}
                   >
                     {a.decision === "approved" ? "Disetujui" : a.decision === "rejected" ? "Ditolak" : "Menunggu"}
                   </span>
-                  <span className="col" style={{ gap: 2, flex: 1 }}>
+                  <span className="cell-text">
                     <span className="small">
                       Diajukan {a.requested_by_name} · {fmtDateTime(a.requested_at)}
                       {a.decided_at && ` · diputus ${a.decided_by_name} ${fmtDateTime(a.decided_at)}`}
@@ -1436,13 +1433,12 @@ function HistoryTab({
       </section>
 
       <section>
-        <h3 style={{ margin: "0 0 8px", fontSize: 13.5 }}>Revisi tersimpan</h3>
+        <h3 className="subhead">Revisi tersimpan</h3>
         <ul className="list">
           {detail.revisions.map((r) => (
             <li key={r.id}>
-              <div className="list-row" style={{ cursor: "default" }}>
-                <Icon name="history" size={16} />
-                <span className="col" style={{ gap: 1, flex: 1 }}>
+              <div className="list-row static">
+                <span className="cell-text">
                   <strong className="small">Revisi {r.rev_no} — {r.note}</strong>
                   <span className="muted small">{r.created_by_name} · {fmtDateTime(r.created_at)}</span>
                 </span>
@@ -1458,7 +1454,7 @@ function HistoryTab({
       </section>
 
       <section>
-        <h3 style={{ margin: "0 0 8px", fontSize: 13.5 }}>Jejak audit</h3>
+        <h3 className="subhead">Jejak audit</h3>
         <ul className="timeline">
           {detail.audit.map((a) => (
             <li key={a.id}>

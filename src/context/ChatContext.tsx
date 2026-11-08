@@ -130,8 +130,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           onCreated={(id) => {
             setDraft(null);
             // The quotation exists already; don't throw away unsaved edits on the page behind just to open it.
-            if (confirmLeave()) navigate(`/quotes/${id}`);
-            else toast("Quotation dibuat. Buka dari daftar quotation setelah menyimpan perubahan di halaman ini.", "success");
+            confirmLeave(
+              () => navigate(`/quotes/${id}`),
+              () => toast("Quotation dibuat. Buka dari daftar quotation setelah menyimpan perubahan di halaman ini.", "success"),
+            );
           }}
         />
       )}

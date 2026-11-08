@@ -32,12 +32,12 @@ export function ListDrafts({ drafts, onOpen, onChanged }: { drafts: DraftSummary
 
   if (!drafts.length) return null;
   return (
-    <div className="card" style={{ marginBottom: 16 }}>
+    <div className="card list-drafts">
       <div className="card-head">
-        <h3 style={{ margin: 0 }}>List klien tersimpan</h3>
+        <h3>List klien tersimpan</h3>
         <span className="muted small">Lanjutkan pencocokan, atau selesaikan list yang dikirim ke Anda.</span>
       </div>
-      <div className="table-wrap" style={{ border: 0, borderRadius: 0 }}>
+      <div className="table-wrap flush">
         <table className="table">
           <thead>
             <tr>
@@ -56,9 +56,9 @@ export function ListDrafts({ drafts, onOpen, onChanged }: { drafts: DraftSummary
               return (
                 <tr key={d.id} className="clickable" onClick={() => onOpen(d.id)}>
                   <td className="l">
-                    <div style={{ fontWeight: 550 }}>
+                    <div className="cell-title">
                       {d.title || <span className="muted">Tanpa judul</span>}
-                      {forMe && <span className="badge amber" style={{ marginLeft: 6 }}>Untuk Anda</span>}
+                      {forMe && <span className="badge amber rev-badge">Untuk Anda</span>}
                     </div>
                     <div className="muted small">
                       {[d.file_name, d.assign_note && `Catatan: ${d.assign_note}`].filter(Boolean).join(" · ")}
@@ -71,7 +71,7 @@ export function ListDrafts({ drafts, onOpen, onChanged }: { drafts: DraftSummary
                   <td className="l muted nowrap">{fmtDateTime(d.updated_at)}</td>
                   <td className="l nowrap" onClick={(e) => e.stopPropagation()}>
                     <button className="btn small" onClick={() => onOpen(d.id)}>
-                      <Icon name="file" size={13} /> Buka
+                      Buka
                     </button>
                     {mayCancel(d) && (
                       <button

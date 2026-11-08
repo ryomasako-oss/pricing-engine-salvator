@@ -13,3 +13,4 @@ data/*.db-shm
 test-results
 playwright-report
 e2e/.auth
+wrangler.e2e.toml

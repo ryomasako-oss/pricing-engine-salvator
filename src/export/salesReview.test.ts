@@ -39,7 +39,9 @@ async function roundTrip(wb: ExcelJS.Workbook) {
   return readSalesReview(buf as ArrayBuffer);
 }
 
-describe("sales review workbook", () => {
+// Builds real workbooks/PDFs: ~2.5 s alone, past vitest's 5 s default when the whole
+// suite runs in parallel on a busy machine.
+describe("sales review workbook", { timeout: 20_000 }, () => {
   it("shows the engine's own price, margin and COGS for every line, in every scenario", async () => {
     for (const k of [0, 1, 2] as ScenarioIndex[]) {
       const { engine, wb } = await file(k);

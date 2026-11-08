@@ -131,12 +131,14 @@ quotesRouter.get("/", async (c) => {
         scenario: q.scenario,
         rev_no: q.rev_no,
         created_by_name: q.created_by_name ?? "",
+        // The viewer's own work (made or reassigned to them), for the dashboard's task counts.
+        mine: q.created_by === user.id || q.assigned_to === user.id,
         updated_at: q.updated_at,
         item_count: q.items.length,
         monthly_value,
         net_margin,
       };
-    }).map((row) => quoteRowForViewer(c.get("user")!.role, row)),
+    }).map((row) => quoteRowForViewer(user.role, row)),
   });
 });
 

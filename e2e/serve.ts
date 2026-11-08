@@ -6,13 +6,19 @@
    email have no secrets here, so those features are simply off. */
 
 import { execFileSync, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { hashPassword } from "../server/worker/auth";
 
 const port = process.env.E2E_API_PORT ?? "8797";
-const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pricing-e2e-"));
+// One fixed folder per worktree, emptied at start: Playwright kills this server
+// without running stop(), and a fresh mkdtemp per run piled up ~16 MB each in
+// /tmp until the tmpfs filled and D1 answered 500s.
+const dir = path.join(os.tmpdir(), `pricing-e2e-${createHash("sha1").update(process.cwd()).digest("hex").slice(0, 8)}`);
+fs.rmSync(dir, { recursive: true, force: true });
+fs.mkdirSync(dir);
 const persist = ["--persist-to", dir];
 // No prompt for "apply N migrations?": nobody is there to answer it.
 const quiet = { stdio: "inherit" as const, env: { ...process.env, CI: "1" } };
@@ -56,10 +62,19 @@ const seedFile = path.join(dir, "seed.sql");
 fs.writeFileSync(seedFile, seed);
 execFileSync("npx", ["wrangler", "d1", "execute", "DB", "--local", ...persist, "--file", seedFile], quiet);
 
+// The full suite now runs in about a minute, past the API's 600 requests/min per IP;
+// the tests were failing on 429s, not on the screens. A copy of wrangler.toml with a
+// higher API limit, beside it so its relative paths resolve, only for this server.
+const e2eConfig = path.resolve("wrangler.e2e.toml");
+const toml = fs.readFileSync(path.resolve("wrangler.toml"), "utf8");
+const raised = toml.replace(/(name = "API_LIMITER"[\s\S]*?simple = \{ limit = )600/, (_, head: string) => `${head}6000`);
+if (raised === toml) throw new Error("e2e/serve.ts: API_LIMITER limit = 600 not found in wrangler.toml");
+fs.writeFileSync(e2eConfig, raised);
+
 const dev = spawn(
   "npx",
   [
-    "wrangler", "dev", "--local", "--port", port, "--inspector-port", "0", ...persist,
+    "wrangler", "dev", "--config", e2eConfig, "--local", "--port", port, "--inspector-port", "0", ...persist,
     "--var", "JWT_SECRET:e2e-only-secret-not-for-production-000000000000",
     "--var", "NODE_ENV:development",
     "--var", "ACCURATE_SYNC_ENABLED:false",
@@ -70,6 +85,7 @@ const dev = spawn(
 const stop = () => {
   dev.kill("SIGTERM");
   fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(e2eConfig, { force: true });
 };
 process.on("SIGTERM", stop);
 process.on("SIGINT", stop);

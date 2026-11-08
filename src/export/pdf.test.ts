@@ -80,7 +80,9 @@ describe("quotation PDF columns", () => {
   });
 });
 
-describe("quotation PDF", () => {
+// Builds real workbooks/PDFs: ~2.5 s alone, past vitest's 5 s default when the whole
+// suite runs in parallel on a busy machine.
+describe("quotation PDF", { timeout: 20_000 }, () => {
   it("shows term of payment and warranty", () => {
     const doc = pdfFor(3);
     expect(pagesWith(doc, "Term of payment")).toEqual([1]);

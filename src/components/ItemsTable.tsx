@@ -93,21 +93,25 @@ export function ItemsTable({
     });
   }, [engine.rows, query, sort, onlyFlagged, scenario]);
 
-  const head = (key: SortKey, label: string, className = "", minWidth?: number) => (
-    <th
-      className={className}
-      style={{ cursor: "pointer", minWidth }}
-      onClick={() => setSort((s) => ({ key, dir: s.key === key && s.dir === 1 ? -1 : 1 }))}
-      title="Klik untuk mengurutkan"
-    >
-      {label}
-      {sort.key === key ? (sort.dir === 1 ? " ▲" : " ▼") : ""}
-    </th>
-  );
+  // Same as the catalog: the label is a button (keyboard reachable), the icon and aria-sort carry the state.
+  const head = (key: SortKey, label: string, className = "", minWidth?: number) => {
+    const on = sort.key === key;
+    return (
+      <th className={className} style={minWidth ? { minWidth } : undefined} aria-sort={on ? (sort.dir === 1 ? "ascending" : "descending") : "none"}>
+        <button
+          type="button"
+          className={`th-sort${on ? " on" : ""}`}
+          onClick={() => setSort((s) => ({ key, dir: s.key === key && s.dir === 1 ? -1 : 1 }))}
+        >
+          {label} <Icon name={on ? (sort.dir === 1 ? "sort-asc" : "sort-desc") : "sort"} size={14} />
+        </button>
+      </th>
+    );
+  };
 
   return (
     <div>
-      <div className="search-bar" style={{ marginBottom: 10 }}>
+      <div className="search-bar">
         <input
           className="input"
           placeholder="Cari item atau kode"
@@ -130,11 +134,9 @@ export function ItemsTable({
         {!readOnly && (
           <>
             <button className="btn small" onClick={onOpenCatalog}>
-              <Icon name="search" size={14} />
               Dari katalog
             </button>
             <button className="btn small" onClick={onAdd}>
-              <Icon name="plus" size={14} />
               Baris kosong
             </button>
           </>
@@ -143,11 +145,10 @@ export function ItemsTable({
 
       {engine.rows.length === 0 ? (
         <div className="empty">
-          <Icon name="table" size={28} />
           <h3>Belum ada item</h3>
           <p>Tambahkan dari katalog, impor file Excel klien, atau buat baris kosong.</p>
           {!readOnly && (
-            <div className="row" style={{ justifyContent: "center" }}>
+            <div className="row-center">
               <button className="btn primary" onClick={onOpenCatalog}>
                 Pilih dari katalog
               </button>
@@ -158,7 +159,7 @@ export function ItemsTable({
           )}
         </div>
       ) : (
-        <div className="table-wrap" style={{ maxHeight: "62vh" }}>
+        <div className="table-wrap scroll">
           <table className="table">
             <thead>
               <tr>
@@ -173,7 +174,7 @@ export function ItemsTable({
                   <th
                     key={s.key}
                     className={i === scenario ? "col-selected" : ""}
-                    style={{ color: s.color, ["--c" as string]: s.color }}
+                    style={{ color: `var(--s${i + 1})`, ["--c" as string]: `var(--s${i + 1})` }}
                   >
                     {s.key}
                   </th>
@@ -194,7 +195,7 @@ export function ItemsTable({
                         <Thumb src={imagesByCode[r.code.trim()]} alt={r.name} />
                         <div className="grow">
                           {readOnly ? (
-                            <div style={{ fontWeight: 550 }}>{r.name}</div>
+                            <div className="cell-title">{r.name}</div>
                           ) : (
                             <input
                               className="cell l"
@@ -305,7 +306,7 @@ export function ItemsTable({
                     <td className="num">{grp(r.qty * r.prices[scenario])}</td>
                     {!readOnly && (
                       <td>
-                        <div className="row" style={{ justifyContent: "flex-end" }}>
+                        <div className="row-actions">
                           {onPushToCatalog && r.code && (
                             <button
                               className="icon-btn"
@@ -335,7 +336,7 @@ export function ItemsTable({
         </div>
       )}
       {!readOnly && engine.rows.length > 0 && (
-        <p className="muted small" style={{ marginTop: 8 }}>
+        <p className="note">
           Kolom skenario terpilih bisa diketik langsung untuk mengunci harga manual. Kosongkan
           (isi 0) untuk kembali ke harga hitungan engine. Harga manual tetap dibatasi RRP.
         </p>
