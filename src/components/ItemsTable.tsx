@@ -160,7 +160,7 @@ export function ItemsTable({
         </div>
       ) : (
         <div className="table-wrap scroll">
-          <table className="table">
+          <table className="table stack">
             <thead>
               <tr>
                 {head("lineNo", "No", "c")}
@@ -189,8 +189,8 @@ export function ItemsTable({
                   r.margins[scenario] < 0 || r.estCogs || r.status[scenario] === "BELOW COST";
                 return (
                   <tr key={r.id} className={flagged ? "flagged" : ""}>
-                    <td className="c muted">{r.lineNo}</td>
-                    <td className="l">
+                    <td className="c muted stack-hide">{r.lineNo}</td>
+                    <td className="l stack-title">
                       <div className="with-thumb">
                         <Thumb src={imagesByCode[r.code.trim()]} alt={r.name} />
                         <div className="grow">
@@ -217,7 +217,7 @@ export function ItemsTable({
                         )}
                       </div>
                     </td>
-                    <td>
+                    <td data-label="Qty">
                       <NumberCell
                         live
                         className="cell"
@@ -227,7 +227,7 @@ export function ItemsTable({
                         aria-label={`Qty ${r.name}`}
                       />
                     </td>
-                    <td className="l">
+                    <td className="l" data-label="Satuan">
                       <UomCell
                         value={r.uom}
                         choices={uomOptions.length ? uomChoices(uomOptions, unitsByCode[r.code.trim()], r.uom) : []}
@@ -242,7 +242,7 @@ export function ItemsTable({
                         onConfirm={readOnly ? undefined : () => onUpdate(r.id, { priceUom: undefined })}
                       />
                     </td>
-                    <td>
+                    <td data-label="COGS">
                       <NumberCell
                         live
                         className={`cell ${r.estCogs ? "est" : ""}`}
@@ -252,7 +252,7 @@ export function ItemsTable({
                         aria-label={`COGS ${r.name}`}
                       />
                     </td>
-                    <td>
+                    <td data-label="RRP">
                       <NumberCell
                         live
                         className="cell"
@@ -262,7 +262,7 @@ export function ItemsTable({
                         aria-label={`RRP ${r.name}`}
                       />
                     </td>
-                    <td>
+                    <td data-label="Role S2">
                       <select
                         className="cell"
                         value={r.role}
@@ -279,8 +279,10 @@ export function ItemsTable({
                       <td
                         key={k}
                         className={k === scenario ? "col-selected" : ""}
+                        data-label={SCENARIOS[k].key}
                         style={k === scenario ? { ["--c" as string]: SCENARIOS[k].color } : undefined}
                       >
+                        <div>
                         {!readOnly ? (
                           <NumberCell
                             className={`cell ${r.overridden[k] ? "manual" : ""}`}
@@ -301,11 +303,12 @@ export function ItemsTable({
                         <div className="small muted nowrap">
                           {pct(r.margins[k])} <LineBadge status={r.status[k]} />
                         </div>
+                        </div>
                       </td>
                     ))}
-                    <td className="num">{grp(r.qty * r.prices[scenario])}</td>
+                    <td className="num" data-label="Nilai/bln">{grp(r.qty * r.prices[scenario])}</td>
                     {!readOnly && (
-                      <td>
+                      <td className="stack-action">
                         <div className="row-actions">
                           {onPushToCatalog && r.code && (
                             <button

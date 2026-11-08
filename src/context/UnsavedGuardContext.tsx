@@ -5,7 +5,7 @@
    prompt. Logging out is not a navigation, so it asks through confirmLeave.
    Needs the data router (createBrowserRouter in main.tsx) for useBlocker. */
 
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useBlocker, type BlockerFunction } from "react-router-dom";
 import { ConfirmModal } from "../components/Modal";
 
@@ -77,7 +77,9 @@ export function UnsavedGuardProvider({ children }: { children: React.ReactNode }
 export function useUnsavedGuard(dirty: boolean) {
   const ctx = useContext(UnsavedGuardContext);
   if (!ctx) throw new Error("useUnsavedGuard must be used inside UnsavedGuardProvider");
-  useEffect(() => {
+  // Layout effect: the flag is set before the "Belum disimpan" badge is painted, so no
+  // navigation can slip through between seeing the edit and the guard knowing about it.
+  useLayoutEffect(() => {
     ctx.setDirty(dirty);
     return () => ctx.setDirty(false);
   }, [ctx, dirty]);
