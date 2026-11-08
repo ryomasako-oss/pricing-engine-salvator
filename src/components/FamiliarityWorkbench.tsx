@@ -170,6 +170,9 @@ export function FamiliarityWorkbench() {
   const choose = (row: FamiliarityRow, t: Target) =>
     send(row, t.kind === "catalog" ? { action: "verify_item", item_id: t.itemId } : { action: "create_new_item", new_item_payload: t.payload });
 
+  // While a session is on screen the inputs stay put: a new list starts from "Feed baru",
+  // so one stray click can't swap the session and reset its choices.
+  const locked = !!session;
   const noClient = session?.clientId == null;
   /** Without a client and without "every client", nothing decided here is remembered after this session. */
   const sessionOnly = noClient && !everyone;
@@ -198,6 +201,7 @@ export function FamiliarityWorkbench() {
                 <select
                   className="select"
                   aria-label="Klien"
+                  disabled={locked}
                   value={clientId}
                   onChange={(e) => {
                     if (e.target.value === NEW_CLIENT) setAdding(true);
@@ -212,7 +216,7 @@ export function FamiliarityWorkbench() {
                   ))}
                   <option value={NEW_CLIENT}>+ Klien baru…</option>
                 </select>
-                {clientId === "" && (
+                {clientId === "" && !locked && (
                   // Not .notice.info: that one is 4.4:1 in both themes (styles.css defines it twice).
                   <small className="field-help">
                     {mayGoGlobal
@@ -223,22 +227,23 @@ export function FamiliarityWorkbench() {
               </label>
               <label className="field">
                 <span>Judul feed</span>
-                <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="mis. List CGV Oktober" />
+                <input className="input" disabled={locked} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="mis. List CGV Oktober" />
               </label>
             </>
           )}
           <div
-            className={`drop stack ${drag ? "drag" : ""}`}
+            className={`drop centered ${drag ? "drag" : ""}`}
+            aria-disabled={locked || undefined}
             onDragOver={(e) => {
               e.preventDefault();
-              setDrag(true);
+              if (!locked) setDrag(true);
             }}
             onDragLeave={() => setDrag(false)}
             onDrop={(e) => {
               // Without this the browser opens the dropped file and everything typed here is gone.
               e.preventDefault();
               setDrag(false);
-              void readFile(e.dataTransfer.files?.[0]);
+              if (!locked) void readFile(e.dataTransfer.files?.[0]);
             }}
           >
             {reading ? (
@@ -247,16 +252,17 @@ export function FamiliarityWorkbench() {
               <>
                 <strong>{file.name}</strong>
                 <span className="muted small">{file.lines.length} baris</span>
-                <button className="btn small ghost" onClick={() => setFile(null)}>Pakai teks tempelan</button>
+                <button className="btn small ghost" disabled={locked} onClick={() => setFile(null)}>Pakai teks tempelan</button>
               </>
             ) : (
               <>
                 <strong>Tarik file ke sini</strong>
                 <span className="muted small">Excel/CSV, PDF (mis. quotation lama), atau foto</span>
-                <label className="btn small">
+                <label className={`btn small${locked ? " disabled" : ""}`}>
                   Pilih file
                   <input
                     type="file"
+                    disabled={locked}
                     accept=".xlsx,.xls,.csv,.pdf,.png,.jpg,.jpeg,.webp,.heic,.heif,application/pdf,image/*"
                     hidden
                     onChange={(e) => {
@@ -280,16 +286,20 @@ export function FamiliarityWorkbench() {
               className="textarea input"
               rows={6}
               value={paste}
-              disabled={!!file}
+              disabled={!!file || locked}
               onChange={(e) => setPaste(e.target.value)}
               placeholder={"Satu barang per baris, mis.\nKertas HVS A4 70gr\nLakban bening 2 inch"}
             />
           </label>
           {error && <p className="notice error">{error}</p>}
-          <button className="btn primary block" onClick={feed} disabled={busy || reading || !lines.length}>
-            {busy ? "Mencocokkan…" : "Cocokkan"}
-            {!busy && lines.length > 0 && <span className="btn-meta num">{lines.length} baris</span>}
-          </button>
+          {locked ? (
+            <p className="field-help">Daftar ini sedang dicocokkan di kanan. Klik "Feed baru" untuk memasukkan daftar lain.</p>
+          ) : (
+            <button className="btn primary block" onClick={feed} disabled={busy || reading || !lines.length}>
+              {busy ? "Mencocokkan…" : "Cocokkan"}
+              {!busy && lines.length > 0 && <>{" "}<span className="btn-meta num">{lines.length} baris</span></>}
+            </button>
+          )}
         </div>
       </div>
 

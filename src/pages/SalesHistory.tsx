@@ -165,7 +165,7 @@ export function SalesHistoryPage() {
                               </td>
                               <td className="num nowrap">
                                 {s.price === null ? (
-                                  <span className="badge red">Diretur semua</span>
+                                  <span className="badge grey">Diretur semua</span>
                                 ) : (
                                   <>
                                     {rp(s.price)} / {s.unit || c.baseUom}

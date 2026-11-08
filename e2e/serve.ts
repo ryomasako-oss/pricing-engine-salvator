@@ -6,13 +6,19 @@
    email have no secrets here, so those features are simply off. */
 
 import { execFileSync, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { hashPassword } from "../server/worker/auth";
 
 const port = process.env.E2E_API_PORT ?? "8797";
-const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pricing-e2e-"));
+// One fixed folder per worktree, emptied at start: Playwright kills this server
+// without running stop(), and a fresh mkdtemp per run piled up ~16 MB each in
+// /tmp until the tmpfs filled and D1 answered 500s.
+const dir = path.join(os.tmpdir(), `pricing-e2e-${createHash("sha1").update(process.cwd()).digest("hex").slice(0, 8)}`);
+fs.rmSync(dir, { recursive: true, force: true });
+fs.mkdirSync(dir);
 const persist = ["--persist-to", dir];
 // No prompt for "apply N migrations?": nobody is there to answer it.
 const quiet = { stdio: "inherit" as const, env: { ...process.env, CI: "1" } };

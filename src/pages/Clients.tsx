@@ -245,8 +245,10 @@ export function ClientsPage() {
                     </td>
                     <td className="l muted" data-label="Kode">{c.code || "—"}</td>
                     <td className="l" data-label="Kontak">
-                      {c.contact_name || "—"}
-                      {c.contact_email && <div className="muted small">{c.contact_email}</div>}
+                      <div>
+                        {c.contact_name || "—"}
+                        {c.contact_email && <div className="muted small">{c.contact_email}</div>}
+                      </div>
                     </td>
                     <td className="l muted small" data-label="Termin">{c.payment_terms}</td>
                     <td className="num" data-label="Quotation">{c.quote_count ?? 0}</td>
@@ -320,14 +322,22 @@ export function ClientsPage() {
         </Modal>
       )}
 
-      {deleting && (
+      {deleting && !!deleting.quote_count && (
+        // The server refuses while quotes use the client (409): no delete button to press.
+        <Modal
+          title={`${deleting.name} belum bisa dihapus`}
+          onClose={() => setDeleting(null)}
+          footer={<button className="btn primary" onClick={() => setDeleting(null)}>Tutup</button>}
+        >
+          <p>
+            Klien ini masih dipakai {deleting.quote_count} quotation. Hapus atau pindahkan quotation itu ke klien lain dulu.
+          </p>
+        </Modal>
+      )}
+      {deleting && !deleting.quote_count && (
         <ConfirmModal
           title={`Hapus ${deleting.name}?`}
-          message={
-            deleting.quote_count
-              ? `Klien ini masih dipakai ${deleting.quote_count} quotation, jadi belum bisa dihapus. Hapus atau pindahkan quotation itu dulu.`
-              : "Data klien ini dihapus permanen dan tidak bisa dipilih lagi di quotation baru."
-          }
+          message="Data klien ini dihapus permanen dan tidak bisa dipilih lagi di quotation baru."
           confirmLabel="Hapus klien"
           onClose={() => setDeleting(null)}
           onConfirm={async () => {

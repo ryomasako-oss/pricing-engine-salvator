@@ -127,8 +127,10 @@ export function SettingsPage() {
   // One section at a time, picked in the left sub-nav; ?bagian= makes it linkable
   // (the admin's "Permintaan reset sandi" tile opens ?bagian=reset).
   const sections = [
-    { key: "kebijakan", label: "Kebijakan harga", show: !!policy },
-    { key: "identitas", label: "Identitas dokumen", show: !!company },
+    // From permissions, not from loaded data, so the chosen section doesn't jump when it arrives
+    // (the server sends the policy only to view_costs: server/staffView.ts settingsForViewer).
+    { key: "kebijakan", label: "Kebijakan harga", show: can("view_costs") },
+    { key: "identitas", label: "Identitas dokumen", show: true },
     { key: "excel", label: "Password Excel", show: can("manage_company") },
     { key: "notifikasi", label: "Notifikasi", show: true },
     { key: "sandi", label: "Kata sandi saya", show: true },
@@ -158,7 +160,7 @@ export function SettingsPage() {
               key={x.key}
               type="button"
               className={x.key === current ? "on" : ""}
-              aria-current={x.key === current ? "page" : undefined}
+              aria-current={x.key === current ? "true" : undefined}
               onClick={() => go(x.key)}
             >
               <span>{x.label}</span>
@@ -168,6 +170,13 @@ export function SettingsPage() {
         </nav>
 
         <div className="settings-body">
+        {((current === "kebijakan" && !policy) || (current === "identitas" && !company)) && (
+          <section className="card">
+            <div className="card-body skeleton-list" role="status" aria-label="Memuat pengaturan…">
+              {[0, 1, 2, 3].map((i) => <span key={i} className="skeleton" />)}
+            </div>
+          </section>
+        )}
         {current === "kebijakan" && policy && (
           <section className="card">
             <div className="card-head">

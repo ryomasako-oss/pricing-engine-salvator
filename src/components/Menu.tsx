@@ -28,7 +28,8 @@ export function Menu({ label, items }: { label: string; items: MenuEntry[] }) {
   }, [open]);
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Escape") {
+    if (e.key === "Escape" && open) {
+      // Only an open menu swallows Escape; a closed one leaves it to an enclosing Modal.
       e.stopPropagation();
       setOpen(false);
       button.current?.focus();
@@ -42,7 +43,15 @@ export function Menu({ label, items }: { label: string; items: MenuEntry[] }) {
   };
 
   return (
-    <div className="menu" ref={root} onKeyDown={onKeyDown}>
+    <div
+      className="menu"
+      ref={root}
+      onKeyDown={onKeyDown}
+      // Tabbing out of the list closes it instead of leaving it over the page.
+      onBlur={(e) => {
+        if (open && !root.current?.contains(e.relatedTarget as Node | null)) setOpen(false);
+      }}
+    >
       <button
         ref={button}
         type="button"
@@ -65,6 +74,8 @@ export function Menu({ label, items }: { label: string; items: MenuEntry[] }) {
                 role="menuitem"
                 className={`menu-item${it.danger ? " danger" : ""}`}
                 onClick={() => {
+                  // Focus back on the trigger first, so a dialog the item opens returns there on close.
+                  button.current?.focus();
                   setOpen(false);
                   it.onSelect();
                 }}
