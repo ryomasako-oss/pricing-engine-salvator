@@ -468,7 +468,7 @@ export function ListToQuote({
               {saving ? "Menyimpan…" : "Simpan"}
             </button>
             <button className="btn" onClick={() => setSending(true)} disabled={busy || saving || sending}>
-              <Icon name="send" size={14} /> Kirim ke PIC…
+              Kirim ke PIC…
             </button>
             <button className="btn primary" onClick={create} disabled={busy || saving || !rows?.length || (pending > 0 && !skipReview) || !title.trim()}>
               {busy ? "Membuat…" : `Buat quotation (${used} item${skipped ? ` + ${skipped} menyusul` : ""})`}
@@ -481,12 +481,12 @@ export function ListToQuote({
     >
       {!rows && (initial || draftId) ? (
         // A list from chat or a saved draft has no file step: just the wait for matching, or why it failed.
-        <div className="col" style={{ gap: 12 }}>
+        <div className="form-stack">
           {busy && <WaitingLine lines={WAITING.match} />}
           {error && <p className="notice error">{error}</p>}
         </div>
       ) : !rows ? (
-        <div className="col" style={{ gap: 12 }}>
+        <div className="form-stack">
           {adding ? (
             <ClientQuickAdd clients={list} onDone={chooseClient} onCancel={() => setAdding(false)} />
           ) : (
@@ -509,7 +509,7 @@ export function ListToQuote({
               </button>
             </div>
           )}
-          <p className="muted small" style={{ margin: "-6px 0 0" }}>
+          <p className="field-help">
             {clientId === ""
               ? "Tanpa klien, pilihan Anda tidak diingat. Pilih klien supaya istilah yang Anda cek otomatis cocok di list berikutnya."
               : "Istilah yang Anda cek atau ganti akan diingat untuk klien ini, jadi list berikutnya lebih cepat."}
@@ -548,13 +548,13 @@ export function ListToQuote({
           {error && <p className="notice error">{error}</p>}
         </div>
       ) : (
-        <div className="col" style={{ gap: 12 }}>
-          <div className="row-wrap" style={{ gap: 12, alignItems: "end" }}>
-            <label className="field" style={{ flex: "1 1 260px" }}>
+        <div className="form-stack">
+          <div className="ltq-head">
+            <label className="field">
               <span>Judul quotation</span>
               <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} />
             </label>
-            <div className="row-wrap" style={{ gap: 6 }}>
+            <div className="badge-row">
               <span className="badge grey">{fileName}</span>
               <span className="badge green">{summary!.sure} cocok</span>
               {summary!.review > 0 && <span className="badge amber">{summary!.review} perlu dicek</span>}
@@ -600,7 +600,7 @@ export function ListToQuote({
             />
           )}
 
-          <div className="table-wrap" style={{ maxHeight: "58vh" }}>
+          <div className="table-wrap ltq-table">
             <table className="table">
               <thead>
                 <tr>
@@ -624,10 +624,10 @@ export function ListToQuote({
                   const pack = chosenItem && !row.request.uom && !row.request.noQty ? readPackUnit(row.request.name, chosenItem) : {};
                   const readUnit = pack.uom && chosenItem && !sameUom(pack.uom, chosenItem.uom || "Pcs") ? pack.uom : null;
                   return (
-                    <tr key={i} style={row.chosen == null ? { opacity: 0.6 } : undefined}>
+                    <tr key={i} className={row.chosen == null ? "is-unused" : undefined}>
                       <td className="l muted">{i + 1}</td>
                       <td className="l">
-                        <div style={{ fontWeight: 550 }}>{row.request.name}</div>
+                        <div className="cell-title">{row.request.name}</div>
                         <div className="muted small">
                           {[row.request.code, row.request.noQty ? "Tanpa qty: 1 per satuan terkecil" : row.request.uom]
                             .filter(Boolean)
@@ -635,8 +635,7 @@ export function ListToQuote({
                         </div>
                         {readUnit && <div className="muted small">Satuan dibaca dari teks: {readUnit}.</div>}
                         {chosenItem && unitAssumed(row.request.uom, chosenItem) && (
-                          <div className="small" style={{ color: "var(--color-warn-text)" }}>
-                            ⚠ Rasio {row.request.uom} belum ada di katalog: dianggap 1 {row.request.uom} = 1 {chosenItem.uom || "Pcs"}. Kalau isinya lebih, ubah qty atau isi rasionya di Katalog.
+                          <div className="cell-warn">Rasio {row.request.uom} belum ada di katalog: dianggap 1 {row.request.uom} = 1 {chosenItem.uom || "Pcs"}. Kalau isinya lebih, ubah qty atau isi rasionya di Katalog.
                           </div>
                         )}
                         {line && chosenItem && !line.priceUom && line.qty !== (row.request.qty ?? 1) && (
@@ -651,19 +650,17 @@ export function ListToQuote({
                           </div>
                         )}
                         {pack.conflict && chosenItem && (
-                          <div className="small" style={{ color: "var(--color-warn-text)" }}>
-                            ⚠ Teks menyebut isi {pack.conflict.text} per {pack.conflict.word}, katalog mencatat 1 {pack.conflict.word} = {pack.conflict.catalog}. Satuan tidak diubah: COGS dihitung per {chosenItem.uom || "Pcs"}. Periksa satuan dan rasio.
+                          <div className="cell-warn">Teks menyebut isi {pack.conflict.text} per {pack.conflict.word}, katalog mencatat 1 {pack.conflict.word} = {pack.conflict.catalog}. Satuan tidak diubah: COGS dihitung per {chosenItem.uom || "Pcs"}. Periksa satuan dan rasio.
                           </div>
                         )}
                         {pack.unmatched && chosenItem && (
-                          <div className="small" style={{ color: "var(--color-warn-text)" }}>
-                            ⚠ Teks menyebut {pack.unmatched}, tapi barang ini tidak punya satuan itu: COGS dihitung per {chosenItem.uom || "Pcs"}. Periksa satuan.
+                          <div className="cell-warn">Teks menyebut {pack.unmatched}, tapi barang ini tidak punya satuan itu: COGS dihitung per {chosenItem.uom || "Pcs"}. Periksa satuan.
                           </div>
                         )}
                       </td>
                       <td className="num">{grp(row.request.qty ?? 1)}</td>
-                      <td className="l" style={{ minWidth: 320 }}>
-                        <div className="row" style={{ gap: 6 }}>
+                      <td className="l ltq-pick">
+                        <div className="picker-row">
                           <select
                             className="select"
                             aria-label={`Item katalog untuk ${row.request.name}`}
@@ -722,10 +719,9 @@ export function ListToQuote({
                             {row.result.status === "review" ? " (ke klien lain, cek dulu)" : " ke klien ini"}
                           </div>
                         )}
-                        {warn && <div className="small" style={{ color: "var(--color-warn-text)" }}>⚠ {warn}</div>}
+                        {warn && <div className="cell-warn">{warn}</div>}
                         {blockedOf(row) && (
-                          <div className="small" style={{ color: "var(--color-warn-text)" }}>
-                            ⚠ {blockedOf(row)}. Masuk sebagai baris ditahan: tidak ikut total dan dokumen sampai dicek manajer.
+                          <div className="cell-warn">{blockedOf(row)}. Masuk sebagai baris ditahan: tidak ikut total dan dokumen sampai dicek manajer.
                           </div>
                         )}
                       </td>
@@ -794,10 +790,9 @@ function CatalogSearch({
   };
 
   return (
-    <div className="col" style={{ gap: 6, marginTop: 6 }}>
+    <div className="cell-stack inline-search">
       <form
-        className="row"
-        style={{ gap: 6 }}
+        className="picker-row"
         onSubmit={(e) => {
           e.preventDefault();
           void search();
@@ -845,9 +840,9 @@ function SendToPic({
   }, [user?.id]);
   const target = users.find((u) => u.id === to);
   return (
-    <div className="card" style={{ padding: 12 }}>
-      <div className="row-wrap" style={{ gap: 12, alignItems: "end" }}>
-        <label className="field" style={{ flex: "1 1 200px" }}>
+    <div className="card send-pic">
+      <div className="inline-form">
+        <label className="field">
           <span>Kirim ke PIC</span>
           <select className="select" value={to} onChange={(e) => setTo(e.target.value === "" ? "" : Number(e.target.value))}>
             <option value="">— pilih orang —</option>
@@ -856,18 +851,18 @@ function SendToPic({
             ))}
           </select>
         </label>
-        <label className="field" style={{ flex: "2 1 260px" }}>
+        <label className="field wide">
           <span>Catatan untuk PIC (opsional)</span>
           <input className="input" value={note} maxLength={500} onChange={(e) => setNote(e.target.value)} placeholder="Misal: tolong selesaikan hari ini" />
         </label>
-        <div className="row" style={{ gap: 6 }}>
+        <div className="form-actions">
           <button className="btn ghost" onClick={onCancel} disabled={busy}>Batal</button>
           <button className="btn primary" disabled={busy || !target} onClick={() => target && onSend(target.id, note.trim(), target.name)}>
-            <Icon name="send" size={14} /> {busy ? "Mengirim…" : "Simpan & kirim"}
+            {busy ? "Mengirim…" : "Simpan & kirim"}
           </button>
         </div>
       </div>
-      <p className="muted small" style={{ margin: "8px 0 0" }}>
+      <p className="field-help">
         List disimpan dulu, lalu PIC mendapat email berisi tautan. Ia membuka list ini persis seperti sekarang dan bisa langsung membuat quotation.
       </p>
     </div>

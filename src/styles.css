@@ -1110,3 +1110,15 @@ a.btn, a.btn:hover { text-decoration: none; }
 }
 .drop[aria-disabled] { opacity: .6; }
 .btn.disabled { opacity: .45; pointer-events: none; }
+
+/* ---------------- Dari list klien (ListToQuote) ---------------- */
+.ltq-head { display: flex; align-items: flex-end; gap: var(--space-4); flex-wrap: wrap; }
+.ltq-head > .field { flex: 1 1 260px; }
+.ltq-table { max-height: 58vh; }
+.ltq-pick { min-width: 320px; }
+.table tr.is-unused > td { opacity: .6; }
+.picker-row { display: flex; align-items: center; gap: var(--space-2); }
+.inline-search { margin-top: var(--space-2); }
+.cell-warn { font: var(--text-caption); color: var(--color-warn-text); }
+.card.send-pic { padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); }
+.inline-form > .field.wide { flex: 2 1 260px; }
