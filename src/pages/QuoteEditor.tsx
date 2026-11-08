@@ -202,16 +202,7 @@ export function QuoteEditorPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lineCodes]);
 
-  // Warn before leaving with unsaved edits.
-  useEffect(() => {
-    const handler = (e: BeforeUnloadEvent) => {
-      if (dirty) e.preventDefault();
-    };
-    window.addEventListener("beforeunload", handler);
-    return () => window.removeEventListener("beforeunload", handler);
-  }, [dirty]);
-
-  // Same, but for in-app navigation (NavLink clicks), which beforeunload can't see.
+  // Unsaved edits: asked before any in-app navigation (incl. Back) and before unload.
   useUnsavedGuard(dirty);
 
   const update = useCallback((patch: Partial<QuoteSnapshot>) => {
@@ -266,6 +257,7 @@ export function QuoteEditorPage() {
   /** True once the server has the snapshot; a later action must not run on false. */
   const save = useCallback(async (): Promise<boolean> => {
     if (!snapshot || !detail) return false;
+    const sent = JSON.stringify(snapshot);
     setSaving(true);
     try {
       const r = await api.put<{ quote: Quote }>(`/quotes/${quoteId}`, {
@@ -275,8 +267,12 @@ export function QuoteEditorPage() {
       });
       // The next save must send the version this one produced, or it reads as a conflict.
       setDetail((d) => d && { ...d, quote: { ...d.quote, version: r.quote.version } });
-      saved.current = JSON.stringify(snapshot);
-      setDirty(false);
+      saved.current = sent;
+      // Edits typed while the request was in flight are not in `sent`: they stay unsaved.
+      setSnapshot((cur) => {
+        setDirty(JSON.stringify(cur) !== sent);
+        return cur;
+      });
       toast("Tersimpan", "success");
       return true;
     } catch (e) {
@@ -492,7 +488,7 @@ export function QuoteEditorPage() {
         <div>
           <button
             className="link-btn"
-            onClick={() => (dirty ? setModal({ kind: "leave" }) : navigate("/quotes"))}
+            onClick={() => navigate("/quotes")}
           >
             <Icon name="back" size={14} /> Semua quotation
           </button>
@@ -958,16 +954,6 @@ export function QuoteEditorPage() {
             </p>
           }
           onConfirm={() => setModal({ kind: "import" })}
-          onClose={() => setModal(null)}
-        />
-      )}
-
-      {modal?.kind === "leave" && (
-        <ConfirmModal
-          title="Tinggalkan halaman?"
-          confirmLabel="Tinggalkan"
-          message={<p>Ada perubahan yang belum disimpan. Perubahan itu akan hilang.</p>}
-          onConfirm={() => navigate("/quotes")}
           onClose={() => setModal(null)}
         />
       )}

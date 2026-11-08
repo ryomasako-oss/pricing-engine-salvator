@@ -79,8 +79,8 @@ export function ApprovalsPage() {
   const avgWait = pending.length ? pending.reduce((s, r) => s + daysSince(r.requested_at, now), 0) / pending.length : 0;
   const recent = (r: ApprovalRow) => !!r.decided_at && daysSince(r.decided_at, now) < 7;
   const decidedWeek = lists.approved.filter(recent).length + lists.rejected.filter(recent).length;
-  // More decided in the week than came back when a capped list is still inside the week at its oldest row.
-  const weekCapped = (["approved", "rejected"] as const).some((d) => capped(d) && recent(lists[d][lists[d].length - 1]));
+  // The server orders by request, not decision, so any capped list may hide a recent decision.
+  const weekCapped = capped("approved") || capped("rejected");
 
   return (
     <main className="hk-main page-stack">
@@ -112,6 +112,7 @@ export function ApprovalsPage() {
                   ? `${Math.max(1, Math.round(avgWait * 24))} jam`
                   : `${avgWait.toLocaleString("id-ID", { maximumFractionDigits: 1 })} hari`}
             </div>
+            {capped("pending") && <div className="foot">Dari {grp(CAP)} pengajuan terbaru</div>}
           </div>
           <div className="kpi">
             <div className="label">Diputuskan 7 hari terakhir</div>

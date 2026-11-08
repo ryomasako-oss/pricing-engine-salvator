@@ -131,7 +131,7 @@ export function StaffQuotePage() {
   const [company, setCompany] = useState<CompanyInfo | null>(null);
   const [uomOptions, setUomOptions] = useState<string[]>([]);
   const [units, setUnits] = useState<Record<string, ItemUnits>>({});
-  const [modal, setModal] = useState<"catalog" | "submit" | "reopen" | "sales-import" | "leave" | null>(null);
+  const [modal, setModal] = useState<"catalog" | "submit" | "reopen" | "sales-import" | null>(null);
   const [salesReview, setSalesReview] = useState<SalesReviewRecord | null>(null);
   const [showDoc, setShowDoc] = useState(false);
   const [cogsBlocked, setCogsBlocked] = useState<string[] | null>(null);
@@ -198,6 +198,12 @@ export function StaffQuotePage() {
 
   useUnsavedGuard(dirty);
 
+  // Counts edits so a save can tell whether something changed while it was in flight.
+  const editSeq = useRef(0);
+  useEffect(() => {
+    editSeq.current += 1;
+  }, [lines, meta]);
+
   const edit = (id: string, patch: Partial<StaffLine>) => {
     setLines((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
     setDirty(true);
@@ -205,6 +211,7 @@ export function StaffQuotePage() {
 
   const save = async () => {
     if (!detail || !meta) return;
+    const seq = editSeq.current;
     setSaving(true);
     try {
       const r = await api.put<{ quote: StaffQuote }>(`/quotes/${quoteId}`, {
@@ -213,6 +220,12 @@ export function StaffQuotePage() {
         expected_version: detail.quote.version,
       });
       setDetail({ ...detail, quote: r.quote });
+      // Edited while the request was in flight: keep those edits (and dirty) instead of
+      // overwriting them with what the server just stored; the next save sends them.
+      if (editSeq.current !== seq) {
+        toast("Tersimpan. Perubahan terakhir Anda belum disimpan.", "success");
+        return;
+      }
       setLines(r.quote.items);
       setPricing(r.quote.pricing);
       setDirty(false);
@@ -297,7 +310,7 @@ export function StaffQuotePage() {
         <div>
           <button
             className="link-btn"
-            onClick={() => (dirty ? setModal("leave") : navigate("/quotes"))}
+            onClick={() => navigate("/quotes")}
           >
             <Icon name="back" size={14} /> Semua quotation
           </button>
@@ -618,16 +631,6 @@ export function StaffQuotePage() {
               : "Quotation masuk antrean manajer untuk dicek."}
           </p>
         </Modal>
-      )}
-
-      {modal === "leave" && (
-        <ConfirmModal
-          title="Tinggalkan halaman?"
-          confirmLabel="Tinggalkan"
-          message={<p>Ada perubahan yang belum disimpan. Perubahan itu akan hilang.</p>}
-          onConfirm={() => navigate("/quotes")}
-          onClose={() => setModal(null)}
-        />
       )}
 
       {modal === "reopen" && (

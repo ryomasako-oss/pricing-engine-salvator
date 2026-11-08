@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react";
-import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { NavLink, Navigate, Route, Routes, useLocation, useParams } from "react-router-dom";
 import { useAuth } from "./context/AuthContext";
 import { useTheme } from "./context/ThemeContext";
 import { useConfirmLeave } from "./context/UnsavedGuardContext";
@@ -42,17 +42,11 @@ function TopBar() {
   const { pending, toFix } = useNavCounts();
   const confirmLeave = useConfirmLeave();
 
-  const navigate = useNavigate();
-  // A plain click goes through the unsaved-edits question first; modified clicks (new tab) are left alone.
-  const guard = (to: string) => (e: React.MouseEvent) => {
-    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
-    e.preventDefault();
-    confirmLeave(() => navigate(to));
-  };
+  // Route changes are guarded by the router blocker (UnsavedGuardContext); logout is not one.
 
   return (
     <header className="hk-top">
-      <NavLink to="/" className="hk-brand" onClick={guard("/")}>
+      <NavLink to="/" className="hk-brand">
         <span className="hk-logo" aria-hidden="true">h</span>
         <span>
           <span className="hk-title" style={{ display: "block" }}>Pricing Engine Salvator</span>
@@ -61,47 +55,47 @@ function TopBar() {
       </NavLink>
 
       <nav className="hk-nav" aria-label="Navigasi utama">
-        <NavLink to="/quotes" className={({ isActive }) => (isActive ? "active" : "")} onClick={guard("/quotes")}>
+        <NavLink to="/quotes" className={({ isActive }) => (isActive ? "active" : "")}>
           <Icon name="quote" size={16} />
           <span className="label">Quotation</span>
         </NavLink>
-        <NavLink to="/pencocokan" className={({ isActive }) => (isActive ? "active" : "")} onClick={guard("/pencocokan")}>
+        <NavLink to="/pencocokan" className={({ isActive }) => (isActive ? "active" : "")}>
           <Icon name="search" size={16} />
           <span className="label">Pencocokan</span>
         </NavLink>
         {can("decide_quotes") && (
-          <NavLink to="/approvals" className={({ isActive }) => (isActive ? "active" : "")} onClick={guard("/approvals")}>
+          <NavLink to="/approvals" className={({ isActive }) => (isActive ? "active" : "")}>
             <Icon name="shield" size={16} />
             <span className="label">Persetujuan</span>
             {!!pending && <span className="count">{pending}</span>}
           </NavLink>
         )}
-        <NavLink to="/perbaikan" className={({ isActive }) => (isActive ? "active" : "")} onClick={guard("/perbaikan")}>
+        <NavLink to="/perbaikan" className={({ isActive }) => (isActive ? "active" : "")}>
           <Icon name="alert" size={16} />
           <span className="label">Perbaikan</span>
           {!!toFix && <span className="count" aria-label={`${toFix} perlu diperbaiki`}>{toFix}</span>}
         </NavLink>
-        <NavLink to="/catalog" className={({ isActive }) => (isActive ? "active" : "")} onClick={guard("/catalog")}>
+        <NavLink to="/catalog" className={({ isActive }) => (isActive ? "active" : "")}>
           <Icon name="box" size={16} />
           <span className="label">Katalog</span>
         </NavLink>
         {can("view_costs") && (
           <>
-            <NavLink to="/cogs-history" className={({ isActive }) => (isActive ? "active" : "")} onClick={guard("/cogs-history")}>
+            <NavLink to="/cogs-history" className={({ isActive }) => (isActive ? "active" : "")}>
               <Icon name="history" size={16} />
               <span className="label">Riwayat COGS</span>
             </NavLink>
-            <NavLink to="/sales-history" className={({ isActive }) => (isActive ? "active" : "")} onClick={guard("/sales-history")}>
+            <NavLink to="/sales-history" className={({ isActive }) => (isActive ? "active" : "")}>
               <Icon name="doc" size={16} />
               <span className="label">Riwayat SI</span>
             </NavLink>
           </>
         )}
-        <NavLink to="/clients" className={({ isActive }) => (isActive ? "active" : "")} onClick={guard("/clients")}>
+        <NavLink to="/clients" className={({ isActive }) => (isActive ? "active" : "")}>
           <Icon name="building" size={16} />
           <span className="label">Klien</span>
         </NavLink>
-        <NavLink to="/settings" className={({ isActive }) => (isActive ? "active" : "")} onClick={guard("/settings")}>
+        <NavLink to="/settings" className={({ isActive }) => (isActive ? "active" : "")}>
           <Icon name="gear" size={16} />
           <span className="label">Pengaturan</span>
         </NavLink>
@@ -179,7 +173,7 @@ export function App() {
         <Route path="/" element={<Navigate to="/quotes" replace />} />
         <Route path="/quotes" element={<DashboardPage />} />
         {/* Staff get a screen without cost data; the server sends them none (PE-1). */}
-        <Route path="/quotes/:id" element={can("view_costs") ? <QuoteEditorPage /> : <StaffQuotePage />} />
+        <Route path="/quotes/:id" element={<QuotePage />} />
         <Route
           path="/approvals"
           element={
@@ -219,4 +213,12 @@ export function App() {
     </NavCountsProvider>
     </ChatProvider>
   );
+}
+
+/** Keyed by id: moving from one quote to another (e.g. from Silvy) mounts a fresh page,
+    so no state of the previous quote can be saved onto the next one. */
+function QuotePage() {
+  const { id } = useParams();
+  const { can } = useAuth();
+  return can("view_costs") ? <QuoteEditorPage key={id} /> : <StaffQuotePage key={id} />;
 }
