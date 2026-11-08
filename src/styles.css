@@ -784,6 +784,22 @@ input[type=checkbox] { accent-color: var(--action); width: 17px; height: 17px; f
 
 /* ---------------- misc ---------------- */
 
+.section-title { margin: 0 0 var(--space-4); font: var(--text-h3); color: var(--color-text); }
+.page-stack > .section-title { margin-bottom: calc(var(--space-4) - var(--space-6)); }
+.task-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--space-4); }
+.task-tile {
+  display: flex; flex-direction: column; gap: var(--space-2); text-align: left; text-decoration: none; color: var(--color-text);
+  background: var(--color-layer); border: 1px solid var(--color-border); border-left: 3px solid var(--color-border-strong);
+  border-radius: var(--radius-md); padding: var(--space-5); font: inherit; cursor: pointer;
+}
+.task-tile:hover { background: var(--color-hover); }
+.task-tile:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.task-tile .label { display: inline-flex; align-items: center; gap: var(--space-3); font: var(--text-label); color: var(--color-text-2); }
+.task-tile .value { font: var(--text-kpi); }
+.task-tile .foot { font: var(--text-caption); color: var(--color-text-2); }
+.task-tile.has-warn { border-left-color: var(--color-warn); }
+.task-tile.has-err { border-left-color: var(--color-err); }
+.task-tile.has-info { border-left-color: var(--color-action); }
 .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
 .kpi { background: var(--color-layer); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 16px; }
 .kpi .label { font: var(--text-label); color: var(--color-text-2); }
@@ -848,7 +864,8 @@ input[type=checkbox] { accent-color: var(--action); width: 17px; height: 17px; f
   .hk-nav a span.label { font-size: 12px; }
   .hide-sm { display: none; }
   .hk-page-head h1 { font-size: 20px; }
-  .kpi .value { font-size: 19px; }
+  .kpi .value, .task-tile .value { font-size: 19px; }
+  .task-tile { padding: var(--space-4); }
   .modal-foot { justify-content: stretch; }
   .modal-foot .btn { flex: 1; }
 }

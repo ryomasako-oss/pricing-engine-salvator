@@ -1,6 +1,5 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense } from "react";
 import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
-import { api } from "./api";
 import { useAuth } from "./context/AuthContext";
 import { useTheme } from "./context/ThemeContext";
 import { useConfirmLeave } from "./context/UnsavedGuardContext";
@@ -8,8 +7,8 @@ import { Icon } from "./components/Icon";
 import { LoginPage } from "./pages/Login";
 import { DashboardPage } from "./pages/Dashboard";
 import { ChatProvider } from "./context/ChatContext";
+import { NavCountsProvider, useNavCounts } from "./context/NavCountsContext";
 import { ChatDock } from "./components/ChatDock";
-import type { Approval } from "@shared/types";
 import type { Permission } from "@shared/permissions";
 
 // Pages other than the quote list load on first visit, so the PDF, Excel and
@@ -40,32 +39,12 @@ function PageLoading() {
 function TopBar() {
   const { user, logout, can } = useAuth();
   const { theme, toggleTheme } = useTheme();
-  const location = useLocation();
-  const [pending, setPending] = useState(0);
-  const [toFix, setToFix] = useState(0);
+  const { pending, toFix } = useNavCounts();
   const confirmLeave = useConfirmLeave();
 
   const guardedClick = (e: React.MouseEvent) => {
     if (!confirmLeave()) e.preventDefault();
   };
-
-  // Keep the approvals badge fresh as the user moves around the app.
-  useEffect(() => {
-    if (!can("decide_quotes")) return;
-    api
-      .get<{ approvals: Approval[] }>("/approvals?decision=pending")
-      .then((r) => setPending(r.approvals.length))
-      .catch(() => undefined);
-  }, [can, location.pathname]);
-
-  // "Perlu diperbaiki": open tasks this user can see (staff: their own quotes).
-  useEffect(() => {
-    const refresh = () =>
-      api.get<{ open: number }>("/fix-tasks/count").then((r) => setToFix(r.open)).catch(() => undefined);
-    refresh();
-    window.addEventListener("fix-tasks-changed", refresh);
-    return () => window.removeEventListener("fix-tasks-changed", refresh);
-  }, [location.pathname]);
 
   return (
     <header className="hk-top">
@@ -90,13 +69,13 @@ function TopBar() {
           <NavLink to="/approvals" className={({ isActive }) => (isActive ? "active" : "")} onClick={guardedClick}>
             <Icon name="shield" size={16} />
             <span className="label">Persetujuan</span>
-            {pending > 0 && <span className="count">{pending}</span>}
+            {!!pending && <span className="count">{pending}</span>}
           </NavLink>
         )}
         <NavLink to="/perbaikan" className={({ isActive }) => (isActive ? "active" : "")} onClick={guardedClick}>
           <Icon name="alert" size={16} />
           <span className="label">Perbaikan</span>
-          {toFix > 0 && <span className="count" aria-label={`${toFix} perlu diperbaiki`}>{toFix}</span>}
+          {!!toFix && <span className="count" aria-label={`${toFix} perlu diperbaiki`}>{toFix}</span>}
         </NavLink>
         <NavLink to="/catalog" className={({ isActive }) => (isActive ? "active" : "")} onClick={guardedClick}>
           <Icon name="box" size={16} />
@@ -189,6 +168,7 @@ export function App() {
 
   return (
     <ChatProvider>
+    <NavCountsProvider>
     <div className="hk-app">
       <TopBar />
       <Suspense fallback={<PageLoading />}>
@@ -233,6 +213,7 @@ export function App() {
           button there would cover the panel's composer. Staff get no panel, so they keep it. */}
       {!(can("view_costs") && /^\/quotes\/\d+/.test(pathname)) && <ChatDock />}
     </div>
+    </NavCountsProvider>
     </ChatProvider>
   );
 }

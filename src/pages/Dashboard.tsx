@@ -8,6 +8,7 @@ import { Icon } from "../components/Icon";
 import { ListToQuote } from "../components/ListToQuote";
 import { ListDrafts } from "../components/ListDrafts";
 import { ChatHome } from "../components/ChatHome";
+import { RoleTasks } from "../components/RoleTasks";
 import { Modal } from "../components/Modal";
 import { StatusChip } from "../components/pricing";
 import { fmtDateTime, pct, rp } from "@shared/format";
@@ -33,6 +34,7 @@ const FILTERS: { key: string; label: string }[] = [
   { key: "all", label: "Semua" },
   { key: "draft", label: "Draft" },
   { key: "submitted", label: "Menunggu" },
+  { key: "rejected", label: "Ditolak" },
   { key: "approved", label: "Disetujui" },
   { key: "sent", label: "Terkirim" },
   { key: "won", label: "Menang" },
@@ -49,7 +51,9 @@ export function DashboardPage() {
   const [quotes, setQuotes] = useState<QuoteRow[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [filter, setFilter] = useState("all");
-  const [mine, setMine] = useState(false);
+  // Sales start on their own quotes; managers see the whole team (docs/ui-standar.md).
+  const isManager = can("decide_quotes");
+  const [mine, setMine] = useState(!isManager);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -135,7 +139,6 @@ export function DashboardPage() {
       wonValue,
       winRate: decided ? won.length / decided : 0,
       avgMargin: margins.length ? margins.reduce((a, b) => a + b, 0) / margins.length : 0,
-      waiting: quotes.filter((q) => q.status === "submitted").length,
     };
   }, [quotes]);
 
@@ -145,7 +148,8 @@ export function DashboardPage() {
         <div>
           <h1>Quotation</h1>
           <p>
-            Selamat datang, {user?.name.split(" ")[0]}. {quotes.length} quotation terlihat oleh Anda.
+            Selamat datang, {user?.name.split(" ")[0]}.{" "}
+            {isManager ? "Ringkasan quotation seluruh tim." : "Quotation yang Anda buat atau ditugaskan ke Anda."}
           </p>
         </div>
         <div className="row">
@@ -160,6 +164,22 @@ export function DashboardPage() {
         </div>
       </div>
 
+      <RoleTasks
+        // From the whole list, not the search box: a typed search must not hide work.
+        counts={{
+          draft: quotes.filter((q) => q.status === "draft").length,
+          rejected: quotes.filter((q) => q.status === "rejected").length,
+          approved: quotes.filter((q) => q.status === "approved").length,
+          submitted: quotes.filter((q) => q.status === "submitted").length,
+        }}
+        onTab={(status) => {
+          setQuery("");
+          setFilter(status);
+          document.getElementById("quote-list")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }}
+      />
+
+      <h2 className="section-title">{mine ? "Hasil saya" : "Hasil tim"}</h2>
       <div className="kpi-grid">
         <div className="kpi">
           <div className="label">Pipeline aktif per bulan</div>
@@ -180,14 +200,9 @@ export function DashboardPage() {
           <div className="kpi">
             <div className="label">Rata-rata net margin</div>
             <div className="value num">{pct(kpi.avgMargin)}</div>
-            <div className="foot">Semua quotation terlihat</div>
+            <div className="foot">{mine ? "Quotation saya" : "Semua quotation"}</div>
           </div>
         )}
-        <div className="kpi">
-          <div className="label">Menunggu persetujuan</div>
-          <div className="value num">{kpi.waiting}</div>
-          <div className="foot">Tertahan di manajer</div>
-        </div>
       </div>
 
       <div className="dash-row">
@@ -204,7 +219,7 @@ export function DashboardPage() {
         </div>
       )}
 
-      <div className="card">
+      <div className="card" id="quote-list">
         <div className="tabs card-tabs" role="group" aria-label="Filter status penawaran">
           {FILTERS.map((f) => (
             <button key={f.key} className={filter === f.key ? "on" : ""} aria-pressed={filter === f.key} onClick={() => setFilter(f.key)}>

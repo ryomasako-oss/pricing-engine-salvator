@@ -152,7 +152,7 @@ Struktur yang sama untuk semua halaman: **Top bar → judul halaman (h1, deskrip
 | Halaman | Rute | Akses | Isi standar (lihat FigCraft "03 Halaman desktop") |
 |---|---|---|---|
 | Login | `/` belum masuk | publik | Kartu 440 px di tengah; email, kata sandi, eror dalam banner (bukan pesan server mentah), tombol `lg` penuh, "Lupa kata sandi?" membuka modal |
-| Quotation | `/quotes` | semua | Aksi: "Dari list klien", "Quotation baru". 5 KPI (net margin hanya `view_costs`). List klien tersimpan + kartu Silvy berdampingan. Tabel dengan tab status + hitungan, cari, "Punya saya"; kolom Nomor, Judul (+rev), Klien, Status, Item, Nilai/bulan, Net margin (merah < batas), Dibuat oleh, Diubah |
+| Quotation | `/quotes` | semua | Aksi: "Dari list klien", "Quotation baru". "Perlu tindakan" dan "Hasil saya/tim" berbeda per peran (lihat "Tampilan per peran"); net margin hanya `view_costs`. List klien tersimpan + kartu Silvy berdampingan. Tabel dengan tab status + hitungan, cari, "Punya saya"; kolom Nomor, Judul (+rev), Klien, Status, Item, Nilai/bulan, Net margin (merah < batas), Dibuat oleh, Diubah |
 | Editor quotation | `/quotes/:id` | `view_costs` | Kembali, judul, meta (nomor, rev, status, klien, item, penugasan). Aksi: Ekspor, Alihkan, Simpan, aksi alur (Ajukan/Putuskan/Tandai terkirim/Menang/Kalah/Tandai selesai). Banner terkunci/ditolak. Grid: kartu Item dengan tab (Item, Penjelasan, Asumsi, Logistik, Dokumen, Riwayat) + Perbandingan skenario; sidebar 380 px: Skenario, Kepatuhan harga, Silvy. Baris bermasalah diberi latar nada |
 | Quotation (sales) | `/quotes/:id` | lainnya | Sama dengan editor tanpa COGS, margin, asumsi, skenario. Aksi: PDF, Simpan, Ajukan. Kartu Item (badge kebijakan sebagai banner), Dokumen penawaran. Silvy lewat tombol "Tanya Silvy" |
 | Persetujuan | `/approvals` | `decide_quotes` | KPI nilai tertahan. Tab Menunggu/Disetujui/Ditolak/Semua. Daftar: judul + badge, meta, pelanggaran (daftar merah), nilai dan net di kanan, "Buka dan putuskan" |
@@ -167,6 +167,59 @@ Struktur yang sama untuk semua halaman: **Top bar → judul halaman (h1, deskrip
 Modal standar (FigCraft "04 Modal & status"): Quotation baru, Ekspor quotation (daftar opsi dengan ikon), Putuskan quotation (banner pelanggaran + catatan; Tolak `danger`, Setujui `success`), Konfirmasi hapus.
 
 Mobile (FigCraft "05 Mobile"): daftar quotation sebagai kartu, login, Silvy layar penuh, item quotation sales dengan aksi Simpan/Ajukan di bawah.
+
+## Tampilan per peran
+
+Peran berasal dari `shared/permissions.ts`: **Sales** (`rep`, tanpa izin khusus), **Manajer** (`decide_quotes`, `view_costs`, `edit_catalog`, `import_catalog`, `edit_all_quotes`, `delete_clients`, `view_audit`, `skip_match_review`), **Admin** (semua izin Manajer ditambah `manage_users`, `manage_policy`, `manage_company`, `delete_catalog`, `delete_quotes`). Tampilan memeriksa izin, bukan nama peran, agar peran baru cukup diatur di satu tempat. Server tetap menegakkan izin yang sama; menyembunyikan tombol bukan pengamanan.
+
+### Halaman Quotation (dasbor)
+
+Urutan: judul → **Perlu tindakan** (ubin bernomor, tepi kiri berwarna bila ada isinya) → **Hasil saya / Hasil tim** (KPI hasil) → List klien tersimpan + Silvy → tabel.
+
+| | Sales | Manajer | Admin |
+|---|---|---|---|
+| Deskripsi judul | "Quotation yang Anda buat atau ditugaskan ke Anda." | "Ringkasan quotation seluruh tim." | sama dengan Manajer |
+| "Punya saya" bawaan | aktif | mati | mati |
+| Perlu tindakan | Draft belum diajukan → tab Draft; Ditolak, perlu revisi → tab Ditolak; Perlu diperbaiki → `/perbaikan`; Disetujui, siap dikirim → tab Disetujui; Menunggu manajer → tab Menunggu | Menunggu keputusan Anda → `/approvals`; Perlu diperbaiki → `/perbaikan`; Disetujui, belum dikirim → tab Disetujui | Manajer + Permintaan reset sandi → `/settings` |
+| KPI | Pipeline aktif, Nilai dimenangkan, Tingkat menang | + Rata-rata net margin | sama dengan Manajer |
+| Kolom tabel | tanpa Net margin | + Net margin (merah di bawah batas) | sama dengan Manajer |
+
+Hitungan ubin diambil dari daftar penuh, bukan hasil pencarian, supaya kata kunci di kotak cari tidak menyembunyikan pekerjaan. Hitungan "Menunggu keputusan" dan "Perlu diperbaiki" memakai endpoint yang sama dengan badge di top bar.
+
+### Navigasi
+
+| Menu | Sales | Manajer | Admin |
+|---|---|---|---|
+| Quotation, Pencocokan, Perbaikan, Katalog, Klien, Pengaturan | ✓ | ✓ | ✓ |
+| Persetujuan (badge jumlah menunggu) | – | ✓ | ✓ |
+| Riwayat COGS, Riwayat SI | – | ✓ | ✓ |
+
+Rute yang tidak boleh dibuka menampilkan kartu kosong "Halaman ini khusus manajer dan admin", bukan halaman putih.
+
+### Alur kerja
+
+**Sales**
+1. Buat quotation: "Quotation baru", "Dari list klien", atau minta Silvy.
+2. Isi item di layar Quotation (sales): tanpa COGS, margin, asumsi, dan skenario (server tidak mengirim datanya).
+3. Simpan → **Ajukan**. Bila harga lolos kebijakan, langsung disetujui; bila tidak, menunggu manajer.
+4. Ditolak: baca catatan di banner merah → **Buka revisi baru** → perbaiki → ajukan ulang.
+5. Disetujui: **Ekspor** PDF → kirim ke klien → **Tandai terkirim** → **Menang** / **Kalah** → **Tandai selesai**.
+6. Perbaikan: lihat tugas barang di quotation miliknya; yang menyelesaikan manajer.
+7. Pengaturan: nomor HP untuk notifikasi dan chat Silvy lewat Telegram, ganti kata sandi.
+
+**Manajer**
+1. Dari ubin "Menunggu keputusan Anda" ke Persetujuan → **Buka dan putuskan** → modal Putuskan (pelanggaran + catatan; **Tolak** `danger`, **Setujui** `success`).
+2. Editor quotation lengkap: COGS, asumsi, skenario, kepatuhan harga, Silvy di sidebar. Bisa **Alihkan** quotation ke sales lain dan mengedit quotation siapa pun.
+3. Perbaikan: selesaikan tugas katalog (barang tidak ada, COGS, satuan, cek silang Accurate) lalu **Tandai selesai**.
+4. Katalog, Riwayat COGS, Riwayat SI untuk menjaga harga pokok; impor katalog dan Accurate.
+5. Setelah disetujui: **Import cek sales** untuk mencatat barang yang ditolak klien.
+
+**Admin**
+1. Semua alur Manajer.
+2. Pengaturan: Pengguna (tambah, peran, nonaktif), Permintaan reset sandi, Kebijakan harga, Identitas dokumen, Password Excel.
+3. Hapus barang katalog (`delete_catalog`) lewat modal konfirmasi. `delete_quotes` belum punya tombol di UI.
+
+Aksi utama di setiap layar mengikuti langkah berikutnya dalam alur peran itu: satu tombol `primary` (mis. Ajukan untuk Sales di draft, Putuskan untuk Manajer di quotation yang menunggu), sisanya tombol biasa.
 
 ## Inkonsistensi yang dibereskan
 
