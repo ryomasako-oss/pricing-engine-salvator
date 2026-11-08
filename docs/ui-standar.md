@@ -154,7 +154,7 @@ Struktur yang sama untuk semua halaman: **Top bar → judul halaman (h1, deskrip
 | Login | `/` belum masuk | publik | Kartu 440 px di tengah; email, kata sandi, eror dalam banner (bukan pesan server mentah), tombol `lg` penuh, "Lupa kata sandi?" membuka modal |
 | Quotation | `/quotes` | semua | Aksi: "Dari list klien", "Quotation baru". "Perlu tindakan" dan "Hasil saya/tim" berbeda per peran (lihat "Tampilan per peran"); net margin hanya `view_costs`. List klien tersimpan + kartu Silvy berdampingan. Tabel dengan tab status + hitungan, cari, "Punya saya"; kolom Nomor, Judul (+rev), Klien, Status, Item, Nilai/bulan, Net margin (merah < batas), Dibuat oleh, Diubah |
 | Editor quotation | `/quotes/:id` | `view_costs` | Kembali, judul, meta (nomor, rev, status, klien, item, penugasan). Aksi: Ekspor, Alihkan, Simpan, aksi alur (Ajukan/Putuskan/Tandai terkirim/Menang/Kalah/Tandai selesai). Banner terkunci/ditolak. Grid: kartu Item dengan tab (Item, Penjelasan, Asumsi, Logistik, Dokumen, Riwayat) + Perbandingan skenario; sidebar 380 px: Skenario, Kepatuhan harga, Silvy. Baris bermasalah diberi latar nada |
-| Quotation (sales) | `/quotes/:id` | lainnya | Sama dengan editor tanpa COGS, margin, asumsi, skenario. Aksi: PDF, Simpan, Ajukan. Kartu Item (badge kebijakan sebagai banner), Dokumen penawaran. Silvy lewat tombol "Tanya Silvy" |
+| Quotation (sales) | `/quotes/:id` | lainnya | Sama dengan editor tanpa COGS, margin, asumsi, skenario. Aksi: Simpan, Ekspor PDF, Ajukan (utama). Kartu Item: "Tambah dari katalog", banner "Butuh persetujuan manajer" tanpa rincian baris/aturan (server sengaja hanya mengirim satu pesan generik supaya COGS tidak bisa ditebak), baris ditahan berlatar kuning. Dokumen penawaran dengan "Lihat dokumen" di kepala kartu. Silvy lewat tombol "Tanya Silvy" |
 | Persetujuan | `/approvals` | `decide_quotes` | KPI nilai tertahan. Tab Menunggu/Disetujui/Ditolak/Semua. Daftar: judul + badge, meta, pelanggaran (daftar merah), nilai dan net di kanan, "Buka dan putuskan" |
 | Perlu diperbaiki | `/perbaikan` | semua | Tab Terbuka/Selesai, chip per jenis dengan hitungan. Kartu tugas: badge jenis + umur (merah ≥ 3 hari), barang, meta, "→ apa yang harus dilakukan", aksi Buka quotation / Tandai selesai |
 | Pencocokan | `/pencocokan` | semua | Dua kolom: masukkan daftar (drop zone, judul feed, klien, tempel) dan hasil (tabel: tulisan klien, pasangan, yakin %, status, aksi). Pembelajaran pencocokan di bawah (hanya `import_catalog`) |
@@ -231,7 +231,7 @@ Ditemukan di kode saat ini (cabang `develop` per 8 Nov 2026):
 4. ±321 inline `style={{…}}` dengan margin acak → kelas utilitas spasi atau komponen tata letak.
 5. 4 bentuk status (`.badge`, `.pill`, `.status-chip`, `.chip`) → 1 Badge.
 6. `window.confirm` vs `ConfirmModal` → hanya Modal.
-7. "Ekspor" (editor) vs "PDF" (sales) untuk aksi yang mirip → "Ekspor" membuka modal; untuk sales hanya opsi PDF.
+7. "Ekspor" (editor) vs "PDF" (sales) untuk aksi yang mirip → editor: "Ekspor" membuka modal pilihan; sales: "Ekspor PDF" langsung (satu pilihan tidak perlu modal).
 8. Glif teks sebagai ikon → komponen Icon.
 9. 6 breakpoint acak → 5 breakpoint Carbon.
 10. Judul kartu 12 px kapital vs judul modal 17 px → h3 dan h2.

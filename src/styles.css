@@ -585,6 +585,7 @@ select.cell { text-align: left; width: 88px; }
 .modal-head h3 { margin: 0; font: var(--text-h2); }
 .modal-head p { margin: 4px 0 0; font: var(--text-body); color: var(--color-text-2); }
 .modal-body { padding: 8px 24px 24px; overflow: auto; min-height: 0; }
+.modal-body > .notice + .notice { margin-top: var(--space-3); }
 .modal-foot {
   display: flex; justify-content: flex-end; align-items: center; gap: 8px;
   padding: 16px 24px; background: var(--color-layer-2); flex-wrap: wrap;
@@ -678,6 +679,11 @@ input[type=checkbox] { accent-color: var(--action); width: 17px; height: 17px; f
 .card-head.tab-head .tabs { border-bottom: 0; }
 .card-head.tab-head > .btn { align-self: center; }
 .side-note { margin: var(--space-4) 0 0; }
+.form-stack { display: flex; flex-direction: column; gap: var(--space-5); }
+.policy-banner { padding-bottom: 0; }
+.notice-list { margin: var(--space-2) 0; padding-left: var(--space-6); }
+.cell-title { font-weight: 600; }
+.empty-row { padding: var(--space-5); }
 .hk-page-head h1 + .status-bar { margin-top: var(--space-3); }
 .hk-page-head .link-btn + h1 { margin-top: var(--space-2); }
 
