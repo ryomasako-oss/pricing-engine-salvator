@@ -1009,7 +1009,6 @@ export function QuoteEditorPage() {
                 setModal(null);
               }}
             >
-              <Icon name="file" />
               <span>
                 <strong>PDF penawaran</strong>
                 <small className="muted"> Dokumen siap kirim ke klien, tanpa angka internal.</small>
@@ -1023,7 +1022,6 @@ export function QuoteEditorPage() {
                 setModal(null);
               }}
             >
-              <Icon name="table" />
               <span>
                 <strong>Excel kerja</strong>
                 <small className="muted"> Penawaran, analisis margin internal, perbandingan, dan asumsi.</small>
@@ -1042,7 +1040,6 @@ export function QuoteEditorPage() {
                   setModal(null);
                 }}
               >
-                <Icon name="table" />
                 <span>
                   <strong>Excel cek harga untuk sales</strong>
                   <small className="muted">
@@ -1066,7 +1063,6 @@ export function QuoteEditorPage() {
                 setTimeout(() => window.print(), 350);
               }}
             >
-              <Icon name="print" />
               <span>
                 <strong>Cetak</strong>
                 <small className="muted"> Membuka dialog cetak browser untuk dokumen penawaran.</small>

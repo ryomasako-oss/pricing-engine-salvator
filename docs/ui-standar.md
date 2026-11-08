@@ -130,7 +130,7 @@ Satu komponen per kebutuhan. Daftar di bawah menggantikan kelas yang ada sekaran
 | Komponen | Aturan | Menggantikan |
 |---|---|---|
 | **Button** | Jenis: `primary`, `secondary`, `ghost`, `danger`, `success`, `on-brand`. Ukuran `sm/md/lg`. Satu `primary` per area. Saat proses: label "Menyimpan…" dan nonaktif. Tanpa ikon kecuali tombol ikon-saja (`.icon-btn`) dan chevron menu | `.btn` dengan urutan kelas acak (`btn small ghost` / `btn ghost small`) |
-| **Field** | Label di atas, `*` bila wajib, bantuan atau eror di bawah (eror berwarna `err-text` dengan ikon ⚠), tepi `border-strong`. Varian: input, select, textarea, search, suffix (%, Rp) | `.input`, `.select`, `.textarea`, `.field`, `.cell` |
+| **Field** | Label di atas, `*` bila wajib, bantuan atau eror di bawah (eror berwarna `err-text`, tanpa ikon), tepi `border-strong`. Varian: input, select, textarea, search, suffix (%, Rp) | `.input`, `.select`, `.textarea`, `.field`, `.cell` |
 | **Checkbox / Toggle** | Checkbox untuk filter dan pilihan; Toggle untuk pengaturan yang langsung berlaku (Aktif/Nonaktif) | |
 | **Badge** | SATU komponen status: titik + teks, pill, nada `neutral/info/ok/warn/err/purple`. Badge tanpa titik untuk hitungan dan alias | `.badge`, `.pill`, `.status-chip`, `.chip` |
 | **Menu** | Tombol `secondary` dengan ▾ (ikon), daftar aksi di bawahnya: ikon + label + keterangan `caption`, pemisah antarkelompok, aksi bahaya merah di paling bawah. Escape/klik di luar menutup, panah atas/bawah berpindah | `components/Menu.tsx` |
@@ -167,7 +167,7 @@ Struktur yang sama untuk semua halaman: **Top bar → judul halaman (h1, deskrip
 | Klien | `/clients` | semua (hapus: `delete_clients`) | "Klien baru" (utama). Toolbar: cari nama/kode/PIC + jumlah klien. Tabel nama (+alamat), kode, kontak (+email), termin, jumlah quotation, Ubah (`ghost sm`) + ikon hapus. Hapus lewat modal konfirmasi; bila klien masih dipakai quotation (server menolak, 409) yang muncul modal info "belum bisa dihapus" dengan tombol Tutup saja. Modal ubah: grid field, alamat, template dokumen (kolom dengan ikon naik/turun, bukan glif ↑↓) |
 | Pengaturan | `/settings?bagian=…` | sesuai izin | Sub-navigasi kiri 240 px (Kebijakan harga, Identitas dokumen, Password Excel, Notifikasi, Kata sandi saya, Pengguna, Permintaan reset + hitungan merah); satu bagian tampil, dipilih lewat `?bagian=` (baris admin "Permintaan reset sandi" di dasbor membuka `?bagian=reset`). < 1056 px: sub-nav jadi baris geser di atas. Bagian disembunyikan sesuai izin; sales melihat Identitas (hanya baca), Notifikasi, Kata sandi. Field dengan affix (%, Rp). Status pengguna sebagai Badge di samping toggle; peran tetap select karena bisa diubah admin. Simpan di kanan bawah kartu |
 
-Modal standar (FigCraft "04 Modal & status"): Quotation baru, Ekspor quotation (daftar opsi dengan ikon), Putuskan quotation (banner pelanggaran + catatan; Tolak `danger`, Setujui `success`), Konfirmasi hapus.
+Modal standar (FigCraft "04 Modal & status"): Quotation baru, Ekspor quotation (daftar opsi: judul + keterangan, tanpa ikon), Putuskan quotation (banner pelanggaran + catatan; Tolak `danger`, Setujui `success`), Konfirmasi hapus.
 
 Mobile (FigCraft "05 Mobile"): daftar quotation sebagai kartu, login, Silvy layar penuh, item quotation sales dengan aksi Simpan/Ajukan di bawah.
 
