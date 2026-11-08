@@ -8,7 +8,7 @@
    still an email when Silvy is off or fails (the numbers come from here). */
 
 import { all, batch, get, getSetting, setSetting, stmt } from "../db.d1";
-import { STOCK_TOP, buildRecap, recapEmail, recapIsEmpty } from "../../shared/accurateRecap";
+import { STOCK_TOP, buildRecap, negativeFollowUp, recapEmail, recapIsEmpty } from "../../shared/accurateRecap";
 import { STOCK_AS_OF_KEY } from "./accurate/stock";
 import { forwardToSilvy, silvyConfigFrom } from "../silvy";
 import { applyPurchaseCosts } from "./accurate/purchaseCost";
@@ -37,6 +37,14 @@ export function recapRecipients(raw: string | undefined): string[] {
 }
 /** Highest accurate_sales_lines.synced_at already reported under "dijual di bawah modal". */
 const BELOW_COST_KEY = "sales_below_cost_cursor";
+/**
+ * The minus items as of the last recap email that went out: {asOf, items: {code: stock}}. The next
+ * email reports which of them are fixed (Ryoma, 2026-11-07). Kept only when an email is sent, so
+ * the follow-up always compares with what people last read.
+ */
+const NEGATIVE_KEY = "accurate_recap_negative";
+/** shortcut: a JSON settings row, not a table; fine for a few thousand items, move to a table beyond that. */
+const NEGATIVE_KEEP = 3000;
 const wibDate = (now: Date) => new Date(now.getTime() + 7 * 3_600_000).toISOString().slice(0, 10);
 
 export type RecapOutcome =
@@ -73,8 +81,9 @@ export async function runAccurateRecap(
     "SELECT last_success_at, last_error FROM accurate_sync_state WHERE entity = ?",
     entity,
   );
+  const prevNegative = parsePrevNegative(await getSetting(db, NEGATIVE_KEY, ""));
   // Catalog stock as sales see it, only once a completed run has refreshed it (accurate/stock.ts).
-  const [stockTotals, negative] = await batch(db, [
+  const [stockTotals, negative, prevNow] = await batch(db, [
     stmt(
       db,
       `SELECT (SELECT value FROM settings WHERE key = ?) AS as_of, COALESCE(SUM(stock > 0), 0) AS in_stock,
@@ -82,8 +91,15 @@ export async function runAccurateRecap(
          FROM catalog_items`,
       STOCK_AS_OF_KEY,
     ),
-    stmt(db, `SELECT code, name, stock AS qty FROM catalog_items WHERE stock < 0 ORDER BY stock, code LIMIT ${STOCK_TOP}`),
+    // Every minus item, not only the listed ones: the next email follows all of them up.
+    stmt(db, `SELECT code, name, stock AS qty FROM catalog_items WHERE stock < 0 ORDER BY stock, code LIMIT ${NEGATIVE_KEEP}`),
+    stmt(
+      db,
+      "SELECT code, name, stock AS qty FROM catalog_items WHERE code IN (SELECT key FROM json_each(?))",
+      JSON.stringify(prevNegative?.items ?? {}),
+    ),
   ]);
+  const negativeRows = negative.results as { code: string; name: string; qty: number }[];
   const totals = stockTotals.results[0] as { as_of: string | null; in_stock: number; empty: number; negative: number } | undefined;
   const stock = totals?.as_of
     ? {
@@ -91,7 +107,11 @@ export async function runAccurateRecap(
         inStock: totals.in_stock,
         empty: totals.empty,
         negative: totals.negative,
-        topNegative: negative.results as { code: string; name: string; qty: number }[],
+        topNegative: negativeRows.slice(0, STOCK_TOP),
+        // Same stock position as the previous email: nothing could have been fixed yet, so no follow-up.
+        ...(prevNegative && prevNegative.asOf !== totals.as_of
+          ? { followUp: negativeFollowUp(prevNegative.asOf, prevNegative.items, prevNow.results as { code: string; name: string; qty: number }[]) }
+          : {}),
       }
     : null;
   // Invoice lines since the last recap, not the last day: the first backfill spans several days.
@@ -112,6 +132,9 @@ export async function runAccurateRecap(
   await setSetting(db, LAST_KEY, today);
   if (below?.cursor) await setSetting(db, BELOW_COST_KEY, below.cursor);
   if (recapIsEmpty(recap)) return { skipped: "nothing-to-report" };
+  if (stock) {
+    await setSetting(db, NEGATIVE_KEY, JSON.stringify({ asOf: stock.asOf, items: Object.fromEntries(negativeRows.map((n) => [n.code, n.qty])) }));
+  }
 
   const reply = await forwardToSilvy(
     silvyConfigFrom(env as unknown as Record<string, string | undefined>),
@@ -142,4 +165,13 @@ export async function runAccurateRecap(
     ...(error ? { error: error.slice(0, 200) } : {}),
   });
   return { sent: recipients.length, silvy: narrative ? "ok" : "failed", ...(error ? { error } : {}) };
+}
+
+function parsePrevNegative(raw: string): { asOf: string; items: Record<string, number> } | null {
+  try {
+    const v = JSON.parse(raw) as { asOf?: unknown; items?: unknown };
+    return typeof v.asOf === "string" && v.items && typeof v.items === "object" ? { asOf: v.asOf, items: v.items as Record<string, number> } : null;
+  } catch {
+    return null;
+  }
 }

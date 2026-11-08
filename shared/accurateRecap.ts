@@ -116,6 +116,37 @@ export interface RecapStock {
   negative: number;
   /** Most negative first, at most STOCK_TOP. */
   topNegative: { code: string; name: string; qty: number }[];
+  /** What became of the items that were minus when the last recap email went out (Ryoma, 2026-11-07). */
+  followUp?: RecapNegativeFollowUp;
+}
+
+export interface RecapNegativeFollowUp {
+  /** Stock position of the previous email (ISO). */
+  since: string;
+  /** Items minus in the previous email that are still in the catalog. */
+  was: number;
+  /** Now at zero or above. */
+  fixed: number;
+  stillNegative: number;
+  /** Fixed items, at most STOCK_TOP, the biggest correction first. */
+  topFixed: { code: string; name: string; before: number; qty: number }[];
+}
+
+/**
+ * Compares the minus items of the previous email (code → stock then) with the catalog now.
+ * Items no longer in the catalog are left out: there is nothing to follow up.
+ */
+export function negativeFollowUp(
+  since: string,
+  before: Record<string, number>,
+  now: { code: string; name: string; qty: number }[],
+): RecapNegativeFollowUp {
+  const known = now.filter((n) => n.code in before);
+  const fixed = known
+    .filter((n) => n.qty >= 0)
+    .map((n) => ({ code: n.code, name: n.name, before: before[n.code], qty: n.qty }))
+    .sort((a, b) => a.before - b.before || a.code.localeCompare(b.code));
+  return { since, was: known.length, fixed: fixed.length, stillNegative: known.length - fixed.length, topFixed: fixed.slice(0, STOCK_TOP) };
 }
 
 /** A run finishes every 6 hours (ACCURATE_SYNC_EVERY_HOURS); a day without one means it is stuck. */
@@ -274,6 +305,10 @@ export function recapPrompt(r: AccurateRecap): string {
     const s = r.stock;
     lines.push(`Stok katalog (posisi Accurate ${fmtWib(s.asOf)} WIB): ada stok ${grp(s.inStock)}, habis ${grp(s.empty)}, minus ${grp(s.negative)}`);
     for (const n of s.topNegative.slice(0, PROMPT_SKIPS)) lines.push(`- stok minus ${n.code} ${n.name}: ${grp(n.qty)}`);
+    if (s.followUp?.was) {
+      const f = s.followUp;
+      lines.push(`Stok minus di rekap sebelumnya (${fmtWib(f.since)} WIB): ${grp(f.was)} barang, sudah tidak minus ${grp(f.fixed)}, masih minus ${grp(f.stillNegative)}`);
+    }
   }
   if (r.belowCost?.count) {
     const b = r.belowCost;
@@ -321,6 +356,21 @@ export function narrativeHtml(text: string): string {
 const td = (s: string, right = false) => `<td style="padding:4px 8px;border-bottom:1px solid #ddd${right ? ";text-align:right" : ""}">${s}</td>`;
 const th = (s: string, right = false) => `<th style="padding:4px 8px;border-bottom:2px solid #999;text-align:${right ? "right" : "left"}">${s}</th>`;
 
+function followUpHtml(f: RecapNegativeFollowUp): string {
+  return (
+    `<h4 style="margin:12px 0 4px">Tindak lanjut stok minus dari rekap sebelumnya</h4>` +
+    `<p>Dari <strong>${grp(f.was)}</strong> barang yang minus per ${esc(fmtWib(f.since))} WIB: ` +
+    `sudah tidak minus <strong style="color:#1e8449">${grp(f.fixed)}</strong> · ` +
+    `masih minus <strong${f.stillNegative ? ' style="color:#c0392b"' : ""}>${grp(f.stillNegative)}</strong></p>` +
+    (f.topFixed.length
+      ? `<table style="border-collapse:collapse;font-size:13px"><tr>${th("Kode")}${th("Nama")}${th("Sebelumnya", true)}${th("Sekarang", true)}</tr>` +
+        f.topFixed.map((n) => `<tr>${td(esc(n.code))}${td(esc(n.name))}${td(`<span style="color:#c0392b">${grp(n.before)}</span>`, true)}${td(`<strong>${grp(n.qty)}</strong>`, true)}</tr>`).join("") +
+        `</table>` +
+        (f.fixed > f.topFixed.length ? `<p><small>${grp(f.fixed - f.topFixed.length)} barang lain juga sudah tidak minus.</small></p>` : "")
+      : "")
+  );
+}
+
 export function recapEmail(
   r: AccurateRecap,
   narrative: string | null,
@@ -362,6 +412,7 @@ export function recapEmail(
             s.topNegative.map((n) => `<tr>${td(esc(n.code))}${td(esc(n.name))}${td(`<strong style="color:#c0392b">${grp(n.qty)}</strong>`, true)}</tr>`).join("") +
             `</table>`
           : "") +
+        (s.followUp?.was ? followUpHtml(s.followUp) : "") +
         `</div>`,
     );
   }

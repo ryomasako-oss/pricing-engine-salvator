@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PROMPT_CHANGES, PROMPT_SKIPS, TOP_N, buildRecap, narrativeHtml, recapEmail, recapIsEmpty, recapPrompt, type RecapChange } from "./accurateRecap";
+import { PROMPT_CHANGES, PROMPT_SKIPS, TOP_N, buildRecap, narrativeHtml, negativeFollowUp, recapEmail, recapIsEmpty, recapPrompt, type RecapChange } from "./accurateRecap";
 import { CHECK_KEYS, type ReconcileCounts } from "./accurateReconcile";
 
 const change = (code: string, from: number, to: number): RecapChange => ({ code, name: `Barang ${code}`, from, to, receiptNo: `RI.${code}`, transDate: "2026-05-22" });
@@ -177,6 +177,36 @@ describe("stok Accurate (2026-10-30)", () => {
     const p = recapPrompt(recap({ stock }));
     expect(p).toContain("Stok katalog (posisi Accurate 30/10/2026 08:00 WIB): ada stok 5.200, habis 1.800, minus 4");
     expect(p.match(/stok minus /g)).toHaveLength(PROMPT_SKIPS);
+  });
+
+  it("follows up the previous email's minus items: fixed ones listed, escaped, biggest correction first", () => {
+    const followUp = negativeFollowUp(
+      "2026-10-29T01:00:00.000Z",
+      { K1: -1500, K9: -40, GONE: -5, K2: -3 },
+      [
+        { code: "K9", name: "Lakban <besar>", qty: 0 },
+        { code: "K1", name: "Kertas", qty: 20 },
+        { code: "K2", name: "Map", qty: -3 },
+      ],
+    );
+    expect(followUp).toEqual({
+      since: "2026-10-29T01:00:00.000Z",
+      was: 3,
+      fixed: 2,
+      stillNegative: 1,
+      topFixed: [
+        { code: "K1", name: "Kertas", before: -1500, qty: 20 },
+        { code: "K9", name: "Lakban <besar>", before: -40, qty: 0 },
+      ],
+    });
+    const { html } = recapEmail(recap({ stock: { ...stock, followUp } }), "Ringkasan.", "x");
+    expect(html).toContain("Dari <strong>3</strong> barang yang minus per 29/10/2026 08:00 WIB");
+    expect(html).toContain("Lakban &lt;besar&gt;");
+    expect(html).toContain(">-1.500<");
+    expect(recapPrompt(recap({ stock: { ...stock, followUp } }))).toContain("sudah tidak minus 2, masih minus 1");
+    // Nothing from the previous email left in the catalog: no block.
+    const none = negativeFollowUp("2026-10-29T01:00:00.000Z", { GONE: -5 }, []);
+    expect(recapEmail(recap({ stock: { ...stock, followUp: none } }), null, "x").html).not.toContain("Tindak lanjut");
   });
 
   it("is left out before the first refresh, and doesn't make an email on its own", () => {
