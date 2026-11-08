@@ -2,7 +2,7 @@
 
 Satu bahasa tampilan untuk semua halaman. Dokumen ini adalah aturan; desain visualnya ada di berkas FigCraft
 `PRICING ENGINE DATA HUB/design/pricing-engine-ui-standar.figcraft` (di luar repo), dengan halaman:
-00 Panduan · 01 Fondasi · 02 Komponen · 03 Halaman desktop · 04 Modal & status · 05 Mobile · 06 Peran · 07 Modal lengkap · 08 Bagian halaman · 09 HP lengkap.
+00 Panduan · 01 Fondasi · 02 Komponen · 03 Halaman desktop · 04 Modal & status · 05 Mobile · 06 Peran · 07 Modal lengkap · 08 Bagian halaman · 09 HP lengkap · 10 Tema gelap · HP · 11 Tema gelap · Dasbor.
 Setiap tampilan aplikasi (halaman, modal, tab/bagian, layar HP) wajib ada di berkas itu dan diperbarui setiap kali tampilannya berubah; berkas dibangun dari `design/generator` (`build.py`, `peran.py`, `lengkap.py`).
 
 Status: diterapkan di cabang `feat/ui-standar` (sudah masuk `develop` lewat PR #118; lanjutan di cabang); lihat "Status penerapan".
