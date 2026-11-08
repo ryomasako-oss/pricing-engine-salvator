@@ -93,17 +93,21 @@ export function ItemsTable({
     });
   }, [engine.rows, query, sort, onlyFlagged, scenario]);
 
-  const head = (key: SortKey, label: string, className = "", minWidth?: number) => (
-    <th
-      className={className}
-      style={{ cursor: "pointer", minWidth }}
-      onClick={() => setSort((s) => ({ key, dir: s.key === key && s.dir === 1 ? -1 : 1 }))}
-      title="Klik untuk mengurutkan"
-    >
-      {label}
-      {sort.key === key ? (sort.dir === 1 ? " ▲" : " ▼") : ""}
-    </th>
-  );
+  // Same as the catalog: the label is a button (keyboard reachable), the icon and aria-sort carry the state.
+  const head = (key: SortKey, label: string, className = "", minWidth?: number) => {
+    const on = sort.key === key;
+    return (
+      <th className={className} style={minWidth ? { minWidth } : undefined} aria-sort={on ? (sort.dir === 1 ? "ascending" : "descending") : "none"}>
+        <button
+          type="button"
+          className={`th-sort${on ? " on" : ""}`}
+          onClick={() => setSort((s) => ({ key, dir: s.key === key && s.dir === 1 ? -1 : 1 }))}
+        >
+          {label} <Icon name={on ? (sort.dir === 1 ? "sort-asc" : "sort-desc") : "sort"} size={14} />
+        </button>
+      </th>
+    );
+  };
 
   return (
     <div>
