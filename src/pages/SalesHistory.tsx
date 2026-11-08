@@ -70,11 +70,11 @@ export function SalesHistoryPage() {
   const pages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
 
   return (
-    <main className="hk-main">
+    <main className="hk-main page-stack">
       <div className="hk-page-head">
         <div>
-          <Link to="/pencocokan" className="link-btn small">
-            <Icon name="back" size={12} /> Kembali ke Pencocokan
+          <Link to="/pencocokan" className="link-btn">
+            <Icon name="back" size={14} /> Kembali ke Pencocokan
           </Link>
           <h1>Riwayat penjualan (SI)</h1>
           <p>
@@ -82,93 +82,128 @@ export function SalesHistoryPage() {
             nama katalog, tulisan klien, atau nama customer untuk mengecek pencocokan. Harga setelah diskon, sebelum PPN.
           </p>
         </div>
-        <Link className="btn small ghost" to="/cogs-history">
-          <Icon name="search" size={13} /> Riwayat COGS
+        <Link className="btn ghost" to="/cogs-history">
+          <Icon name="history" size={15} /> Riwayat COGS
         </Link>
       </div>
 
       <div className="card">
-        <div className="card-body">
-          <div className="row-wrap" style={{ marginBottom: 12 }}>
-            <input
-              type="search"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Cari kode, nama barang, tulisan di faktur, atau customer"
-              aria-label="Cari riwayat penjualan"
-              style={{ flex: 1, minWidth: 200 }}
-            />
-          </div>
-
-          {loading && !data ? (
-            <div className="loading"><span className="dots"><i /><i /><i /></span> Memuat…</div>
-          ) : !data || data.cards.length === 0 ? (
-            <div className="empty">
-              <Icon name="search" size={28} />
-              <h3>Tidak ada penjualan yang cocok</h3>
-            </div>
-          ) : (
-            <>
-              <div className="muted small" style={{ marginBottom: 8 }}>
-                {grp(data.total)} barang · halaman {page} dari {pages}
-              </div>
-              <ul className="list" style={{ gap: 10, opacity: loading ? 0.6 : 1 }}>
-                {data.cards.map((c) => (
-                  <li key={c.code} className="card" style={{ padding: 12 }}>
-                    <div>
-                      <strong>{c.name}</strong>
-                      <div className="muted small">{c.code} · per {c.uom}</div>
-                    </div>
-
-                    {c.names.length > 0 && (
-                      <div className="small" style={{ marginTop: 8 }}>
-                        <strong>Ditulis di faktur sebagai</strong>
-                        <div className="row-wrap" style={{ gap: 4, marginTop: 4 }}>
-                          {c.names.map((n) => (
-                            <span key={n.name} className="badge grey">
-                              {n.name} <span className="muted">×{grp(n.count)}</span>
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="small" style={{ marginTop: 8 }}>
-                      <strong>Faktur terbaru</strong>
-                      <ul className="list" style={{ gap: 2 }}>
-                        {c.sales.map((s, i) => (
-                          <li key={s.invoiceNo + i}>
-                            {fmtDate(s.transDate)} · {s.invoiceNo} · {s.customerName || "—"} · {grp(s.quantity)} {s.unit}
-                            {s.price === null ? (
-                              <span className="muted"> · diretur semua</span>
-                            ) : (
-                              <>
-                                {" "}· {rp(s.price)} / {s.unit || c.baseUom}
-                                {s.unit && s.unit.toLowerCase() !== c.baseUom.toLowerCase() && (
-                                  <span className="muted"> ({rp(s.perBase!)} / {c.baseUom})</span>
-                                )}
-                              </>
-                            )}
-                            {s.detailName && <div className="muted">“{s.detailName}”</div>}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-              <div className="row-wrap" style={{ marginTop: 12, justifyContent: "center" }}>
-                <button className="btn small ghost" disabled={page <= 1 || loading} onClick={() => setPage(page - 1)}>
-                  Sebelumnya
-                </button>
-                <button className="btn small ghost" disabled={page >= pages || loading} onClick={() => setPage(page + 1)}>
-                  Berikutnya
-                </button>
-              </div>
-            </>
-          )}
+        <div className="toolbar">
+          <input
+            className="input toolbar-search wide"
+            type="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Cari kode, nama barang, tulisan di faktur, atau customer"
+            aria-label="Cari riwayat penjualan"
+          />
+          <span className="grow" />
+          {data && <span className="muted small num">{grp(data.total)} barang terjual</span>}
         </div>
       </div>
+
+      {loading && !data ? (
+        <div className="card">
+          <div className="card-body skeleton-list" role="status" aria-label="Memuat riwayat penjualan…">
+            {[0, 1, 2, 3].map((i) => <span key={i} className="skeleton" />)}
+          </div>
+        </div>
+      ) : !data || data.cards.length === 0 ? (
+        <div className="card">
+          <div className="card-body empty">
+            <Icon name="search" size={28} />
+            <h3>Tidak ada penjualan yang cocok</h3>
+            <p>{search ? "Coba kode barang, sebagian nama, atau nama customer." : "Belum ada faktur penjualan dari Accurate."}</p>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className={`item-cards${loading ? " is-stale" : ""}`}>
+            {data.cards.map((c) => (
+              <section key={c.code} className="card" aria-label={c.name}>
+                <div className="card-head">
+                  <div className="card-title">
+                    <h3>{c.name}</h3>
+                    <span className="muted small">{c.code} · per {c.uom}</span>
+                  </div>
+                </div>
+                <div className="card-body form-stack">
+                  {c.names.length > 0 && (
+                    <div className="row-wrap">
+                      <span className="muted">Ditulis di faktur sebagai:</span>
+                      {c.names.map((n) => (
+                        <span key={n.name} className="badge grey">
+                          {n.name} <span className="num">×{grp(n.count)}</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="card-section">
+                    <h4 className="label-title">Faktur terbaru</h4>
+                    <div className="table-wrap">
+                      <table className="table">
+                        <thead>
+                          <tr>
+                            <th className="l">Tanggal</th>
+                            <th className="l">Nomor faktur</th>
+                            <th className="l">Customer</th>
+                            <th>Qty</th>
+                            <th>Harga</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {c.sales.map((s, i) => (
+                            <tr key={s.invoiceNo + i}>
+                              <td className="l nowrap">{fmtDate(s.transDate)}</td>
+                              <td className="l num nowrap">{s.invoiceNo}</td>
+                              <td className="l">
+                                {s.customerName || "—"}
+                                {s.detailName && <div className="muted small">“{s.detailName}”</div>}
+                              </td>
+                              <td className="num nowrap">
+                                {grp(s.quantity)} {s.unit}
+                              </td>
+                              <td className="num nowrap">
+                                {s.price === null ? (
+                                  <span className="badge red">Diretur semua</span>
+                                ) : (
+                                  <>
+                                    {rp(s.price)} / {s.unit || c.baseUom}
+                                    {s.unit && s.unit.toLowerCase() !== c.baseUom.toLowerCase() && (
+                                      <div className="muted small">
+                                        {rp(s.perBase!)} / {c.baseUom}
+                                      </div>
+                                    )}
+                                  </>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            ))}
+          </div>
+          {pages > 1 && (
+            <div className="pager">
+              <span className="muted small num">
+                Halaman {page} dari {pages}
+              </span>
+              <span className="grow" />
+              <button className="btn small" disabled={page <= 1 || loading} onClick={() => setPage(page - 1)}>
+                Sebelumnya
+              </button>
+              <button className="btn small" disabled={page >= pages || loading} onClick={() => setPage(page + 1)}>
+                Berikutnya
+              </button>
+            </div>
+          )}
+        </>
+      )}
     </main>
   );
 }

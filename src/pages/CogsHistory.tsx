@@ -121,7 +121,7 @@ export function CogsHistoryPage() {
         </div>
       ) : (
         <>
-          <div className={`cogs-list${loading ? " is-stale" : ""}`}>
+          <div className={`item-cards${loading ? " is-stale" : ""}`}>
             {data.cards.map((c) => (
               <section key={c.code} className="card" aria-label={c.name}>
                 <div className="card-head">
@@ -141,7 +141,7 @@ export function CogsHistoryPage() {
                     )}
                   </div>
 
-                  <div className="cogs-section">
+                  <div className="card-section">
                     <h4 className="label-title">Harga beli (RI)</h4>
                     {c.receipts.length === 0 ? (
                       <p className="muted">Belum ada RI dalam riwayat yang tersimpan.</p>
@@ -188,7 +188,7 @@ export function CogsHistoryPage() {
                   </div>
 
                   {c.changes.length > 0 && (
-                    <div className="cogs-section">
+                    <div className="card-section">
                       <h4 className="label-title">COGS katalog yang pernah diganti</h4>
                       <ul className="list-stack compact">
                         {c.changes.map((h, i) => (

@@ -17,7 +17,12 @@ for (const theme of THEMES) {
       await expectTheme(page, theme);
       await page.getByLabel("Cari riwayat penjualan").fill("oli rantai");
       await expect(page.getByText("ZQSI PELUMAS RANTAI", { exact: true }).first()).toBeVisible();
-      await expect(page.getByText(/SI\.2026\.10\.09001 · PT Zqsi Klien · 2 BOX · Rp\s?144\.000 \/ BOX \(Rp\s?12\.000 \/ Btl\)/)).toBeVisible();
+      // One invoice line per table row: customer, quantity, price per invoiced unit and per base unit.
+      const line = page.getByRole("row", { name: /SI\.2026\.10\.09001/ });
+      await expect(line).toContainText("PT Zqsi Klien");
+      await expect(line).toContainText("2 BOX");
+      await expect(line).toContainText(/Rp\s?144\.000 \/ BOX/);
+      await expect(line).toContainText(/Rp\s?12\.000 \/ Btl/);
       await expect(page.getByText("zqsi oli rantai 800ml").first()).toBeVisible();
       await expectReadable(page.getByText(/SI\.2026\.09\.09002/));
       await page.screenshot({ path: `test-results/sales-history-${theme}.png`, fullPage: true });
