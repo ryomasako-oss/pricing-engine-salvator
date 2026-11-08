@@ -11,6 +11,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
 import { useToast } from "../context/ToastContext";
+import { ConfirmModal } from "./Modal";
 import { fmtDate, fmtDateTime, grp, pct, rp } from "@shared/format";
 
 interface ReceiptStatus {
@@ -89,6 +90,7 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
   const [showHeld, setShowHeld] = useState(true);
   const [busy, setBusy] = useState<"preview" | "apply" | "held" | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [asking, setAsking] = useState<null | "apply" | "held">(null);
 
   const loadStatus = useCallback(() => {
     api.get<ReceiptStatus>("/accurate/receipts").then(setStatus).catch(() => setStatus(null));
@@ -122,14 +124,7 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
 
   const apply = async () => {
     if (!preview) return;
-    const big = preview.changed.filter((c) => Math.abs(jump(c)) > BIG_JUMP).length;
-    const ok = window.confirm(
-      `Ubah COGS ${grp(preview.changed.length)} barang ke harga pembelian terakhir?\n\n` +
-        (big ? `${grp(big)} barang berubah lebih dari 50%: barisnya di quotation akan ditahan sampai manajer menekan "COGS ini benar".\n\n` : "") +
-        (preview.held.length ? `${grp(preview.held.length)} barang ditahan dan tidak ikut diubah.\n\n` : "") +
-        "COGS acuan tidak berubah. Barang yang dilewati tetap memakai COGS lamanya.",
-    );
-    if (!ok) return;
+    setAsking(null);
     setBusy("apply");
     try {
       const r = await api.post<Preview>("/accurate/apply-cogs", { dryRun: false });
@@ -156,11 +151,7 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
     if (!preview) return;
     const items = preview.held.filter((h) => picked.has(h.code));
     if (!items.length) return;
-    const ok = window.confirm(
-      `Terapkan harga pembelian terakhir untuk ${grp(items.length)} barang yang ditahan?\n\n` +
-        "COGS dan COGS acuannya ikut diubah, sama seperti menekan \"COGS ini benar\". Pastikan RI-nya sudah dicek.",
-    );
-    if (!ok) return;
+    setAsking(null);
     setBusy("held");
     try {
       const r = await api.post<HeldApplied>("/accurate/apply-held-cogs", { items: items.map((h) => ({ code: h.code, to: h.to })) });
@@ -179,7 +170,7 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
   };
 
   return (
-    <div style={{ marginTop: 16, borderTop: "1px solid var(--color-border)", paddingTop: 12 }}>
+    <div className="subsection">
       <div className="row-between">
         <div>
           <strong>COGS dari harga pembelian terakhir</strong>{" "}
@@ -210,7 +201,7 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
             Cari riwayat SI
           </Link>
           {preview && preview.changed.length > 0 && (
-            <button className="btn small" disabled={!!busy} onClick={apply}>
+            <button className="btn small" disabled={!!busy} onClick={() => setAsking("apply")}>
               {busy === "apply" ? "Menerapkan…" : `Terapkan ${grp(preview.changed.length)} perubahan`}
             </button>
           )}
@@ -252,7 +243,7 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
                 katalog, atau kalau harganya memang benar, centang lalu terapkan.
               </div>
               <div className="row-wrap" style={{ marginTop: 4 }}>
-                <button className="btn small" disabled={!!busy || picked.size === 0} onClick={applyHeld}>
+                <button className="btn small" disabled={!!busy || picked.size === 0} onClick={() => setAsking("held")}>
                   {busy === "held" ? "Menerapkan…" : picked.size ? `Terapkan ${grp(picked.size)} yang dicentang` : "Centang barang yang harganya benar"}
                 </button>
               </div>
@@ -380,6 +371,36 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
             </div>
           )}
         </div>
+      )}
+      {asking === "apply" && preview && (
+        <ConfirmModal
+          title={`Ubah COGS ${grp(preview.changed.length)} barang?`}
+          tone="primary"
+          message={
+            <>
+              COGS diganti ke harga pembelian terakhir.
+              {preview.changed.filter((c) => Math.abs(jump(c)) > BIG_JUMP).length > 0 &&
+                ` ${grp(preview.changed.filter((c) => Math.abs(jump(c)) > BIG_JUMP).length)} barang berubah lebih dari 50%: barisnya di quotation ditahan sampai manajer menekan "COGS ini benar".`}
+              {preview.held.length > 0 && ` ${grp(preview.held.length)} barang ditahan dan tidak ikut diubah.`} COGS acuan tidak
+              berubah; barang yang dilewati tetap memakai COGS lamanya.
+            </>
+          }
+          confirmLabel="Ubah COGS"
+          busy={busy === "apply"}
+          onConfirm={() => void apply()}
+          onClose={() => setAsking(null)}
+        />
+      )}
+      {asking === "held" && preview && (
+        <ConfirmModal
+          title={`Terapkan harga untuk ${grp(picked.size)} barang yang ditahan?`}
+          tone="primary"
+          message='COGS dan COGS acuannya ikut diubah, sama seperti menekan "COGS ini benar". Pastikan RI-nya sudah dicek.'
+          confirmLabel="Terapkan"
+          busy={busy === "held"}
+          onConfirm={() => void applyHeld()}
+          onClose={() => setAsking(null)}
+        />
       )}
     </div>
   );

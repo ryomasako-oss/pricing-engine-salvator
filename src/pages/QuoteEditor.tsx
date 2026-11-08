@@ -212,11 +212,7 @@ export function QuoteEditorPage() {
   }, [dirty]);
 
   // Same, but for in-app navigation (NavLink clicks), which beforeunload can't see.
-  useUnsavedGuard(
-    dirty
-      ? () => window.confirm("Ada perubahan yang belum disimpan. Tinggalkan halaman ini?")
-      : null,
-  );
+  useUnsavedGuard(dirty);
 
   const update = useCallback((patch: Partial<QuoteSnapshot>) => {
     setSnapshot((s) => {

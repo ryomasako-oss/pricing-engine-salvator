@@ -196,7 +196,7 @@ export function StaffQuotePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dirty, editKey(lines), meta, quoteId]);
 
-  useUnsavedGuard(dirty ? () => window.confirm("Ada perubahan yang belum disimpan. Tinggalkan halaman ini?") : null);
+  useUnsavedGuard(dirty);
 
   const edit = (id: string, patch: Partial<StaffLine>) => {
     setLines((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));

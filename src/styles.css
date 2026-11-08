@@ -1141,3 +1141,4 @@ a.btn, a.btn:hover { text-decoration: none; }
 .pct-cell { min-width: 52px; text-align: right; }
 .card-body.tight-bottom { padding-bottom: var(--space-2); }
 .scroll-x { overflow-x: auto; }
+.subsection { margin-top: var(--space-5); padding-top: var(--space-4); border-top: 1px solid var(--color-border); }
