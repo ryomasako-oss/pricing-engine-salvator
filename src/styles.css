@@ -1070,3 +1070,13 @@ input[type=checkbox] { accent-color: var(--action); width: 17px; height: 17px; f
 .disclosure-toggle { width: 100%; justify-content: space-between; }
 .disclosure-toggle[aria-expanded="true"] svg { transform: rotate(180deg); }
 a.btn, a.btn:hover { text-decoration: none; }
+
+/* ---------------- Riwayat COGS ---------------- */
+.cogs-list { display: flex; flex-direction: column; gap: var(--space-5); transition: opacity .15s; }
+.cogs-list.is-stale { opacity: .6; }
+.cogs-section { display: flex; flex-direction: column; gap: var(--space-3); }
+.cogs-section p { margin: 0; }
+.label-title { margin: 0; font: var(--text-label); color: var(--color-text-2); }
+.list-stack.compact { gap: var(--space-2); }
+.pager { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); }
+.badge > svg { vertical-align: -2px; }

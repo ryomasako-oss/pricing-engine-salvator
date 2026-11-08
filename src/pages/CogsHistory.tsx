@@ -62,11 +62,11 @@ export function CogsHistoryPage() {
   const pages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
 
   return (
-    <main className="hk-main">
+    <main className="hk-main page-stack">
       <div className="hk-page-head">
         <div>
-          <Link to="/catalog" className="link-btn small">
-            <Icon name="back" size={12} /> Kembali ke Katalog
+          <Link to="/catalog" className="link-btn">
+            <Icon name="back" size={14} /> Kembali ke Katalog
           </Link>
           <h1>Riwayat COGS</h1>
           <p>
@@ -74,112 +74,151 @@ export function CogsHistoryPage() {
             menampilkan; untuk mengubah COGS pakai "COGS dari harga pembelian terakhir" di Katalog.
           </p>
         </div>
-        <Link className="btn small ghost" to="/sales-history">
-          <Icon name="search" size={13} /> Riwayat penjualan (SI)
+        <Link className="btn ghost" to="/sales-history">
+          <Icon name="history" size={15} /> Riwayat penjualan (SI)
         </Link>
       </div>
 
       <div className="card">
-        <div className="card-body">
-          <div className="row-wrap" style={{ marginBottom: 12 }}>
+        <div className="toolbar">
+          <input
+            className="input toolbar-search"
+            type="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Cari kode atau nama barang"
+            aria-label="Cari barang"
+          />
+          <label className="check">
             <input
-              type="search"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Cari kode atau nama barang"
-              aria-label="Cari barang"
-              style={{ flex: 1, minWidth: 200 }}
+              type="checkbox"
+              checked={onlyPending}
+              onChange={(e) => {
+                setOnlyPending(e.target.checked);
+                setPage(1);
+              }}
             />
-            <label className="small row-wrap" style={{ gap: 6 }}>
-              <input
-                type="checkbox"
-                checked={onlyPending}
-                onChange={(e) => {
-                  setOnlyPending(e.target.checked);
-                  setPage(1);
-                }}
-              />
-              Hanya yang COGS-nya beda dari RI terakhir
-            </label>
-          </div>
-
-          {loading && !data ? (
-            <div className="loading"><span className="dots"><i /><i /><i /></span> Memuat…</div>
-          ) : !data || data.cards.length === 0 ? (
-            <div className="empty">
-              <Icon name="search" size={28} />
-              <h3>Tidak ada barang</h3>
-            </div>
-          ) : (
-            <>
-              <div className="muted small" style={{ marginBottom: 8 }}>
-                {grp(data.total)} barang · halaman {page} dari {pages}
-              </div>
-              <ul className="list" style={{ gap: 10, opacity: loading ? 0.6 : 1 }}>
-                {data.cards.map((c) => (
-                  <li key={c.code} className="card" style={{ padding: 12 }}>
-                    <div className="row-wrap" style={{ justifyContent: "space-between" }}>
-                      <div>
-                        <strong>{c.name}</strong>
-                        <div className="muted small">{c.code} · per {c.uom}</div>
-                      </div>
-                      <div style={{ textAlign: "right" }}>
-                        <div>COGS katalog: <strong>{c.cogs > 0 ? rp(c.cogs) : "kosong"}</strong></div>
-                        {c.pending && (
-                          <span className={`badge ${c.pending.held ? "red" : "amber"}`} title={c.pending.held ?? undefined}>
-                            RI terakhir {rp(c.pending.to)} · {c.pending.held ? "ditahan, perlu dicek" : "belum diterapkan"}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="small" style={{ marginTop: 8 }}>
-                      <strong>Harga beli (RI)</strong>
-                      {c.receipts.length === 0 ? (
-                        <div className="muted">Belum ada RI dalam riwayat yang tersimpan.</div>
-                      ) : (
-                        <ul className="list" style={{ gap: 2 }}>
-                          {c.receipts.map((r, i) => (
-                            <li key={r.receiptNo + i}>
-                              {fmtDate(r.transDate)} · {r.receiptNo} · {rp(r.unitPrice)} / {r.unit || "satuan dasar"}
-                              {i === 0 && <span className="muted"> · terakhir</span>}
-                              {r.used && <span className="badge green" style={{ marginLeft: 6 }}>✔ dipakai</span>}
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                      {c.cogs > 0 && c.receipts.length > 0 && !c.receipts.some((r) => r.used) && (
-                        <div className="muted">COGS tidak cocok dengan RI mana pun di atas (mungkin manual atau dari Excel).</div>
-                      )}
-                    </div>
-
-                    {c.changes.length > 0 && (
-                      <div className="small" style={{ marginTop: 8 }}>
-                        <strong>COGS katalog yang pernah diganti</strong>
-                        <ul className="list" style={{ gap: 2 }}>
-                          {c.changes.map((h, i) => (
-                            <li key={i}>
-                              {rp(h.cogs)} <span className="muted">diganti {fmtDateTime(h.at)}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </li>
-                ))}
-              </ul>
-              <div className="row-wrap" style={{ marginTop: 12, justifyContent: "center" }}>
-                <button className="btn small ghost" disabled={page <= 1 || loading} onClick={() => setPage(page - 1)}>
-                  Sebelumnya
-                </button>
-                <button className="btn small ghost" disabled={page >= pages || loading} onClick={() => setPage(page + 1)}>
-                  Berikutnya
-                </button>
-              </div>
-            </>
-          )}
+            <span>Hanya yang COGS-nya beda dari RI terakhir</span>
+          </label>
+          <span className="grow" />
+          {data && <span className="muted small num">{grp(data.total)} barang</span>}
         </div>
       </div>
+
+      {loading && !data ? (
+        <div className="card">
+          <div className="card-body skeleton-list" role="status" aria-label="Memuat riwayat COGS…">
+            {[0, 1, 2, 3].map((i) => <span key={i} className="skeleton" />)}
+          </div>
+        </div>
+      ) : !data || data.cards.length === 0 ? (
+        <div className="card">
+          <div className="card-body empty">
+            <Icon name="search" size={28} />
+            <h3>Tidak ada barang</h3>
+            <p>{search || onlyPending ? "Ubah kata pencarian atau matikan saringan." : "Belum ada riwayat harga beli dari Accurate."}</p>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className={`cogs-list${loading ? " is-stale" : ""}`}>
+            {data.cards.map((c) => (
+              <section key={c.code} className="card" aria-label={c.name}>
+                <div className="card-head">
+                  <div className="card-title">
+                    <h3>{c.name}</h3>
+                    <span className="muted small">{c.code} · per {c.uom}</span>
+                  </div>
+                </div>
+                <div className="card-body form-stack">
+                  <div className="row-wrap">
+                    <span className="muted">COGS katalog:</span>
+                    {c.cogs > 0 ? <strong className="num">{rp(c.cogs)}</strong> : <strong className="text-err">kosong</strong>}
+                    {c.pending && (
+                      <span className={`badge ${c.pending.held ? "amber" : "blue"}`} title={c.pending.held ?? undefined}>
+                        RI terakhir {rp(c.pending.to)} · {c.pending.held ? "ditahan, perlu dicek" : "belum diterapkan"}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="cogs-section">
+                    <h4 className="label-title">Harga beli (RI)</h4>
+                    {c.receipts.length === 0 ? (
+                      <p className="muted">Belum ada RI dalam riwayat yang tersimpan.</p>
+                    ) : (
+                      <div className="table-wrap">
+                        <table className="table">
+                          <thead>
+                            <tr>
+                              <th className="l">Nomor RI</th>
+                              <th className="l">Tanggal</th>
+                              <th>Qty</th>
+                              <th>Harga / satuan</th>
+                              <th className="l" aria-label="Keterangan" />
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {c.receipts.map((r, i) => (
+                              <tr key={r.receiptNo + i}>
+                                <td className="l num nowrap">{r.receiptNo}</td>
+                                <td className="l nowrap">{fmtDate(r.transDate)}</td>
+                                <td className="num">{grp(r.quantity)}</td>
+                                <td className="num nowrap">
+                                  {rp(r.unitPrice)} <span className="muted">/ {r.unit || "satuan dasar"}</span>
+                                </td>
+                                <td className="l">
+                                  <div className="badge-row">
+                                    {i === 0 && <span className="badge blue">Terbaru</span>}
+                                    {r.used && (
+                                      <span className="badge green">
+                                        <Icon name="check" size={12} /> Dipakai
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                    {c.cogs > 0 && c.receipts.length > 0 && !c.receipts.some((r) => r.used) && (
+                      <p className="muted small">COGS tidak cocok dengan RI mana pun di atas (mungkin manual atau dari Excel).</p>
+                    )}
+                  </div>
+
+                  {c.changes.length > 0 && (
+                    <div className="cogs-section">
+                      <h4 className="label-title">COGS katalog yang pernah diganti</h4>
+                      <ul className="list-stack compact">
+                        {c.changes.map((h, i) => (
+                          <li key={i}>
+                            <span className="num">{rp(h.cogs)}</span> <span className="muted">diganti {fmtDateTime(h.at)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              </section>
+            ))}
+          </div>
+          {pages > 1 && (
+            <div className="pager">
+              <span className="muted small num">
+                Halaman {page} dari {pages}
+              </span>
+              <span className="grow" />
+              <button className="btn small" disabled={page <= 1 || loading} onClick={() => setPage(page - 1)}>
+                Sebelumnya
+              </button>
+              <button className="btn small" disabled={page >= pages || loading} onClick={() => setPage(page + 1)}>
+                Berikutnya
+              </button>
+            </div>
+          )}
+        </>
+      )}
     </main>
   );
 }
