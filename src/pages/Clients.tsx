@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
@@ -32,22 +32,23 @@ function DocTemplateFields({ value, onChange }: { value: DocTemplate | null; onC
     setColumns(cs);
   };
   return (
-    <fieldset className="field" style={{ marginTop: 12, border: 0, padding: 0 }}>
-      <label className="row" style={{ gap: 6 }}>
+    <fieldset className="fieldset form-stack">
+      <label className="check">
         <input type="checkbox" checked={!!value} onChange={(e) => onChange(e.target.checked ? STARTER : null)} />
         <span>Template dokumen khusus klien ini (format tender)</span>
       </label>
       {!value ? (
-        <p className="muted small" style={{ margin: "4px 0 0" }}>Tanpa template, penawaran dicetak dengan format standar.</p>
+        <p className="field-help">Tanpa template, penawaran dicetak dengan format standar.</p>
       ) : (
-        <div style={{ marginTop: 8, gap: 8, display: "flex", flexDirection: "column" }}>
-          <p className="muted small" style={{ margin: 0 }}>
+        <div className="form-stack">
+          <p className="field-help">
             Berlaku untuk PDF, pratinjau dokumen dan sheet Penawaran di Excel. Opsi "tanpa Qty/Total" di quotation tetap bisa menyembunyikan kolom.
             Kolom Keterangan berisi catatan per baris.
           </p>
+          <div className="doc-cols">
           {columns.map((c, i) => (
-            <div className="row" key={c.key} style={{ gap: 6 }}>
-              <span className="muted small" style={{ width: 96 }}>{DOC_COLUMN_LABELS[c.key]}</span>
+            <div className="doc-col-row" key={c.key}>
+              <span className="muted small">{DOC_COLUMN_LABELS[c.key]}</span>
               <input
                 className="input"
                 aria-label={`Judul kolom ${DOC_COLUMN_LABELS[c.key]}`}
@@ -55,8 +56,12 @@ function DocTemplateFields({ value, onChange }: { value: DocTemplate | null; onC
                 value={c.label}
                 onChange={(e) => setColumns(columns.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))}
               />
-              <button type="button" className="btn small ghost" disabled={i === 0} onClick={() => move(i, -1)} aria-label={`Naikkan ${c.label}`}>↑</button>
-              <button type="button" className="btn small ghost" disabled={i === columns.length - 1} onClick={() => move(i, 1)} aria-label={`Turunkan ${c.label}`}>↓</button>
+              <button type="button" className="icon-btn" disabled={i === 0} onClick={() => move(i, -1)} aria-label={`Naikkan ${c.label}`} title="Naikkan">
+                <Icon name="chevron-up" size={15} />
+              </button>
+              <button type="button" className="icon-btn" disabled={i === columns.length - 1} onClick={() => move(i, 1)} aria-label={`Turunkan ${c.label}`} title="Turunkan">
+                <Icon name="chevron-down" size={15} />
+              </button>
               <button
                 type="button" className="icon-btn" aria-label={`Hapus kolom ${c.label}`}
                 disabled={c.key === "name" || c.key === "price"}
@@ -66,9 +71,10 @@ function DocTemplateFields({ value, onChange }: { value: DocTemplate | null; onC
               </button>
             </div>
           ))}
+          </div>
           {unused.length > 0 && (
             <select
-              className="input" aria-label="Tambah kolom" value=""
+              className="select" aria-label="Tambah kolom" value=""
               onChange={(e) => {
                 const key = e.target.value as (typeof unused)[number];
                 if (key) setColumns([...columns, { key, label: DOC_COLUMN_LABELS[key] }]);
@@ -93,7 +99,7 @@ function DocTemplateFields({ value, onChange }: { value: DocTemplate | null; onC
             <span>Paragraf penutup</span>
             <textarea className="textarea" rows={2} maxLength={2000} value={value.closing ?? ""} onChange={(e) => onChange({ ...value, closing: e.target.value })} />
           </label>
-          <label className="row" style={{ gap: 6 }}>
+          <label className="check">
             <input type="checkbox" checked={value.showTotals !== false} onChange={(e) => onChange({ ...value, showTotals: e.target.checked ? undefined : false })} />
             <span>Tampilkan subtotal, PPN dan total</span>
           </label>
@@ -121,8 +127,9 @@ export function ClientsPage() {
   const [clients, setClients] = useState<(Client & { quote_count?: number })[]>([]);
   const [editing, setEditing] = useState<(typeof EMPTY & { id?: number }) | null>(null);
   const [attempted, setAttempted] = useState(false);
-  const [deleting, setDeleting] = useState<Client | null>(null);
+  const [deleting, setDeleting] = useState<(Client & { quote_count?: number }) | null>(null);
   const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
 
   const load = useCallback(() => {
     setLoading(true);
@@ -162,31 +169,64 @@ export function ClientsPage() {
     }
   };
 
+  const q = query.trim().toLowerCase();
+  const shown = useMemo(
+    () =>
+      q
+        ? clients.filter((c) => [c.name, c.code, c.contact_name, c.contact_email].some((v) => v?.toLowerCase().includes(q)))
+        : clients,
+    [clients, q],
+  );
+
   const missingNow = editing && !editing.id ? missingNewClientFields(editing) : [];
 
   return (
-    <main className="hk-main">
+    <main className="hk-main page-stack">
       <div className="hk-page-head">
         <div>
           <h1>Klien</h1>
           <p>Data klien mengisi otomatis termin dan alamat di setiap quotation baru.</p>
         </div>
         <button className="btn primary" onClick={() => open({ ...EMPTY })}>
-          <Icon name="plus" size={16} /> Klien baru
+          <Icon name="plus" size={15} /> Klien baru
         </button>
       </div>
 
       <div className="card">
+        <div className="toolbar">
+          <input
+            className="input toolbar-search"
+            type="search"
+            placeholder="Cari nama, kode, atau PIC"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            aria-label="Cari klien"
+          />
+          <span className="grow" />
+          {!loading && <span className="muted small num">{q ? `${shown.length} dari ${clients.length}` : clients.length} klien</span>}
+        </div>
         {loading ? (
-          <div className="card-body loading"><span className="dots"><i /><i /><i /></span> Memuat…</div>
+          <div className="card-body skeleton-list" role="status" aria-label="Memuat klien…">
+            {[0, 1, 2, 3, 4].map((i) => <span key={i} className="skeleton" />)}
+          </div>
         ) : clients.length === 0 ? (
           <div className="card-body empty">
             <Icon name="building" size={28} />
             <h3>Belum ada klien</h3>
             <p>Tambahkan klien pertama supaya quotation langsung terisi alamat dan terminnya.</p>
+            <button className="btn primary" onClick={() => open({ ...EMPTY })}>
+              <Icon name="plus" size={15} /> Klien baru
+            </button>
+          </div>
+        ) : shown.length === 0 ? (
+          <div className="card-body empty">
+            <Icon name="search" size={28} />
+            <h3>Tidak ada klien yang cocok</h3>
+            <p>Coba nama, kode, atau nama PIC lain.</p>
+            <button className="btn" onClick={() => setQuery("")}>Hapus pencarian</button>
           </div>
         ) : (
-          <div className="table-wrap" style={{ border: 0 }}>
+          <div className="table-wrap flush">
             <table className="table">
               <thead>
                 <tr>
@@ -199,10 +239,10 @@ export function ClientsPage() {
                 </tr>
               </thead>
               <tbody>
-                {clients.map((c) => (
+                {shown.map((c) => (
                   <tr key={c.id}>
                     <td className="l">
-                      <strong>{c.name}</strong>
+                      <span className="cell-title">{c.name}</span>
                       {c.address && <div className="muted small">{c.address}</div>}
                     </td>
                     <td className="l muted">{c.code || "—"}</td>
@@ -213,7 +253,7 @@ export function ClientsPage() {
                     <td className="l muted small">{c.payment_terms}</td>
                     <td className="num">{c.quote_count ?? 0}</td>
                     <td>
-                      <div className="row" style={{ justifyContent: "flex-end" }}>
+                      <div className="row-actions">
                         <button className="btn small ghost" onClick={() => open({ ...c })}>
                           Ubah
                         </button>
@@ -245,6 +285,7 @@ export function ClientsPage() {
             </>
           }
         >
+          <div className="form-stack">
           <div className="field-grid">
             {FIELDS.map(([key, label]) => {
               const starred = !editing.id && NEW_CLIENT_REQUIRED.some(([f]) => f === key);
@@ -263,11 +304,11 @@ export function ClientsPage() {
             })}
           </div>
           {missingNow.length > 0 && (
-            <p className="muted small" style={{ margin: "10px 0 0" }}>
+            <p className="field-help">
               Wajib diisi: {missingNewClientMessage(missingNow)}.
             </p>
           )}
-          <label className="field" style={{ marginTop: 12 }}>
+          <label className="field">
             <span>Alamat</span>
             <textarea
               className="textarea"
@@ -277,13 +318,18 @@ export function ClientsPage() {
             />
           </label>
           <DocTemplateFields value={editing.doc_template} onChange={(doc_template) => setEditing({ ...editing, doc_template })} />
+          </div>
         </Modal>
       )}
 
       {deleting && (
         <ConfirmModal
           title={`Hapus ${deleting.name}?`}
-          message="Klien yang masih dipakai quotation tidak bisa dihapus."
+          message={
+            deleting.quote_count
+              ? `Klien ini masih dipakai ${deleting.quote_count} quotation, jadi belum bisa dihapus. Hapus atau pindahkan quotation itu dulu.`
+              : "Data klien ini dihapus permanen dan tidak bisa dipilih lagi di quotation baru."
+          }
           confirmLabel="Hapus klien"
           onClose={() => setDeleting(null)}
           onConfirm={async () => {

@@ -1081,3 +1081,10 @@ a.btn, a.btn:hover { text-decoration: none; }
 .pager { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); }
 .badge > svg { vertical-align: -2px; }
 .toolbar .toolbar-search.wide { width: 480px; }
+
+/* ---------------- Klien ---------------- */
+.fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
+.doc-col-row { display: grid; grid-template-columns: 96px minmax(0, 1fr) auto auto auto; gap: var(--space-3); align-items: center; }
+.row-actions { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); }
+.doc-cols { display: flex; flex-direction: column; gap: var(--space-3); }
+.fieldset.form-stack > .field-help { margin-top: calc(var(--space-3) - var(--space-5)); }
