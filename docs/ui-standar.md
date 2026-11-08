@@ -232,7 +232,7 @@ Ditemukan di kode cabang `develop` per 8 Nov 2026; status per 9 Nov 2026 di caba
 | 1 | 20 ukuran font (10–24 px, termasuk 12,5/13,5/14,5) | Skala token 12/14/16/18/20/24/28/32. Pengecualian: dokumen penawaran cetak (`.quote-*`, ukuran tetap demi PDF) dan label grafik 10 px |
 | 2 | 14 radius | `--radius-sm` 4, `--radius-md` 8, `--radius-full`; sisanya hanya bentuk khusus (lingkaran 50%, gelembung chat, kotak legenda 2 px) |
 | 3 | 62 hex di `styles.css` | Token saja di luar dokumen cetak (`.quote-doc` sengaja memakai palet cetak sendiri) dan latar penampil gambar |
-| 4 | ±321 `style={{…}}` | 53, hampir semuanya dinamis (lebar, warna skenario dari data, tinggi chat) |
+| 4 | ±321 `style={{…}}` | Sisa statis 7 (warna dokumen cetak, dua tombol tanpa tepi, satu jarak ikon); sisanya dinamis (lebar, warna skenario dari data, tinggi chat) |
 | 5 | 4 bentuk status | Badge; `.pill` tinggal satu pemakaian di editor |
 | 6 | `window.confirm` vs `ConfirmModal` | 0 `window.confirm`; semua lewat Modal (termasuk penjaga perubahan belum disimpan dan Terapkan Accurate) |
 | 7 | "Ekspor" vs "PDF" | Editor: "Ekspor" membuka modal pilihan; sales: "Ekspor PDF" langsung |
@@ -246,7 +246,7 @@ Semua tahap dikerjakan di cabang `feat/ui-standar` (belum di-merge; push dan PR 
 
 1. Token dan Inter: selesai.
 2. Komponen dasar: selesai, ditambah Menu, ConfirmModal untuk semua konfirmasi, dan tabel kartu di HP (`.table.stack`).
-3. Halaman: ke-12 halaman plus alur "Dari list klien", dasbor per peran, dan Pengaturan dengan sub-navigasi.
+3. Halaman: ke-12 halaman plus alur "Dari list klien", dasbor per peran, Pengaturan dengan sub-navigasi, dan tabel kartu di HP (termasuk tabel item editor).
 4. Token lama: alias warna lama yang tak dipakai sudah dihapus; tampilan tanpa ornamen (prinsip 7) diterapkan menyeluruh.
 
 Setiap tahap: typecheck, vitest, build, e2e, dan tangkapan layar terang, gelap, dan HP. Dua tinjauan independen (logika/RBAC dan UI/aksesibilitas) sudah dijalankan dan temuannya diperbaiki.
