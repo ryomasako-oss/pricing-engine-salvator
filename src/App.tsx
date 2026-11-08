@@ -46,6 +46,20 @@ function TopBar() {
 
   return (
     <header className="hk-top">
+      {/* First Tab stop: jump past the nine menu links to the page itself. */}
+      <a
+        href="#isi"
+        className="skip-link"
+        onClick={(e) => {
+          e.preventDefault();
+          const main = document.querySelector<HTMLElement>("main");
+          if (!main) return;
+          main.setAttribute("tabindex", "-1");
+          main.focus();
+        }}
+      >
+        Lewati ke isi halaman
+      </a>
       <NavLink to="/" className="hk-brand">
         <span className="hk-logo" aria-hidden="true">h</span>
         <span>

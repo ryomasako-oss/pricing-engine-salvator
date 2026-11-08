@@ -1152,3 +1152,9 @@ a.btn, a.btn:hover { text-decoration: none; }
 .field.flex-2 { flex: 2 1 160px; }
 .scroll-box { max-height: 360px; overflow: auto; }
 .picker-row.top { align-items: flex-start; }
+.skip-link {
+  position: absolute; left: var(--space-3); top: -48px; z-index: 50; padding: var(--space-3) var(--space-4);
+  background: var(--color-layer); color: var(--color-action); border-radius: var(--radius-sm); font: var(--text-body); font-weight: 600;
+}
+.skip-link:focus { top: var(--space-3); }
+main:focus { outline: none; }
