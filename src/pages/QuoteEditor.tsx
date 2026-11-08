@@ -654,7 +654,7 @@ export function QuoteEditorPage() {
               )}
 
               {tab === "assumptions" && (
-                <div className="col" style={{ gap: 18 }}>
+                <div className="form-stack">
                   <div className="lever-grid">
                     {LEVERS.map((l) => (
                       <Lever
@@ -705,7 +705,7 @@ export function QuoteEditorPage() {
 
               {tab === "delivery" && (
                 <div>
-                  <label className="toggle" style={{ marginBottom: 12 }}>
+                  <label className="toggle gap-below">
                     <input
                       type="checkbox"
                       disabled={readOnly}
@@ -730,7 +730,7 @@ export function QuoteEditorPage() {
               )}
 
               {tab === "document" && (
-                <div className="col" style={{ gap: 14 }}>
+                <div className="form-stack">
                   <div className="field-grid no-print">
                     <label className="field">
                       <span>Klien</span>
@@ -1112,7 +1112,7 @@ export function QuoteEditorPage() {
           }
         >
           {missingTerms(snapshot.meta).length > 0 && (
-            <div className="notice error" style={{ marginBottom: 12 }}>
+            <div className="notice error gap-below">
               {missingTermsMessage(missingTerms(snapshot.meta))}{" "}
               <button
                 className="btn small"
@@ -1126,13 +1126,13 @@ export function QuoteEditorPage() {
             </div>
           )}
           {cogsBlocked && cogsBlocked.length > 0 && (
-            <div className={`notice ${cogsBlocked.length === snapshot.items.length ? "error" : "warn"}`} style={{ marginBottom: 12 }}>
+            <div className={`notice ${cogsBlocked.length === snapshot.items.length ? "error" : "warn"} gap-below`}>
               <strong>
                 {cogsBlocked.length === snapshot.items.length
                   ? "Semua item ditahan, jadi belum ada yang bisa diajukan:"
                   : `${cogsBlocked.length} item ditahan dan tidak ikut penawaran sampai COGS-nya dicek:`}
               </strong>
-              <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+              <ul className="notice-list">
                 {cogsBlocked.map((l) => (
                   <li key={l.lineNo}>
                     Baris {l.lineNo} {l.name}: {l.problem}
@@ -1143,7 +1143,7 @@ export function QuoteEditorPage() {
             </div>
           )}
           <BreachList breaches={breaches} />
-          <p className="muted small" style={{ marginTop: 12 }}>
+          <p className="note">
             {blocked.length
               ? "Karena ada pelanggaran kebijakan, quotation ini wajib disetujui manajer sebelum bisa dikirim."
               : can("decide_quotes")
@@ -1322,7 +1322,7 @@ function DecideModal({
         </>
       }
     >
-      <div className="kpi-grid" style={{ marginBottom: 14 }}>
+      <div className="kpi-grid gap-below">
         <div className="kpi">
           <div className="label">Nilai per bulan</div>
           <div className="value num">{rp(s.revenue)}</div>
@@ -1338,9 +1338,9 @@ function DecideModal({
       </div>
 
       <BreachList breaches={breaches} />
-      {selfBlocked && <p className="muted small" style={{ marginTop: 8 }}>{SELF_APPROVE_HINT}</p>}
+      {selfBlocked && <p className="note">{SELF_APPROVE_HINT}</p>}
 
-      <label className="field" style={{ marginTop: 14 }}>
+      <label className="field note-block">
         <span>Catatan keputusan {clean ? "(opsional)" : "(wajib jika menolak)"}</span>
         <textarea
           className="textarea"
@@ -1393,7 +1393,7 @@ function ReassignModal({
           ))}
         </select>
       </label>
-      <label className="field" style={{ marginTop: 14 }}>
+      <label className="field note-block">
         <span>Catatan (opsional)</span>
         <textarea
           className="textarea"
@@ -1417,22 +1417,22 @@ function HistoryTab({
   canRestore: boolean;
 }) {
   return (
-    <div className="col" style={{ gap: 20 }}>
+    <div className="form-stack">
       <section>
-        <h3 style={{ margin: "0 0 8px", fontSize: 13.5 }}>Persetujuan</h3>
+        <h3 className="subhead">Persetujuan</h3>
         {detail.approvals.length === 0 ? (
           <p className="muted small">Belum pernah diajukan.</p>
         ) : (
           <ul className="list">
             {detail.approvals.map((a) => (
               <li key={a.id}>
-                <div className="list-row" style={{ cursor: "default", alignItems: "flex-start" }}>
+                <div className="list-row static top">
                   <span
                     className={`badge ${a.decision === "approved" ? "green" : a.decision === "rejected" ? "red" : "amber"}`}
                   >
                     {a.decision === "approved" ? "Disetujui" : a.decision === "rejected" ? "Ditolak" : "Menunggu"}
                   </span>
-                  <span className="col" style={{ gap: 2, flex: 1 }}>
+                  <span className="cell-text">
                     <span className="small">
                       Diajukan {a.requested_by_name} · {fmtDateTime(a.requested_at)}
                       {a.decided_at && ` · diputus ${a.decided_by_name} ${fmtDateTime(a.decided_at)}`}
@@ -1451,12 +1451,12 @@ function HistoryTab({
       </section>
 
       <section>
-        <h3 style={{ margin: "0 0 8px", fontSize: 13.5 }}>Revisi tersimpan</h3>
+        <h3 className="subhead">Revisi tersimpan</h3>
         <ul className="list">
           {detail.revisions.map((r) => (
             <li key={r.id}>
-              <div className="list-row" style={{ cursor: "default" }}>
-                <span className="col" style={{ gap: 1, flex: 1 }}>
+              <div className="list-row static">
+                <span className="cell-text">
                   <strong className="small">Revisi {r.rev_no} — {r.note}</strong>
                   <span className="muted small">{r.created_by_name} · {fmtDateTime(r.created_at)}</span>
                 </span>
@@ -1472,7 +1472,7 @@ function HistoryTab({
       </section>
 
       <section>
-        <h3 style={{ margin: "0 0 8px", fontSize: 13.5 }}>Jejak audit</h3>
+        <h3 className="subhead">Jejak audit</h3>
         <ul className="timeline">
           {detail.audit.map((a) => (
             <li key={a.id}>

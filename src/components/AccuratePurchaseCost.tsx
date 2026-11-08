@@ -180,7 +180,7 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
 
   return (
     <div style={{ marginTop: 16, borderTop: "1px solid var(--color-border)", paddingTop: 12 }}>
-      <div className="row-wrap" style={{ justifyContent: "space-between" }}>
+      <div className="row-between">
         <div>
           <strong>COGS dari harga pembelian terakhir</strong>{" "}
           {!status.enabled ? (
@@ -218,7 +218,7 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
       </div>
 
       {preview && (
-        <div className="small" style={{ marginTop: 8 }}>
+        <div className="small note-block">
           <div className="row-wrap">
             <span className="badge amber">{grp(preview.changed.length)} berubah</span>
             <span className="badge green">{grp(preview.unchanged)} sudah sama</span>
@@ -246,7 +246,7 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
 
           {showHeld && preview.held.length > 0 && (
             <>
-              <div className="muted" style={{ marginTop: 8 }}>
+              <div className="muted note-block">
                 Tidak ikut diterapkan: harga beli 3x harga jual atau lebih, atau jauh (lebih dari dua kali / kurang dari separuh) dari COGS sekarang
                 dan dari harga beli di RI sebelumnya. Biasanya satu pak/box tercatat 1 PCS di RI. Betulkan RI di Accurate, isi COGS manual di
                 katalog, atau kalau harganya memang benar, centang lalu terapkan.

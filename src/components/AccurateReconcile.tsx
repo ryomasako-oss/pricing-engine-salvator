@@ -67,7 +67,7 @@ export function AccurateReconcile() {
   if (!report) return null;
   if (!report.ready) {
     return (
-      <p className="muted small" style={{ marginTop: 12 }}>
+      <p className="note">
         Cek silang dengan Accurate tersedia setelah sinkron {report.entity} selesai satu kali.
       </p>
     );
@@ -76,7 +76,7 @@ export function AccurateReconcile() {
 
   return (
     <div style={{ marginTop: 16, borderTop: "1px solid var(--color-border)", paddingTop: 12 }}>
-      <div className="row-wrap" style={{ justifyContent: "space-between" }}>
+      <div className="row-between">
         <div>
           <strong>Cek silang dengan Accurate {report.entity}</strong>{" "}
           <span className={`badge ${problems ? "amber" : "green"}`}>{problems ? `${problems} jenis perlu dicek` : "tidak ada selisih"}</span>

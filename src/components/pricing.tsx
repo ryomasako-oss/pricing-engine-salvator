@@ -149,7 +149,7 @@ export function CompareTable({ engine }: { engine: EngineResult }) {
           })}
         </tbody>
       </table>
-      <p className="muted small" style={{ padding: "8px 10px", margin: 0 }}>
+      <p className="note pad">
         Sorotan kuning menandai skenario terbaik untuk metrik itu. Subsidi S2 diberikan{" "}
         {rp(engine.subsidy.given)} dan ditutup {rp(engine.subsidy.recovered)} per bulan (
         {pct(engine.subsidy.coverage)}).
@@ -341,16 +341,16 @@ export function DeliveryTable({
         </table>
       </div>
       {!readOnly && (
-        <button className="btn small ghost" style={{ marginTop: 10 }} onClick={onAdd}>
+        <button className="btn small ghost note-block" onClick={onAdd}>
           Tambah lokasi
         </button>
       )}
       {Math.abs(shareTotal - 1) > 0.0001 && (
-        <p className="notice warn" style={{ marginTop: 10 }}>
+        <p className="notice warn note-block">
           Total share order {pct(shareTotal, 0)}. Ubah sampai 100% supaya modifier akurat.
         </p>
       )}
-      <p className="muted small" style={{ marginTop: 8 }}>
+      <p className="note">
         Modifier = (kirim per bulan × biaya per kirim) ÷ (nilai order @COGS × share region).
       </p>
     </>

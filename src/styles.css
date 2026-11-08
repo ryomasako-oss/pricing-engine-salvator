@@ -1122,3 +1122,22 @@ a.btn, a.btn:hover { text-decoration: none; }
 .cell-warn { font: var(--text-caption); color: var(--color-warn-text); }
 .card.send-pic { padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); }
 .inline-form > .field.wide { flex: 2 1 260px; }
+
+/* Small shared helpers that replaced one-off inline styles. */
+.row-center { display: flex; align-items: center; justify-content: center; gap: var(--space-2); }
+.search-bar { margin-bottom: var(--space-3); }
+.table-wrap.scroll { max-height: 60vh; }
+.note { margin: var(--space-3) 0 0; font: var(--text-caption); color: var(--color-text-2); }
+.note-block { margin-top: var(--space-3); }
+.pre-wrap { white-space: pre-wrap; }
+.pre-line { white-space: pre-line; }
+.gap-below { margin-bottom: var(--space-4); }
+.subhead { margin: 0 0 var(--space-3); font: var(--text-body); font-weight: 600; }
+.list-row.static { cursor: default; }
+.list-row.top { align-items: flex-start; }
+.cell-text { display: flex; flex-direction: column; gap: var(--space-1); flex: 1; min-width: 0; }
+.note.pad { margin: 0; padding: var(--space-3) var(--space-4); }
+.note.first { margin: 0 0 var(--space-3); }
+.pct-cell { min-width: 52px; text-align: right; }
+.card-body.tight-bottom { padding-bottom: var(--space-2); }
+.scroll-x { overflow-x: auto; }

@@ -124,7 +124,7 @@ export function CatalogPicker({
         </>
       }
     >
-      <div className="search-bar" style={{ marginBottom: 10 }}>
+      <div className="search-bar">
         <input
           className="input"
           autoFocus
@@ -156,7 +156,7 @@ export function CatalogPicker({
           </button>
         </div>
       ) : (
-        <div className="table-wrap" style={{ maxHeight: "52vh" }}>
+        <div className="table-wrap scroll">
           <table className="table">
             <thead>
               <tr>
@@ -178,16 +178,16 @@ export function CatalogPicker({
                     <div className="with-thumb">
                       <Thumb src={item.image} alt={item.name} />
                       <div className="grow">
-                        <div style={{ fontWeight: 550 }}>{item.name}</div>
+                        <div className="cell-title">{item.name}</div>
                         <div className="muted small">
                           {item.code}
                           {item.category ? ` · ${item.category}` : ""}
                           {existingCodes.has(normalizeCode(item.code)) && (
-                            <span className="badge amber" style={{ marginLeft: 6 }}>sudah ada</span>
+                            <span className="badge amber rev-badge">sudah ada</span>
                           )}
                         </div>
                         {item.cogs_problem && (
-                          <div className="small" style={{ color: "var(--color-warn-text)" }}>⚠ {item.cogs_problem}. Masuk sebagai baris ditahan sampai dicek manajer.</div>
+                          <div className="cell-warn">{item.cogs_problem}. Masuk sebagai baris ditahan sampai dicek manajer.</div>
                         )}
                       </div>
                     </div>

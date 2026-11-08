@@ -106,7 +106,7 @@ function TopBar() {
       <div className="row">
         <span className="muted small hide-sm">
           {user?.name}
-          <span className="badge grey" style={{ marginLeft: 6 }}>
+          <span className="badge grey rev-badge">
             {user?.role === "admin" ? "Admin" : user?.role === "manager" ? "Manajer" : "Sales"}
           </span>
         </span>

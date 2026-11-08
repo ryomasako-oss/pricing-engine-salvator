@@ -22,7 +22,7 @@ function GroupRow({ group, fresh }: { group: DuplicateGroup; fresh?: Set<string>
   return (
     <li>
       <strong>{group.name}</strong>
-      {group.nameOnly && <span className="badge amber" style={{ marginLeft: 6 }}>kemungkinan</span>}
+      {group.nameOnly && <span className="badge amber rev-badge">kemungkinan</span>}
       {" — "}{lineList(group, fresh)}
       {group.nameOnly && (
         <div className="small">
@@ -100,7 +100,7 @@ export function DuplicateAddModal({
       <ul className="dup-list">
         {groups.map((g) => <GroupRow key={g.key} group={g} fresh={incomingIds} />)}
       </ul>
-      <p className="muted small" style={{ marginTop: 12 }}>
+      <p className="note">
         {mergeable
           ? "Gabungkan menjumlahkan qty ke baris yang sudah ada; COGS, plafon, peran, dan harga manual baris itu tidak berubah. "
           : ""}

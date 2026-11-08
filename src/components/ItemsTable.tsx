@@ -107,7 +107,7 @@ export function ItemsTable({
 
   return (
     <div>
-      <div className="search-bar" style={{ marginBottom: 10 }}>
+      <div className="search-bar">
         <input
           className="input"
           placeholder="Cari item atau kode"
@@ -144,7 +144,7 @@ export function ItemsTable({
           <h3>Belum ada item</h3>
           <p>Tambahkan dari katalog, impor file Excel klien, atau buat baris kosong.</p>
           {!readOnly && (
-            <div className="row" style={{ justifyContent: "center" }}>
+            <div className="row-center">
               <button className="btn primary" onClick={onOpenCatalog}>
                 Pilih dari katalog
               </button>
@@ -155,7 +155,7 @@ export function ItemsTable({
           )}
         </div>
       ) : (
-        <div className="table-wrap" style={{ maxHeight: "62vh" }}>
+        <div className="table-wrap scroll">
           <table className="table">
             <thead>
               <tr>
@@ -191,7 +191,7 @@ export function ItemsTable({
                         <Thumb src={imagesByCode[r.code.trim()]} alt={r.name} />
                         <div className="grow">
                           {readOnly ? (
-                            <div style={{ fontWeight: 550 }}>{r.name}</div>
+                            <div className="cell-title">{r.name}</div>
                           ) : (
                             <input
                               className="cell l"
@@ -302,7 +302,7 @@ export function ItemsTable({
                     <td className="num">{grp(r.qty * r.prices[scenario])}</td>
                     {!readOnly && (
                       <td>
-                        <div className="row" style={{ justifyContent: "flex-end" }}>
+                        <div className="row-actions">
                           {onPushToCatalog && r.code && (
                             <button
                               className="icon-btn"
@@ -332,7 +332,7 @@ export function ItemsTable({
         </div>
       )}
       {!readOnly && engine.rows.length > 0 && (
-        <p className="muted small" style={{ marginTop: 8 }}>
+        <p className="note">
           Kolom skenario terpilih bisa diketik langsung untuk mengunci harga manual. Kosongkan
           (isi 0) untuk kembali ke harga hitungan engine. Harga manual tetap dibatasi RRP.
         </p>

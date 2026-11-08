@@ -408,7 +408,7 @@ function NewQuoteModal({
         </>
       }
     >
-      <div className="col" style={{ gap: 12 }}>
+      <div className="form-stack">
         <label className="field">
           <span>Judul quotation</span>
           <input

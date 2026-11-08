@@ -102,7 +102,7 @@ export function BulkImageUpload({ onClose, onDone }: { onClose: () => void; onDo
         </>
       }
     >
-      <div className="col" style={{ gap: 12 }}>
+      <div className="form-stack">
         <input ref={filesInput} type="file" accept="image/*" multiple hidden onChange={(e) => choose(e.target.files)} />
         <input
           ref={folderInput}

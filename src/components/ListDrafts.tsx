@@ -56,9 +56,9 @@ export function ListDrafts({ drafts, onOpen, onChanged }: { drafts: DraftSummary
               return (
                 <tr key={d.id} className="clickable" onClick={() => onOpen(d.id)}>
                   <td className="l">
-                    <div style={{ fontWeight: 550 }}>
+                    <div className="cell-title">
                       {d.title || <span className="muted">Tanpa judul</span>}
-                      {forMe && <span className="badge amber" style={{ marginLeft: 6 }}>Untuk Anda</span>}
+                      {forMe && <span className="badge amber rev-badge">Untuk Anda</span>}
                     </div>
                     <div className="muted small">
                       {[d.file_name, d.assign_note && `Catatan: ${d.assign_note}`].filter(Boolean).join(" · ")}

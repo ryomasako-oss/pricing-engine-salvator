@@ -282,7 +282,7 @@ export function AssistantPanel({
           )}
           {docOut && !docBusy && (
             <div className="silvy-docout">
-              <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+              <div className="row-between">
                 <strong>{docs[docOut.kind]?.title}</strong>
                 <button className="btn small ghost" onClick={() => void copyDoc()}>Salin</button>
               </div>
