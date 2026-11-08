@@ -225,26 +225,28 @@ Aksi utama di setiap layar mengikuti langkah berikutnya dalam alur peran itu: sa
 
 ## Inkonsistensi yang dibereskan
 
-Ditemukan di kode saat ini (cabang `develop` per 8 Nov 2026):
+Ditemukan di kode cabang `develop` per 8 Nov 2026; status per 9 Nov 2026 di cabang `feat/ui-standar`:
 
-1. 20 ukuran font berbeda (10–24 px, termasuk 12,5/13,5/14,5) → 9 gaya.
-2. 14 radius berbeda → 3.
-3. 62 warna hex di `styles.css` dan hex lepas di `QuotationDoc.tsx:93` → token saja.
-4. ±321 inline `style={{…}}` dengan margin acak → kelas utilitas spasi atau komponen tata letak.
-5. 4 bentuk status (`.badge`, `.pill`, `.status-chip`, `.chip`) → 1 Badge.
-6. `window.confirm` vs `ConfirmModal` → hanya Modal.
-7. "Ekspor" (editor) vs "PDF" (sales) untuk aksi yang mirip → editor: "Ekspor" membuka modal pilihan; sales: "Ekspor PDF" langsung (satu pilihan tidak perlu modal).
-8. Glif teks sebagai ikon → komponen Icon.
-9. 6 breakpoint acak → 5 breakpoint Carbon.
-10. Judul kartu 12 px kapital vs judul modal 17 px → h3 dan h2.
+| # | Temuan awal | Sekarang |
+|---|---|---|
+| 1 | 20 ukuran font (10–24 px, termasuk 12,5/13,5/14,5) | Skala token 12/14/16/18/20/24/28/32. Pengecualian: dokumen penawaran cetak (`.quote-*`, ukuran tetap demi PDF) dan label grafik 10 px |
+| 2 | 14 radius | `--radius-sm` 4, `--radius-md` 8, `--radius-full`; sisanya hanya bentuk khusus (lingkaran 50%, gelembung chat, kotak legenda 2 px) |
+| 3 | 62 hex di `styles.css` | Token saja di luar dokumen cetak (`.quote-doc` sengaja memakai palet cetak sendiri) dan latar penampil gambar |
+| 4 | ±321 `style={{…}}` | 53, hampir semuanya dinamis (lebar, warna skenario dari data, tinggi chat) |
+| 5 | 4 bentuk status | Badge; `.pill` tinggal satu pemakaian di editor |
+| 6 | `window.confirm` vs `ConfirmModal` | 0 `window.confirm`; semua lewat Modal (termasuk penjaga perubahan belum disimpan dan Terapkan Accurate) |
+| 7 | "Ekspor" vs "PDF" | Editor: "Ekspor" membuka modal pilihan; sales: "Ekspor PDF" langsung |
+| 8 | Glif teks sebagai ikon | 0 glif ✔ ⚠ ▲ ▼ ↑ ↓ di UI; ikon hanya untuk tombol tanpa teks, panah kembali, chevron, urut (prinsip 7) |
+| 9 | 6 breakpoint acak | 671 / 1055 / 1583 px (batas sm, md, xlg Carbon) + 420 px khusus menyembunyikan label menu atas di HP kecil |
+| 10 | Judul kartu 12 px kapital vs judul modal 17 px | h3 dan h2 |
 
-## Rencana penerapan (usulan, belum diputuskan)
+## Status penerapan
 
-Bertahap supaya produksi aman (setiap tahap lewat PR ke `develop`, lalu `master`):
+Semua tahap dikerjakan di cabang `feat/ui-standar` (belum di-merge; push dan PR menunggu persetujuan pemilik):
 
-1. Token: tambah variabel baru di `src/styles.css` (warna, spasi, radius, font) di samping yang lama; pasang Inter.
-2. Komponen dasar: Button, Field, Badge, Card, Table, Modal, Banner, Toast, Icon memakai token.
-3. Halaman satu per satu, mulai dari yang paling sering dipakai: Quotation, Editor quotation, Quotation sales, Katalog; lalu sisanya.
-4. Hapus token dan kelas lama setelah tidak dipakai; mode gelap dengan nama token yang sama.
+1. Token dan Inter: selesai.
+2. Komponen dasar: selesai, ditambah Menu, ConfirmModal untuk semua konfirmasi, dan tabel kartu di HP (`.table.stack`).
+3. Halaman: ke-12 halaman plus alur "Dari list klien", dasbor per peran, dan Pengaturan dengan sub-navigasi.
+4. Token lama: alias warna lama yang tak dipakai sudah dihapus; tampilan tanpa ornamen (prinsip 7) diterapkan menyeluruh.
 
-Setiap tahap: typecheck, tes, cek kontras, dan tangkapan layar sebelum/sesudah.
+Setiap tahap: typecheck, vitest, build, e2e, dan tangkapan layar terang, gelap, dan HP. Dua tinjauan independen (logika/RBAC dan UI/aksesibilitas) sudah dijalankan dan temuannya diperbaiki.
