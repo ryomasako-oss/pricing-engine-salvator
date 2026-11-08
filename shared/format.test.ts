@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { toNum } from "./format";
+import { fmtDateTime, toNum } from "./format";
 
 describe("toNum", () => {
   it.each([
@@ -31,5 +31,12 @@ describe("toNum", () => {
 
   it.each(["", "-", "abc", null, undefined, Infinity])("gives NaN for %j", (input) => {
     expect(toNum(input)).toBeNaN();
+  });
+});
+
+describe("fmtDateTime", () => {
+  it("reads a SQLite timestamp as UTC, like an ISO one", () => {
+    expect(fmtDateTime("2026-11-08 15:31:00")).toBe(fmtDateTime("2026-11-08T15:31:00Z"));
+    expect(fmtDateTime("2026-11-08 15:31")).toBe(fmtDateTime("2026-11-08T15:31:00Z"));
   });
 });

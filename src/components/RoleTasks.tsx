@@ -63,8 +63,8 @@ export function RoleTasks({ counts, onTab }: { counts: StatusCounts; onTab: (sta
         },
         ...(admin
           ? [{
-              key: "resets", label: "Permintaan reset sandi", n: resets, icon: "users", to: "/settings", tone: "warn",
-              foot: "Di Pengaturan, bagian Pengguna",
+              key: "resets", label: "Permintaan reset sandi", n: resets, icon: "users", to: "/settings?bagian=reset", tone: "warn",
+              foot: "Di Pengaturan, Permintaan reset",
             } satisfies Tile]
           : []),
       ]

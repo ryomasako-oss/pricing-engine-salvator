@@ -13,9 +13,17 @@ export const pct = (x: number, d = 1): string =>
 
 export const uid = (): string => Math.random().toString(36).slice(2, 10);
 
+/**
+ * SQLite's datetime('now') is UTC written without a zone ("2026-11-08 15:31:00");
+ * `new Date()` would read it as local time, 7 hours early in WIB. Every such
+ * string the server stores is UTC (datetime('now'), toISOString), so read it as UTC.
+ */
+const asDate = (d: string | number | Date): Date =>
+  typeof d === "string" && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(d) ? new Date(`${d.replace(" ", "T")}Z`) : new Date(d);
+
 export const fmtDate = (d: string | number | Date): string => {
   try {
-    return new Date(d).toLocaleDateString("id-ID", {
+    return asDate(d).toLocaleDateString("id-ID", {
       day: "numeric",
       month: "long",
       year: "numeric",
@@ -27,7 +35,7 @@ export const fmtDate = (d: string | number | Date): string => {
 
 export const fmtDateTime = (d: string | number | Date): string => {
   try {
-    return new Date(d).toLocaleString("id-ID", {
+    return asDate(d).toLocaleString("id-ID", {
       day: "2-digit",
       month: "short",
       year: "numeric",

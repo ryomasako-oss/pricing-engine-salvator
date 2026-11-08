@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { Icon } from "../components/Icon";
 import { Modal } from "../components/Modal";
 import { PasswordInput } from "../components/PasswordInput";
-import { pct, rp } from "@shared/format";
+import { fmtDateTime, grp, rp } from "@shared/format";
 import type { PasswordResetRequest, PricingPolicy, Role, User } from "@shared/types";
 import type { CompanyInfo } from "../components/QuotationDoc";
 
@@ -125,71 +125,119 @@ export function SettingsPage() {
     }
   };
 
+  // One section at a time, picked in the left sub-nav; ?bagian= makes it linkable
+  // (the admin's "Permintaan reset sandi" tile opens ?bagian=reset).
+  const sections = [
+    { key: "kebijakan", label: "Kebijakan harga", show: !!policy },
+    { key: "identitas", label: "Identitas dokumen", show: !!company },
+    { key: "excel", label: "Password Excel", show: can("manage_company") },
+    { key: "notifikasi", label: "Notifikasi", show: true },
+    { key: "sandi", label: "Kata sandi saya", show: true },
+    { key: "pengguna", label: "Pengguna", show: can("manage_users") },
+    { key: "reset", label: "Permintaan reset", show: can("manage_users"), count: resetRequests.length },
+  ].filter((x) => x.show);
+  const [params, setParams] = useSearchParams();
+  const wanted = params.get("bagian");
+  const current = sections.find((x) => x.key === wanted)?.key ?? sections[0]?.key;
+  const go = (key: string) => setParams({ bagian: key }, { replace: true });
+  const readOnlyPolicy = !can("manage_policy");
+  const readOnlyCompany = !can("manage_company");
+
   return (
-    <main className="hk-main">
+    <main className="hk-main page-stack">
       <div className="hk-page-head">
         <div>
           <h1>Pengaturan</h1>
-          <p>Kebijakan harga menentukan quotation mana yang wajib lewat persetujuan manajer.</p>
+          <p>Kebijakan harga, identitas dokumen, notifikasi, dan akun. Bagian yang tampil mengikuti izin Anda.</p>
         </div>
       </div>
 
-      <div className="stack">
-        {policy && (
+      <div className="settings-layout">
+        <nav className="sub-nav" aria-label="Bagian pengaturan">
+          {sections.map((x) => (
+            <button
+              key={x.key}
+              type="button"
+              className={x.key === current ? "on" : ""}
+              aria-current={x.key === current ? "page" : undefined}
+              onClick={() => go(x.key)}
+            >
+              <span>{x.label}</span>
+              {!!x.count && <span className="nav-count num">{grp(x.count)}</span>}
+            </button>
+          ))}
+        </nav>
+
+        <div className="settings-body">
+        {current === "kebijakan" && policy && (
           <section className="card">
             <div className="card-head">
-              <h2>Kebijakan harga</h2>
-              {!can("manage_policy") && <span className="badge grey">Hanya admin yang bisa mengubah</span>}
+              <div className="card-title">
+                <h2>Kebijakan harga</h2>
+                <span className="muted small">
+                  Batas yang memicu persetujuan manajer.{readOnlyPolicy ? " Hanya admin yang bisa mengubah." : ""}
+                </span>
+              </div>
             </div>
-            <div className="card-body">
+            <div className="card-body form-stack">
               <div className="field-grid">
                 <label className="field">
-                  <span>Net margin minimum ({pct(policy.minNetMargin)})</span>
-                  <input
-                    className="input" type="number" min="0" max="90" step="0.5" disabled={!can("manage_policy")}
-                    value={+(policy.minNetMargin * 100).toFixed(2)}
-                    onChange={(e) => setPolicy({ ...policy, minNetMargin: Number(e.target.value) / 100 })}
-                  />
+                  <span>Net margin minimum</span>
+                  <div className="input-affix">
+                    <input
+                      className="input" type="number" min="0" max="90" step="0.5" disabled={readOnlyPolicy}
+                      value={+(policy.minNetMargin * 100).toFixed(2)}
+                      onChange={(e) => setPolicy({ ...policy, minNetMargin: Number(e.target.value) / 100 })}
+                    />
+                    <span>%</span>
+                  </div>
                 </label>
                 <label className="field">
-                  <span>Margin minimum per item ({pct(policy.minLineMargin)})</span>
-                  <input
-                    className="input" type="number" min="-50" max="90" step="0.5" disabled={!can("manage_policy")}
-                    value={+(policy.minLineMargin * 100).toFixed(2)}
-                    onChange={(e) => setPolicy({ ...policy, minLineMargin: Number(e.target.value) / 100 })}
-                  />
+                  <span>Margin minimum per item</span>
+                  <div className="input-affix">
+                    <input
+                      className="input" type="number" min="-50" max="90" step="0.5" disabled={readOnlyPolicy}
+                      value={+(policy.minLineMargin * 100).toFixed(2)}
+                      onChange={(e) => setPolicy({ ...policy, minLineMargin: Number(e.target.value) / 100 })}
+                    />
+                    <span>%</span>
+                  </div>
                 </label>
                 <label className="field">
-                  <span>Diskon basket maksimum ({pct(policy.maxBasketDiscount)})</span>
-                  <input
-                    className="input" type="number" min="0" max="100" step="1" disabled={!can("manage_policy")}
-                    value={+(policy.maxBasketDiscount * 100).toFixed(2)}
-                    onChange={(e) => setPolicy({ ...policy, maxBasketDiscount: Number(e.target.value) / 100 })}
-                  />
+                  <span>Diskon basket maksimum</span>
+                  <div className="input-affix">
+                    <input
+                      className="input" type="number" min="0" max="100" step="1" disabled={readOnlyPolicy}
+                      value={+(policy.maxBasketDiscount * 100).toFixed(2)}
+                      onChange={(e) => setPolicy({ ...policy, maxBasketDiscount: Number(e.target.value) / 100 })}
+                    />
+                    <span>%</span>
+                  </div>
                 </label>
                 <label className="field">
                   <span>Ambang nilai wajib persetujuan</span>
-                  <input
-                    className="input" type="number" min="0" step="1000000" disabled={!can("manage_policy")}
-                    value={policy.approvalValueThreshold}
-                    onChange={(e) =>
-                      setPolicy({ ...policy, approvalValueThreshold: Number(e.target.value) })
-                    }
-                  />
-                  <span className="muted small">{rp(policy.approvalValueThreshold)} per bulan</span>
+                  <div className="input-affix prefix">
+                    <span>Rp</span>
+                    <input
+                      className="input" type="number" min="0" step="1000000" disabled={readOnlyPolicy}
+                      value={policy.approvalValueThreshold}
+                      onChange={(e) => setPolicy({ ...policy, approvalValueThreshold: Number(e.target.value) })}
+                    />
+                  </div>
+                  <small className="field-help">{rp(policy.approvalValueThreshold)} per bulan</small>
                 </label>
               </div>
-              <label className="toggle" style={{ marginTop: 14 }}>
+              <label className="check">
                 <input
                   type="checkbox"
-                  disabled={!can("manage_policy")}
+                  disabled={readOnlyPolicy}
                   checked={policy.allowBelowCost}
                   onChange={(e) => setPolicy({ ...policy, allowBelowCost: e.target.checked })}
                 />
                 <span>Izinkan item dijual di bawah landed cost</span>
               </label>
-              {can("manage_policy") && (
-                <div className="row" style={{ marginTop: 16, justifyContent: "flex-end" }}>
+              {!readOnlyPolicy && (
+                <div className="form-actions">
                   <button className="btn primary" onClick={savePolicy}>Simpan kebijakan</button>
                 </div>
               )}
@@ -197,33 +245,36 @@ export function SettingsPage() {
           </section>
         )}
 
-        {company && (
+        {current === "identitas" && company && (
           <section className="card">
-            <div className="card-head"><h2>Identitas di dokumen penawaran</h2></div>
-            <div className="card-body">
-              <label className="field" style={{ marginBottom: 12 }}>
+            <div className="card-head">
+              <div className="card-title">
+                <h2>Identitas di dokumen penawaran</h2>
+                <span className="muted small">
+                  Muncul di kop PDF, pratinjau, dan Excel penawaran.{readOnlyCompany ? " Hanya admin yang bisa mengubah." : ""}
+                </span>
+              </div>
+            </div>
+            <div className="card-body form-stack">
+              <div className="field">
                 <span>Logo perusahaan</span>
-                <div className="row" style={{ gap: 12, alignItems: "center" }}>
+                <div className="row-wrap">
                   {company.logo ? (
-                    <img
-                      src={company.logo}
-                      alt="Logo"
-                      style={{ maxHeight: 44, maxWidth: 160, objectFit: "contain", border: "1px solid var(--rule)", borderRadius: 6, padding: 4 }}
-                    />
+                    <img className="logo-preview" src={company.logo} alt="Logo" />
                   ) : (
-                    <span className="muted small">Belum ada logo — dokumen memakai nama merek dagang sebagai teks.</span>
+                    <span className="muted small">Belum ada logo; dokumen memakai nama merek dagang sebagai teks.</span>
                   )}
-                  {can("manage_company") && (
+                  {!readOnlyCompany && (
                     <>
                       <input
                         id="logo-upload"
                         type="file"
                         accept="image/png,image/jpeg,image/webp"
-                        style={{ display: "none" }}
+                        hidden
                         onChange={(e) => onLogoSelected(e.target.files?.[0])}
                       />
-                      <label htmlFor="logo-upload" className="btn small ghost" style={{ cursor: "pointer" }}>
-                        {company.logo ? "Ganti logo" : "Unggah logo"}
+                      <label htmlFor="logo-upload" className="btn small">
+                        <Icon name="upload" size={14} /> {company.logo ? "Ganti logo" : "Unggah logo"}
                       </label>
                       {company.logo && (
                         <button className="btn small ghost" onClick={() => setCompany({ ...company, logo: "" })}>
@@ -233,8 +284,8 @@ export function SettingsPage() {
                     </>
                   )}
                 </div>
-                <span className="muted small">PNG, JPEG, atau WEBP, maksimum 500 KB.</span>
-              </label>
+                {!readOnlyCompany && <small className="field-help">PNG, JPEG, atau WEBP, maksimum 500 KB.</small>}
+              </div>
               <div className="field-grid">
                 {([
                   ["brand", "Merek dagang"],
@@ -248,31 +299,31 @@ export function SettingsPage() {
                     <span>{label}</span>
                     <input
                       className="input"
-                      disabled={!can("manage_company")}
+                      disabled={readOnlyCompany}
                       value={company[key]}
                       onChange={(e) => setCompany({ ...company, [key]: e.target.value })}
                     />
                   </label>
                 ))}
               </div>
-              <label className="field" style={{ marginTop: 12 }}>
+              <label className="field">
                 <span>Alamat</span>
                 <textarea
-                  className="textarea" rows={2} disabled={!can("manage_company")}
+                  className="textarea" rows={2} disabled={readOnlyCompany}
                   value={company.address}
                   onChange={(e) => setCompany({ ...company, address: e.target.value })}
                 />
               </label>
-              <label className="field" style={{ marginTop: 12 }}>
+              <label className="field">
                 <span>Rekening pembayaran</span>
                 <input
-                  className="input" disabled={!can("manage_company")}
+                  className="input" disabled={readOnlyCompany}
                   value={company.bank}
                   onChange={(e) => setCompany({ ...company, bank: e.target.value })}
                 />
               </label>
-              {can("manage_company") && (
-                <div className="row" style={{ marginTop: 16, justifyContent: "flex-end" }}>
+              {!readOnlyCompany && (
+                <div className="form-actions">
                   <button className="btn primary" onClick={saveCompany}>Simpan identitas</button>
                 </div>
               )}
@@ -280,25 +331,28 @@ export function SettingsPage() {
           </section>
         )}
 
-        {can("manage_company") && (
+        {current === "excel" && (
           <section className="card">
-            <div className="card-head"><h2>Password Excel cek harga</h2></div>
-            <div className="card-body">
-              <p className="muted small" style={{ marginTop: 0, marginBottom: 12 }}>
-                Mengunci file "Cek harga" yang manajer kirim ke sales, supaya sales hanya bisa mengisi ACC/Tolak.
-                Manajer dan admin bisa melihat password ini; sales tidak. Kunci Excel mudah dibongkar, jadi angka di file
-                tidak pernah dibaca balik oleh aplikasi; yang dibaca hanya ACC/Tolak dan alasannya.
-                {" "}
-                <strong>{excelPasswordSet ? "Password sudah diatur." : "Belum diatur: file cek harga belum bisa dibuat."}</strong>
+            <div className="card-head">
+              <div className="card-title">
+                <h2>Password Excel cek harga</h2>
+                <span className="muted small">Mengunci file "Cek harga" yang manajer kirim ke sales.</span>
+              </div>
+              <span className={`badge ${excelPasswordSet ? "green" : "amber"}`}>{excelPasswordSet ? "Sudah diatur" : "Belum diatur"}</span>
+            </div>
+            <div className="card-body form-stack">
+              <p className="field-help">
+                Sales hanya bisa mengisi ACC/Tolak. Manajer dan admin bisa melihat password ini; sales tidak. Kunci Excel mudah
+                dibongkar, jadi angka di file tidak pernah dibaca balik oleh aplikasi; yang dibaca hanya ACC/Tolak dan alasannya.
+                {!excelPasswordSet && " Selama belum diatur, file cek harga belum bisa dibuat."}
               </p>
-              <div className="row-wrap">
-                <label className="field" style={{ minWidth: 240 }}>
+              <div className="inline-form">
+                <label className="field">
                   <span>{excelPasswordSet ? "Password baru" : "Password"}</span>
                   <PasswordInput value={excelPassword} onChange={setExcelPassword} autoComplete="new-password" />
                 </label>
                 <button
                   className="btn primary"
-                  style={{ alignSelf: "flex-end" }}
                   disabled={excelPassword.length < 6}
                   onClick={async () => {
                     try {
@@ -318,125 +372,123 @@ export function SettingsPage() {
           </section>
         )}
 
-        <section className="card">
-          <div className="card-head"><h2>Notifikasi WhatsApp</h2></div>
-          <div className="card-body">
-            <p className="muted small" style={{ marginTop: 0, marginBottom: 12 }}>
-              Dipakai untuk mengirim WhatsApp saat ada quotation yang butuh persetujuan Anda, atau saat
-              quotation Anda diputuskan. Kosongkan untuk mematikan notifikasi WhatsApp.
-            </p>
-            <div className="row-wrap">
-              <label className="field" style={{ minWidth: 240 }}>
-                <span>Nomor WhatsApp saya</span>
-                <input
-                  className="input"
-                  placeholder="+62 812-3456-7890"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                />
-              </label>
-              <button
-                className="btn primary"
-                style={{ alignSelf: "flex-end" }}
-                onClick={savePhone}
-                disabled={savingPhone || phone === (user?.phone ?? "")}
-              >
-                {savingPhone ? "Menyimpan…" : "Simpan nomor"}
-              </button>
-            </div>
-          </div>
-        </section>
-
-        <section className="card">
-          <div className="card-head"><h2>Kata sandi saya</h2></div>
-          <div className="card-body">
-            <div className="field-grid">
-              <label className="field">
-                <span>Kata sandi saat ini</span>
-                <PasswordInput
-                  autoComplete="current-password"
-                  value={password.current}
-                  onChange={(v) => setPassword({ ...password, current: v })}
-                />
-              </label>
-              <label className="field">
-                <span>Kata sandi baru (min. 8 karakter)</span>
-                <PasswordInput
-                  autoComplete="new-password"
-                  value={password.next}
-                  onChange={(v) => setPassword({ ...password, next: v })}
-                />
-              </label>
-              <label className="field">
-                <span>Ulangi kata sandi baru</span>
-                <PasswordInput
-                  autoComplete="new-password"
-                  value={password.confirm}
-                  onChange={(v) => setPassword({ ...password, confirm: v })}
-                />
-              </label>
-            </div>
-            <div className="row" style={{ marginTop: 16, justifyContent: "flex-end" }}>
-              <button
-                className="btn primary"
-                onClick={changePassword}
-                disabled={!password.current || password.next.length < 8}
-              >
-                Ubah kata sandi
-              </button>
-            </div>
-          </div>
-        </section>
-
-        {can("manage_users") && resetRequests.length > 0 && (
+        {current === "notifikasi" && (
           <section className="card">
-            <div className="card-head"><h2>Permintaan reset kata sandi</h2></div>
-            <div className="table-wrap" style={{ border: 0 }}>
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th className="l">Email</th>
-                    <th className="l">Diminta</th>
-                    <th className="l">Aksi</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {resetRequests.map((r) => {
-                    const target = users.find((u) => u.email.toLowerCase() === r.email.toLowerCase());
-                    return (
-                      <tr key={r.id}>
-                        <td className="l">{r.email}</td>
-                        <td className="l muted">{new Date(r.created_at).toLocaleString("id-ID")}</td>
-                        <td className="l">
-                          <div className="row-wrap" style={{ gap: 6 }}>
-                            {target && (
-                              <button className="btn ghost small" onClick={() => setResettingUser(target)}>
-                                Reset kata sandi
-                              </button>
-                            )}
-                            <button className="btn ghost small" onClick={() => dismissResetRequest(r.id)}>
-                              Tandai selesai
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            <div className="card-head">
+              <div className="card-title">
+                <h2>Notifikasi WhatsApp</h2>
+                <span className="muted small">Kosongkan nomor untuk mematikan notifikasi WhatsApp.</span>
+              </div>
+            </div>
+            <div className="card-body form-stack">
+              <p className="field-help">
+                Dipakai untuk mengirim WhatsApp saat ada quotation yang butuh persetujuan Anda, atau saat quotation Anda diputuskan.
+              </p>
+              <div className="inline-form">
+                <label className="field">
+                  <span>Nomor WhatsApp saya</span>
+                  <input className="input" placeholder="+62 812-3456-7890" value={phone} onChange={(e) => setPhone(e.target.value)} />
+                </label>
+                <button className="btn primary" onClick={savePhone} disabled={savingPhone || phone === (user?.phone ?? "")}>
+                  {savingPhone ? "Menyimpan…" : "Simpan nomor"}
+                </button>
+              </div>
             </div>
           </section>
         )}
 
-        {can("manage_users") && (
+        {current === "sandi" && (
+          <section className="card">
+            <div className="card-head"><h2>Kata sandi saya</h2></div>
+            <div className="card-body form-stack">
+              <div className="field-grid">
+                <label className="field">
+                  <span>Kata sandi saat ini</span>
+                  <PasswordInput autoComplete="current-password" value={password.current} onChange={(v) => setPassword({ ...password, current: v })} />
+                </label>
+                <label className="field">
+                  <span>Kata sandi baru (min. 8 karakter)</span>
+                  <PasswordInput autoComplete="new-password" value={password.next} onChange={(v) => setPassword({ ...password, next: v })} />
+                </label>
+                <label className="field">
+                  <span>Ulangi kata sandi baru</span>
+                  <PasswordInput autoComplete="new-password" value={password.confirm} onChange={(v) => setPassword({ ...password, confirm: v })} />
+                </label>
+              </div>
+              <div className="form-actions">
+                <button className="btn primary" onClick={changePassword} disabled={!password.current || password.next.length < 8}>
+                  Ubah kata sandi
+                </button>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {current === "reset" && (
           <section className="card">
             <div className="card-head">
-              <h2>Pengguna</h2>
+              <div className="card-title">
+                <h2>Permintaan reset kata sandi</h2>
+                <span className="muted small">Dari tombol "Lupa kata sandi" di halaman masuk.</span>
+              </div>
+            </div>
+            {resetRequests.length === 0 ? (
+              <div className="card-body empty">
+                <Icon name="check" size={28} />
+                <h3>Tidak ada permintaan</h3>
+                <p>Permintaan reset kata sandi dari pengguna akan muncul di sini.</p>
+              </div>
+            ) : (
+              <div className="table-wrap flush">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th className="l">Email</th>
+                      <th className="l">Diminta</th>
+                      <th aria-label="Aksi" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {resetRequests.map((r) => {
+                      const target = users.find((u) => u.email.toLowerCase() === r.email.toLowerCase());
+                      return (
+                        <tr key={r.id}>
+                          <td className="l">{r.email}</td>
+                          <td className="l muted">{fmtDateTime(r.created_at)}</td>
+                          <td>
+                            <div className="row-actions">
+                              {target && (
+                                <button className="btn small" onClick={() => setResettingUser(target)}>
+                                  Reset kata sandi
+                                </button>
+                              )}
+                              <button className="btn ghost small" onClick={() => dismissResetRequest(r.id)}>
+                                Tandai selesai
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        )}
+
+        {current === "pengguna" && (
+          <section className="card">
+            <div className="card-head">
+              <div className="card-title">
+                <h2>Pengguna</h2>
+                <span className="muted small">{grp(users.length)} pengguna</span>
+              </div>
               <button className="btn small primary" onClick={() => setCreating(true)}>
                 <Icon name="plus" size={14} /> Tambah pengguna
               </button>
             </div>
-            <div className="table-wrap" style={{ border: 0 }}>
+            <div className="table-wrap flush">
               <table className="table">
                 <thead>
                   <tr>
@@ -444,21 +496,21 @@ export function SettingsPage() {
                     <th className="l">Email</th>
                     <th className="l">Peran</th>
                     <th className="l">Status</th>
-                    <th className="l">Aksi</th>
+                    <th aria-label="Aksi" />
                   </tr>
                 </thead>
                 <tbody>
                   {users.map((u) => (
                     <tr key={u.id}>
                       <td className="l">
-                        {u.name}
-                        {u.id === user?.id && <span className="badge grey" style={{ marginLeft: 6 }}>Anda</span>}
+                        <span className="cell-title">{u.name}</span>
+                        {u.id === user?.id && <span className="badge grey rev-badge">Anda</span>}
                       </td>
                       <td className="l muted">{u.email}</td>
                       <td className="l">
                         <select
-                          className="cell"
-                          style={{ width: 110 }}
+                          className="cell role-select"
+                          aria-label={`Peran ${u.name}`}
                           value={u.role}
                           disabled={u.id === user?.id}
                           onChange={async (e) => {
@@ -482,6 +534,7 @@ export function SettingsPage() {
                             type="checkbox"
                             checked={!!u.active}
                             disabled={u.id === user?.id}
+                            aria-label={`Aktifkan ${u.name}`}
                             onChange={async (e) => {
                               try {
                                 await api.patch(`/auth/users/${u.id}`, { active: e.target.checked });
@@ -491,11 +544,11 @@ export function SettingsPage() {
                               }
                             }}
                           />
-                          <span className="small">{u.active ? "Aktif" : "Nonaktif"}</span>
+                          <span className={`badge ${u.active ? "green" : "grey"}`}>{u.active ? "Aktif" : "Nonaktif"}</span>
                         </label>
                       </td>
-                      <td className="l">
-                        <div className="row-wrap" style={{ gap: 6 }}>
+                      <td>
+                        <div className="row-actions">
                           <button
                             className="btn ghost small"
                             onClick={() => navigate(`/quotes?user_id=${u.id}&user_name=${encodeURIComponent(u.name)}`)}
@@ -516,6 +569,7 @@ export function SettingsPage() {
             </div>
           </section>
         )}
+        </div>
       </div>
 
       {creating && (
@@ -591,7 +645,7 @@ function ResetPasswordModal({
         </>
       }
     >
-      <div className="col" style={{ gap: 12 }}>
+      <div className="form-stack">
         <label className="field">
           <span>Kata sandi baru (min. 8 karakter)</span>
           <PasswordInput autoComplete="new-password" value={next} onChange={setNext} />
@@ -634,7 +688,7 @@ function NewUserModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
         </>
       }
     >
-      <div className="col" style={{ gap: 12 }}>
+      <div className="form-stack">
         <label className="field">
           <span>Nama lengkap</span>
           <input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
