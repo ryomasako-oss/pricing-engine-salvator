@@ -156,7 +156,7 @@ export function TermsBox({
         </p>
       )}
       {missing.length > 0 && !readOnly && (
-        <p className="small" style={{ color: "var(--danger)", margin: "8px 0 0" }}>
+        <p className="small" style={{ color: "var(--color-err)", margin: "8px 0 0" }}>
           Wajib diisi sebelum diajukan: {missing.join(" dan ")}.
         </p>
       )}

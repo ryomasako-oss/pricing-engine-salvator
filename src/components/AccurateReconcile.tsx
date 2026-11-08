@@ -75,7 +75,7 @@ export function AccurateReconcile() {
   const problems = report.checks.filter((c) => c.notify && c.count > 0).length;
 
   return (
-    <div style={{ marginTop: 16, borderTop: "1px solid var(--rule)", paddingTop: 12 }}>
+    <div style={{ marginTop: 16, borderTop: "1px solid var(--color-border)", paddingTop: 12 }}>
       <div className="row-wrap" style={{ justifyContent: "space-between" }}>
         <div>
           <strong>Cek silang dengan Accurate {report.entity}</strong>{" "}

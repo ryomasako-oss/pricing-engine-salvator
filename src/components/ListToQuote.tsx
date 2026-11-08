@@ -635,7 +635,7 @@ export function ListToQuote({
                         </div>
                         {readUnit && <div className="muted small">Satuan dibaca dari teks: {readUnit}.</div>}
                         {chosenItem && unitAssumed(row.request.uom, chosenItem) && (
-                          <div className="small" style={{ color: "var(--warn)" }}>
+                          <div className="small" style={{ color: "var(--color-warn-text)" }}>
                             ⚠ Rasio {row.request.uom} belum ada di katalog: dianggap 1 {row.request.uom} = 1 {chosenItem.uom || "Pcs"}. Kalau isinya lebih, ubah qty atau isi rasionya di Katalog.
                           </div>
                         )}
@@ -651,12 +651,12 @@ export function ListToQuote({
                           </div>
                         )}
                         {pack.conflict && chosenItem && (
-                          <div className="small" style={{ color: "var(--warn)" }}>
+                          <div className="small" style={{ color: "var(--color-warn-text)" }}>
                             ⚠ Teks menyebut isi {pack.conflict.text} per {pack.conflict.word}, katalog mencatat 1 {pack.conflict.word} = {pack.conflict.catalog}. Satuan tidak diubah: COGS dihitung per {chosenItem.uom || "Pcs"}. Periksa satuan dan rasio.
                           </div>
                         )}
                         {pack.unmatched && chosenItem && (
-                          <div className="small" style={{ color: "var(--warn)" }}>
+                          <div className="small" style={{ color: "var(--color-warn-text)" }}>
                             ⚠ Teks menyebut {pack.unmatched}, tapi barang ini tidak punya satuan itu: COGS dihitung per {chosenItem.uom || "Pcs"}. Periksa satuan.
                           </div>
                         )}
@@ -722,9 +722,9 @@ export function ListToQuote({
                             {row.result.status === "review" ? " (ke klien lain, cek dulu)" : " ke klien ini"}
                           </div>
                         )}
-                        {warn && <div className="small" style={{ color: "var(--warn)" }}>⚠ {warn}</div>}
+                        {warn && <div className="small" style={{ color: "var(--color-warn-text)" }}>⚠ {warn}</div>}
                         {blockedOf(row) && (
-                          <div className="small" style={{ color: "var(--warn)" }}>
+                          <div className="small" style={{ color: "var(--color-warn-text)" }}>
                             ⚠ {blockedOf(row)}. Masuk sebagai baris ditahan: tidak ikut total dan dokumen sampai dicek manajer.
                           </div>
                         )}

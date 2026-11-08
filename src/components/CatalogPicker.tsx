@@ -187,7 +187,7 @@ export function CatalogPicker({
                           )}
                         </div>
                         {item.cogs_problem && (
-                          <div className="small" style={{ color: "var(--warn)" }}>⚠ {item.cogs_problem}. Masuk sebagai baris ditahan sampai dicek manajer.</div>
+                          <div className="small" style={{ color: "var(--color-warn-text)" }}>⚠ {item.cogs_problem}. Masuk sebagai baris ditahan sampai dicek manajer.</div>
                         )}
                       </div>
                     </div>

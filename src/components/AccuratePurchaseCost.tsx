@@ -65,7 +65,7 @@ function LastSale({ sale, cogs }: { sale?: { price: number; invoiceNo: string; d
   const under = sale.price < cogs;
   return (
     <td title={under ? "Terakhir dijual di bawah COGS baru" : undefined}>
-      <span style={under ? { color: "var(--danger)", fontWeight: 600 } : undefined}>{rp(sale.price)}</span>
+      <span className={under ? "text-err" : undefined}>{rp(sale.price)}</span>
       <div className="muted">
         {sale.invoiceNo} · {fmtDate(sale.date)}
       </div>
@@ -179,7 +179,7 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
   };
 
   return (
-    <div style={{ marginTop: 16, borderTop: "1px solid var(--rule)", paddingTop: 12 }}>
+    <div style={{ marginTop: 16, borderTop: "1px solid var(--color-border)", paddingTop: 12 }}>
       <div className="row-wrap" style={{ justifyContent: "space-between" }}>
         <div>
           <strong>COGS dari harga pembelian terakhir</strong>{" "}
@@ -197,7 +197,7 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
             {collecting && ` Riwayat setahun sedang dikumpulkan: ${grp(status.receiptsSeen)} RI terbaca. Pratinjau tersedia setelah selesai.`}
             {status.lastPassAt && ` Riwayat terakhir diperbarui ${fmtDateTime(status.lastPassAt)}.`}
           </div>
-          {status.lastError && <div className="small" style={{ color: "var(--danger)" }}>{status.lastError}</div>}
+          {status.lastError && <div className="small text-err">{status.lastError}</div>}
         </div>
         <div className="row-wrap">
           <button className="btn small ghost" disabled={!!busy || !status.lastPassAt} onClick={runPreview}>
@@ -356,7 +356,7 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
                         <td className="l">{c.name}</td>
                         <td>{c.from > 0 ? rp(c.from) : "kosong"}</td>
                         <td>{rp(c.to)}</td>
-                        <td style={Math.abs(j) > BIG_JUMP ? { color: "var(--danger)", fontWeight: 600 } : undefined}>
+                        <td className={Math.abs(j) > BIG_JUMP ? "text-err" : undefined}>
                           {Number.isFinite(j) ? `${j > 0 ? "+" : ""}${pct(j)}` : "baru"}
                         </td>
                         <LastSale sale={preview.lastSales?.[c.code]} cogs={c.to} />
