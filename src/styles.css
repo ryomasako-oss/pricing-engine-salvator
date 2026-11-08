@@ -893,7 +893,9 @@ input[type=checkbox] { accent-color: var(--color-action); width: 17px; height: 1
 .chat-dock .composer { margin-top: auto; }
 @media (max-width: 671px) {
   .chat-fab { right: 14px; bottom: 14px; }
-  .chat-dock { right: 12px; left: 12px; width: auto; bottom: 78px; height: min(72vh, calc(100vh - 100px)); }
+  /* Phones: Silvy is a full-screen sheet (docs/ui-standar.md, Silvy); its own close button replaces the round one. */
+  .chat-dock { inset: 0; width: auto; height: 100dvh; max-height: none; border-radius: 0; border: 0; z-index: 60; }
+  .chat-fab.on { display: none; }
 }
 
 /* Thumbnail barang dari Data Hub (katalog, pemilih barang, baris quotation). */
