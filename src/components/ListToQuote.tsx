@@ -465,7 +465,7 @@ export function ListToQuote({
               !draft && <button className="btn ghost" onClick={() => setRows(null)} disabled={busy}>Ganti file</button>
             )}
             <button className="btn" onClick={() => void saveDraft()} disabled={busy || saving}>
-              <Icon name="check" size={14} /> {saving ? "Menyimpan…" : "Simpan"}
+              {saving ? "Menyimpan…" : "Simpan"}
             </button>
             <button className="btn" onClick={() => setSending(true)} disabled={busy || saving || sending}>
               <Icon name="send" size={14} /> Kirim ke PIC…
@@ -505,7 +505,7 @@ export function ListToQuote({
                 </select>
               </label>
               <button className="btn ghost" onClick={() => setAdding(true)}>
-                <Icon name="plus" size={15} /> Klien baru
+                Klien baru
               </button>
             </div>
           )}
@@ -527,7 +527,6 @@ export function ListToQuote({
               void read(e.dataTransfer.files?.[0]);
             }}
           >
-            <Icon name="upload" size={24} />
             <div>
               <strong>Tarik file daftar klien ke sini</strong>
               <div className="muted small">
@@ -737,7 +736,7 @@ export function ListToQuote({
                             onClick={() => update(i, { confirmed: true, unitOk: true })}
                             aria-label={`Benar, pakai saran untuk ${row.request.name}`}
                           >
-                            <Icon name="check" size={13} /> Benar
+                            Benar
                           </button>
                         ) : (
                           <span className={`badge ${badge.cls}`}>{badge.text}</span>

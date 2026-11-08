@@ -71,7 +71,7 @@ export function ListDrafts({ drafts, onOpen, onChanged }: { drafts: DraftSummary
                   <td className="l muted nowrap">{fmtDateTime(d.updated_at)}</td>
                   <td className="l nowrap" onClick={(e) => e.stopPropagation()}>
                     <button className="btn small" onClick={() => onOpen(d.id)}>
-                      <Icon name="file" size={13} /> Buka
+                      Buka
                     </button>
                     {mayCancel(d) && (
                       <button

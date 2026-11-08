@@ -130,11 +130,9 @@ export function ItemsTable({
         {!readOnly && (
           <>
             <button className="btn small" onClick={onOpenCatalog}>
-              <Icon name="search" size={14} />
               Dari katalog
             </button>
             <button className="btn small" onClick={onAdd}>
-              <Icon name="plus" size={14} />
               Baris kosong
             </button>
           </>
@@ -143,7 +141,6 @@ export function ItemsTable({
 
       {engine.rows.length === 0 ? (
         <div className="empty">
-          <Icon name="table" size={28} />
           <h3>Belum ada item</h3>
           <p>Tambahkan dari katalog, impor file Excel klien, atau buat baris kosong.</p>
           {!readOnly && (

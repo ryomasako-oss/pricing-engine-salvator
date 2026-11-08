@@ -7,10 +7,10 @@ import { Icon } from "./Icon";
    arrow keys move between items. */
 
 export type MenuEntry =
-  | { label: string; icon?: string; hint?: string; danger?: boolean; onSelect: () => void }
+  | { label: string; hint?: string; danger?: boolean; onSelect: () => void }
   | "divider";
 
-export function Menu({ label, icon, items }: { label: string; icon?: string; items: MenuEntry[] }) {
+export function Menu({ label, items }: { label: string; items: MenuEntry[] }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
@@ -51,7 +51,7 @@ export function Menu({ label, icon, items }: { label: string; icon?: string; ite
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
       >
-        {icon && <Icon name={icon} size={15} />} {label} <Icon name="chevron-down" size={14} />
+        {label} <Icon name="chevron-down" size={14} />
       </button>
       {open && (
         <div className="menu-list" role="menu" aria-label={label}>
@@ -69,7 +69,6 @@ export function Menu({ label, icon, items }: { label: string; icon?: string; ite
                   it.onSelect();
                 }}
               >
-                {it.icon && <Icon name={it.icon} size={15} />}
                 <span>
                   {it.label}
                   {it.hint && <small>{it.hint}</small>}

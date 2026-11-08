@@ -1,7 +1,6 @@
 import { useRef, useState } from "react";
 import { api } from "../api";
 import { useToast } from "../context/ToastContext";
-import { Icon } from "./Icon";
 import { Thumb } from "./Thumb";
 import { uploadItemImage } from "../lib/itemImageUpload";
 
@@ -56,7 +55,7 @@ export function ItemImageEditor({ code, image, onChanged }: { code: string; imag
         <Thumb src={shown} alt={code} />
         <input ref={input} type="file" accept="image/*" hidden onChange={(e) => pick(e.target.files?.[0])} />
         <button type="button" className="btn small" disabled={busy} onClick={() => input.current?.click()}>
-          <Icon name="plus" size={13} /> {busy ? "Memproses…" : shown ? "Ganti gambar" : "Unggah gambar"}
+          {busy ? "Memproses…" : shown ? "Ganti gambar" : "Unggah gambar"}
         </button>
         {shown && (
           <button type="button" className="btn small ghost" disabled={busy} onClick={remove}>

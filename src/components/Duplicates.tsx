@@ -3,7 +3,6 @@
 
 import type { DuplicateGroup } from "@shared/duplicates";
 import { Modal } from "./Modal";
-import { Icon } from "./Icon";
 
 /** "2 produk muncul lebih dari sekali", naming possible matches separately. */
 const headline = (groups: DuplicateGroup[], tail: string) => {
@@ -51,7 +50,6 @@ export function DuplicateBanner({
   return (
     <div className="notice warn dup-banner" role="status">
       <div className="row" style={{ alignItems: "flex-start", gap: 10 }}>
-        <Icon name="alert" size={15} />
         <div className="grow">
           <div style={{ fontWeight: 600 }}>
             {headline(groups, "muncul lebih dari sekali")} di quotation ini

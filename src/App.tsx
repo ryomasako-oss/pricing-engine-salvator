@@ -138,7 +138,6 @@ function RequirePermission({ permission, children }: { permission: Permission; c
       <div className="hk-main">
         <div className="card">
           <div className="card-body empty">
-            <Icon name="shield" size={28} />
             <h3>Halaman ini khusus manajer dan admin</h3>
             <p>Akun Anda tidak punya akses ke bagian ini.</p>
           </div>

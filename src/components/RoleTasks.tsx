@@ -3,7 +3,6 @@ import { useNavCounts } from "../context/NavCountsContext";
 import { Link } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
-import { Icon } from "./Icon";
 
 /* "Perlu tindakan": the next steps of the signed-in role's own flow
    (docs/ui-standar.md, "Tampilan per peran"). Sales: finish drafts, fix
@@ -89,25 +88,32 @@ export function RoleTasks({ counts, onTab }: { counts: StatusCounts; onTab: (sta
       ];
 
   return (
-    <section aria-label="Perlu tindakan">
-      <h2 className="section-title">Perlu tindakan</h2>
-      <div className="task-grid">
+    <section className="overview-tasks" aria-label="Perlu tindakan">
+      <h2 className="overview-title">Perlu tindakan</h2>
+      <ul className="task-list">
         {tiles.map((t) => {
           const body = (
             <>
-              <span className="label"><Icon name={t.icon} size={14} /> {t.label}</span>
-              <span className="value num">{t.n ?? "–"}</span>
-              <span className="foot">{t.foot}</span>
+              <span className={`task-dot${t.n ? ` ${t.tone}` : ""}`} aria-hidden="true" />
+              <span className="task-text">
+                <span className="task-label">{t.label}</span>
+                <span className="task-foot">{t.foot}</span>
+              </span>
+              <span className="task-count num">{t.n ?? "–"}</span>
             </>
           );
-          const cls = `task-tile${t.n ? ` has-${t.tone}` : ""}`;
-          return t.to ? (
-            <Link key={t.key} to={t.to} className={cls}>{body}</Link>
-          ) : (
-            <button key={t.key} type="button" className={cls} onClick={() => onTab(t.tab!)}>{body}</button>
+          const cls = `task-row${t.n ? "" : " is-zero"}`;
+          return (
+            <li key={t.key}>
+              {t.to ? (
+                <Link to={t.to} className={cls}>{body}</Link>
+              ) : (
+                <button type="button" className={cls} onClick={() => onTab(t.tab!)}>{body}</button>
+              )}
+            </li>
           );
         })}
-      </div>
+      </ul>
     </section>
   );
 }

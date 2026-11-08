@@ -7,7 +7,6 @@ import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { useNavCounts } from "../context/NavCountsContext";
-import { Icon } from "../components/Icon";
 import { Modal } from "../components/Modal";
 import { fmtDateTime, grp } from "@shared/format";
 import { FIX_KINDS, ageDays, type FixKind } from "@shared/fixTasks";
@@ -106,7 +105,7 @@ export function FixTasksPage() {
           </p>
         </div>
         <button className="btn ghost" onClick={load} disabled={loading}>
-          <Icon name="history" size={15} /> Muat ulang
+          Muat ulang
         </button>
       </div>
 
@@ -150,7 +149,6 @@ export function FixTasksPage() {
           </div>
         ) : shown.length === 0 ? (
           <div className="card-body empty">
-            <Icon name={rows.length ? "search" : "check"} size={28} />
             {rows.length ? (
               <>
                 <h3>Tidak ada yang cocok</h3>
@@ -204,7 +202,6 @@ export function FixTasksPage() {
                       <div className="fix-todo">{FIX_KINDS[r.kind].todo}</div>
                     ) : (
                       <div className="fix-done">
-                        <Icon name="check" size={14} />
                         <span>
                           {r.resolved_by_name}, {r.resolved_at && fmtDateTime(r.resolved_at)}: <em>{r.resolution}</em>
                         </span>

@@ -6,7 +6,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 import { useToast } from "../context/ToastContext";
-import { Icon } from "./Icon";
 import { fmtDateTime, grp } from "@shared/format";
 
 interface Check {
@@ -88,7 +87,7 @@ export function AccurateReconcile() {
           </div>
         </div>
         <button className="btn small ghost" disabled={busy || !report.complete} onClick={recheck}>
-          <Icon name="history" size={13} /> Cek ulang &amp; beri tahu
+          Cek ulang &amp; beri tahu
         </button>
       </div>
       <ul style={{ listStyle: "none", padding: 0, margin: "8px 0 0", display: "grid", gap: 6 }}>

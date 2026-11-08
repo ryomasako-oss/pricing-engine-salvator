@@ -10,7 +10,6 @@ import type { CatalogItem, QuoteItem } from "@shared/types";
 import { lineFromCatalog } from "@shared/match";
 import { uomChoices, uomWarning } from "@shared/uom";
 import { Modal } from "./Modal";
-import { Icon } from "./Icon";
 import { UomCell } from "./UomCell";
 import { Thumb } from "./Thumb";
 import { NewItemForm } from "./NewItemForm";
@@ -139,7 +138,7 @@ export function CatalogPicker({
           <span className="small">Hanya yang punya COGS</span>
         </label>
         <button className="btn small ghost" onClick={() => setCreating(true)}>
-          <Icon name="plus" size={13} /> Barang baru
+          Barang baru
         </button>
       </div>
 
@@ -147,14 +146,13 @@ export function CatalogPicker({
         <div className="loading"><span className="dots"><i /><i /><i /></span> Mencari…</div>
       ) : items.length === 0 ? (
         <div className="empty">
-          <Icon name="box" size={26} />
           <h3>Tidak ada yang cocok</h3>
           <p>
             Barangnya belum ada? Buat sebagai <strong>Barang baru</strong>: barisnya ditahan sampai barangnya dibuat di
             Accurate, quotation lainnya tetap jalan.
           </p>
           <button className="btn small" onClick={() => setCreating(true)}>
-            <Icon name="plus" size={13} /> Barang baru{query.trim() ? `: ${query.trim()}` : ""}
+            Barang baru{query.trim() ? `: ${query.trim()}` : ""}
           </button>
         </div>
       ) : (

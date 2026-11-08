@@ -5,7 +5,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 import { useToast } from "../context/ToastContext";
-import { Icon } from "./Icon";
 import { fmtDateTime, grp } from "@shared/format";
 import type { PendingItem } from "@shared/pendingItems";
 
@@ -55,7 +54,7 @@ export function PendingItemsPanel() {
         {live.length > 0 && (
           <div className="row-wrap card-lead">
             <button className="btn small ghost" onClick={async () => (await import("../export/pendingItems")).exportPendingItems(live, new Date().toISOString().slice(0, 10))}>
-              <Icon name="download" size={13} /> Unduh Excel untuk admin Accurate
+              Unduh Excel untuk admin Accurate
             </button>
             <span className="muted small">Buat di Accurate dengan kode persis seperti di daftar, lalu sinkron dan Terapkan (pilih tambahkan barang baru).</span>
           </div>

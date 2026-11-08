@@ -127,19 +127,19 @@ export function CatalogPage() {
   const filtered = query.trim() !== "" || imageFilter !== "all";
 
   const importMenu: MenuEntry[] = [
-    { label: "Nilai Persediaan", hint: "COGS dari Accurate", icon: "box", onSelect: () => setModal("inventory") },
-    { label: "Daftar Barang dan Jasa", hint: "Harga jual acuan", icon: "table", onSelect: () => setModal("master") },
-    { label: "Katalog lengkap (gabung)", hint: "Template katalog, barang lama tetap", icon: "table", onSelect: () => setModal("fullMerge") },
+    { label: "Nilai Persediaan", hint: "COGS dari Accurate", onSelect: () => setModal("inventory") },
+    { label: "Daftar Barang dan Jasa", hint: "Harga jual acuan", onSelect: () => setModal("master") },
+    { label: "Katalog lengkap (gabung)", hint: "Template katalog, barang lama tetap", onSelect: () => setModal("fullMerge") },
     "divider",
     {
-      label: "Unduh template katalog", icon: "download",
+      label: "Unduh template katalog",
       onSelect: () => void import("../import/parsers").then((m) => m.downloadFullCatalogTemplate()),
     },
     ...(can("delete_catalog")
       ? ([
           "divider",
           {
-            label: "Ganti seluruh katalog…", hint: "Hapus semua barang, isi dari file", icon: "trash", danger: true,
+            label: "Ganti seluruh katalog…", hint: "Hapus semua barang, isi dari file", danger: true,
             onSelect: () => setModal("confirmFull"),
           },
         ] satisfies MenuEntry[])
@@ -169,14 +169,14 @@ export function CatalogPage() {
         </div>
         {can("import_catalog") && (
           <div className="row-wrap">
-            <Menu label="Impor" icon="upload" items={importMenu} />
+            <Menu label="Impor" items={importMenu} />
             {can("edit_catalog") && (
               <button className="btn" onClick={() => setModal("images")}>
-                <Icon name="upload" size={15} /> Unggah gambar massal
+                Unggah gambar massal
               </button>
             )}
             <button className="btn primary" onClick={() => openEditing({ ...EMPTY_ITEM })}>
-              <Icon name="plus" size={15} /> Tambah barang
+              Tambah barang
             </button>
           </div>
         )}
@@ -220,7 +220,7 @@ export function CatalogPage() {
 
       {stats && stats.total > 0 && stats.priced / stats.total < 0.6 && (
         <p className="notice warn">
-          <Icon name="alert" size={14} /> Hanya {Math.round((stats.priced / stats.total) * 100)}%
+          Hanya {Math.round((stats.priced / stats.total) * 100)}%
           item punya harga pokok. Barang yang belum pernah dibeli (tanpa penerimaan barang di Accurate)
           tidak punya harga pembelian terakhir — isi manual atau lewat impor Nilai Persediaan untuk item
           yang benar-benar dijual.
@@ -265,7 +265,6 @@ export function CatalogPage() {
           </div>
         ) : items.length === 0 && filtered ? (
           <div className="card-body empty">
-            <Icon name="search" size={28} />
             <h3>Tidak ada barang yang cocok</h3>
             <p>Coba kata lain, atau ubah filter gambar.</p>
             <button className="btn" onClick={() => { setQuery(""); setImageFilter("all"); setPage(0); }}>
@@ -274,7 +273,6 @@ export function CatalogPage() {
           </div>
         ) : items.length === 0 ? (
           <div className="card-body empty">
-            <Icon name="box" size={28} />
             <h3>Katalog masih kosong</h3>
             <p>
               Impor laporan Nilai Persediaan untuk harga pokok, lalu Daftar Barang dan Jasa untuk
@@ -282,7 +280,7 @@ export function CatalogPage() {
             </p>
             {can("import_catalog") && (
               <button className="btn primary" onClick={() => setModal("inventory")}>
-                <Icon name="upload" size={15} /> Impor Nilai Persediaan
+                Impor Nilai Persediaan
               </button>
             )}
           </div>
@@ -314,7 +312,6 @@ export function CatalogPage() {
                         </div>
                         {item.cogs_problem && (!seeCosts || item.cogs > 0) && (
                           <div className="cell-problem">
-                            <Icon name="alert" size={14} />
                             <span>{item.cogs_problem}. Tidak bisa dipakai di penawaran.</span>
                             {can("edit_catalog") && /COGS acuan/.test(item.cogs_problem) && (
                               <button className="btn small" onClick={() => void verifyCogs(item.id)}>
@@ -790,7 +787,6 @@ function UnitsEditor({
             className="btn small"
             onClick={() => onChange([...units, { uom: unused[0], factor: 0 }])}
           >
-            <Icon name="plus" size={14} />
             Tambah satuan
           </button>
         )}

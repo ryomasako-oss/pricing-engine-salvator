@@ -6,7 +6,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { useToast } from "../context/ToastContext";
-import { Icon } from "./Icon";
 import { AccurateReconcile } from "./AccurateReconcile";
 import { AccuratePurchaseCost } from "./AccuratePurchaseCost";
 import { useAuth } from "../context/AuthContext";
@@ -155,7 +154,7 @@ export function AccuratePanel({ onApplied }: { onApplied: () => void }) {
       <div className="card-body">
         {configured.length === 0 ? (
           <p className="notice warn">
-            <Icon name="alert" size={14} /> Token Accurate belum dipasang di server. Admin perlu menjalankan{" "}
+            Token Accurate belum dipasang di server. Admin perlu menjalankan{" "}
             <code>wrangler secret put ACCURATE_SIGNATURE_SECRET</code> dan <code>ACCURATE_TOKEN_CV</code> /{" "}
             <code>ACCURATE_TOKEN_PT</code>.
           </p>
@@ -179,11 +178,11 @@ export function AccuratePanel({ onApplied }: { onApplied: () => void }) {
                 </div>
                 <div className="row-wrap">
                   <button className="btn small ghost" disabled={!!busy} onClick={() => sync(e.entity)}>
-                    <Icon name="history" size={13} /> {e.phase === "idle" ? "Sinkron sekarang" : "Lanjutkan"}
+                    {e.phase === "idle" ? "Sinkron sekarang" : "Lanjutkan"}
                   </button>
                   {e.entity === catalogEntity ? (
                     <button className="btn small" disabled={!!busy || e.items === 0} onClick={() => apply(e.entity)}>
-                      <Icon name="download" size={13} /> Terapkan ke katalog
+                      Terapkan ke katalog
                     </button>
                   ) : (
                     <span className="muted small">Untuk pengecekan saja</span>

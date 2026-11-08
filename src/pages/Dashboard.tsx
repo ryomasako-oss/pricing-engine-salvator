@@ -154,55 +154,57 @@ export function DashboardPage() {
         </div>
         <div className="row">
           <button className="btn" onClick={() => setFromList(true)}>
-            <Icon name="upload" size={16} />
             Dari list klien
           </button>
           <button className="btn primary" onClick={() => setCreating(true)}>
-            <Icon name="plus" size={16} />
             Quotation baru
           </button>
         </div>
       </div>
 
-      <RoleTasks
-        // From the whole list, not the search box: a typed search must not hide work.
-        counts={{
-          draft: quotes.filter((q) => q.status === "draft").length,
-          rejected: quotes.filter((q) => q.status === "rejected").length,
-          approved: quotes.filter((q) => q.status === "approved").length,
-          submitted: quotes.filter((q) => q.status === "submitted").length,
-        }}
-        onTab={(status) => {
-          setQuery("");
-          setFilter(status);
-          document.getElementById("quote-list")?.scrollIntoView({ behavior: "smooth", block: "start" });
-        }}
-      />
+      <div className="overview">
+        <RoleTasks
+          // From the whole list, not the search box: a typed search must not hide work.
+          counts={{
+            draft: quotes.filter((q) => q.status === "draft").length,
+            rejected: quotes.filter((q) => q.status === "rejected").length,
+            approved: quotes.filter((q) => q.status === "approved").length,
+            submitted: quotes.filter((q) => q.status === "submitted").length,
+          }}
+          onTab={(status) => {
+            setQuery("");
+            setFilter(status);
+            document.getElementById("quote-list")?.scrollIntoView({ behavior: "smooth", block: "start" });
+          }}
+        />
 
-      <h2 className="section-title">{mine ? "Hasil saya" : "Hasil tim"}</h2>
-      <div className="kpi-grid">
-        <div className="kpi">
-          <div className="label">Pipeline aktif per bulan</div>
-          <div className="value num">{rp(kpi.pipeline)}</div>
-          <div className="foot">Disetujui dan terkirim</div>
-        </div>
-        <div className="kpi">
-          <div className="label">Nilai dimenangkan</div>
-          <div className="value num">{rp(kpi.wonValue)}</div>
-          <div className="foot">Per bulan</div>
-        </div>
-        <div className="kpi">
-          <div className="label">Tingkat menang</div>
-          <div className="value num">{pct(kpi.winRate, 0)}</div>
-          <div className="foot">Dari yang sudah diputus</div>
-        </div>
-        {seeCosts && (
-          <div className="kpi">
-            <div className="label">Rata-rata net margin</div>
-            <div className="value num">{pct(kpi.avgMargin)}</div>
-            <div className="foot">{mine ? "Quotation saya" : "Semua quotation"}</div>
-          </div>
-        )}
+        <section className="overview-stats" aria-label={mine ? "Hasil saya" : "Hasil tim"}>
+          <h2 className="overview-title">{mine ? "Hasil saya" : "Hasil tim"}</h2>
+          <dl className="stat-grid">
+            <div className="stat">
+              <dt>Pipeline aktif per bulan</dt>
+              <dd className="num">{rp(kpi.pipeline)}</dd>
+              <dd className="stat-foot">Disetujui dan terkirim</dd>
+            </div>
+            <div className="stat">
+              <dt>Nilai dimenangkan</dt>
+              <dd className="num">{rp(kpi.wonValue)}</dd>
+              <dd className="stat-foot">Per bulan</dd>
+            </div>
+            <div className="stat">
+              <dt>Tingkat menang</dt>
+              <dd className="num">{pct(kpi.winRate, 0)}</dd>
+              <dd className="stat-foot">Dari yang sudah diputus</dd>
+            </div>
+            {seeCosts && (
+              <div className="stat">
+                <dt>Rata-rata net margin</dt>
+                <dd className="num">{pct(kpi.avgMargin)}</dd>
+                <dd className="stat-foot">{mine ? "Quotation saya" : "Semua quotation"}</dd>
+              </div>
+            )}
+          </dl>
+        </section>
       </div>
 
       <div className="dash-row">
@@ -258,7 +260,6 @@ export function DashboardPage() {
           </div>
         ) : visible.length === 0 ? (
           <div className="card-body empty">
-            <Icon name="quote" size={28} />
             <h3>Belum ada quotation di sini</h3>
             <p>Buat quotation baru, lalu isi itemnya dari katalog atau file Excel klien.</p>
             <button className="btn primary" onClick={() => setCreating(true)}>
@@ -430,7 +431,7 @@ function NewQuoteModal({
               </select>
             </label>
             <button className="btn ghost" onClick={() => setAdding(true)}>
-              <Icon name="plus" size={15} /> Klien baru
+              Klien baru
             </button>
           </div>
         )}

@@ -83,7 +83,7 @@ export function SalesHistoryPage() {
           </p>
         </div>
         <Link className="btn ghost" to="/cogs-history">
-          <Icon name="history" size={15} /> Riwayat COGS
+          Riwayat COGS
         </Link>
       </div>
 
@@ -111,7 +111,6 @@ export function SalesHistoryPage() {
       ) : !data || data.cards.length === 0 ? (
         <div className="card">
           <div className="card-body empty">
-            <Icon name="search" size={28} />
             <h3>Tidak ada penjualan yang cocok</h3>
             <p>{search ? "Coba kode barang, sebagian nama, atau nama customer." : "Belum ada faktur penjualan dari Accurate."}</p>
           </div>

@@ -520,11 +520,11 @@ export function QuoteEditorPage() {
             </button>
           )}
           <button className="btn" onClick={() => setModal({ kind: "export" })}>
-            <Icon name="download" size={15} /> Ekspor
+            Ekspor
           </button>
           {quote.status === "approved" && (quote.created_by === user?.id || quote.assigned_to === user?.id || can("edit_all_quotes")) && (
             <button className="btn" onClick={() => setModal({ kind: "sales-import" })}>
-              <Icon name="upload" size={15} /> Import cek sales
+              Import cek sales
             </button>
           )}
           {can("decide_quotes") && (
@@ -540,7 +540,7 @@ export function QuoteEditorPage() {
                 }
               }}
             >
-              <Icon name="shield" size={15} /> Alihkan
+              Alihkan
             </button>
           )}
           <WorkflowButtons
@@ -565,7 +565,7 @@ export function QuoteEditorPage() {
       )}
       {readOnly && quote.status !== "rejected" && (
         <p className="notice info">
-          <Icon name="shield" size={13} /> Quotation berstatus{" "}
+          Quotation berstatus{" "}
           <strong>{quote.status}</strong> terkunci agar angka yang sudah disetujui tidak berubah
           diam-diam. Gunakan <strong>Buka revisi baru</strong> untuk mengubahnya.
         </p>
@@ -594,7 +594,7 @@ export function QuoteEditorPage() {
                   className="btn small"
                   onClick={() => setModal({ kind: snapshot.items.length ? "import-confirm" : "import" })}
                 >
-                  <Icon name="upload" size={14} /> Impor daftar klien
+                  Impor daftar klien
                 </button>
               )}
             </div>
@@ -894,7 +894,7 @@ export function QuoteEditorPage() {
 
           <div className="card">
             <div className="card-head">
-              <h2><Icon name="spark" size={14} /> Silvy · asisten harga</h2>
+              <h2>Silvy · asisten harga</h2>
             </div>
             <AssistantPanel
               snapshot={snapshot}
@@ -1226,19 +1226,18 @@ export function WorkflowButtons({
     case "rejected":
       return mine ? (
         <button className="btn primary" onClick={onSubmit}>
-          <Icon name="check" size={15} />
           {blocked ? "Ajukan ke manajer" : "Ajukan"}
         </button>
       ) : null;
     case "submitted":
       if (!mine) {
-        return <span className="pill warn"><Icon name="clock" size={13} /> Menunggu manajer</span>;
+        return <span className="pill warn">Menunggu manajer</span>;
       }
       return (
         <>
           {canManage && (
             <button className="btn primary" onClick={onDecide}>
-              <Icon name="shield" size={15} /> Putuskan
+              Putuskan
             </button>
           )}
           <button className="btn ghost" onClick={onReopen}>Buka revisi baru</button>
@@ -1248,7 +1247,7 @@ export function WorkflowButtons({
       return mine ? (
         <>
           <button className="btn" onClick={() => onStatus("sent")}>
-            <Icon name="send" size={15} /> Tandai terkirim
+            Tandai terkirim
           </button>
           <button className="btn ghost" onClick={onReopen}>Buka revisi baru</button>
         </>
@@ -1265,7 +1264,7 @@ export function WorkflowButtons({
       return mine ? (
         <>
           <button className="btn" onClick={() => onStatus("completed")}>
-            <Icon name="check" size={15} /> Tandai selesai
+            Tandai selesai
           </button>
           <button className="btn ghost" onClick={onReopen}>Buka revisi baru</button>
         </>
@@ -1457,7 +1456,6 @@ function HistoryTab({
           {detail.revisions.map((r) => (
             <li key={r.id}>
               <div className="list-row" style={{ cursor: "default" }}>
-                <Icon name="history" size={16} />
                 <span className="col" style={{ gap: 1, flex: 1 }}>
                   <strong className="small">Revisi {r.rev_no} — {r.note}</strong>
                   <span className="muted small">{r.created_by_name} · {fmtDateTime(r.created_at)}</span>

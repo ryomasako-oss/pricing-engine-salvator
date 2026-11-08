@@ -75,7 +75,7 @@ export function CogsHistoryPage() {
           </p>
         </div>
         <Link className="btn ghost" to="/sales-history">
-          <Icon name="history" size={15} /> Riwayat penjualan (SI)
+          Riwayat penjualan (SI)
         </Link>
       </div>
 
@@ -114,7 +114,6 @@ export function CogsHistoryPage() {
       ) : !data || data.cards.length === 0 ? (
         <div className="card">
           <div className="card-body empty">
-            <Icon name="search" size={28} />
             <h3>Tidak ada barang</h3>
             <p>{search || onlyPending ? "Ubah kata pencarian atau matikan saringan." : "Belum ada riwayat harga beli dari Accurate."}</p>
           </div>
@@ -171,7 +170,7 @@ export function CogsHistoryPage() {
                                     {i === 0 && <span className="badge blue">Terbaru</span>}
                                     {r.used && (
                                       <span className="badge green">
-                                        <Icon name="check" size={12} /> Dipakai
+                                        Dipakai
                                       </span>
                                     )}
                                   </div>

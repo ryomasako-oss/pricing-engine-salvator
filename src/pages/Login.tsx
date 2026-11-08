@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import { Icon } from "../components/Icon";
 import { PasswordInput } from "../components/PasswordInput";
 import { Modal } from "../components/Modal";
 import { ApiError, api } from "../api";
@@ -81,7 +80,7 @@ export function LoginPage() {
         </div>
 
         <p className="login-foot">
-          <Icon name="shield" size={14} /> Belum punya akun? Minta admin membuatkannya di menu Pengaturan.
+          Belum punya akun? Minta admin membuatkannya di menu Pengaturan.
         </p>
       </form>
 

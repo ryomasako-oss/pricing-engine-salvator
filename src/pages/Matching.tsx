@@ -5,7 +5,6 @@
 
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { Icon } from "../components/Icon";
 import { FamiliarityWorkbench } from "../components/FamiliarityWorkbench";
 import { MatchLearningPanel } from "../components/MatchLearningPanel";
 
@@ -23,7 +22,7 @@ export function MatchingPage() {
         </div>
         {can("view_costs") && (
           <Link className="btn ghost" to="/sales-history">
-            <Icon name="history" size={15} /> Riwayat penjualan (SI)
+            Riwayat penjualan (SI)
           </Link>
         )}
       </div>

@@ -188,7 +188,7 @@ export function ClientsPage() {
           <p>Data klien mengisi otomatis termin dan alamat di setiap quotation baru.</p>
         </div>
         <button className="btn primary" onClick={() => open({ ...EMPTY })}>
-          <Icon name="plus" size={15} /> Klien baru
+          Klien baru
         </button>
       </div>
 
@@ -211,16 +211,14 @@ export function ClientsPage() {
           </div>
         ) : clients.length === 0 ? (
           <div className="card-body empty">
-            <Icon name="building" size={28} />
             <h3>Belum ada klien</h3>
             <p>Tambahkan klien pertama supaya quotation langsung terisi alamat dan terminnya.</p>
             <button className="btn primary" onClick={() => open({ ...EMPTY })}>
-              <Icon name="plus" size={15} /> Klien baru
+              Klien baru
             </button>
           </div>
         ) : shown.length === 0 ? (
           <div className="card-body empty">
-            <Icon name="search" size={28} />
             <h3>Tidak ada klien yang cocok</h3>
             <p>Coba nama, kode, atau nama PIC lain.</p>
             <button className="btn" onClick={() => setQuery("")}>Hapus pencarian</button>

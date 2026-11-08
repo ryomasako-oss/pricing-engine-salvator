@@ -26,6 +26,7 @@ Tidak dipakai: Shopify Polaris (lisensinya membatasi pemakaian di luar ekosistem
 4. **Bisa diakses.** Kontras sesuai WCAG AA, fokus selalu terlihat, target sentuh ≥ 24 px (44 px di HP).
 5. **Peran menentukan isi.** Sales tidak melihat COGS, margin, asumsi. Tata letak tetap sama; kolom dan aksi muncul sesuai izin.
 6. **Bahasa Indonesia baku.** Kata kerja di tombol (Simpan, Ajukan, Hapus klien), bukan "OK" atau "Submit".
+7. **Tenang, tanpa ornamen.** Kata dan angka yang bekerja, bukan hiasan. Tidak ada ikon di tombol berlabel, di judul, atau di keadaan kosong; tidak ada kotak per angka; tidak ada garis warna di tepi kiri. Pemisah cukup garis tipis 1 px. Ikon hanya untuk tombol tanpa teks (hapus, tutup, kirim, lihat sandi), panah kembali, chevron menu, dan ikon urut di header tabel. (Masukan pemilik 2026-11-08: ubin dan ikon terasa "buatan AI"; acuan: ringkasan Stripe Dashboard.)
 
 ## Token
 
@@ -127,7 +128,7 @@ Satu komponen per kebutuhan. Daftar di bawah menggantikan kelas yang ada sekaran
 
 | Komponen | Aturan | Menggantikan |
 |---|---|---|
-| **Button** | Jenis: `primary`, `secondary`, `ghost`, `danger`, `success`, `on-brand`. Ukuran `sm/md/lg`. Satu `primary` per area. Saat proses: label "Menyimpan…" dan nonaktif. Ikon di kiri label | `.btn` dengan urutan kelas acak (`btn small ghost` / `btn ghost small`) |
+| **Button** | Jenis: `primary`, `secondary`, `ghost`, `danger`, `success`, `on-brand`. Ukuran `sm/md/lg`. Satu `primary` per area. Saat proses: label "Menyimpan…" dan nonaktif. Tanpa ikon kecuali tombol ikon-saja (`.icon-btn`) dan chevron menu | `.btn` dengan urutan kelas acak (`btn small ghost` / `btn ghost small`) |
 | **Field** | Label di atas, `*` bila wajib, bantuan atau eror di bawah (eror berwarna `err-text` dengan ikon ⚠), tepi `border-strong`. Varian: input, select, textarea, search, suffix (%, Rp) | `.input`, `.select`, `.textarea`, `.field`, `.cell` |
 | **Checkbox / Toggle** | Checkbox untuk filter dan pilihan; Toggle untuk pengaturan yang langsung berlaku (Aktif/Nonaktif) | |
 | **Badge** | SATU komponen status: titik + teks, pill, nada `neutral/info/ok/warn/err/purple`. Badge tanpa titik untuk hitungan dan alias | `.badge`, `.pill`, `.status-chip`, `.chip` |
@@ -136,8 +137,8 @@ Satu komponen per kebutuhan. Daftar di bawah menggantikan kelas yang ada sekaran
 | **Chip filter** | Pill, terpilih = isi `text` dengan teks putih; bisa lebih dari satu | `.chip` |
 | **Table** | Header `layer-2` 40 px lengket; angka rata kanan + `tnum`; aksi baris di kolom kanan (tombol `ghost sm`); baris terpilih `action-soft`; baris bermasalah memakai latar `err-bg`/`warn-bg`; paging di kaki tabel "Menampilkan 1–50 dari N"; sorting dengan ikon di header (bukan ▲/▼ literal) | `.table`, `.table-wrap` |
 | **Card** | Latar `layer`, garis `border`, radius 8, padding 16; judul `h3` dengan sub `caption`, aksi `sm` di kanan | `.card`, `.card-head` (judul 12 px kapital dihapus) |
-| **KPI** | Label `label`, nilai `kpi`, catatan `caption` berwarna sesuai nada; tinggi kartu dalam satu baris sama | `.kpi` |
-| **Banner** | Info tentang halaman atau objek; latar nada + garis kiri 3 px + ikon; boleh satu aksi `ghost` | `.notice` |
+| **KPI** | Satu permukaan dengan pemisah garis tipis antar angka (bukan kartu per angka). Label `label`, nilai `kpi`, catatan `caption` berwarna sesuai nada | `.kpi-grid` > `.kpi` |
+| **Banner** | Info tentang halaman atau objek; latar nada lembut saja (tanpa garis kiri, tanpa ikon); boleh satu aksi `ghost` | `.notice` |
 | **Toast** | Hasil aksi; gelap (`text`) dengan aksen nada; hilang setelah 5 dtk, eror tetap sampai ditutup dan punya "Coba lagi" | `.hk-toast` |
 | **Modal** | Judul `h2` + sub, isi padding 24, kaki abu dengan Batal (kiri) dan aksi utama (kanan). Lebar 560 (normal) / 800 (lebar) / layar penuh di HP. Fokus terkunci, Escape menutup | `.modal`; dan **`window.confirm` dihapus** (`Catalog.tsx:168`, `QuoteEditor.tsx:962`) diganti `ConfirmModal` |
 | **Konfirmasi bahaya** | Modal dengan judul pertanyaan ("Hapus PT Graha Medika?"), akibatnya, dan tombol `danger` yang menyebut objek ("Hapus klien") | campuran `window.confirm` / `ConfirmModal` |
@@ -163,7 +164,7 @@ Struktur yang sama untuk semua halaman: **Top bar → judul halaman (h1, deskrip
 | Riwayat COGS | `/cogs-history` | `view_costs` | Kembali ke Katalog; Riwayat penjualan (SI) (`ghost`). Toolbar: cari + "Hanya yang beda" + jumlah barang. Kartu per barang: judul + kode/satuan, COGS katalog (merah "kosong"), badge RI terakhir (warn bila ditahan, info bila belum diterapkan), tabel harga beli (Nomor RI, Tanggal, Qty, Harga / satuan, badge "Terbaru" / "Dipakai" dengan ikon), daftar COGS yang pernah diganti. Paging "Halaman x dari y" di bawah. Pemasok belum ada di data, jadi kolomnya belum ditampilkan |
 | Riwayat SI | `/sales-history` | `view_costs` | Kembali ke Pencocokan; Riwayat COGS (`ghost`). Toolbar: cari (480 px) + "N barang terjual". Kartu per barang (pola sama dengan Riwayat COGS): alias faktur sebagai badge tanpa titik dengan hitungan, tabel faktur terbaru (Tanggal, Nomor faktur, Customer + tulisan di faktur, Qty, Harga + harga per satuan dasar), "Diretur semua" sebagai badge merah. Paging di bawah |
 | Klien | `/clients` | semua (hapus: `delete_clients`) | "Klien baru" (utama). Toolbar: cari nama/kode/PIC + jumlah klien. Tabel nama (+alamat), kode, kontak (+email), termin, jumlah quotation, Ubah (`ghost sm`) + ikon hapus. Hapus lewat modal konfirmasi; pesannya menyebut jumlah quotation yang memakai klien (server menolak bila > 0). Modal ubah: grid field, alamat, template dokumen (kolom dengan ikon naik/turun, bukan glif ↑↓) |
-| Pengaturan | `/settings?bagian=…` | sesuai izin | Sub-navigasi kiri 240 px (Kebijakan harga, Identitas dokumen, Password Excel, Notifikasi, Kata sandi saya, Pengguna, Permintaan reset + hitungan merah); satu bagian tampil, dipilih lewat `?bagian=` (ubin admin membuka `?bagian=reset`). < 1056 px: sub-nav jadi baris geser di atas. Bagian disembunyikan sesuai izin; sales melihat Identitas (hanya baca), Notifikasi, Kata sandi. Field dengan affix (%, Rp). Status pengguna sebagai Badge di samping toggle; peran tetap select karena bisa diubah admin. Simpan di kanan bawah kartu |
+| Pengaturan | `/settings?bagian=…` | sesuai izin | Sub-navigasi kiri 240 px (Kebijakan harga, Identitas dokumen, Password Excel, Notifikasi, Kata sandi saya, Pengguna, Permintaan reset + hitungan merah); satu bagian tampil, dipilih lewat `?bagian=` (baris admin "Permintaan reset sandi" di dasbor membuka `?bagian=reset`). < 1056 px: sub-nav jadi baris geser di atas. Bagian disembunyikan sesuai izin; sales melihat Identitas (hanya baca), Notifikasi, Kata sandi. Field dengan affix (%, Rp). Status pengguna sebagai Badge di samping toggle; peran tetap select karena bisa diubah admin. Simpan di kanan bawah kartu |
 
 Modal standar (FigCraft "04 Modal & status"): Quotation baru, Ekspor quotation (daftar opsi dengan ikon), Putuskan quotation (banner pelanggaran + catatan; Tolak `danger`, Setujui `success`), Konfirmasi hapus.
 
@@ -175,7 +176,7 @@ Peran berasal dari `shared/permissions.ts`: **Sales** (`rep`, tanpa izin khusus)
 
 ### Halaman Quotation (dasbor)
 
-Urutan: judul → **Perlu tindakan** (ubin bernomor, tepi kiri berwarna bila ada isinya) → **Hasil saya / Hasil tim** (KPI hasil) → List klien tersimpan + Silvy → tabel.
+Urutan: judul → panel ringkasan (satu permukaan): kiri **Perlu tindakan** sebagai daftar baris (titik nada kecil, label + keterangan, hitungan rata kanan; baris bernilai 0 diredupkan), kanan **Hasil saya / Hasil tim** sebagai baris angka (label + catatan kiri, angka kanan), dipisah garis tipis → List klien tersimpan + Silvy → tabel. Di bawah 1056 px kedua bagian ditumpuk.
 
 | | Sales | Manajer | Admin |
 |---|---|---|---|
@@ -185,7 +186,7 @@ Urutan: judul → **Perlu tindakan** (ubin bernomor, tepi kiri berwarna bila ada
 | KPI | Pipeline aktif, Nilai dimenangkan, Tingkat menang | + Rata-rata net margin | sama dengan Manajer |
 | Kolom tabel | tanpa Net margin | + Net margin (merah di bawah batas) | sama dengan Manajer |
 
-Hitungan ubin diambil dari daftar penuh, bukan hasil pencarian, supaya kata kunci di kotak cari tidak menyembunyikan pekerjaan. Hitungan "Menunggu keputusan" dan "Perlu diperbaiki" memakai endpoint yang sama dengan badge di top bar.
+Hitungan di daftar Perlu tindakan diambil dari daftar penuh, bukan hasil pencarian, supaya kata kunci di kotak cari tidak menyembunyikan pekerjaan. Hitungan "Menunggu keputusan" dan "Perlu diperbaiki" memakai endpoint yang sama dengan badge di top bar.
 
 ### Navigasi
 
@@ -209,7 +210,7 @@ Rute yang tidak boleh dibuka menampilkan kartu kosong "Halaman ini khusus manaje
 7. Pengaturan: nomor HP untuk notifikasi dan chat Silvy lewat Telegram, ganti kata sandi.
 
 **Manajer**
-1. Dari ubin "Menunggu keputusan Anda" ke Persetujuan → **Buka dan putuskan** → modal Putuskan (pelanggaran + catatan; **Tolak** `danger`, **Setujui** `success`).
+1. Dari baris "Menunggu keputusan Anda" ke Persetujuan → **Buka dan putuskan** → modal Putuskan (pelanggaran + catatan; **Tolak** `danger`, **Setujui** `success`).
 2. Editor quotation lengkap: COGS, asumsi, skenario, kepatuhan harga, Silvy di sidebar. Bisa **Alihkan** quotation ke sales lain dan mengedit quotation siapa pun.
 3. Perbaikan: selesaikan tugas katalog (barang tidak ada, COGS, satuan, cek silang Accurate) lalu **Tandai selesai**.
 4. Katalog, Riwayat COGS, Riwayat SI untuk menjaga harga pokok; impor katalog dan Accurate.

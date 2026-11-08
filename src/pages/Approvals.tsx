@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { useToast } from "../context/ToastContext";
-import { Icon } from "../components/Icon";
 import { BreachList } from "../components/pricing";
 import { fmtDateTime, grp, pct, rp } from "@shared/format";
 import type { PolicyBreach } from "@shared/types";
@@ -89,7 +88,7 @@ export function ApprovalsPage() {
           <p>Quotation yang melanggar kebijakan tertahan di sini sampai manajer memutuskan.</p>
         </div>
         <button className="btn ghost" onClick={load} disabled={loading}>
-          <Icon name="history" size={15} /> Muat ulang
+          Muat ulang
         </button>
       </div>
 
@@ -133,7 +132,6 @@ export function ApprovalsPage() {
           </div>
         ) : rows.length === 0 ? (
           <div className="card-body empty">
-            <Icon name="check" size={28} />
             {filter === "pending" ? (
               <>
                 <h3>Tidak ada yang menunggu</h3>

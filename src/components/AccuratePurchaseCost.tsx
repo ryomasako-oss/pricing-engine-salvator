@@ -11,7 +11,6 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
 import { useToast } from "../context/ToastContext";
-import { Icon } from "./Icon";
 import { fmtDate, fmtDateTime, grp, pct, rp } from "@shared/format";
 
 interface ReceiptStatus {
@@ -202,17 +201,17 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
         </div>
         <div className="row-wrap">
           <button className="btn small ghost" disabled={!!busy || !status.lastPassAt} onClick={runPreview}>
-            <Icon name="eye" size={13} /> {busy === "preview" ? "Menghitung…" : "Pratinjau"}
+            {busy === "preview" ? "Menghitung…" : "Pratinjau"}
           </button>
           <Link className="btn small ghost" to="/cogs-history">
-            <Icon name="search" size={13} /> Cari riwayat COGS
+            Cari riwayat COGS
           </Link>
           <Link className="btn small ghost" to="/sales-history">
-            <Icon name="search" size={13} /> Cari riwayat SI
+            Cari riwayat SI
           </Link>
           {preview && preview.changed.length > 0 && (
             <button className="btn small" disabled={!!busy} onClick={apply}>
-              <Icon name="check" size={13} /> {busy === "apply" ? "Menerapkan…" : `Terapkan ${grp(preview.changed.length)} perubahan`}
+              {busy === "apply" ? "Menerapkan…" : `Terapkan ${grp(preview.changed.length)} perubahan`}
             </button>
           )}
         </div>
@@ -254,7 +253,6 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
               </div>
               <div className="row-wrap" style={{ marginTop: 4 }}>
                 <button className="btn small" disabled={!!busy || picked.size === 0} onClick={applyHeld}>
-                  <Icon name="check" size={13} />{" "}
                   {busy === "held" ? "Menerapkan…" : picked.size ? `Terapkan ${grp(picked.size)} yang dicentang` : "Centang barang yang harganya benar"}
                 </button>
               </div>

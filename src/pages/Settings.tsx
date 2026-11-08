@@ -3,7 +3,6 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
-import { Icon } from "../components/Icon";
 import { Modal } from "../components/Modal";
 import { PasswordInput } from "../components/PasswordInput";
 import { fmtDateTime, grp, rp } from "@shared/format";
@@ -274,7 +273,7 @@ export function SettingsPage() {
                         onChange={(e) => onLogoSelected(e.target.files?.[0])}
                       />
                       <label htmlFor="logo-upload" className="btn small">
-                        <Icon name="upload" size={14} /> {company.logo ? "Ganti logo" : "Unggah logo"}
+                        {company.logo ? "Ganti logo" : "Unggah logo"}
                       </label>
                       {company.logo && (
                         <button className="btn small ghost" onClick={() => setCompany({ ...company, logo: "" })}>
@@ -434,7 +433,6 @@ export function SettingsPage() {
             </div>
             {resetRequests.length === 0 ? (
               <div className="card-body empty">
-                <Icon name="check" size={28} />
                 <h3>Tidak ada permintaan</h3>
                 <p>Permintaan reset kata sandi dari pengguna akan muncul di sini.</p>
               </div>
@@ -485,7 +483,7 @@ export function SettingsPage() {
                 <span className="muted small">{grp(users.length)} pengguna</span>
               </div>
               <button className="btn small primary" onClick={() => setCreating(true)}>
-                <Icon name="plus" size={14} /> Tambah pengguna
+                Tambah pengguna
               </button>
             </div>
             <div className="table-wrap flush">

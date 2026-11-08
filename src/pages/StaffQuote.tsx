@@ -317,11 +317,11 @@ export function StaffQuotePage() {
           )}
           {quote.status === "approved" && isResponsible && (
             <button className="btn" onClick={() => setModal("sales-import")}>
-              <Icon name="upload" size={15} /> Import cek sales
+              Import cek sales
             </button>
           )}
           <button className="btn" onClick={exportPdf} disabled={!company || dirty}>
-            <Icon name="download" size={15} /> Ekspor PDF
+            Ekspor PDF
           </button>
           <WorkflowButtons
             quote={quote as unknown as Quote}
@@ -363,7 +363,7 @@ export function StaffQuotePage() {
             {outcome.cls === "green" && <span className="badge green">{outcome.label}</span>}
             {!readOnly && (
               <button className="btn small primary" onClick={() => setModal("catalog")}>
-                <Icon name="plus" size={14} /> Tambah dari katalog
+                Tambah dari katalog
               </button>
             )}
           </div>

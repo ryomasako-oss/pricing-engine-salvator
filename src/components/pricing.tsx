@@ -220,7 +220,7 @@ export function BreachList({ breaches }: { breaches: PolicyBreach[] }) {
   if (!breaches.length) {
     return (
       <p className="notice ok">
-        <Icon name="check" size={14} /> Semua angka di dalam batas kebijakan harga.
+        Semua angka di dalam batas kebijakan harga.
       </p>
     );
   }
@@ -342,7 +342,7 @@ export function DeliveryTable({
       </div>
       {!readOnly && (
         <button className="btn small ghost" style={{ marginTop: 10 }} onClick={onAdd}>
-          <Icon name="plus" size={14} /> Tambah lokasi
+          Tambah lokasi
         </button>
       )}
       {Math.abs(shareTotal - 1) > 0.0001 && (

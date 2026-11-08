@@ -241,7 +241,6 @@ export function FamiliarityWorkbench() {
               void readFile(e.dataTransfer.files?.[0]);
             }}
           >
-            <Icon name="upload" size={20} />
             {reading ? (
               <span className="muted small" role="status">Membaca file… (PDF dan foto dibaca AI, bisa sampai satu menit)</span>
             ) : file ? (
@@ -297,7 +296,6 @@ export function FamiliarityWorkbench() {
       {!session ? (
         <div className="card match-result">
           <div className="card-body empty">
-            <Icon name="search" size={28} />
             <h3>Belum ada daftar</h3>
             <p>Tempel atau unggah daftar barang klien di kiri, lalu klik Cocokkan. Hasilnya muncul di sini.</p>
           </div>
