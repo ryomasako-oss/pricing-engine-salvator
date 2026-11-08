@@ -200,6 +200,47 @@ describe("runAccurateRecap (rekap Accurate pagi, Silvy)", () => {
   });
 });
 
+describe("runAccurateRecap: tindak lanjut stok minus (Ryoma, 2026-11-07)", () => {
+  it("reports which items that were minus in the previous email are fixed now, and which are still minus", async () => {
+    const { sqlite, db } = freshDb();
+    seed(sqlite);
+    sqlite.exec(`INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock) VALUES ('C1', 'Map <biru>', 'Pcs', 1000, 1500, -3)`);
+    sqlite.exec("UPDATE catalog_items SET stock = -7 WHERE code = 'B1'");
+    const run = async (asOf: string) => {
+      sqlite.exec("DELETE FROM settings WHERE key = 'accurate_recap_last'");
+      sqlite.exec(`INSERT OR REPLACE INTO settings(key, value) VALUES('accurate_stock_as_of', '${asOf}')`);
+      const silvy = fakeSilvy({ status: 200, body: { content: "ok" } });
+      const sent: string[] = [];
+      await runAccurateRecap(env(db), { now: NOW, link: "x", fetchImpl: silvy.impl, send: async (_to, _s, html) => void sent.push(html) });
+      return { stock: silvy.calls[0].body.recap.stock, html: sent[0] };
+    };
+
+    const first = await run("2026-10-16T00:30:00.000Z");
+    expect(first.stock.followUp).toBeUndefined();
+    expect(first.html).not.toContain("Tindak lanjut stok minus");
+
+    // Same stock position as the email before: nothing to follow up yet.
+    expect((await run("2026-10-16T00:30:00.000Z")).stock.followUp).toBeUndefined();
+
+    sqlite.exec("UPDATE catalog_items SET stock = 5 WHERE code = 'B1'");
+    const next = await run("2026-10-17T00:30:00.000Z");
+    expect(next.stock.followUp).toEqual({
+      since: "2026-10-16T00:30:00.000Z",
+      was: 2,
+      fixed: 1,
+      stillNegative: 1,
+      topFixed: [{ code: "B1", name: "Spidol", before: -7, qty: 5 }],
+    });
+    expect(next.html).toContain("Tindak lanjut stok minus dari rekap sebelumnya");
+    expect(next.html).toContain("sudah tidak minus <strong");
+    expect(next.stock.topNegative).toEqual([{ code: "C1", name: "Map <biru>", qty: -3 }]);
+
+    // The day after, the baseline is the email just sent: B1 was not minus then.
+    const after = await run("2026-10-18T00:30:00.000Z");
+    expect(after.stock.followUp).toMatchObject({ was: 1, fixed: 0, stillNegative: 1, topFixed: [] });
+  });
+});
+
 describe("runAccurateRecap: dijual di bawah modal (Ryoma, 2026-11-04)", () => {
   function seedSales(sqlite: DatabaseSync, syncedAt: string) {
     // B1 Spidol: RI 2 Jun at 30.000 per Lusin = 2.500 per Pcs. Sold at 2.000 (loss) and at 3.000 (fine).
