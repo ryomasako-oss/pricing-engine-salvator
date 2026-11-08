@@ -140,12 +140,12 @@ Satu komponen per kebutuhan. Daftar di bawah menggantikan kelas yang ada sekaran
 | **Card** | Latar `layer`, garis `border`, radius 8, padding 16; judul `h3` dengan sub `caption`, aksi `sm` di kanan | `.card`, `.card-head` (judul 12 px kapital dihapus) |
 | **KPI** | Satu permukaan dengan pemisah garis tipis antar angka (bukan kartu per angka). Label `label`, nilai `kpi`, catatan `caption` berwarna sesuai nada | `.kpi-grid` > `.kpi` |
 | **Banner** | Info tentang halaman atau objek; latar nada lembut saja (tanpa garis kiri, tanpa ikon); boleh satu aksi `ghost` | `.notice` |
-| **Toast** | Hasil aksi; gelap (`text`) dengan aksen nada; hilang setelah 5 dtk, eror tetap sampai ditutup dan punya "Coba lagi" | `.hk-toast` |
+| **Toast** | Hasil aksi; gelap (`text`) tanpa garis warna; hilang setelah 5 dtk, eror tetap sampai ditutup. "Coba lagi" untuk data yang gagal dimuat ada di halaman (`LoadError`), bukan di toast | `.hk-toast` |
 | **Modal** | Judul `h2` + sub, isi padding 24, kaki abu dengan Batal (kiri) dan aksi utama (kanan). Lebar 560 (normal) / 800 (lebar) / layar penuh di HP. Fokus terkunci, Escape menutup | `.modal`; dan **`window.confirm` dihapus** (`Catalog.tsx:168`, `QuoteEditor.tsx:962`) diganti `ConfirmModal` |
 | **Konfirmasi bahaya** | Modal dengan judul pertanyaan ("Hapus PT Graha Medika?"), akibatnya, dan tombol `danger` yang menyebut objek ("Hapus klien") | campuran `window.confirm` / `ConfirmModal` |
 | **Empty / Loading / Error** | Kosong: judul + penjelasan + satu aksi. Memuat: skeleton, bukan teks "Memuat…". Eror: apa yang terjadi + "Coba lagi" | teks "Memuat quotation…" |
 | **Icon** | Satu set SVG stroke 1,5 px, 16/20 px. Tidak ada glif teks (✔ ⚠ ▲ ▼ ↑ ↓) | semua glif yang tercatat sudah diganti (Katalog, Riwayat COGS, Klien) |
-| **Top bar** | Navy 48 px, logo + nama, menu sesuai izin, angka merah untuk tugas, avatar + nama + peran, tombol tema, Keluar (`on-brand`) | `.hk-top`, `.hk-nav` |
+| **Top bar** | Navy; baris merek (logo, nama aplikasi + perusahaan, nama pengguna + badge peran, ikon tema dan keluar) lalu baris menu teks dengan angka merah untuk tugas; di HP menu jadi baris ikon. Tab pertama: "Lewati ke isi halaman" | `.hk-top`, `.hk-nav` |
 | **Silvy** | Desktop: panel kanan 400 px yang tidak menutupi tabel (di editor: di sidebar). HP: sheet layar penuh. Jawaban selalu menyebut sumber angka; perubahan hanya setelah pengguna klik "Terapkan" atau "Tinjau N item". Pemicu: tombol "Tanya Silvy" di kanan bawah | `.chat-fab`, `.chat-dock`, `AssistantPanel` |
 
 ## Halaman
