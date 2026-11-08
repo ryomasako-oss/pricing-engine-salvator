@@ -78,13 +78,13 @@ export function NewItemForm({
         </>
       }
     >
-      <div style={{ display: "grid", gap: 10 }}>
+      <div className="cell-stack">
         <label className="field">
           <span className="small">Nama barang</span>
           <input className="input" autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Nama lengkap, mis. merek dan ukuran" />
         </label>
-        <div className="row-wrap" style={{ gap: 10 }}>
-          <label className="field" style={{ flex: 1, minWidth: 120 }}>
+        <div className="row-wrap">
+          <label className="field flex-1">
             <span className="small">Satuan</span>
             <select className="input" value={uom} onChange={(e) => setUom(e.target.value)}>
               {options.map((u) => (
@@ -93,12 +93,12 @@ export function NewItemForm({
             </select>
           </label>
           {fixedQty === undefined && (
-            <label className="field" style={{ flex: 1, minWidth: 120 }}>
+            <label className="field flex-1">
               <span className="small">Qty</span>
               <input className="input" type="number" min="1" value={qty} onChange={(e) => setQty(e.target.value)} />
             </label>
           )}
-          <label className="field" style={{ flex: 2, minWidth: 160 }}>
+          <label className="field flex-2">
             <span className="small">Perkiraan harga jual (opsional)</span>
             <input className="input" type="number" min="0" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="0" />
           </label>

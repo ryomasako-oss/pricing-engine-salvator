@@ -242,12 +242,12 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
                 dan dari harga beli di RI sebelumnya. Biasanya satu pak/box tercatat 1 PCS di RI. Betulkan RI di Accurate, isi COGS manual di
                 katalog, atau kalau harganya memang benar, centang lalu terapkan.
               </div>
-              <div className="row-wrap" style={{ marginTop: 4 }}>
+              <div className="row-wrap note-block">
                 <button className="btn small" disabled={!!busy || picked.size === 0} onClick={() => setAsking("held")}>
                   {busy === "held" ? "Menerapkan…" : picked.size ? `Terapkan ${grp(picked.size)} yang dicentang` : "Centang barang yang harganya benar"}
                 </button>
               </div>
-              <div className="table-wrap" style={{ marginTop: 4 }}>
+              <div className="table-wrap note-block">
                 <table className="table">
                   <thead>
                     <tr>
@@ -298,7 +298,7 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
           )}
 
           {showSkipped && preview.skipped.length > 0 && (
-            <div className="table-wrap" style={{ marginTop: 8 }}>
+            <div className="table-wrap note-block">
               <table className="table">
                 <thead>
                   <tr>
@@ -322,9 +322,9 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
           )}
 
           {preview.changed.length === 0 ? (
-            <p className="muted" style={{ marginTop: 8 }}>Tidak ada COGS yang berubah.</p>
+            <p className="muted note-block">Tidak ada COGS yang berubah.</p>
           ) : (
-            <div className="table-wrap" style={{ marginTop: 8 }}>
+            <div className="table-wrap note-block">
               <table className="table">
                 <thead>
                   <tr>

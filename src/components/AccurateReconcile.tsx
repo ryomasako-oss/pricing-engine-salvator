@@ -90,7 +90,7 @@ export function AccurateReconcile() {
           Cek ulang &amp; beri tahu
         </button>
       </div>
-      <ul style={{ listStyle: "none", padding: 0, margin: "8px 0 0", display: "grid", gap: 6 }}>
+      <ul className="list-stack compact note-block">
         {report.checks.map((c) => (
           <li key={c.key}>
             <button
@@ -107,7 +107,7 @@ export function AccurateReconcile() {
               <span className={`badge ${c.count === 0 ? "grey" : c.notify ? "amber" : "blue"}`} style={{ flexShrink: 0 }}>{grp(c.count)}</span>
             </button>
             {open === c.key && (
-              <div className="small" style={{ padding: "6px 8px" }}>
+              <div className="small pad-sm">
                 <div className="muted">{c.todo}</div>
                 {rows === null ? (
                   <div className="muted">Memuat…</div>

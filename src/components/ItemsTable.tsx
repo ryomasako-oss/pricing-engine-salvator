@@ -296,7 +296,7 @@ export function ItemsTable({
                             aria-label={`Harga ${SCENARIOS[k].key} untuk ${r.name}`}
                           />
                         ) : (
-                          <div className="num" style={{ fontWeight: k === scenario ? 650 : 400 }}>
+                          <div className={`num${k === scenario ? " cell-title" : ""}`}>
                             {grp(r.prices[k])}
                           </div>
                         )}

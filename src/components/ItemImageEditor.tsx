@@ -51,7 +51,7 @@ export function ItemImageEditor({ code, image, onChanged }: { code: string; imag
   return (
     <div className="field">
       <span>Gambar barang</span>
-      <div className="row-wrap" style={{ gap: 10, alignItems: "center" }}>
+      <div className="row-wrap">
         <Thumb src={shown} alt={code} />
         <input ref={input} type="file" accept="image/*" hidden onChange={(e) => pick(e.target.files?.[0])} />
         <button type="button" className="btn small" disabled={busy} onClick={() => input.current?.click()}>

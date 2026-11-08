@@ -49,7 +49,7 @@ function TopBar() {
       <NavLink to="/" className="hk-brand">
         <span className="hk-logo" aria-hidden="true">h</span>
         <span>
-          <span className="hk-title" style={{ display: "block" }}>Pricing Engine Salvator</span>
+          <span className="hk-title block">Pricing Engine Salvator</span>
           <span className="hk-sub">PT Salvator Inti Pratama</span>
         </span>
       </NavLink>

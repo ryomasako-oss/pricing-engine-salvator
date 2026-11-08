@@ -114,7 +114,7 @@ export function BulkImageUpload({ onClose, onDone }: { onClose: () => void; onDo
           webkitdirectory=""
           onChange={(e) => choose(e.target.files)}
         />
-        <div className="row-wrap" style={{ gap: 8 }}>
+        <div className="row-wrap">
           <button className="btn" disabled={sending || checking} onClick={() => filesInput.current?.click()}>
             Pilih berkas
           </button>
@@ -133,7 +133,7 @@ export function BulkImageUpload({ onClose, onDone }: { onClose: () => void; onDo
               <b>{sendable.length - overwriting}</b> baru, <b>{overwriting}</b> menimpa gambar lama,{" "}
               <b>{rows.length - sendable.length}</b> dilewati. Gambar lama yang ditimpa tidak bisa dikembalikan.
             </p>
-            <div style={{ maxHeight: 360, overflow: "auto" }}>
+            <div className="scroll-box">
               <table className="table">
                 <thead>
                   <tr>

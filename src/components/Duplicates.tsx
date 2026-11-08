@@ -49,9 +49,9 @@ export function DuplicateBanner({
   const mergeable = groups.some((g) => g.mergeable);
   return (
     <div className="notice warn dup-banner" role="status">
-      <div className="row" style={{ alignItems: "flex-start", gap: 10 }}>
+      <div className="picker-row top">
         <div className="grow">
-          <div style={{ fontWeight: 600 }}>
+          <div className="cell-title">
             {headline(groups, "muncul lebih dari sekali")} di quotation ini
           </div>
           <ul className="dup-list">
