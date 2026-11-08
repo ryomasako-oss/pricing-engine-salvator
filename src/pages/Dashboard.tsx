@@ -24,6 +24,8 @@ interface QuoteRow {
   scenario: number;
   rev_no: number;
   created_by_name: string;
+  /** Made by or reassigned to the viewer (server/worker/routes/quotes.ts). */
+  mine: boolean;
   updated_at: string;
   item_count: number;
   monthly_value: number;
@@ -127,6 +129,7 @@ export function DashboardPage() {
   }, [searched]);
   const visible = filter === "all" ? searched : searched.filter((q) => q.status === filter);
 
+  const taskQuotes = isManager ? quotes : quotes.filter((q) => q.mine);
   const kpi = useMemo(() => {
     const active = quotes.filter((q) => ["approved", "sent"].includes(q.status));
     const pipeline = active.reduce((s, q) => s + q.monthly_value, 0);
@@ -149,7 +152,7 @@ export function DashboardPage() {
           <h1>Quotation</h1>
           <p>
             Selamat datang, {user?.name.split(" ")[0]}.{" "}
-            {isManager ? "Ringkasan quotation seluruh tim." : "Quotation yang Anda buat atau ditugaskan ke Anda."}
+            {mine ? "Quotation yang Anda buat atau ditugaskan ke Anda." : "Ringkasan quotation seluruh tim."}
           </p>
         </div>
         <div className="row">
@@ -165,13 +168,16 @@ export function DashboardPage() {
       <div className="overview">
         <RoleTasks
           // From the whole list, not the search box: a typed search must not hide work.
+          // A rep's tasks are their own quotes even with "Punya saya" off; a manager's span the team.
           counts={{
-            draft: quotes.filter((q) => q.status === "draft").length,
-            rejected: quotes.filter((q) => q.status === "rejected").length,
-            approved: quotes.filter((q) => q.status === "approved").length,
-            submitted: quotes.filter((q) => q.status === "submitted").length,
+            draft: taskQuotes.filter((q) => q.status === "draft").length,
+            rejected: taskQuotes.filter((q) => q.status === "rejected").length,
+            approved: taskQuotes.filter((q) => q.status === "approved").length,
+            submitted: taskQuotes.filter((q) => q.status === "submitted").length,
           }}
           onTab={(status) => {
+            // The tab must show the same quotes the count came from.
+            if (!isManager) setMine(true);
             setQuery("");
             setFilter(status);
             document.getElementById("quote-list")?.scrollIntoView({ behavior: "smooth", block: "start" });

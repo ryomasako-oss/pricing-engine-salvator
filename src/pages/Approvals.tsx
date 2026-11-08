@@ -48,23 +48,17 @@ const daysSince = (at: string, now: number) =>
 export function ApprovalsPage() {
   const navigate = useNavigate();
   const toast = useToast();
-  // Pending is fetched on its own so the queue is complete even when the
-  // decided history passes the server's row cap.
-  const [pending, setPending] = useState<ApprovalRow[]>([]);
-  const [all, setAll] = useState<ApprovalRow[]>([]);
+  // Each decision is fetched on its own (the server returns the newest 200 per
+  // call), so no tab loses history to another; "Semua" merges them.
+  const [lists, setLists] = useState<Record<Decision, ApprovalRow[]>>({ pending: [], approved: [], rejected: [] });
   const [filter, setFilter] = useState<Filter>("pending");
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(() => {
     setLoading(true);
-    Promise.all([
-      api.get<{ approvals: ApprovalRow[] }>("/approvals?decision=pending"),
-      api.get<{ approvals: ApprovalRow[] }>("/approvals?decision=all"),
-    ])
-      .then(([p, a]) => {
-        setPending(p.approvals);
-        setAll(a.approvals);
-      })
+    const get = (d: Decision) => api.get<{ approvals: ApprovalRow[] }>(`/approvals?decision=${d}`).then((r) => r.approvals);
+    Promise.all([get("pending"), get("approved"), get("rejected")])
+      .then(([pending, approved, rejected]) => setLists({ pending, approved, rejected }))
       .catch((e) => toast(e.message, "error"))
       .finally(() => setLoading(false));
   }, [toast]);
@@ -72,13 +66,21 @@ export function ApprovalsPage() {
   useEffect(load, [load]);
 
   const now = Date.now();
-  const rows = filter === "pending" ? pending : filter === "all" ? all : all.filter((r) => r.decision === filter);
-  const capped = all.length >= CAP;
+  const { pending } = lists;
+  const all = [...lists.pending, ...lists.approved, ...lists.rejected].sort((x, y) => y.id - x.id);
+  const rows = filter === "all" ? all : lists[filter];
+  // A list at the cap may hold more on the server: say so with "+".
+  const capped = (d: Decision) => lists[d].length >= CAP;
   const count = (f: Filter) =>
-    f === "pending" ? grp(pending.length) : `${grp(f === "all" ? all.length : all.filter((r) => r.decision === f).length)}${capped ? "+" : ""}`;
+    f === "all"
+      ? `${grp(all.length)}${(["pending", "approved", "rejected"] as const).some(capped) ? "+" : ""}`
+      : `${grp(lists[f].length)}${capped(f) ? "+" : ""}`;
   const heldValue = pending.reduce((s, r) => s + r.monthly_value, 0);
   const avgWait = pending.length ? pending.reduce((s, r) => s + daysSince(r.requested_at, now), 0) / pending.length : 0;
-  const decidedWeek = all.filter((r) => r.decided_at && daysSince(r.decided_at, now) < 7).length;
+  const recent = (r: ApprovalRow) => !!r.decided_at && daysSince(r.decided_at, now) < 7;
+  const decidedWeek = lists.approved.filter(recent).length + lists.rejected.filter(recent).length;
+  // More decided in the week than came back when a capped list is still inside the week at its oldest row.
+  const weekCapped = (["approved", "rejected"] as const).some((d) => capped(d) && recent(lists[d][lists[d].length - 1]));
 
   return (
     <main className="hk-main page-stack">
@@ -97,7 +99,9 @@ export function ApprovalsPage() {
           <div className={`kpi${pending.length ? " tone-warn" : ""}`}>
             <div className="label">Nilai tertahan / bulan</div>
             <div className="value num">{rp(heldValue)}</div>
-            <div className="foot">{grp(pending.length)} quotation menunggu</div>
+            <div className="foot">
+              {capped("pending") ? `${grp(CAP)}+ quotation menunggu; nilai dari ${grp(CAP)} terbaru` : `${grp(pending.length)} quotation menunggu`}
+            </div>
           </div>
           <div className="kpi">
             <div className="label">Rata-rata tunggu</div>
@@ -111,7 +115,7 @@ export function ApprovalsPage() {
           </div>
           <div className="kpi">
             <div className="label">Diputuskan 7 hari terakhir</div>
-            <div className="value num">{grp(decidedWeek)}</div>
+            <div className="value num">{grp(decidedWeek)}{weekCapped ? "+" : ""}</div>
           </div>
         </div>
       )}
