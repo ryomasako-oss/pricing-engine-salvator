@@ -393,6 +393,35 @@ a { color: var(--action); }
 .hk-page-head h1 { margin: 0; font: var(--text-h1); }
 .hk-page-head p { margin: 4px 0 0; color: var(--color-text-2); font: var(--text-body); }
 
+/* Page layout: sections stacked 24px apart (docs/ui-standar.md "Halaman"). */
+.page-stack { display: flex; flex-direction: column; gap: var(--space-6); }
+.page-stack > .hk-page-head { margin-bottom: 0; }
+/* Two cards side by side that stack below 1056px; a lone card takes the row. */
+.dash-row { display: flex; gap: var(--space-5); flex-wrap: wrap; align-items: flex-start; }
+.dash-row:empty { display: none; }
+.dash-row > .list-drafts { flex: 2 1 560px; min-width: 0; }
+.dash-row > .chat-home { flex: 1 1 380px; min-width: 0; }
+.filter-chip { align-self: flex-start; gap: var(--space-3); }
+
+/* Tabs across the top of a card, then a toolbar row. */
+.card-tabs { padding: 0 var(--space-5); }
+.tab-count {
+  margin-left: var(--space-3); padding: 0 6px; border-radius: var(--radius-full);
+  background: var(--color-neutral-bg); color: var(--color-neutral-text); font: var(--text-label);
+}
+.toolbar { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; padding: var(--space-4) var(--space-5); }
+.toolbar .toolbar-search { width: 320px; max-width: 100%; }
+.table-wrap.flush { border: 0; border-top: 1px solid var(--color-border); border-radius: 0; }
+.rev-badge { margin-left: var(--space-2); }
+.text-err { color: var(--color-err-text); font-weight: 600; }
+
+/* Loading: skeleton bars, not a spinner. */
+.skeleton-list { display: flex; flex-direction: column; gap: var(--space-4); }
+.skeleton { display: block; height: 16px; border-radius: var(--radius-sm); background: var(--color-hover); animation: skeleton 1.2s ease-in-out infinite; }
+.skeleton:nth-child(2n) { width: 82%; }
+.skeleton:nth-child(3n) { width: 64%; }
+@keyframes skeleton { 50% { opacity: .5; } }
+
 /* ---------------- primitives ---------------- */
 
 .card { background: var(--color-layer); border: 1px solid var(--color-border); border-radius: var(--radius-md); }

@@ -86,8 +86,9 @@ export function DashboardPage() {
 
   const load = useCallback(() => {
     setLoading(true);
+    // Every status comes back (the list is not paged), so the tabs filter and
+    // count in the browser and the KPIs stay the same whichever tab is open.
     const params = new URLSearchParams();
-    if (filter !== "all") params.set("status", filter);
     if (mine) params.set("mine", "1");
     if (userIdFilter) params.set("user_id", userIdFilter);
     api
@@ -95,7 +96,7 @@ export function DashboardPage() {
       .then((r) => setQuotes(r.quotes))
       .catch((e) => toast(e.message, "error"))
       .finally(() => setLoading(false));
-  }, [filter, mine, userIdFilter, toast]);
+  }, [mine, userIdFilter, toast]);
 
   useEffect(load, [load]);
   useEffect(() => {
@@ -105,7 +106,7 @@ export function DashboardPage() {
       .catch(() => undefined);
   }, []);
 
-  const visible = useMemo(() => {
+  const searched = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return quotes;
     return quotes.filter(
@@ -115,6 +116,12 @@ export function DashboardPage() {
         (x.client_name ?? "").toLowerCase().includes(q),
     );
   }, [quotes, query]);
+  const counts = useMemo(() => {
+    const n: Record<string, number> = { all: searched.length };
+    for (const q of searched) n[q.status] = (n[q.status] ?? 0) + 1;
+    return n;
+  }, [searched]);
+  const visible = filter === "all" ? searched : searched.filter((q) => q.status === filter);
 
   const kpi = useMemo(() => {
     const active = quotes.filter((q) => ["approved", "sent"].includes(q.status));
@@ -133,7 +140,7 @@ export function DashboardPage() {
   }, [quotes]);
 
   return (
-    <main className="hk-main">
+    <main className="hk-main page-stack">
       <div className="hk-page-head">
         <div>
           <h1>Quotation</h1>
@@ -141,23 +148,19 @@ export function DashboardPage() {
             Selamat datang, {user?.name.split(" ")[0]}. {quotes.length} quotation terlihat oleh Anda.
           </p>
         </div>
-        <div className="row" style={{ gap: 8 }}>
-          <button className="btn" onClick={() => setCreating(true)}>
-            <Icon name="plus" size={16} />
-            Quotation kosong
-          </button>
-          <button className="btn primary" onClick={() => setFromList(true)}>
+        <div className="row">
+          <button className="btn" onClick={() => setFromList(true)}>
             <Icon name="upload" size={16} />
             Dari list klien
+          </button>
+          <button className="btn primary" onClick={() => setCreating(true)}>
+            <Icon name="plus" size={16} />
+            Quotation baru
           </button>
         </div>
       </div>
 
-      <ChatHome />
-
-      <ListDrafts drafts={drafts} onOpen={setOpenDraft} onChanged={loadDrafts} />
-
-      <div className="kpi-grid" style={{ marginBottom: 16 }}>
+      <div className="kpi-grid">
         <div className="kpi">
           <div className="label">Pipeline aktif per bulan</div>
           <div className="value num">{rp(kpi.pipeline)}</div>
@@ -187,8 +190,13 @@ export function DashboardPage() {
         </div>
       </div>
 
+      <div className="dash-row">
+        <ListDrafts drafts={drafts} onOpen={setOpenDraft} onChanged={loadDrafts} />
+        <ChatHome />
+      </div>
+
       {userIdFilter && (
-        <div className="badge blue" style={{ marginBottom: 12, display: "inline-flex", alignItems: "center", gap: 8 }}>
+        <div className="badge blue filter-chip">
           Difilter ke pengguna: {userNameFilter || `#${userIdFilter}`}
           <button className="icon-btn" onClick={clearUserFilter} aria-label="Hapus filter pengguna">
             <Icon name="x" size={12} />
@@ -197,16 +205,24 @@ export function DashboardPage() {
       )}
 
       <div className="card">
-        <div className="card-head">
-          <div className="tabs" role="group" aria-label="Filter status penawaran">
-            {FILTERS.map((f) => (
-              <button key={f.key} className={filter === f.key ? "on" : ""} aria-pressed={filter === f.key} onClick={() => setFilter(f.key)}>
-                {f.label}
-              </button>
-            ))}
-          </div>
-          <div className="row-wrap">
-            <label className="toggle">
+        <div className="tabs card-tabs" role="group" aria-label="Filter status penawaran">
+          {FILTERS.map((f) => (
+            <button key={f.key} className={filter === f.key ? "on" : ""} aria-pressed={filter === f.key} onClick={() => setFilter(f.key)}>
+              {f.label}
+              {!loading && <span className="tab-count num">{counts[f.key] ?? 0}</span>}
+            </button>
+          ))}
+        </div>
+        <div className="toolbar">
+          <input
+            className="input toolbar-search"
+            type="search"
+            placeholder="Cari nomor, judul, klien"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            aria-label="Cari quotation"
+          />
+          <label className="toggle">
               <input
                 type="checkbox"
                 checked={mine}
@@ -215,22 +231,15 @@ export function DashboardPage() {
                   if (e.target.checked && userIdFilter) clearUserFilter();
                 }}
               />
-              <span className="small">Punya saya</span>
-            </label>
-            <input
-              className="input"
-              style={{ maxWidth: 220, minWidth: 170 }}
-              placeholder="Cari nomor, judul, klien"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              aria-label="Cari quotation"
-            />
-          </div>
+              <span>Punya saya</span>
+          </label>
+          <span className="grow" />
+          {!loading && <span className="muted small num">{visible.length} quotation</span>}
         </div>
 
         {loading ? (
-          <div className="card-body loading">
-            <span className="dots"><i /><i /><i /></span> Memuat quotation…
+          <div className="card-body skeleton-list" role="status" aria-label="Memuat quotation…">
+            {[0, 1, 2, 3, 4].map((i) => <span key={i} className="skeleton" />)}
           </div>
         ) : visible.length === 0 ? (
           <div className="card-body empty">
@@ -242,7 +251,7 @@ export function DashboardPage() {
             </button>
           </div>
         ) : (
-          <div className="table-wrap" style={{ border: 0, borderRadius: 0 }}>
+          <div className="table-wrap flush">
             <table className="table">
               <thead>
                 <tr>
@@ -266,7 +275,7 @@ export function DashboardPage() {
                       <Link to={`/quotes/${q.id}`} className="row-link" onClick={(e) => e.stopPropagation()}>
                         {q.number}
                       </Link>
-                      {q.rev_no > 1 && <span className="badge grey" style={{ marginLeft: 5 }}>rev {q.rev_no}</span>}
+                      {q.rev_no > 1 && <span className="badge grey rev-badge">rev {q.rev_no}</span>}
                     </td>
                     <td className="l">{q.title}</td>
                     <td className="l">{q.client_name ?? <span className="muted">—</span>}</td>
@@ -275,9 +284,7 @@ export function DashboardPage() {
                     <td className="num">{rp(q.monthly_value)}</td>
                     {seeCosts && (
                       <td className="num">
-                        <span style={{ color: q.net_margin < 0.15 ? "var(--danger)" : undefined }}>
-                          {pct(q.net_margin)}
-                        </span>
+                        <span className={q.net_margin < 0.15 ? "text-err" : undefined}>{pct(q.net_margin)}</span>
                       </td>
                     )}
                     <td className="l muted">{q.created_by_name}</td>

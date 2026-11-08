@@ -32,12 +32,12 @@ export function ListDrafts({ drafts, onOpen, onChanged }: { drafts: DraftSummary
 
   if (!drafts.length) return null;
   return (
-    <div className="card" style={{ marginBottom: 16 }}>
+    <div className="card list-drafts">
       <div className="card-head">
-        <h3 style={{ margin: 0 }}>List klien tersimpan</h3>
+        <h3>List klien tersimpan</h3>
         <span className="muted small">Lanjutkan pencocokan, atau selesaikan list yang dikirim ke Anda.</span>
       </div>
-      <div className="table-wrap" style={{ border: 0, borderRadius: 0 }}>
+      <div className="table-wrap flush">
         <table className="table">
           <thead>
             <tr>
