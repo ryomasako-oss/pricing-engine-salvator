@@ -379,7 +379,7 @@ export function StaffQuotePage() {
           </div>
         )}
         <div className="table-wrap flush">
-          <table className="table">
+          <table className="table stack">
             <thead>
               <tr>
                 <th className="l">#</th>
@@ -395,8 +395,8 @@ export function StaffQuotePage() {
             <tbody>
               {lines.map((l, i) => (
                 <tr key={l.id} className={l.held ? "flagged" : undefined}>
-                  <td className="l muted">{i + 1}</td>
-                  <td className="l">
+                  <td className="l muted stack-hide">{i + 1}</td>
+                  <td className="l stack-title">
                     <div className="cell-title">{l.name}</div>
                     <div className="muted small">{l.code}</div>
                     {l.held && (
@@ -405,7 +405,7 @@ export function StaffQuotePage() {
                       </span>
                     )}
                   </td>
-                  <td className="l">
+                  <td className="l" data-label="Satuan">
                     <UomCell
                       value={l.uom}
                       choices={uomChoices(uomOptions, units[l.code], l.uom)}
@@ -422,7 +422,7 @@ export function StaffQuotePage() {
                       }}
                     />
                   </td>
-                  <td>
+                  <td data-label="Qty">
                     <NumberCell
                       live className="cell" disabled={readOnly}
                       aria-label={`Qty ${l.name}`}
@@ -430,7 +430,7 @@ export function StaffQuotePage() {
                       onCommit={(v) => edit(l.id, { qty: v })}
                     />
                   </td>
-                  <td>
+                  <td data-label="Plafon klien">
                     <NumberCell
                       live className="cell" disabled={readOnly}
                       aria-label={`Plafon klien ${l.name}`}
@@ -438,7 +438,7 @@ export function StaffQuotePage() {
                       onCommit={(v) => edit(l.id, { rrp: v })}
                     />
                   </td>
-                  <td className="num">
+                  <td className="num" data-label="Harga satuan">
                     {l.held ? (
                       <span className="muted">ditahan</span>
                     ) : readOnly ? (
@@ -453,9 +453,9 @@ export function StaffQuotePage() {
                       />
                     )}
                   </td>
-                  <td className="num">{l.held ? <span className="muted">—</span> : grp(l.price * l.qty)}</td>
+                  <td className="num" data-label="Total">{l.held ? <span className="muted">—</span> : grp(l.price * l.qty)}</td>
                   {!readOnly && (
-                    <td>
+                    <td className="stack-action">
                       <button
                         className="icon-btn" aria-label={`Hapus ${l.name}`}
                         onClick={() => {

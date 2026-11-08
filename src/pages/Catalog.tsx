@@ -287,7 +287,7 @@ export function CatalogPage() {
         ) : (
           <>
             <div className="table-wrap flush">
-              <table className="table">
+              <table className="table stack">
                 <thead>
                   <tr>
                     <th className="l">Kode</th>
@@ -304,8 +304,8 @@ export function CatalogPage() {
                 <tbody>
                   {items.map((item) => (
                     <tr key={item.id} className={(seeCosts ? item.cogs > 0 : !item.cogs_problem) ? "" : "flagged"}>
-                      <td className="l muted num">{item.code}</td>
-                      <td className="l">
+                      <td className="l muted num" data-label="Kode">{item.code}</td>
+                      <td className="l stack-title">
                         <div className="with-thumb">
                           <Thumb src={item.image} alt={item.name} />
                           <span className="grow">{item.name}</span>
@@ -321,9 +321,9 @@ export function CatalogPage() {
                           </div>
                         )}
                       </td>
-                      <td className="l muted small">{item.category || "—"}</td>
-                      <td className="l muted">{item.uom}</td>
-                      <td className="l">
+                      <td className="l muted small" data-label="Kategori">{item.category || "—"}</td>
+                      <td className="l muted" data-label="Satuan">{item.uom}</td>
+                      <td className="l" data-label="Konversi">
                         {item.units?.length ? (
                           <div className="badge-row">
                             {item.units.map((u) => (
@@ -337,14 +337,14 @@ export function CatalogPage() {
                         )}
                       </td>
                       {seeCosts && (
-                        <td className="num">
+                        <td className="num" data-label="COGS">
                           {item.cogs > 0 ? grp(item.cogs) : <span className="badge amber">kosong</span>}
                         </td>
                       )}
-                      <td className="num">{item.list_price > 0 ? grp(item.list_price) : "—"}</td>
-                      <td className="num muted">{grp(item.stock)}</td>
+                      <td className="num" data-label="Harga jual">{item.list_price > 0 ? grp(item.list_price) : "—"}</td>
+                      <td className="num muted" data-label="Stok">{grp(item.stock)}</td>
                       {can("edit_catalog") && (
-                        <td>
+                        <td className="stack-action">
                           <button className="btn small ghost" onClick={() => openEditing({ ...item, units: item.units ?? [] })}>Ubah</button>
                         </td>
                       )}

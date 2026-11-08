@@ -225,7 +225,7 @@ export function ClientsPage() {
           </div>
         ) : (
           <div className="table-wrap flush">
-            <table className="table">
+            <table className="table stack">
               <thead>
                 <tr>
                   <th className="l">Nama</th>
@@ -239,18 +239,18 @@ export function ClientsPage() {
               <tbody>
                 {shown.map((c) => (
                   <tr key={c.id}>
-                    <td className="l">
+                    <td className="l stack-title">
                       <span className="cell-title">{c.name}</span>
                       {c.address && <div className="muted small">{c.address}</div>}
                     </td>
-                    <td className="l muted">{c.code || "—"}</td>
-                    <td className="l">
+                    <td className="l muted" data-label="Kode">{c.code || "—"}</td>
+                    <td className="l" data-label="Kontak">
                       {c.contact_name || "—"}
                       {c.contact_email && <div className="muted small">{c.contact_email}</div>}
                     </td>
-                    <td className="l muted small">{c.payment_terms}</td>
-                    <td className="num">{c.quote_count ?? 0}</td>
-                    <td>
+                    <td className="l muted small" data-label="Termin">{c.payment_terms}</td>
+                    <td className="num" data-label="Quotation">{c.quote_count ?? 0}</td>
+                    <td className="stack-action">
                       <div className="row-actions">
                         <button className="btn small ghost" onClick={() => open({ ...c })}>
                           Ubah

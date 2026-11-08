@@ -268,7 +268,7 @@ export function DashboardPage() {
           </div>
         ) : (
           <div className="table-wrap flush">
-            <table className="table">
+            <table className="table stack">
               <thead>
                 <tr>
                   <th className="l">Nomor</th>
@@ -285,7 +285,7 @@ export function DashboardPage() {
               <tbody>
                 {visible.map((q) => (
                   <tr key={q.id} className="clickable" onClick={() => navigate(`/quotes/${q.id}`)}>
-                    <td className="l num nowrap">
+                    <td className="l num nowrap stack-title">
                       {/* The row is clickable for mouse users; the link is what keyboard
                           and screen-reader users (and ctrl/middle-click) can reach. */}
                       <Link to={`/quotes/${q.id}`} className="row-link" onClick={(e) => e.stopPropagation()}>
@@ -293,18 +293,18 @@ export function DashboardPage() {
                       </Link>
                       {q.rev_no > 1 && <span className="badge grey rev-badge">rev {q.rev_no}</span>}
                     </td>
-                    <td className="l">{q.title}</td>
-                    <td className="l">{q.client_name ?? <span className="muted">—</span>}</td>
-                    <td className="l"><StatusChip status={q.status} /></td>
-                    <td className="num">{q.item_count}</td>
-                    <td className="num">{rp(q.monthly_value)}</td>
+                    <td className="l" data-label="Judul">{q.title}</td>
+                    <td className="l" data-label="Klien">{q.client_name ?? <span className="muted">—</span>}</td>
+                    <td className="l stack-action"><StatusChip status={q.status} /></td>
+                    <td className="num" data-label="Item">{q.item_count}</td>
+                    <td className="num" data-label="Nilai / bulan">{rp(q.monthly_value)}</td>
                     {seeCosts && (
-                      <td className="num">
+                      <td className="num" data-label="Net margin">
                         <span className={q.net_margin < 0.15 ? "text-err" : undefined}>{pct(q.net_margin)}</span>
                       </td>
                     )}
-                    <td className="l muted">{q.created_by_name}</td>
-                    <td className="l muted nowrap">{fmtDateTime(q.updated_at)}</td>
+                    <td className="l muted" data-label="Dibuat oleh">{q.created_by_name}</td>
+                    <td className="l muted nowrap" data-label="Diubah">{fmtDateTime(q.updated_at)}</td>
                   </tr>
                 ))}
               </tbody>

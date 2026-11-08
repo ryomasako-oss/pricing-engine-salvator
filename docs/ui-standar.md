@@ -102,7 +102,7 @@ Semua angka (harga, qty, persen, tanggal di tabel) memakai `tnum`. Ukuran minimu
 
 | Nama | Lebar | Perilaku |
 |---|---|---|
-| sm | < 672 | Nav jadi menu ☰, tabel jadi daftar kartu, modal layar penuh, Silvy jadi sheet layar penuh, tombol aksi di bawah |
+| sm | < 672 | Nav jadi menu ☰, tabel jadi daftar kartu (`.table.stack`: sel `stack-title` di atas, `stack-action` di kanan atas, sel lain baris "label  nilai" dari `data-label`; dipakai di Quotation, item Quotation sales, Katalog, Klien), modal layar penuh, Silvy jadi sheet layar penuh, tombol aksi di bawah |
 | md | 672–1055 | Editor satu kolom (sidebar turun ke bawah), filter dibungkus |
 | lg | 1056–1311 | Nav dipadatkan; menu yang tidak muat masuk "Lainnya" |
 | xlg | 1312–1583 | Desktop standar (desain dibuat di 1440) |
