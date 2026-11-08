@@ -131,6 +131,7 @@ Satu komponen per kebutuhan. Daftar di bawah menggantikan kelas yang ada sekaran
 | **Field** | Label di atas, `*` bila wajib, bantuan atau eror di bawah (eror berwarna `err-text` dengan ikon ⚠), tepi `border-strong`. Varian: input, select, textarea, search, suffix (%, Rp) | `.input`, `.select`, `.textarea`, `.field`, `.cell` |
 | **Checkbox / Toggle** | Checkbox untuk filter dan pilihan; Toggle untuk pengaturan yang langsung berlaku (Aktif/Nonaktif) | |
 | **Badge** | SATU komponen status: titik + teks, pill, nada `neutral/info/ok/warn/err/purple`. Badge tanpa titik untuk hitungan dan alias | `.badge`, `.pill`, `.status-chip`, `.chip` |
+| **Menu** | Tombol `secondary` dengan ▾ (ikon), daftar aksi di bawahnya: ikon + label + keterangan `caption`, pemisah antarkelompok, aksi bahaya merah di paling bawah. Escape/klik di luar menutup, panah atas/bawah berpindah | `components/Menu.tsx` |
 | **Tabs** | Garis bawah 2 px `action` untuk tab aktif, hitungan di badge netral | `.tabs` |
 | **Chip filter** | Pill, terpilih = isi `text` dengan teks putih; bisa lebih dari satu | `.chip` |
 | **Table** | Header `layer-2` 40 px lengket; angka rata kanan + `tnum`; aksi baris di kolom kanan (tombol `ghost sm`); baris terpilih `action-soft`; baris bermasalah memakai latar `err-bg`/`warn-bg`; paging di kaki tabel "Menampilkan 1–50 dari N"; sorting dengan ikon di header (bukan ▲/▼ literal) | `.table`, `.table-wrap` |
@@ -141,7 +142,7 @@ Satu komponen per kebutuhan. Daftar di bawah menggantikan kelas yang ada sekaran
 | **Modal** | Judul `h2` + sub, isi padding 24, kaki abu dengan Batal (kiri) dan aksi utama (kanan). Lebar 560 (normal) / 800 (lebar) / layar penuh di HP. Fokus terkunci, Escape menutup | `.modal`; dan **`window.confirm` dihapus** (`Catalog.tsx:168`, `QuoteEditor.tsx:962`) diganti `ConfirmModal` |
 | **Konfirmasi bahaya** | Modal dengan judul pertanyaan ("Hapus PT Graha Medika?"), akibatnya, dan tombol `danger` yang menyebut objek ("Hapus klien") | campuran `window.confirm` / `ConfirmModal` |
 | **Empty / Loading / Error** | Kosong: judul + penjelasan + satu aksi. Memuat: skeleton, bukan teks "Memuat…". Eror: apa yang terjadi + "Coba lagi" | teks "Memuat quotation…" |
-| **Icon** | Satu set SVG stroke 1,5 px, 16/20 px. Tidak ada glif teks (✔ ⚠ ▲ ▼ ↑ ↓) | glif di `CogsHistory.tsx:146`, `Catalog.tsx:288/325`, `Clients.tsx:58-59` |
+| **Icon** | Satu set SVG stroke 1,5 px, 16/20 px. Tidak ada glif teks (✔ ⚠ ▲ ▼ ↑ ↓) | glif di `CogsHistory.tsx:146`, `Clients.tsx:58-59` (Katalog sudah) |
 | **Top bar** | Navy 48 px, logo + nama, menu sesuai izin, angka merah untuk tugas, avatar + nama + peran, tombol tema, Keluar (`on-brand`) | `.hk-top`, `.hk-nav` |
 | **Silvy** | Desktop: panel kanan 400 px yang tidak menutupi tabel (di editor: di sidebar). HP: sheet layar penuh. Jawaban selalu menyebut sumber angka; perubahan hanya setelah pengguna klik "Terapkan" atau "Tinjau N item". Pemicu: tombol "Tanya Silvy" di kanan bawah | `.chat-fab`, `.chat-dock`, `AssistantPanel` |
 
@@ -158,7 +159,7 @@ Struktur yang sama untuk semua halaman: **Top bar → judul halaman (h1, deskrip
 | Persetujuan | `/approvals` | `decide_quotes` | KPI nilai tertahan. Tab Menunggu/Disetujui/Ditolak/Semua. Daftar: judul + badge, meta, pelanggaran (daftar merah), nilai dan net di kanan, "Buka dan putuskan" |
 | Perlu diperbaiki | `/perbaikan` | semua | Tab Terbuka/Selesai, chip per jenis dengan hitungan. Kartu tugas: badge jenis + umur (merah ≥ 3 hari), barang, meta, "→ apa yang harus dilakukan", aksi Buka quotation / Tandai selesai |
 | Pencocokan | `/pencocokan` | semua | Dua kolom: masukkan daftar (drop zone, judul feed, klien, tempel) dan hasil (tabel: tulisan klien, pasangan, yakin %, status, aksi). Pembelajaran pencocokan di bawah (hanya `import_catalog`) |
-| Katalog | `/catalog` | semua | Aksi impor digabung jadi satu menu "Impor ▾" (5 tombol sekarang terlalu banyak), Unggah gambar massal, Tambah barang. 5 KPI, banner COGS < 60%. Tabel dengan sorting di header, paging 50 |
+| Katalog | `/catalog` | semua | Aksi (hanya `import_catalog`): menu "Impor ▾" (Nilai Persediaan, Daftar Barang dan Jasa, Katalog lengkap gabung, Unduh template, lalu "Ganti seluruh katalog…" merah khusus `delete_catalog` dengan modal konfirmasi), Unggah gambar massal, Tambah barang (utama). 5 KPI, panel Barang baru menunggu Accurate, panel Sinkron Accurate, banner COGS < 60%. Tabel: cari + filter gambar, sorting di header dengan ikon dan `aria-sort`, kaki "Menampilkan 1–50 dari N" + pilih halaman. Kosong karena pencarian: "Hapus pencarian"; katalog kosong: "Impor Nilai Persediaan" |
 | Riwayat COGS | `/cogs-history` | `view_costs` | Cari + "Hanya yang beda". Kartu per barang: COGS katalog, badge RI terakhir, tabel harga beli (RI) dengan badge "Terbaru"/"✓ dipakai" sebagai Badge, bukan glif |
 | Riwayat SI | `/sales-history` | `view_costs` | Cari. Kartu per barang: alias faktur sebagai badge tanpa titik, tabel faktur terbaru, "Diretur semua" sebagai badge merah |
 | Klien | `/clients` | semua (hapus: `delete_clients`) | Tabel nama (+alamat), kode, kontak (+email), termin, jumlah quotation, Ubah. Hapus lewat modal konfirmasi |

@@ -974,3 +974,42 @@ input[type=checkbox] { accent-color: var(--action); width: 17px; height: 17px; f
   position: absolute; left: 0; right: 0; bottom: 0.6rem; text-align: center; color: #d1d5db;
   font-size: 0.78rem; padding: 0 4rem; pointer-events: none;
 }
+
+/* ---------------- Katalog ---------------- */
+/* Menu: a button that opens a short action list (components/Menu.tsx). */
+.menu { position: relative; display: inline-flex; }
+.menu-list {
+  position: absolute; top: calc(100% + var(--space-2)); left: 0; z-index: 20; min-width: 260px;
+  display: flex; flex-direction: column; padding: var(--space-2) 0;
+  background: var(--color-layer); border: 1px solid var(--color-border); border-radius: var(--radius-md);
+  box-shadow: var(--elevation-overlay);
+}
+.menu-item {
+  display: flex; align-items: flex-start; gap: var(--space-3); width: 100%; padding: var(--space-3) var(--space-4);
+  border: 0; background: transparent; color: var(--color-text); font: var(--text-body); text-align: left; cursor: pointer;
+}
+.menu-item > svg { flex: none; margin-top: 2px; color: var(--color-text-2); }
+.menu-item small { display: block; font: var(--text-caption); color: var(--color-text-2); }
+.menu-item:hover, .menu-item:focus-visible { background: var(--color-hover); outline: none; }
+.menu-item.danger, .menu-item.danger > svg { color: var(--color-err-text); }
+.menu-divider { height: 1px; margin: var(--space-2) 0; background: var(--color-border); }
+
+/* Sortable header: the whole label is the button, the icon shows the state. */
+.th-sort {
+  display: inline-flex; align-items: center; gap: var(--space-1); padding: 0; border: 0; background: none;
+  font: inherit; color: inherit; cursor: pointer; white-space: nowrap;
+}
+.th-sort > svg { opacity: .45; }
+.th-sort.on { color: var(--color-text); }
+.th-sort.on > svg { opacity: 1; }
+
+.toolbar .toolbar-select { width: 200px; max-width: 100%; }
+.kpi .value.text { font: var(--text-h3); }
+.cell-problem { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-1); font: var(--text-caption); color: var(--color-err-text); }
+.badge-row { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+.row-between { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+.table .col-icon { width: 36px; }
+.table-foot { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); padding: var(--space-3) var(--space-5); border-top: 1px solid var(--color-border); }
+.select.inline { width: auto; display: inline-block; }
+.list-stack { display: flex; flex-direction: column; gap: var(--space-4); margin: 0; padding: 0; list-style: none; }
+.card-lead { margin-bottom: var(--space-4); }

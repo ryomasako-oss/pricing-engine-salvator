@@ -44,7 +44,7 @@ export function PendingItemsPanel() {
   };
 
   return (
-    <div className="card" style={{ marginBottom: 16 }}>
+    <div className="card">
       <div className="card-head">
         <h3>Barang baru menunggu Accurate</h3>
         <span className="muted small">
@@ -53,16 +53,16 @@ export function PendingItemsPanel() {
       </div>
       <div className="card-body">
         {live.length > 0 && (
-          <div className="row-wrap" style={{ marginBottom: 10 }}>
+          <div className="row-wrap card-lead">
             <button className="btn small ghost" onClick={async () => (await import("../export/pendingItems")).exportPendingItems(live, new Date().toISOString().slice(0, 10))}>
               <Icon name="download" size={13} /> Unduh Excel untuk admin Accurate
             </button>
             <span className="muted small">Buat di Accurate dengan kode persis seperti di daftar, lalu sinkron dan Terapkan (pilih tambahkan barang baru).</span>
           </div>
         )}
-        <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 8 }}>
+        <ul className="list-stack">
           {items.map((i) => (
-            <li key={i.id} className="row-wrap" style={{ justifyContent: "space-between", gap: 8 }}>
+            <li key={i.id} className="row-between">
               <div>
                 <strong>{i.name}</strong> <span className="muted">· {i.code} · {i.uom}</span>{" "}
                 <span className={`badge ${STATUS[i.status].tone}`}>{STATUS[i.status].label}</span>

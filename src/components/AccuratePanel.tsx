@@ -147,7 +147,7 @@ export function AccuratePanel({ onApplied }: { onApplied: () => void }) {
   };
 
   return (
-    <div className="card" style={{ marginBottom: 16 }}>
+    <div className="card">
       <div className="card-head">
         <h3>Sinkron Accurate</h3>
         <span className="muted small">Hanya membaca dari Accurate. COGS dari harga pembelian terakhir.</span>
@@ -160,9 +160,9 @@ export function AccuratePanel({ onApplied }: { onApplied: () => void }) {
             <code>ACCURATE_TOKEN_PT</code>.
           </p>
         ) : (
-          <div style={{ display: "grid", gap: 12 }}>
+          <div className="list-stack">
             {configured.map((e) => (
-              <div key={e.entity} className="row-wrap" style={{ justifyContent: "space-between" }}>
+              <div key={e.entity} className="row-between">
                 <div>
                   <strong>{e.entity}</strong>
                   {e.dbAlias && <span className="muted small"> · {e.dbAlias}</span>}{" "}
@@ -175,7 +175,7 @@ export function AccuratePanel({ onApplied }: { onApplied: () => void }) {
                     {e.lastSuccessAt ? fmtDateTime(e.lastSuccessAt) : "belum pernah"}
                     {e.phase !== "idle" && ` · berjalan: ${grp(e.itemsSeen)} barang, ${grp(e.stockRows)} stok`}
                   </div>
-                  {e.lastError && <div className="small" style={{ color: "var(--danger)" }}>{e.lastError}</div>}
+                  {e.lastError && <div className="small text-err">{e.lastError}</div>}
                 </div>
                 <div className="row-wrap">
                   <button className="btn small ghost" disabled={!!busy} onClick={() => sync(e.entity)}>
