@@ -3,7 +3,7 @@ import { useAuth } from "../context/AuthContext";
 import { Icon } from "../components/Icon";
 import { PasswordInput } from "../components/PasswordInput";
 import { Modal } from "../components/Modal";
-import { api } from "../api";
+import { ApiError, api } from "../api";
 
 export function LoginPage() {
   const { login } = useAuth();
@@ -20,7 +20,14 @@ export function LoginPage() {
     try {
       await login(email.trim(), password);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Gagal masuk.");
+      // The server's own messages are written for people; a 5xx without one is not.
+      setError(
+        err instanceof ApiError && err.status >= 500
+          ? "Server sedang bermasalah. Coba lagi beberapa saat lagi."
+          : err instanceof Error
+            ? err.message
+            : "Gagal masuk.",
+      );
     } finally {
       setBusy(false);
     }
@@ -29,11 +36,16 @@ export function LoginPage() {
   return (
     <div className="login-wrap">
       <form className="login-card" onSubmit={submit}>
-        <span className="hk-logo" aria-hidden="true">h</span>
-        <h1>Pricing Engine Salvator</h1>
-        <p className="sub">Mesin harga dan quotation B2B, PT Salvator Inti Pratama.</p>
+        <div className="login-brand">
+          <span className="hk-logo" aria-hidden="true">h</span>
+          <div>
+            <strong>Pricing Engine Salvator</strong>
+            <span>PT Salvator Inti Pratama</span>
+          </div>
+        </div>
+        <h1>Masuk</h1>
 
-        <div className="col" style={{ gap: 12 }}>
+        <div className="form-stack">
           <label className="field">
             <span>Email kantor</span>
             <input
@@ -55,23 +67,21 @@ export function LoginPage() {
               onChange={setPassword}
             />
           </label>
-          {error && <p className="notice error">{error}</p>}
-          <button className="btn primary block" type="submit" disabled={busy || !email || !password}>
+          {error && (
+            <p className="notice error" role="alert">
+              {error}
+            </p>
+          )}
+          <button className="btn primary large block" type="submit" disabled={busy || !email || !password}>
             {busy ? "Memeriksa…" : "Masuk"}
           </button>
-          <button
-            type="button"
-            className="link-btn"
-            style={{ alignSelf: "center" }}
-            onClick={() => setForgotOpen(true)}
-          >
+          <button type="button" className="link-btn login-forgot" onClick={() => setForgotOpen(true)}>
             Lupa kata sandi?
           </button>
         </div>
 
-        <p className="muted small" style={{ marginTop: 18, marginBottom: 0 }}>
-          <Icon name="shield" size={13} /> Belum punya akun? Minta admin membuatkannya di menu
-          Pengaturan.
+        <p className="login-foot">
+          <Icon name="shield" size={14} /> Belum punya akun? Minta admin membuatkannya di menu Pengaturan.
         </p>
       </form>
 
@@ -126,7 +136,7 @@ function ForgotPasswordModal({ onClose }: { onClose: () => void }) {
           Permintaan reset kata sandi terkirim. Admin akan menghubungi Anda dengan kata sandi baru.
         </p>
       ) : (
-        <div className="col" style={{ gap: 12 }}>
+        <div className="form-stack">
           <label className="field">
             <span>Email kantor</span>
             <input
