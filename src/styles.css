@@ -494,8 +494,8 @@ a { color: var(--action); }
 .spark-bars { display: flex; align-items: flex-end; gap: 10px; height: 64px; border-bottom: 1px solid var(--rule); }
 .spark-col { display: flex; align-items: flex-end; justify-content: center; flex: 1 1 0; min-width: 0; height: 100%; }
 .spark-bar { display: flex; flex-direction: column; justify-content: flex-end; width: 100%; max-width: 44px; border-radius: 4px 4px 0 0; overflow: hidden; }
-.spark-bar .good { background: var(--ok); }
-.spark-bar .bad { background: var(--warn); }
+.spark-bar .good, .spark-key.good { background: var(--color-ok); }
+.spark-bar .bad, .spark-key.bad { background: var(--color-warn); }
 .spark-labels { display: flex; gap: 10px; margin-top: 5px; }
 .spark-labels span { flex: 1 1 0; min-width: 0; text-align: center; font-size: 10px; color: var(--muted); white-space: nowrap; }
 .spark-key { flex: 0 0 auto; width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
@@ -817,9 +817,13 @@ input[type=checkbox] { accent-color: var(--action); width: 17px; height: 17px; f
 .kpi .value { font: var(--text-kpi); font-variant-numeric: tabular-nums; margin-top: 4px; }
 .kpi .foot { font: var(--text-caption); color: var(--color-text-2); margin-top: 4px; }
 
-.drop { display: grid; grid-template-columns: auto 1fr; gap: 10px 12px; align-items: start; border: 1.5px dashed var(--border-dashed); border-radius: 16px; padding: 16px; color: var(--action); }
-.drop.drag { border-color: var(--action); background: var(--s1-bg); }
-.drop > div { color: var(--ink); }
+.drop { display: grid; grid-template-columns: auto 1fr; gap: 10px 12px; align-items: start; border: 1.5px dashed var(--color-border-strong); border-radius: var(--radius-md); padding: 16px; color: var(--color-action); background: var(--color-layer-2); }
+.drop.drag { border-color: var(--color-action); background: var(--color-action-soft); }
+.drop > div { color: var(--color-text); }
+/* Centred drop zone (Pencocokan): icon, title, caption, button stacked. */
+.drop.stack { display: flex; flex-direction: column; align-items: center; gap: var(--space-2); padding: var(--space-6) var(--space-5); text-align: center; }
+.drop.stack > strong { color: var(--color-text); font: var(--text-body); font-weight: 600; }
+.drop.stack .btn { margin-top: var(--space-3); }
 .drop p { margin: 4px 0 0; }
 .drop .btn { grid-column: 2; justify-self: start; }
 
@@ -1045,3 +1049,24 @@ input[type=checkbox] { accent-color: var(--action); width: 17px; height: 17px; f
   .approval-row { grid-template-columns: 1fr; gap: var(--space-4); padding: var(--space-5); }
   .approval-value { align-items: flex-start; text-align: left; }
 }
+
+/* ---------------- Pencocokan ---------------- */
+.match-grid { display: grid; grid-template-columns: 420px minmax(0, 1fr); gap: var(--space-6); align-items: start; }
+@media (max-width: 1055px) { .match-grid { grid-template-columns: minmax(0, 1fr); } }
+.match-input .form-stack p { margin: 0; }
+.field-help { font: var(--text-caption); color: var(--color-text-2); }
+.btn-meta { margin-left: var(--space-3); font-weight: 400; opacity: .85; }
+.card-title { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.check { display: flex; align-items: flex-start; gap: var(--space-3); font: var(--text-body); cursor: pointer; }
+.check > input { margin-top: 3px; }
+.match-options { padding-bottom: 0; }
+.match-table { max-height: 70vh; }
+.match-raw { min-width: 200px; }
+.match-pair { min-width: 360px; }
+.cell-stack { display: flex; flex-direction: column; gap: var(--space-3); }
+.spark-head { margin-bottom: var(--space-3); }
+.legend { display: inline-flex; align-items: center; gap: var(--space-2); }
+.disclosure { border-top: 1px solid var(--color-border); padding-top: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); }
+.disclosure-toggle { width: 100%; justify-content: space-between; }
+.disclosure-toggle[aria-expanded="true"] svg { transform: rotate(180deg); }
+a.btn, a.btn:hover { text-decoration: none; }

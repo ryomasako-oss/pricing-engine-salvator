@@ -28,20 +28,20 @@ export function MatchLearningPanel() {
   const peak = Math.max(1, ...weeks.map((w) => w.accepted + w.corrected));
 
   return (
-    <div className="card" style={{ marginBottom: 16 }}>
+    <div className="card">
       <div className="card-head">
         <h3>Pembelajaran pencocokan</h3>
         <span className="muted small">Seberapa sering tebakan teratas dipakai apa adanya, dan istilah apa yang masih sering meleset.</span>
       </div>
-      <div className="card-body">
-        <div className="row-wrap" style={{ gap: 8, alignItems: "center" }}>
+      <div className="card-body form-stack">
+        <div className="row-wrap">
           <span className={`badge ${r.accuracy === null ? "grey" : r.accuracy >= 0.8 ? "green" : r.accuracy >= 0.6 ? "amber" : "red"}`}>
             {r.accuracy === null ? "belum ada data" : pct(r.accuracy)}
           </span>
           <span className="muted small">{accuracyNote(r)}</span>
         </div>
 
-        <div className="row-wrap small" style={{ gap: 6, marginTop: 10 }}>
+        <div className="badge-row">
           <span className="badge green">{grp(r.accepted)} dipakai apa adanya</span>
           <span className="badge amber">{grp(r.corrected)} dibetulkan</span>
           <span className="badge grey">{grp(r.dropped)} tidak dipakai</span>
@@ -51,15 +51,15 @@ export function MatchLearningPanel() {
         </div>
 
         {weeks.length > 1 && (
-          <div style={{ marginTop: 14 }}>
-            <div className="spread" style={{ gap: 10, marginBottom: 8 }}>
+          <div>
+            <div className="spread spark-head">
               <span className="muted small">Per minggu</span>
-              <span className="row-wrap" style={{ gap: 12 }}>
-                <span className="row muted small" style={{ gap: 5 }}>
-                  <i className="spark-key" style={{ background: "var(--ok)" }} /> dipakai apa adanya
+              <span className="row-wrap">
+                <span className="legend muted small">
+                  <i className="spark-key good" /> dipakai apa adanya
                 </span>
-                <span className="row muted small" style={{ gap: 5 }}>
-                  <i className="spark-key" style={{ background: "var(--warn)" }} /> dibetulkan
+                <span className="legend muted small">
+                  <i className="spark-key bad" /> dibetulkan
                 </span>
               </span>
             </div>
@@ -92,18 +92,17 @@ export function MatchLearningPanel() {
         )}
 
         {r.topMissed.length > 0 && (
-          <div style={{ marginTop: 14, borderTop: "1px solid var(--rule)", paddingTop: 10 }}>
+          <div className="disclosure">
             <button
-              className="btn small ghost"
-              style={{ width: "100%", justifyContent: "space-between" }}
+              className="btn small ghost disclosure-toggle"
               onClick={() => setOpen((v) => !v)}
               aria-expanded={open}
             >
-              <span>Istilah yang paling sering dibetulkan</span>
+              <span><Icon name="chevron-down" size={14} /> Istilah yang paling sering dibetulkan</span>
               <span className="badge amber">{grp(r.topMissed.length)}</span>
             </button>
             {open && (
-              <div className="table-wrap" style={{ marginTop: 8 }}>
+              <div className="table-wrap">
                 <table className="table">
                   <thead>
                     <tr>
@@ -130,8 +129,7 @@ export function MatchLearningPanel() {
         )}
 
         {judged === 0 && (
-          <p className="notice info small" style={{ marginTop: 12 }}>
-            <Icon name="alert" size={13} /> Angka terisi sendiri setiap kali baris dibereskan di atas, atau quotation dibuat lewat{" "}
+          <p className="notice info"> Angka terisi sendiri setiap kali baris dibereskan di atas, atau quotation dibuat lewat{" "}
             <strong>Quotation → Dari list klien</strong>. Quotation yang dibuat langsung di editor tidak ikut terhitung.
           </p>
         )}

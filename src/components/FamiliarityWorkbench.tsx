@@ -175,9 +175,12 @@ export function FamiliarityWorkbench() {
   const sessionOnly = noClient && !everyone;
 
   return (
-    <section aria-label="Latih Pencocokan" className="col" style={{ gap: 12 }}>
-      {!session ? (
-        <>
+    <section aria-label="Latih Pencocokan" className="match-grid">
+      <div className="card match-input">
+        <div className="card-head">
+          <h3>Masukkan daftar</h3>
+        </div>
+        <div className="card-body form-stack">
           {adding ? (
             <ClientQuickAdd
               clients={clients}
@@ -189,8 +192,8 @@ export function FamiliarityWorkbench() {
               onCancel={() => setAdding(false)}
             />
           ) : (
-            <div className="row-wrap" style={{ gap: 12, alignItems: "end" }}>
-              <label className="field" style={{ flex: "1 1 220px" }}>
+            <>
+              <label className="field">
                 <span>Klien</span>
                 <select
                   className="select"
@@ -209,34 +212,23 @@ export function FamiliarityWorkbench() {
                   ))}
                   <option value={NEW_CLIENT}>+ Klien baru…</option>
                 </select>
+                {clientId === "" && (
+                  // Not .notice.info: that one is 4.4:1 in both themes (styles.css defines it twice).
+                  <small className="field-help">
+                    {mayGoGlobal
+                      ? "Pilih klien supaya sistem belajar. Tanpa klien, pilihan hanya berlaku di latihan ini, kecuali Anda mencentang \"semua klien\" setelah Cocokkan."
+                      : "Pilih klien supaya sistem belajar. Tanpa klien, pilihan Anda hanya berlaku di latihan ini dan tidak diingat."}
+                  </small>
+                )}
               </label>
-              <label className="field" style={{ flex: "2 1 260px" }}>
+              <label className="field">
                 <span>Judul feed</span>
                 <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="mis. List CGV Oktober" />
               </label>
-            </div>
+            </>
           )}
-          {clientId === "" && !adding && (
-            // Not .notice.info: that one is 4.4:1 in both themes (styles.css defines it twice).
-            <p className="muted small" style={{ margin: 0 }}>
-              {mayGoGlobal
-                ? "Pilih klien supaya sistem belajar. Tanpa klien, pilihan hanya berlaku di latihan ini, kecuali Anda mencentang \"semua klien\" setelah Cocokkan."
-                : "Pilih klien supaya sistem belajar. Tanpa klien, pilihan Anda hanya berlaku di latihan ini dan tidak diingat."}
-            </p>
-          )}
-          <label className="field">
-            <span>Tempel daftar barang</span>
-            <textarea
-              className="textarea input"
-              rows={6}
-              value={paste}
-              disabled={!!file}
-              onChange={(e) => setPaste(e.target.value)}
-              placeholder={"Satu barang per baris, mis.\nKertas HVS A4 70gr\nLakban bening 2 inch"}
-            />
-          </label>
           <div
-            className={`drop ${drag ? "drag" : ""}`}
+            className={`drop stack ${drag ? "drag" : ""}`}
             onDragOver={(e) => {
               e.preventDefault();
               setDrag(true);
@@ -250,86 +242,114 @@ export function FamiliarityWorkbench() {
             }}
           >
             <Icon name="upload" size={20} />
-            <div className="row-wrap" style={{ gap: 8, alignItems: "center" }}>
-              {reading ? (
-                <span className="muted small" role="status">Membaca file… (PDF dan foto dibaca AI, bisa sampai satu menit)</span>
-              ) : file ? (
-                <>
-                  <span className="badge grey">{file.name}</span>
-                  <span className="muted small">{file.lines.length} baris</span>
-                  <button className="btn small ghost" onClick={() => setFile(null)}>Pakai teks tempelan</button>
-                </>
-              ) : (
-                <>
-                  <span className="muted small">Atau tarik file ke sini: Excel/CSV, PDF (mis. quotation lama), atau foto</span>
-                  <label className="btn small">
-                    Pilih file
-                    <input
-                      type="file"
-                      accept=".xlsx,.xls,.csv,.pdf,.png,.jpg,.jpeg,.webp,.heic,.heif,application/pdf,image/*"
-                      hidden
-                      onChange={(e) => {
-                        void readFile(e.target.files?.[0]);
-                        // The same file picked again after "Pakai teks tempelan" must read again.
-                        e.target.value = "";
-                      }}
-                    />
-                  </label>
-                </>
-              )}
-            </div>
+            {reading ? (
+              <span className="muted small" role="status">Membaca file… (PDF dan foto dibaca AI, bisa sampai satu menit)</span>
+            ) : file ? (
+              <>
+                <strong>{file.name}</strong>
+                <span className="muted small">{file.lines.length} baris</span>
+                <button className="btn small ghost" onClick={() => setFile(null)}>Pakai teks tempelan</button>
+              </>
+            ) : (
+              <>
+                <strong>Tarik file ke sini</strong>
+                <span className="muted small">Excel/CSV, PDF (mis. quotation lama), atau foto</span>
+                <label className="btn small">
+                  Pilih file
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,.csv,.pdf,.png,.jpg,.jpeg,.webp,.heic,.heif,application/pdf,image/*"
+                    hidden
+                    onChange={(e) => {
+                      void readFile(e.target.files?.[0]);
+                      // The same file picked again after "Pakai teks tempelan" must read again.
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+              </>
+            )}
           </div>
           {file?.notes.map((n) => (
-            <p key={n} className="muted small" style={{ margin: 0 }}>
+            <p key={n} className="muted small">
               {n}
             </p>
           ))}
+          <label className="field">
+            <span>Tempel daftar barang</span>
+            <textarea
+              className="textarea input"
+              rows={6}
+              value={paste}
+              disabled={!!file}
+              onChange={(e) => setPaste(e.target.value)}
+              placeholder={"Satu barang per baris, mis.\nKertas HVS A4 70gr\nLakban bening 2 inch"}
+            />
+          </label>
           {error && <p className="notice error">{error}</p>}
-          <div className="row" style={{ gap: 8 }}>
-            <button className="btn primary" onClick={feed} disabled={busy || reading || !lines.length}>
-              {busy ? "Mencocokkan…" : "Cocokkan"}
-            </button>
-            {lines.length > 0 && <span className="muted small">{lines.length} baris</span>}
+          <button className="btn primary block" onClick={feed} disabled={busy || reading || !lines.length}>
+            {busy ? "Mencocokkan…" : "Cocokkan"}
+            {!busy && lines.length > 0 && <span className="btn-meta num">{lines.length} baris</span>}
+          </button>
+        </div>
+      </div>
+
+      {!session ? (
+        <div className="card match-result">
+          <div className="card-body empty">
+            <Icon name="search" size={28} />
+            <h3>Belum ada daftar</h3>
+            <p>Tempel atau unggah daftar barang klien di kiri, lalu klik Cocokkan. Hasilnya muncul di sini.</p>
           </div>
-        </>
+        </div>
       ) : (
-        <>
-          <div className="row-wrap" style={{ gap: 6, alignItems: "center" }}>
-            <span className="badge grey">{session.title || "Feed tanpa judul"}</span>
-            {counts.adjustment > 0 && <span className="badge blue">{counts.adjustment} adjustment</span>}
-            {counts.review > 0 && <span className="badge amber">{counts.review} perlu dicek</span>}
-            <span className="grow" />
+        <div className="card match-result">
+          <div className="card-head">
+            <div className="card-title">
+              <h3>{session.title || "Feed tanpa judul"}</h3>
+              <div className="badge-row">
+                <span className="badge grey num">{counts.all} baris</span>
+                {counts.adjustment > 0 && <span className="badge blue">{counts.adjustment} adjustment</span>}
+                {counts.review > 0 && <span className="badge amber">{counts.review} perlu dicek</span>}
+              </div>
+            </div>
             <button className="btn small ghost" onClick={() => setSession(null)}>Feed baru</button>
           </div>
-          {mayGoGlobal && (
-            <label className="row" style={{ gap: 6, alignItems: "center" }}>
-              <input type="checkbox" checked={everyone} onChange={(e) => setEveryone(e.target.checked)} />
-              <span className="small">
-                Simpan pilihan untuk semua klien{noClient ? "" : ", bukan hanya klien ini"} (langsung Pasti di list semua klien)
-              </span>
-            </label>
+          {(mayGoGlobal || sessionOnly) && (
+            <div className="card-body form-stack match-options">
+              {mayGoGlobal && (
+                <label className="check">
+                  <input type="checkbox" checked={everyone} onChange={(e) => setEveryone(e.target.checked)} />
+                  <span>
+                    Simpan pilihan untuk semua klien{noClient ? "" : ", bukan hanya klien ini"} (langsung Pasti di list semua klien)
+                  </span>
+                </label>
+              )}
+              {sessionOnly && (
+                <p className="notice warn">
+                  Latihan tanpa klien: pilihan di sini hanya berlaku di sesi ini dan tidak diingat untuk daftar berikutnya. Mulai feed baru
+                  dengan klien supaya sistem belajar.
+                </p>
+              )}
+            </div>
           )}
-          {sessionOnly && (
-            <p className="notice warn small" style={{ margin: 0 }}>
-              Latihan tanpa klien: pilihan di sini hanya berlaku di sesi ini dan tidak diingat untuk daftar berikutnya. Mulai feed baru
-              dengan klien supaya sistem belajar.
-            </p>
-          )}
-          <div className="row-wrap" style={{ gap: 6 }} role="group" aria-label="Saring baris">
-            {(
-              [
-                ["all", `Semua (${counts.all})`],
-                ["todo", `Perlu Dibereskan (${counts.todo})`],
-                ["familiar", `Sudah Familiar (${counts.familiar})`],
-              ] as const
-            ).map(([f, label]) => (
-              <button key={f} className={`btn small ${filter === f ? "primary" : "ghost"}`} aria-pressed={filter === f} onClick={() => setFilter(f)}>
-                {label}
-              </button>
-            ))}
+          <div className="toolbar">
+            <div className="chips" role="group" aria-label="Saring baris">
+              {(
+                [
+                  ["all", `Semua (${counts.all})`],
+                  ["todo", `Perlu Dibereskan (${counts.todo})`],
+                  ["familiar", `Sudah Familiar (${counts.familiar})`],
+                ] as const
+              ).map(([f, label]) => (
+                <button key={f} className={`chip ${filter === f ? "on" : ""}`} aria-pressed={filter === f} onClick={() => setFilter(f)}>
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
 
-          <div className="table-wrap" style={{ maxHeight: "60vh" }}>
+          <div className="table-wrap flush match-table">
             <table className="table">
               <thead>
                 <tr>
@@ -361,13 +381,13 @@ export function FamiliarityWorkbench() {
                 ))}
                 {!shown.length && (
                   <tr>
-                    <td className="l muted" colSpan={3}>Tidak ada baris di saringan ini.</td>
+                    <td className="l muted empty-row" colSpan={3}>Tidak ada baris di saringan ini.</td>
                   </tr>
                 )}
               </tbody>
             </table>
           </div>
-        </>
+        </div>
       )}
 
       {newItemRow && (
@@ -432,18 +452,18 @@ function WorkbenchRow({
 
   return (
     <tr>
-      <td className="l" style={{ minWidth: 200 }}>
-        <div style={{ fontWeight: 550 }}>{row.raw_text}</div>
+      <td className="l match-raw">
+        <div className="cell-title">{row.raw_text}</div>
         {/* The server reads a missing quantity as 1: only a stated one is worth showing. */}
         {(row.qty !== 1 || row.unit) && <div className="muted small">{[row.qty, row.unit].filter(Boolean).join(" ")}</div>}
       </td>
       <td className="l">
         <span className={`badge ${badge.cls}`}>{badge.text}</span>
       </td>
-      <td className="l" style={{ minWidth: 360 }}>
+      <td className="l match-pair">
         {!acting ? (
-          <div className="col" style={{ gap: 6 }}>
-            <div className="row-wrap" style={{ gap: 8, alignItems: "center" }}>
+          <div className="cell-stack">
+            <div className="row-wrap">
               <span>{now.label}</span>
               {/* The matcher was sure on its own: a person can make it a rule, or say it is wrong. */}
               {mode === "auto" && now.candidate && (
@@ -464,9 +484,9 @@ function WorkbenchRow({
             {error && <span className="notice error small">{error}</span>}
           </div>
         ) : (
-          <div className="col" style={{ gap: 6 }}>
+          <div className="cell-stack">
             {editing && <span className="muted small">Sekarang: {now.label}</span>}
-            <div className="row-wrap" style={{ gap: 6, alignItems: "center" }}>
+            <div className="row-wrap">
               {offered.map((c) => (
                 <button key={`${c.source}-${c.item_id ?? c.pending_item_id}`} className="chip" type="button" disabled={busy} onClick={() => onChoose(targetOf(c))}>
                   {c.source === "pending" && <span className="badge blue">Sudah diajukan</span>} {c.name}{" "}
@@ -480,7 +500,7 @@ function WorkbenchRow({
                 <Icon name="search" size={15} />
               </button>
             </div>
-            <div className="row-wrap" style={{ gap: 6 }}>
+            <div className="row-wrap">
               <button className="btn small" onClick={onNewItem} disabled={busy}>
                 Barang Baru
               </button>
@@ -535,10 +555,9 @@ function InlineSearch({ initial, onPick }: { initial: string; onPick: (t: Target
   };
 
   return (
-    <div className="col" style={{ gap: 6 }}>
+    <div className="cell-stack">
       <form
         className="row"
-        style={{ gap: 6 }}
         onSubmit={(e) => {
           e.preventDefault();
           void search();
@@ -550,7 +569,7 @@ function InlineSearch({ initial, onPick }: { initial: string; onPick: (t: Target
         </button>
       </form>
       {found && found.length === 0 && <span className="muted small">Tidak ada. Coba kata kunci lebih pendek, misal merek saja.</span>}
-      <div className="row-wrap" style={{ gap: 6 }}>
+      <div className="row-wrap">
         {found?.map((t) => (
           <button key={t.key} className="chip" type="button" onClick={() => onPick(t)}>
             {t.kind === "pending" && <span className="badge blue">Sudah diajukan</span>} {t.label} <span className="muted">· {t.code}</span>
