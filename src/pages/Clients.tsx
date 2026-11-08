@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
+import { LoadError } from "../components/LoadError";
 import { Icon } from "../components/Icon";
 import { Modal, ConfirmModal } from "../components/Modal";
 import { NEW_CLIENT_REQUIRED, missingNewClientFields, missingNewClientMessage } from "@shared/clients";
@@ -129,14 +130,16 @@ export function ClientsPage() {
   const [attempted, setAttempted] = useState(false);
   const [deleting, setDeleting] = useState<(Client & { quote_count?: number }) | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
 
   const load = useCallback(() => {
     setLoading(true);
+    setLoadError(null);
     api
       .get<{ clients: Client[] }>("/clients")
       .then((r) => setClients(r.clients))
-      .catch((e) => toast(e.message, "error"))
+      .catch((e) => setLoadError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
   }, [toast]);
 
@@ -203,9 +206,11 @@ export function ClientsPage() {
             aria-label="Cari klien"
           />
           <span className="grow" />
-          {!loading && <span className="muted small num">{q ? `${shown.length} dari ${clients.length}` : clients.length} klien</span>}
+          {!loading && !loadError && <span className="muted small num">{q ? `${shown.length} dari ${clients.length}` : clients.length} klien</span>}
         </div>
-        {loading ? (
+        {loadError ? (
+          <LoadError message={loadError} onRetry={load} />
+        ) : loading ? (
           <div className="card-body skeleton-list" role="status" aria-label="Memuat klien…">
             {[0, 1, 2, 3, 4].map((i) => <span key={i} className="skeleton" />)}
           </div>

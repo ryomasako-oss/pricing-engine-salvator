@@ -4,6 +4,7 @@ import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { ClientQuickAdd } from "../components/ClientQuickAdd";
+import { LoadError } from "../components/LoadError";
 import { Icon } from "../components/Icon";
 import { ListToQuote } from "../components/ListToQuote";
 import { ListDrafts } from "../components/ListDrafts";
@@ -58,6 +59,7 @@ export function DashboardPage() {
   const [mine, setMine] = useState(!isManager);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [fromList, setFromList] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -92,6 +94,7 @@ export function DashboardPage() {
 
   const load = useCallback(() => {
     setLoading(true);
+    setLoadError(null);
     // Every status comes back (the list is not paged), so the tabs filter and
     // count in the browser and the KPIs stay the same whichever tab is open.
     const params = new URLSearchParams();
@@ -100,7 +103,7 @@ export function DashboardPage() {
     api
       .get<{ quotes: QuoteRow[] }>(`/quotes?${params}`)
       .then((r) => setQuotes(r.quotes))
-      .catch((e) => toast(e.message, "error"))
+      .catch((e) => setLoadError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
   }, [mine, userIdFilter, toast]);
 
@@ -260,7 +263,9 @@ export function DashboardPage() {
           {!loading && <span className="muted small num">{visible.length} quotation</span>}
         </div>
 
-        {loading ? (
+        {loadError ? (
+          <LoadError message={loadError} onRetry={load} />
+        ) : loading ? (
           <div className="card-body skeleton-list" role="status" aria-label="Memuat quotation…">
             {[0, 1, 2, 3, 4].map((i) => <span key={i} className="skeleton" />)}
           </div>

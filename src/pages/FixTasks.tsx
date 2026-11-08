@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
+import { LoadError } from "../components/LoadError";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { useNavCounts } from "../context/NavCountsContext";
@@ -49,16 +50,18 @@ export function FixTasksPage() {
   const { toFix } = useNavCounts();
   const [rows, setRows] = useState<TaskRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [resolving, setResolving] = useState<TaskRow | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
+    setLoadError(null);
     api
       .get<{ tasks: TaskRow[] }>(`/fix-tasks?status=${status}`)
       .then((r) => setRows(r.tasks))
-      .catch((e) => toast(e.message, "error"))
+      .catch((e) => setLoadError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
   }, [status, toast]);
   useEffect(load, [load]);
@@ -143,7 +146,9 @@ export function FixTasksPage() {
           </div>
         </div>
 
-        {loading ? (
+        {loadError ? (
+          <LoadError message={loadError} onRetry={load} />
+        ) : loading ? (
           <div className="card-body skeleton-list" role="status" aria-label="Memuat perbaikan…">
             {[0, 1, 2, 3].map((i) => <span key={i} className="skeleton" />)}
           </div>

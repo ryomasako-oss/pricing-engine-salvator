@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
+import { LoadError } from "../components/LoadError";
 import { useToast } from "../context/ToastContext";
 import { BreachList } from "../components/pricing";
 import { fmtDateTime, grp, pct, rp } from "@shared/format";
@@ -53,13 +54,15 @@ export function ApprovalsPage() {
   const [lists, setLists] = useState<Record<Decision, ApprovalRow[]>>({ pending: [], approved: [], rejected: [] });
   const [filter, setFilter] = useState<Filter>("pending");
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
+    setLoadError(null);
     const get = (d: Decision) => api.get<{ approvals: ApprovalRow[] }>(`/approvals?decision=${d}`).then((r) => r.approvals);
     Promise.all([get("pending"), get("approved"), get("rejected")])
       .then(([pending, approved, rejected]) => setLists({ pending, approved, rejected }))
-      .catch((e) => toast(e.message, "error"))
+      .catch((e) => setLoadError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
   }, [toast]);
 
@@ -131,7 +134,9 @@ export function ApprovalsPage() {
           ))}
         </div>
 
-        {loading ? (
+        {loadError ? (
+          <LoadError message={loadError} onRetry={load} />
+        ) : loading ? (
           <div className="card-body skeleton-list" role="status" aria-label="Memuat persetujuan…">
             {[0, 1, 2, 3].map((i) => <span key={i} className="skeleton" />)}
           </div>

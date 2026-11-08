@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { useToast } from "../context/ToastContext";
+import { LoadError } from "../components/LoadError";
 import { Icon } from "../components/Icon";
 import { fmtDate, fmtDateTime, grp, rp } from "@shared/format";
 
@@ -36,6 +37,8 @@ export function CogsHistoryPage() {
   const [page, setPage] = useState(1);
   const [data, setData] = useState<Page | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
 
   // Typing waits half a second before asking the server.
   useEffect(() => {
@@ -49,15 +52,16 @@ export function CogsHistoryPage() {
   useEffect(() => {
     let live = true;
     setLoading(true);
+    setLoadError(null);
     api
       .get<Page>(`/accurate/cogs-history?q=${encodeURIComponent(search)}&pending=${onlyPending ? 1 : 0}&page=${page}`)
       .then((r) => live && setData(r))
-      .catch((e) => live && toast(e.message, "error"))
+      .catch((e) => live && setLoadError(e instanceof Error ? e.message : String(e)))
       .finally(() => live && setLoading(false));
     return () => {
       live = false;
     };
-  }, [search, onlyPending, page, toast]);
+  }, [search, onlyPending, page, toast, retry]);
 
   const pages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
 
@@ -105,7 +109,11 @@ export function CogsHistoryPage() {
         </div>
       </div>
 
-      {loading && !data ? (
+      {loadError ? (
+        <div className="card">
+          <LoadError message={loadError} onRetry={() => setRetry((r) => r + 1)} />
+        </div>
+      ) : loading && !data ? (
         <div className="card">
           <div className="card-body skeleton-list" role="status" aria-label="Memuat riwayat COGS…">
             {[0, 1, 2, 3].map((i) => <span key={i} className="skeleton" />)}

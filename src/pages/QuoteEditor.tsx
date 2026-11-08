@@ -115,6 +115,9 @@ export function QuoteEditorPage() {
   const [salesReview, setSalesReview] = useState<SalesReviewRecord | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
   const [dirty, setDirty] = useState(false);
+  // Read by async loads: an edit made while a load is in flight must not be overwritten by it.
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"items" | "breakdown" | "assumptions" | "delivery" | "document" | "history">("items");
@@ -132,7 +135,8 @@ export function QuoteEditorPage() {
   const [unitsFetched, setUnitsFetched] = useState<Set<string>>(new Set());
   const saved = useRef<string>("");
 
-  const load = useCallback(async () => {
+  /** keepEdits: a background (re)load that must not overwrite edits typed meanwhile. */
+  const load = useCallback(async (keepEdits = false) => {
     setLoading(true);
     try {
       const [d, sr] = await Promise.all([
@@ -143,6 +147,7 @@ export function QuoteEditorPage() {
       setSalesReview(sr.review);
       // Submits and sales checks add "Perlu diperbaiki" tasks: refresh the nav count.
       window.dispatchEvent(new Event("fix-tasks-changed"));
+      if (keepEdits && dirtyRef.current) return;
       const snap: QuoteSnapshot = {
         assumptions: d.quote.assumptions,
         items: d.quote.items,
@@ -162,7 +167,7 @@ export function QuoteEditorPage() {
   }, [quoteId, navigate, toast]);
 
   useEffect(() => {
-    void load();
+    void load(true);
   }, [load]);
 
   useEffect(() => {

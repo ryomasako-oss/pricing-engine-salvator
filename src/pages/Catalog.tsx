@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
+import { LoadError } from "../components/LoadError";
 import { Icon } from "../components/Icon";
 import { ConfirmModal, Modal } from "../components/Modal";
 import { Menu, type MenuEntry } from "../components/Menu";
@@ -47,6 +48,7 @@ export function CatalogPage() {
   const [imageFilter, setImageFilter] = useState<"all" | "with" | "without">("all");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [modal, setModal] = useState<null | "inventory" | "master" | "full" | "confirmFull" | "fullMerge" | "images">(null);
   const [editing, setEditing] = useState<EditingItem | null>(null);
   const [uomOptions, setUomOptions] = useState<string[]>([]);
@@ -69,6 +71,7 @@ export function CatalogPage() {
 
   const load = useCallback(() => {
     setLoading(true);
+    setLoadError(null);
     const params = new URLSearchParams({
       q: query.trim(),
       limit: String(PAGE),
@@ -84,7 +87,7 @@ export function CatalogPage() {
         setTotal(r.total);
         setStockAsOf(r.stockAsOf);
       })
-      .catch((e) => toast(e.message, "error"))
+      .catch((e) => setLoadError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
     api.get<{ stats: Stats }>("/catalog/stats").then((r) => setStats(r.stats)).catch(() => undefined);
   }, [query, page, sortBy, sortDir, imageFilter, toast]);
@@ -259,7 +262,9 @@ export function CatalogPage() {
           </span>
         </div>
 
-        {loading ? (
+        {loadError ? (
+          <LoadError message={loadError} onRetry={load} />
+        ) : loading ? (
           <div className="card-body skeleton-list" role="status" aria-label="Memuat katalog…">
             {[0, 1, 2, 3, 4].map((i) => <span key={i} className="skeleton" />)}
           </div>

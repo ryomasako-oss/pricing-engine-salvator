@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { useToast } from "../context/ToastContext";
+import { LoadError } from "../components/LoadError";
 import { Icon } from "../components/Icon";
 import { fmtDate, grp, rp } from "@shared/format";
 
@@ -44,6 +45,8 @@ export function SalesHistoryPage() {
   const [page, setPage] = useState(1);
   const [data, setData] = useState<Page | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
 
   // Typing waits half a second before asking the server.
   useEffect(() => {
@@ -57,15 +60,16 @@ export function SalesHistoryPage() {
   useEffect(() => {
     let live = true;
     setLoading(true);
+    setLoadError(null);
     api
       .get<Page>(`/accurate/sales-history?q=${encodeURIComponent(search)}&page=${page}`)
       .then((r) => live && setData(r))
-      .catch((e) => live && toast(e.message, "error"))
+      .catch((e) => live && setLoadError(e instanceof Error ? e.message : String(e)))
       .finally(() => live && setLoading(false));
     return () => {
       live = false;
     };
-  }, [search, page, toast]);
+  }, [search, page, toast, retry]);
 
   const pages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
 
@@ -102,7 +106,11 @@ export function SalesHistoryPage() {
         </div>
       </div>
 
-      {loading && !data ? (
+      {loadError ? (
+        <div className="card">
+          <LoadError message={loadError} onRetry={() => setRetry((r) => r + 1)} />
+        </div>
+      ) : loading && !data ? (
         <div className="card">
           <div className="card-body skeleton-list" role="status" aria-label="Memuat riwayat penjualan…">
             {[0, 1, 2, 3].map((i) => <span key={i} className="skeleton" />)}

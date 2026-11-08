@@ -124,6 +124,9 @@ export function StaffQuotePage() {
   const [meta, setMeta] = useState<QuoteMeta | null>(null);
   const [pricing, setPricing] = useState<StaffPricing | null>(null);
   const [dirty, setDirty] = useState(false);
+  // Read by async loads: an edit made while a load is in flight must not be overwritten by it.
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
   const [saving, setSaving] = useState(false);
   const [pricingBusy, setPricingBusy] = useState(false);
   const [error, setError] = useState("");
@@ -137,7 +140,8 @@ export function StaffQuotePage() {
   const [cogsBlocked, setCogsBlocked] = useState<string[] | null>(null);
   const previewSeq = useRef(0);
 
-  const load = useCallback(async () => {
+  /** keepEdits: a background (re)load that must not overwrite edits typed meanwhile. */
+  const load = useCallback(async (keepEdits = false) => {
     const [d, sr] = await Promise.all([
       api.get<Detail>(`/quotes/${quoteId}`),
       api.get<{ review: SalesReviewRecord | null }>(`/quotes/${quoteId}/sales-review`).catch(() => ({ review: null })),
@@ -146,6 +150,7 @@ export function StaffQuotePage() {
     setSalesReview(sr.review);
     // Submits and sales checks add "Perlu diperbaiki" tasks: refresh the nav count.
     window.dispatchEvent(new Event("fix-tasks-changed"));
+    if (keepEdits && dirtyRef.current) return;
     setLines(d.quote.items);
     setMeta(d.quote.meta);
     setPricing(d.quote.pricing);
@@ -154,7 +159,7 @@ export function StaffQuotePage() {
   }, [quoteId]);
 
   useEffect(() => {
-    load().catch((e) => toast(e instanceof Error ? e.message : "Gagal memuat quotation.", "error"));
+    load(true).catch((e) => toast(e instanceof Error ? e.message : "Gagal memuat quotation.", "error"));
     api.get<{ clients: Client[] }>("/clients").then((r) => setClients(r.clients)).catch(() => undefined);
     api.get<{ company: CompanyInfo }>("/settings").then((r) => setCompany(r.company)).catch(() => undefined);
     api
