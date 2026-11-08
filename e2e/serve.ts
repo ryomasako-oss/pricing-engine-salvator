@@ -56,10 +56,19 @@ const seedFile = path.join(dir, "seed.sql");
 fs.writeFileSync(seedFile, seed);
 execFileSync("npx", ["wrangler", "d1", "execute", "DB", "--local", ...persist, "--file", seedFile], quiet);
 
+// The full suite now runs in about a minute, past the API's 600 requests/min per IP;
+// the tests were failing on 429s, not on the screens. A copy of wrangler.toml with a
+// higher API limit, beside it so its relative paths resolve, only for this server.
+const e2eConfig = path.resolve("wrangler.e2e.toml");
+const toml = fs.readFileSync(path.resolve("wrangler.toml"), "utf8");
+const raised = toml.replace(/(name = "API_LIMITER"[\s\S]*?simple = \{ limit = )600/, (_, head: string) => `${head}6000`);
+if (raised === toml) throw new Error("e2e/serve.ts: API_LIMITER limit = 600 not found in wrangler.toml");
+fs.writeFileSync(e2eConfig, raised);
+
 const dev = spawn(
   "npx",
   [
-    "wrangler", "dev", "--local", "--port", port, "--inspector-port", "0", ...persist,
+    "wrangler", "dev", "--config", e2eConfig, "--local", "--port", port, "--inspector-port", "0", ...persist,
     "--var", "JWT_SECRET:e2e-only-secret-not-for-production-000000000000",
     "--var", "NODE_ENV:development",
     "--var", "ACCURATE_SYNC_ENABLED:false",
@@ -70,6 +79,7 @@ const dev = spawn(
 const stop = () => {
   dev.kill("SIGTERM");
   fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(e2eConfig, { force: true });
 };
 process.on("SIGTERM", stop);
 process.on("SIGINT", stop);
