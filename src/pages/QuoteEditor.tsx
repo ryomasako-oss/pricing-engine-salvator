@@ -491,20 +491,17 @@ export function QuoteEditorPage() {
   };
 
   return (
-    <main className="hk-main wide">
+    <main className="hk-main wide page-stack">
       <div className="hk-page-head">
         <div>
           <button
             className="link-btn"
-            onClick={() => {
-              if (dirty && !window.confirm("Ada perubahan yang belum disimpan. Tinggalkan halaman ini?")) return;
-              navigate("/quotes");
-            }}
+            onClick={() => (dirty ? setModal({ kind: "leave" }) : navigate("/quotes"))}
           >
             <Icon name="back" size={14} /> Semua quotation
           </button>
-          <h1 style={{ marginTop: 4 }}>{quote.title}</h1>
-          <div className="status-bar" style={{ marginTop: 6 }}>
+          <h1>{quote.title}</h1>
+          <div className="status-bar">
             <span className="num muted">{quote.number}</span>
             {quote.rev_no > 1 && <span className="badge grey">revisi {quote.rev_no}</span>}
             <StatusChip status={quote.status} />
@@ -518,7 +515,7 @@ export function QuoteEditorPage() {
 
         <div className="row-wrap">
           {!readOnly && (
-            <button className="btn primary" onClick={() => void save()} disabled={!dirty || saving}>
+            <button className="btn" onClick={() => void save()} disabled={!dirty || saving}>
               {saving ? "Menyimpan…" : dirty ? "Simpan" : "Tersimpan"}
             </button>
           )}
@@ -561,13 +558,13 @@ export function QuoteEditorPage() {
 
       <SalesReviewBanner quote={quote} review={salesReview} />
       {quote.status === "rejected" && quote.decision_note && (
-        <p className="notice error" style={{ marginBottom: 12 }}>
+        <p className="notice error">
           <strong>Ditolak{quote.approved_by_name ? ` oleh ${quote.approved_by_name}` : ""}:</strong>{" "}
           {quote.decision_note} — buka kembali sebagai revisi baru untuk memperbaikinya.
         </p>
       )}
       {readOnly && quote.status !== "rejected" && (
-        <p className="notice info" style={{ marginBottom: 12 }}>
+        <p className="notice info">
           <Icon name="shield" size={13} /> Quotation berstatus{" "}
           <strong>{quote.status}</strong> terkunci agar angka yang sudah disetujui tidak berubah
           diam-diam. Gunakan <strong>Buka revisi baru</strong> untuk mengubahnya.
@@ -577,7 +574,7 @@ export function QuoteEditorPage() {
       <div className="editor">
         <div className="editor-main">
           <div className="card">
-            <div className="card-head">
+            <div className="card-head tab-head">
               <div className="tabs" role="group" aria-label="Bagian penawaran">
                 {([
                   ["items", "Item"],
@@ -593,7 +590,10 @@ export function QuoteEditorPage() {
                 ))}
               </div>
               {tab === "items" && !readOnly && (
-                <button className="btn small" onClick={() => setModal({ kind: "import" })}>
+                <button
+                  className="btn small"
+                  onClick={() => setModal({ kind: snapshot.items.length ? "import-confirm" : "import" })}
+                >
                   <Icon name="upload" size={14} /> Impor daftar klien
                 </button>
               )}
@@ -866,7 +866,7 @@ export function QuoteEditorPage() {
                 selected={scenario}
                 onSelect={readOnly ? undefined : (i: ScenarioIndex) => update({ scenario: i })}
               />
-              <p className="muted small" style={{ margin: "10px 2px 0" }}>
+              <p className="muted small side-note">
                 {SCENARIOS[scenario].rule}
               </p>
             </div>
@@ -884,7 +884,7 @@ export function QuoteEditorPage() {
             <div className="card-body tight">
               <BreachList breaches={breaches} />
               {policy && (
-                <p className="muted small" style={{ marginTop: 10, marginBottom: 0 }}>
+                <p className="muted small side-note">
                   Batas: net margin {pct(policy.minNetMargin)}, diskon basket {pct(policy.maxBasketDiscount)},
                   nilai wajib persetujuan {rp(policy.approvalValueThreshold)}.
                 </p>
@@ -951,21 +951,37 @@ export function QuoteEditorPage() {
         );
       })()}
 
+      {modal?.kind === "import-confirm" && (
+        <ConfirmModal
+          title="Ganti semua item?"
+          confirmLabel="Ya, pilih file"
+          message={
+            <p>
+              Impor akan mengganti semua {snapshot.items.length} item di quotation ini, termasuk COGS/RRP
+              yang sudah diisi manual, dengan isi file yang baru.
+            </p>
+          }
+          onConfirm={() => setModal({ kind: "import" })}
+          onClose={() => setModal(null)}
+        />
+      )}
+
+      {modal?.kind === "leave" && (
+        <ConfirmModal
+          title="Tinggalkan halaman?"
+          confirmLabel="Tinggalkan"
+          message={<p>Ada perubahan yang belum disimpan. Perubahan itu akan hilang.</p>}
+          onConfirm={() => navigate("/quotes")}
+          onClose={() => setModal(null)}
+        />
+      )}
+
       {modal?.kind === "import" && (
         <ImportDialog
           title="Impor daftar item klien"
           description="Excel atau CSV berisi nama item, qty, dan plafon harga. Kalau plafon ditulis per kota, yang dipakai harga terendah."
           onClose={() => setModal(null)}
           onFile={async (file) => {
-            if (
-              snapshot.items.length > 0 &&
-              !window.confirm(
-                `Ini akan mengganti semua ${snapshot.items.length} item yang sudah ada di quotation ini ` +
-                  "(termasuk COGS/RRP yang sudah kamu isi manual) dengan isi file yang baru. Lanjutkan?",
-              )
-            ) {
-              throw new Error("Impor dibatalkan.");
-            }
             // Loaded on demand: the spreadsheet parser is a large dependency.
             const { parseClientList } = await import("../import/parsers");
             const { items, report } = await parseClientList(file);
@@ -1209,7 +1225,7 @@ export function WorkflowButtons({
     case "draft":
     case "rejected":
       return mine ? (
-        <button className="btn success" onClick={onSubmit}>
+        <button className="btn primary" onClick={onSubmit}>
           <Icon name="check" size={15} />
           {blocked ? "Ajukan ke manajer" : "Ajukan"}
         </button>
@@ -1221,7 +1237,7 @@ export function WorkflowButtons({
       return (
         <>
           {canManage && (
-            <button className="btn success" onClick={onDecide}>
+            <button className="btn primary" onClick={onDecide}>
               <Icon name="shield" size={15} /> Putuskan
             </button>
           )}

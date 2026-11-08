@@ -70,7 +70,7 @@ export function ScenarioCards({
             key={sc.key}
             type={onSelect ? "button" : undefined}
             className={`scen-card ${onSelect ? "selectable" : ""} ${selected === i ? "on" : ""}`}
-            style={{ ["--c" as string]: sc.color, ["--t" as string]: sc.tint }}
+            style={{ ["--c" as string]: `var(--s${i + 1})`, ["--t" as string]: `var(--s${i + 1}-bg)` }}
             onClick={onSelect ? () => onSelect(i as ScenarioIndex) : undefined}
             aria-pressed={onSelect ? selected === i : undefined}
             title={sc.rule}
@@ -117,8 +117,8 @@ export function CompareTable({ engine }: { engine: EngineResult }) {
         <thead>
           <tr>
             <th className="l">Metrik</th>
-            {SCENARIOS.map((s) => (
-              <th key={s.key} style={{ color: s.color }}>
+            {SCENARIOS.map((s, i) => (
+              <th key={s.key} style={{ color: `var(--s${i + 1})` }}>
                 {s.key} {s.name}
               </th>
             ))}

@@ -173,7 +173,7 @@ export function ItemsTable({
                   <th
                     key={s.key}
                     className={i === scenario ? "col-selected" : ""}
-                    style={{ color: s.color, ["--c" as string]: s.color }}
+                    style={{ color: `var(--s${i + 1})`, ["--c" as string]: `var(--s${i + 1})` }}
                   >
                     {s.key}
                   </th>
