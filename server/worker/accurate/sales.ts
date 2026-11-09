@@ -229,3 +229,19 @@ export async function salesNameMap(
   }
   return out;
 }
+
+/** SI lines per item code over the last 12 months, for ranking match candidates (shared/matchRank.ts). */
+export async function soldCounts(db: D1Database, entity: EntityKey, codes: string[], now = new Date()): Promise<Map<string, number>> {
+  if (!codes.length) return new Map();
+  const since = new Date(now.getTime() - 365 * 86_400_000).toISOString().slice(0, 10);
+  const rows = await all<{ item_code: string; n: number }>(
+    db,
+    `SELECT item_code, COUNT(*) AS n FROM accurate_sales_lines
+      WHERE entity = ?1 AND trans_date >= ?2 AND item_code IN (SELECT value FROM json_each(?3))
+      GROUP BY item_code`,
+    entity,
+    since,
+    JSON.stringify([...new Set(codes)]),
+  );
+  return new Map(rows.map((r) => [r.item_code, r.n]));
+}

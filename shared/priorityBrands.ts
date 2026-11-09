@@ -43,3 +43,10 @@ export function splitBrandQuery(q: string): { catalog: string[] | null; rest: st
   }
   return { catalog: null, rest: q };
 }
+
+/** Same rule as PRIORITY_BRAND_SQL, for code that already has the name: GM as a word not right after a number. */
+export function isPriorityBrand(name: string): boolean {
+  const n = name.toUpperCase();
+  if (/ARTLINE|V-TEC|VTEC/.test(n)) return true;
+  return /(^|\s)GM(\s|$)/.test(n) && !/[0-9]\s?GM/.test(n);
+}
