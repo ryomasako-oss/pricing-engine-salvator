@@ -72,7 +72,13 @@ const e2eConfig = path.resolve("wrangler.e2e.toml");
 const toml = fs.readFileSync(path.resolve("wrangler.toml"), "utf8");
 const raised = toml.replace(/(name = "API_LIMITER"[\s\S]*?simple = \{ limit = )600/, (_, head: string) => `${head}6000`);
 if (raised === toml) throw new Error("e2e/serve.ts: API_LIMITER limit = 600 not found in wrangler.toml");
-fs.writeFileSync(e2eConfig, raised);
+// No AI or Vectorize in tests: those bindings always reach the real Cloudflare account.
+const offline = raised
+  .replace(/\n\[ai\]\nbinding = "AI"\n/, "\n")
+  .replace(/\n\[\[vectorize\]\]\nbinding = "CATALOG_VECTORS"\nindex_name = "catalog-search"\n/, "\n")
+  .replace('CATALOG_SEMANTIC_SEARCH = "true"', 'CATALOG_SEMANTIC_SEARCH = "false"');
+if (/\[ai\]|\[\[vectorize\]\]/.test(offline)) throw new Error("e2e/serve.ts: AI/Vectorize binding still in the e2e config");
+fs.writeFileSync(e2eConfig, offline);
 
 const dev = spawn(
   "npx",

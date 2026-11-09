@@ -63,3 +63,26 @@ describe("indexCatalogPage", () => {
     expect(upserted.sort()).toEqual(["G1", "K1", "M1"]);
   });
 });
+
+describe("vectorTick", () => {
+  it("fills the index once, then only again after the catalog's items change", async () => {
+    const { env, upserted } = setup();
+    const { vectorTick } = await import("./catalogSemantic");
+    expect(await vectorTick(env)).toEqual({ outcome: "indexed", offset: null });
+    expect(upserted.sort()).toEqual(["G1", "K1", "M1"]);
+    expect((await vectorTick(env)).outcome).toBe("idle");
+    // A stock change doesn't refill; a new item does.
+    const db = (env as unknown as { DB: D1Database }).DB;
+    await db.prepare("UPDATE catalog_items SET stock = 99").run();
+    expect((await vectorTick(env)).outcome).toBe("idle");
+    await db.prepare("INSERT INTO catalog_items(code, name, uom) VALUES('N1', 'NEW ITEM', 'Pcs')").run();
+    expect((await vectorTick(env)).outcome).toBe("indexed");
+  });
+
+  it("does nothing when switched off", async () => {
+    const { env, upserted } = setup(false);
+    const { vectorTick } = await import("./catalogSemantic");
+    expect((await vectorTick(env)).outcome).toBe("idle");
+    expect(upserted).toEqual([]);
+  });
+});
