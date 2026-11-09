@@ -28,7 +28,9 @@ import { cogsProblemsFor } from "../quoteService";
 import { sweepPending } from "./pendingItems";
 import { catalogEntity } from "../accurate/sync";
 import { costLines } from "../accurate/receipts";
-import { lastSales, salesEnabled, salesNameMap } from "../accurate/sales";
+import { lastSales, salesEnabled, salesNameMap, soldCounts } from "../accurate/sales";
+import { rerankCandidates } from "../../../shared/matchRank";
+import { isPriorityBrand } from "../../../shared/priorityBrands";
 import { normalizeText } from "../../../shared/match";
 import { canSeeCosts, catalogItemsForViewer, problemsForViewer } from "../../staffView";
 import { cleanUnits, type ItemUnits } from "../../../shared/uom";
@@ -187,8 +189,15 @@ catalogRouter.post("/match", async (c) => {
   const siNames = salesEnabled(c.env)
     ? await salesNameMap(c.env.DB, catalogEntity(c.env), parsed.data.lines.map((l) => normalizeText(l.name)), customerNo)
     : undefined;
-  const { results, referenced } = runMatch(parsed.data, catalog, aliases, rejected, siNames);
+  const matched = runMatch(parsed.data, catalog, aliases, rejected, siNames);
+  const { referenced } = matched;
   const codes = referenced.map((i) => i.code);
+  // Near-equal suggestions: what sales sells, then in stock, then a priority brand (shared/matchRank.ts).
+  const sold = salesEnabled(c.env) ? await soldCounts(c.env.DB, catalogEntity(c.env), codes) : new Map<string, number>();
+  const results = rerankCandidates(
+    matched.results,
+    new Map(referenced.map((i) => [i.id, { sold: sold.get(i.code) ?? 0, inStock: Number(i.stock) > 0, priorityBrand: isPriorityBrand(i.name) }])),
+  );
   const body = matchResponse(results, referenced, await unitsByCode(c.env.DB, codes));
   const role = c.get("user")!.role;
   // The price the client last paid is the default ceiling (accurate/sales.ts lastSales).

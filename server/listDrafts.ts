@@ -68,6 +68,7 @@ const pickSchema = z.discriminatedUnion("kind", [
 const choiceSchema = z.object({
   chosen: pickSchema.nullable(),
   confirmed: z.boolean(),
+  bulk: z.boolean().optional(),
   extra: z.array(z.string().trim().min(1).max(64)).max(20),
 });
 

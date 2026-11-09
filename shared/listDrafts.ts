@@ -24,6 +24,8 @@ export interface DraftChoice {
   chosen: DraftPick | null;
   /** The person accepted or changed the pairing. */
   confirmed: boolean;
+  /** Accepted with "Terima semua saran", not one by one: never saved as an alias (ListToQuote). */
+  bulk?: boolean;
   /** Codes found by a manual search for this row, kept as options in its dropdown. */
   extra: string[];
 }
@@ -62,6 +64,7 @@ export interface EditorRow {
   result: MatchResult;
   chosen: number | null;
   confirmed: boolean;
+  bulk?: boolean;
   /** A unit read from the client's wording was looked at. Not saved in a draft: a reopened draft asks again, since the catalog may have changed. */
   unitOk: boolean;
   extra: number[];
@@ -77,7 +80,7 @@ export function choicesFromRows(rows: EditorRow[], items: Map<number, CatalogIte
         ? { kind: "pending", pendingId: -item.id, code: item.code, name: item.name, uom: item.uom, price: Number(item.list_price) || 0 }
         : { kind: "catalog", code: item.code };
     const extra = r.extra.map((id) => items.get(id)).filter((i): i is CatalogItem => !!i && i.source !== "pending").map((i) => i.code);
-    return { chosen, confirmed: !!chosen && r.confirmed, extra };
+    return { chosen, confirmed: !!chosen && r.confirmed, ...(r.bulk && r.confirmed ? { bulk: true } : {}), extra };
   });
 }
 
@@ -143,7 +146,7 @@ export function restoreRows(
       return { ...fresh, chosen: null, confirmed: false, extra };
     }
     const inOptions = result.candidates.some((c) => c.id === id) || extra.includes(id);
-    return { ...fresh, chosen: id, confirmed: saved.confirmed, extra: inOptions ? extra : [...extra, id] };
+    return { ...fresh, chosen: id, confirmed: saved.confirmed, ...(saved.bulk ? { bulk: true } : {}), extra: inOptions ? extra : [...extra, id] };
   });
   return { rows, extraItems, lost };
 }

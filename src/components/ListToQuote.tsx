@@ -64,6 +64,8 @@ interface Row {
   chosen: number | null;
   /** The rep accepted or changed the pairing (required for "review" rows). */
   confirmed: boolean;
+  /** Accepted with "Terima semua saran": never saved as an alias or as learning feedback. */
+  bulk?: boolean;
   /** The rep looked at a unit read from the wording (see packUnitNeedsCheck). Reset when the item changes. */
   unitOk: boolean;
   /** Extra items found by a manual search for this row. */
@@ -272,7 +274,7 @@ export function ListToQuote({
   };
 
   const update = (i: number, patch: Partial<Row>) =>
-    setRows((rs) => rs && rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+    setRows((rs) => rs && rs.map((r, j) => (j === i ? { ...r, bulk: false, ...patch } : r)));
 
   const lines = useMemo(() => {
     if (!rows) return [];
@@ -363,6 +365,12 @@ export function ListToQuote({
     const it = r.chosen != null ? items.get(r.chosen) : undefined;
     return it?.source === "pending" && !(Number(it.list_price) > 0);
   };
+  // "Perlu dicek" only because near-equal variants tie (shared/match.ts tie): the first suggestion,
+  // untouched, not held and not a barang baru. A row missing a word the client wrote is never in here.
+  const bulkable = (r: Row) =>
+    !!r.result.tie && !r.confirmed && r.chosen != null && r.chosen === r.result.candidates[0]?.id && !isPending(r) && !blockedOf(r);
+  const bulkCount = rows?.filter(bulkable).length ?? 0;
+  const acceptAll = () => setRows((rs) => rs && rs.map((r) => (bulkable(r) ? { ...r, confirmed: true, bulk: true } : r)));
   const heldCount = rows?.filter((r) => blockedOf(r) || isPending(r)).length ?? 0;
   const used = lines.filter((l) => l && l.holdReason !== "unmatched").length;
   // Rows with no item and no price: they stay on the quote as "menyusul" (held) and in Perlu diperbaiki.
@@ -399,7 +407,7 @@ export function ListToQuote({
       // every rep and every client, so one hurried "Benar" would become a
       // company-wide rule.
       const pairs = clientId === "" ? [] : rows
-        .filter((row) => row.chosen != null && row.result.via !== "code")
+        .filter((row) => row.chosen != null && row.result.via !== "code" && !row.bulk)
         // A "barang baru" code (BARU-0001) is replaced once Accurate has the real one,
         // so an alias pointing at it would never match anything.
         .filter((row) => items.get(row.chosen!)?.source !== "pending")
@@ -408,7 +416,7 @@ export function ListToQuote({
       // Every row is reported, right or wrong, with or without a client: the
       // pairs above become rules, this is the evidence behind the learning
       // report (shared/matchLearning.ts). Without it nothing was ever recorded.
-      const feedback = rows.map((row) => {
+      const feedback = rows.filter((row) => !row.bulk).map((row) => {
         const item = row.chosen != null ? items.get(row.chosen) : undefined;
         const suggested = row.result.candidates[0] ? (items.get(row.result.candidates[0].id)?.code ?? null) : null;
         return {
@@ -558,6 +566,15 @@ export function ListToQuote({
               <span className="badge grey">{fileName}</span>
               <span className="badge green">{summary!.sure} cocok</span>
               {summary!.review > 0 && <span className="badge amber">{summary!.review} perlu dicek</span>}
+              {bulkCount > 0 && (
+                <button
+                  className="btn small"
+                  onClick={acceptAll}
+                  title="Untuk baris yang saran pertamanya sudah cocok semua kata, hanya ada varian lain yang mirip. Baris yang diterima di sini tidak disimpan sebagai istilah klien."
+                >
+                  Terima {bulkCount} saran
+                </button>
+              )}
               {summary!.none > 0 && <span className="badge blue">{summary!.none} adjustment</span>}
               {heldCount > 0 && <span className="badge amber">{heldCount} ditahan</span>}
             </div>
