@@ -28,6 +28,8 @@ export interface DraftChoice {
   bulk?: boolean;
   /** Codes found by a manual search for this row, kept as options in its dropdown. */
   extra: string[];
+  /** More catalog items quoted for this one request (Ryoma, 9 Nov: "binder clip" → 5 binder clips), by code. */
+  also?: string[];
 }
 
 export type DraftStatus = "open" | "done" | "cancelled";
@@ -68,6 +70,8 @@ export interface EditorRow {
   /** A unit read from the client's wording was looked at. Not saved in a draft: a reopened draft asks again, since the catalog may have changed. */
   unitOk: boolean;
   extra: number[];
+  /** More items quoted for this request, each its own quote line under the row's own pick. */
+  also?: number[];
 }
 
 /** The rows' picks as a draft stores them. */
@@ -80,7 +84,8 @@ export function choicesFromRows(rows: EditorRow[], items: Map<number, CatalogIte
         ? { kind: "pending", pendingId: -item.id, code: item.code, name: item.name, uom: item.uom, price: Number(item.list_price) || 0 }
         : { kind: "catalog", code: item.code };
     const extra = r.extra.map((id) => items.get(id)).filter((i): i is CatalogItem => !!i && i.source !== "pending").map((i) => i.code);
-    return { chosen, confirmed: !!chosen && r.confirmed, ...(r.bulk && r.confirmed ? { bulk: true } : {}), extra };
+    const also = (r.also ?? []).map((id) => items.get(id)).filter((i): i is CatalogItem => !!i && i.source !== "pending").map((i) => i.code);
+    return { chosen, confirmed: !!chosen && r.confirmed, ...(r.bulk && r.confirmed ? { bulk: true } : {}), extra, ...(also.length ? { also } : {}) };
   });
 }
 
@@ -89,7 +94,7 @@ export function codesToFetch(choices: DraftChoice[], items: CatalogItem[]): stri
   const have = new Set(items.filter((i) => i.source !== "pending").map((i) => i.code.toLowerCase()));
   const want = new Set<string>();
   for (const c of choices) {
-    for (const code of [...(c.chosen?.kind === "catalog" ? [c.chosen.code] : []), ...c.extra]) {
+    for (const code of [...(c.chosen?.kind === "catalog" ? [c.chosen.code] : []), ...c.extra, ...(c.also ?? [])]) {
       if (!have.has(code.toLowerCase())) want.add(code);
     }
   }
@@ -130,6 +135,8 @@ export function restoreRows(
     const saved = choices[result.index];
     if (!saved) return fresh;
     const extra = saved.extra.map((code) => byCode.get(code.toLowerCase())?.id).filter((id): id is number => id != null);
+    const also = (saved.also ?? []).map((code) => byCode.get(code.toLowerCase())?.id).filter((id): id is number => id != null);
+    if (also.length) fresh.also = also;
     if (!saved.chosen) return { ...fresh, chosen: null, confirmed: saved.confirmed, extra };
     let id: number | undefined;
     if (saved.chosen.kind === "catalog") id = byCode.get(saved.chosen.code.toLowerCase())?.id;
