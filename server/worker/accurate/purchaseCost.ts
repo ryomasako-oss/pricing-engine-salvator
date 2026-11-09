@@ -24,6 +24,7 @@ import { HISTORY_RECEIPTS, lastPurchaseCost, purchaseCostHold, purchaseHistory, 
 import type { UnitFactor } from "../../../shared/types";
 import { all, batch, get, run, stmt } from "../../db.d1";
 import type { EntityKey } from "./sync";
+import { RECEIPT_LINES, type CostLines } from "./receipts";
 
 interface LineRow {
   code: string;
@@ -82,11 +83,11 @@ export interface PurchaseCostResult {
  * as lastPurchaseCost), with its units: the latest receipt for the cost, the ones before it for
  * purchaseHistory. A receipt can list the item on several lines, hence DENSE_RANK.
  */
-const LINES_SQL = `
+const linesSql = (lines: CostLines) => `
   WITH ranked AS (
     SELECT l.*, DENSE_RANK() OVER (
              PARTITION BY l.item_code ORDER BY l.trans_date DESC, l.receipt_id DESC) AS rn
-      FROM accurate_receipt_lines l
+      FROM ${lines} l
      WHERE l.entity = ?1 AND l.unit_price > 0 AND l.quantity > 0)
   SELECT c.code, c.name, c.uom AS catalog_uom, c.cogs AS catalog_cogs, c.list_price,
          COALESCE(NULLIF(i.uom, ''), 'Pcs') AS accurate_uom, i.units,
@@ -111,9 +112,13 @@ function describeSkip(code: string, r: Exclude<PurchaseCost, { ok: true } | { re
     : { code, name: row.name, reason: r.reason, detail: `${r.receiptNo} (${r.transDate}) memakai satuan "${r.unit}" tanpa rasio ke ${row.accurate_uom}` };
 }
 
-export async function applyPurchaseCosts(db: D1Database, entity: EntityKey, opts: { dryRun: boolean }): Promise<PurchaseCostResult> {
+export async function applyPurchaseCosts(
+  db: D1Database,
+  entity: EntityKey,
+  opts: { dryRun: boolean; lines?: CostLines },
+): Promise<PurchaseCostResult> {
   const byCode = new Map<string, LineRow[]>();
-  for (const row of await all<LineRow>(db, LINES_SQL, entity)) {
+  for (const row of await all<LineRow>(db, linesSql(opts.lines ?? RECEIPT_LINES), entity)) {
     const list = byCode.get(row.code);
     if (list) list.push(row);
     else byCode.set(row.code, [row]);
@@ -185,8 +190,9 @@ export async function applyHeldCosts(
   entity: EntityKey,
   actorId: number,
   picks: { code: string; to: number }[],
+  lines: CostLines = RECEIPT_LINES,
 ): Promise<HeldApplyResult> {
-  const { held } = await applyPurchaseCosts(db, entity, { dryRun: true });
+  const { held } = await applyPurchaseCosts(db, entity, { dryRun: true, lines });
   const byCode = new Map(held.map((h) => [h.code, h]));
   const applied: PurchaseCostHold[] = [];
   const stale: HeldApplyResult["stale"] = [];

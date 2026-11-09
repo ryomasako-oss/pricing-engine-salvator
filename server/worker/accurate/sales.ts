@@ -18,7 +18,7 @@ import type { ReceiptLine } from "../../../shared/lastPurchaseCost";
 import { findBelowCost, netPerBaseUnit, type BelowCostResult, type CatalogFacts, type SalesLine } from "../../../shared/salesBelowCost";
 import { parseUnits } from "./purchaseCost";
 import { SALES_LIST_FIELDS, mapSalesInvoice, mapSalesLines } from "./mapping";
-import { docStep, receiptConfig, type DocKind, type ReceiptState } from "./receipts";
+import { RECEIPT_LINES, docStep, receiptConfig, type CostLines, type DocKind, type ReceiptState } from "./receipts";
 import { catalogEntity, credsFor, syncConfig, type EntityKey } from "./sync";
 import type { Bindings } from "../env";
 
@@ -83,6 +83,7 @@ export async function salesBelowCostSince(
   db: D1Database,
   entity: EntityKey,
   cursor: string | null,
+  lines: CostLines = RECEIPT_LINES,
 ): Promise<{ result: BelowCostResult; cursor: string | null }> {
   const rows = await all<SalesRow>(
     db,
@@ -102,7 +103,7 @@ export async function salesBelowCostSince(
     const ri = await all<{ item_code: string; receipt_id: number; line_id: number; receipt_no: string; trans_date: string; unit: string; quantity: number; unit_price: number }>(
       db,
       `SELECT item_code, receipt_id, line_id, receipt_no, trans_date, unit, quantity, unit_price
-         FROM accurate_receipt_lines
+         FROM ${lines}
         WHERE entity = ?1 AND unit_price > 0 AND quantity > 0 AND item_code IN (SELECT value FROM json_each(?2))`,
       entity,
       JSON.stringify(codes),
