@@ -71,6 +71,8 @@ interface Row {
   unitOk: boolean;
   /** Extra items found by a manual search for this row. */
   extra: number[];
+  /** More items quoted for this one request ("binder clip" → several binder clips), each its own quote line. */
+  also?: number[];
 }
 
 export function ListToQuote({
@@ -119,6 +121,8 @@ export function ListToQuote({
   const [error, setError] = useState("");
   const [drag, setDrag] = useState(false);
   const [searchRow, setSearchRow] = useState<number | null>(null);
+  // The row whose "Tambah barang lain" search is open.
+  const [alsoRow, setAlsoRow] = useState<number | null>(null);
   /** Row whose "Barang baru" form is open (catatan 24/25: a row with no match can still become an item). */
   const [newItemRow, setNewItemRow] = useState<number | null>(null);
   const [uomOptions, setUomOptions] = useState<string[]>([]);
@@ -276,6 +280,8 @@ export function ListToQuote({
 
   const update = (i: number, patch: Partial<Row>) =>
     setRows((rs) => rs && rs.map((r, j) => (j === i ? { ...r, bulk: false, ...patch } : r)));
+  // Extra items don't touch the row's own pick, so they leave how it was accepted alone.
+  const setAlso = (i: number, also: number[]) => setRows((rs) => rs && rs.map((r, j) => (j === i ? { ...r, also } : r)));
 
   const lines = useMemo(() => {
     if (!rows) return [];
@@ -322,6 +328,22 @@ export function ListToQuote({
       return item.cogs_problem ? { ...line, held: true } : line;
     });
   }, [rows, items]);
+
+  // "Tambah barang lain": each extra item of a row is its own quote line, same qty and unit as the
+  // request (editable in the editor). Held like any pick when its COGS needs a check.
+  const alsoLines = useMemo(
+    () =>
+      (rows ?? []).map((r) =>
+        (r.also ?? [])
+          .map((id) => items.get(id))
+          .filter((item): item is CatalogItem => !!item && item.source !== "pending")
+          .map((item) => {
+            const line = lineFromCatalog(item, r.request.qty ?? 1, { uom: r.request.uom, toBase: true });
+            return item.cogs_problem ? { ...line, held: true } : line;
+          }),
+      ),
+    [rows, items],
+  );
 
   // Prices for staff: the same lines the quote will be built from, priced by
   // the server without saving anything. Index i -> unit price.
@@ -373,16 +395,22 @@ export function ListToQuote({
   const bulkCount = rows?.filter(bulkable).length ?? 0;
   const acceptAll = () => setRows((rs) => rs && rs.map((r) => (bulkable(r) ? { ...r, confirmed: true, bulk: true } : r)));
   const heldCount = rows?.filter((r) => blockedOf(r) || isPending(r)).length ?? 0;
-  const used = lines.filter((l) => l && l.holdReason !== "unmatched").length;
+  const usedRows = lines.filter((l) => l && l.holdReason !== "unmatched").length;
   // Rows with no item and no price: they stay on the quote as "menyusul" (held) and in Perlu diperbaiki.
-  const skipped = (rows?.length ?? 0) - used;
+  const skipped = (rows?.length ?? 0) - usedRows;
+  // Items going on the quote: each row's own pick plus its extra items ("+ Barang lain").
+  const used = usedRows + alsoLines.flat().length;
 
 
   const create = async () => {
     if (!rows) return;
     setBusy(true);
     try {
-      const quoteItems = (lines.filter(Boolean) as QuoteItem[]).map((l, i) => ({ ...l, lineNo: i + 1 }));
+      // A row's extra items ("Tambah barang lain") follow its own line.
+      const quoteItems = (lines.flatMap((l, i) => [l, ...(alsoLines[i] ?? [])]).filter(Boolean) as QuoteItem[]).map((l, i) => ({
+        ...l,
+        lineNo: i + 1,
+      }));
       // Rows that don't go on the quote are kept on "Perlu diperbaiki" (saved
       // with the quote, in the same request), so nothing the client asked for
       // is silently dropped.
@@ -725,6 +753,46 @@ export function ListToQuote({
                               setItems((m) => new Map(m).set(it.id, it));
                               update(i, { chosen: it.id, confirmed: true, unitOk: false, extra: [...row.extra, it.id] });
                               setSearchRow(null);
+                            }}
+                          />
+                        )}
+                        {(row.also ?? []).length > 0 && (
+                          <div className="row-wrap also-list">
+                            {(row.also ?? []).map((id) => {
+                              const it = items.get(id);
+                              if (!it) return null;
+                              return (
+                                <span key={id} className="chip">
+                                  + {it.name}
+                                  <button
+                                    type="button"
+                                    className="link-btn"
+                                    aria-label={`Hapus ${it.name} dari baris ${row.request.name}`}
+                                    onClick={() => setAlso(i, (row.also ?? []).filter((x) => x !== id))}
+                                  >
+                                    ×
+                                  </button>
+                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
+                        <button
+                          type="button"
+                          className="link-btn"
+                          onClick={() => setAlsoRow(alsoRow === i ? null : i)}
+                          aria-label={`Tambah barang lain untuk ${row.request.name}`}
+                        >
+                          {alsoRow === i ? "Selesai menambah" : "+ Barang lain"}
+                        </button>
+                        {alsoRow === i && (
+                          <CatalogSearch
+                            initial={row.request.name}
+                            seeCosts={seeCosts}
+                            onPick={(it) => {
+                              if (it.id === row.chosen || (row.also ?? []).includes(it.id)) return;
+                              setItems((m) => new Map(m).set(it.id, it));
+                              setAlso(i, [...(row.also ?? []), it.id].slice(0, 20));
                             }}
                           />
                         )}

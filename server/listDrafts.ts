@@ -70,6 +70,7 @@ const choiceSchema = z.object({
   confirmed: z.boolean(),
   bulk: z.boolean().optional(),
   extra: z.array(z.string().trim().min(1).max(64)).max(20),
+  also: z.array(z.string().trim().min(1).max(64)).max(20).optional(),
 });
 
 export const draftInputSchema = z
