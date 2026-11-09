@@ -5,7 +5,8 @@
 
    Who is talking: a Telegram account is tied to an app user once, by the
    user sharing their own contact (Telegram's "request_contact" button). The
-   phone Telegram verified must match the WhatsApp number on an active user
+   phone Telegram verified must match the Telegram number on an active user
+   (or, when they left it empty, their WhatsApp number)
    (Pengaturan in the app). Anyone else gets only the "share your number"
    prompt; nothing reaches Gemini or the catalog without a linked user.
 
@@ -87,7 +88,7 @@ async function send(env: Bindings, chatId: number, text: string, askContact = fa
 
 const ASK_CONTACT =
   "Halo, saya Silvy, asisten penawaran Salvator. Supaya saya tahu Anda siapa, tekan tombol \"Bagikan nomor saya\" di bawah. " +
-  "Nomornya harus sama dengan nomor WhatsApp di Pengaturan akun Anda di app.";
+  "Nomornya harus sama dengan nomor Telegram (atau WhatsApp, bila nomor Telegram dikosongkan) di Pengaturan akun Anda di app.";
 const HELP =
   "Ketik kebutuhan klien, misalnya \"untuk PT X: pulpen 10 lusin, kertas A4 5 rim\", atau minta cari barang di katalog.\n" +
   "/simpan simpan daftar sebagai draft di app\n/baru mulai daftar baru";
@@ -97,10 +98,14 @@ async function link(env: Bindings, msg: TgMessage, tgId: number): Promise<void> 
   // Telegram fills user_id only when the shared contact is the sender's own.
   if (c.user_id !== tgId) return send(env, msg.chat.id, "Bagikan nomor Anda sendiri lewat tombol di bawah, bukan kontak orang lain.", true);
   const phone = normalizePhone(c.phone_number);
-  const users = await all<Linked & { phone: string }>(env.DB, "SELECT id, name, role, phone FROM users WHERE active = 1 AND phone != ''");
+  // The Telegram number when set, else the WhatsApp one.
+  const users = await all<Linked & { phone: string }>(
+    env.DB,
+    "SELECT id, name, role, CASE WHEN telegram_phone != '' THEN telegram_phone ELSE phone END AS phone FROM users WHERE active = 1 AND (telegram_phone != '' OR phone != '')",
+  );
   const hit = users.filter((u) => normalizePhone(u.phone) === phone);
   if (hit.length !== 1)
-    return send(env, msg.chat.id, "Nomor ini belum terdaftar di akun mana pun. Isi nomor WhatsApp Anda di Pengaturan app, lalu bagikan lagi.", true);
+    return send(env, msg.chat.id, "Nomor ini belum terdaftar di akun mana pun. Isi nomor Telegram Anda di Pengaturan app (bagian Telegram), lalu bagikan lagi.", true);
   await run(env.DB, "UPDATE users SET telegram_id = NULL WHERE telegram_id = ?", tgId);
   await run(env.DB, "UPDATE users SET telegram_id = ? WHERE id = ?", tgId, hit[0].id);
   await run(env.DB, "DELETE FROM telegram_chats WHERE telegram_id = ?", tgId);

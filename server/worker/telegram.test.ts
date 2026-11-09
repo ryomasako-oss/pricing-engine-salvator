@@ -87,6 +87,15 @@ describe("Silvy on Telegram", () => {
     expect(d.created_by).toBe(1);
   });
 
+  it("a Telegram number, when set, is the one that links; the WhatsApp number then does not", async () => {
+    const t = setup();
+    t.sqlite.prepare("UPDATE users SET telegram_phone = '0857 1111 2222' WHERE id = 1").run();
+    await t.say({ contact: { phone_number: "628123456789", user_id: ME } });
+    expect(t.sent[0]).toContain("belum terdaftar");
+    await t.say({ contact: { phone_number: "+6285711112222", user_id: ME } });
+    expect(t.sent[1]).toContain("Terhubung sebagai Rina");
+  });
+
   it("a rep gets no COGS from a catalog search; a manager does", async () => {
     const t = setup();
     await t.say({ contact: { phone_number: "628123456789", user_id: ME } });
