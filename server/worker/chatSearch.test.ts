@@ -122,6 +122,11 @@ describe("priority brands (Ryoma, 2026-11-09)", () => {
     await ask("rep", undefined, "usulkan ATK untuk sekolah");
     const sent = JSON.stringify((globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][1]);
     expect(sent).toContain("dahulukan merek Artline, V-TEC, GM");
+    // A requested size wins over the 8-15 default (9 Nov: "top 100" had shrunk to 10-15, or a refusal).
+    const init = (globalThis.fetch as unknown as { mock: { calls: [unknown, { body: string }][] } }).mock.calls[0][1];
+    const system: string = JSON.parse(init.body).systemInstruction.parts[0].text;
+    expect(system).toContain('Jumlahnya IKUTI permintaan pengguna (misalnya "top 100" = 100 barang, maksimal 150)');
+    expect(system).toContain('jangan "Buku Tulis GM"');
     const { chatSystem } = await import("../../agent-service/src/silvy/context");
     expect(chatSystem("DATA")).toContain("dahulukan merek Artline, V-TEC, GM");
   });
