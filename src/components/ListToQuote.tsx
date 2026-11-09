@@ -121,6 +121,8 @@ export function ListToQuote({
   const [error, setError] = useState("");
   const [drag, setDrag] = useState(false);
   const [searchRow, setSearchRow] = useState<number | null>(null);
+  // The row whose "Tambah barang lain" search is open.
+  const [alsoRow, setAlsoRow] = useState<number | null>(null);
   /** Row whose "Barang baru" form is open (catatan 24/25: a row with no match can still become an item). */
   const [newItemRow, setNewItemRow] = useState<number | null>(null);
   const [uomOptions, setUomOptions] = useState<string[]>([]);
@@ -712,11 +714,9 @@ export function ListToQuote({
                             className="select"
                             aria-label={`Item katalog untuk ${row.request.name}`}
                             value={row.chosen ?? ""}
-                            onChange={(e) => {
-                              const chosen = e.target.value === "" ? null : Number(e.target.value);
-                              // An extra item made the row's own pick is no longer an extra.
-                              update(i, { chosen, confirmed: true, unitOk: false, also: (row.also ?? []).filter((x) => x !== chosen) });
-                            }}
+                            onChange={(e) =>
+                              update(i, { chosen: e.target.value === "" ? null : Number(e.target.value), confirmed: true, unitOk: false })
+                            }
                           >
                             <option value="">— tidak dipakai —</option>
                             {options.map((id) => {
@@ -733,7 +733,7 @@ export function ListToQuote({
                           </select>
                           <button
                             className="icon-btn"
-                            title="Cari di katalog: ganti pilihan atau tambah barang lain"
+                            title="Cari di katalog"
                             aria-label={`Cari di katalog untuk ${row.request.name}`}
                             onClick={() => setSearchRow(searchRow === i ? null : i)}
                           >
@@ -748,24 +748,30 @@ export function ListToQuote({
                             <Icon name="plus" size={15} />
                           </button>
                         </div>
-                        {/* The magnifier opens the search: a result replaces the row's pick, or "+ Tambah" adds it as
-                            one more item for this request (its own quote line). Closed with the same icon. */}
                         {searchRow === i && (
                           <CatalogSearch
                             initial={row.request.name}
                             seeCosts={seeCosts}
                             onPick={(it) => {
                               setItems((m) => new Map(m).set(it.id, it));
-                              update(i, {
-                                chosen: it.id,
-                                confirmed: true,
-                                unitOk: false,
-                                extra: [...row.extra, it.id],
-                                also: (row.also ?? []).filter((x) => x !== it.id),
-                              });
+                              update(i, { chosen: it.id, confirmed: true, unitOk: false, extra: [...row.extra, it.id] });
                               setSearchRow(null);
                             }}
-                            onAdd={(it) => {
+                          />
+                        )}
+                        <button
+                          type="button"
+                          className="link-btn"
+                          onClick={() => setAlsoRow(alsoRow === i ? null : i)}
+                          aria-label={`Tambah barang lain untuk ${row.request.name}`}
+                        >
+                          {alsoRow === i ? "Selesai menambah" : "+ Barang lain"}
+                        </button>
+                        {alsoRow === i && (
+                          <CatalogSearch
+                            initial={row.request.name}
+                            seeCosts={seeCosts}
+                            onPick={(it) => {
                               if (it.id === row.chosen || (row.also ?? []).includes(it.id)) return;
                               setItems((m) => new Map(m).set(it.id, it));
                               setAlso(i, [...(row.also ?? []), it.id].slice(0, 20));
@@ -874,14 +880,11 @@ function CatalogSearch({
   initial,
   seeCosts,
   onPick,
-  onAdd,
 }: {
   initial: string;
   /** PE-1: the server strips cogs for a rep, so the chip must not print it either. */
   seeCosts: boolean;
   onPick: (item: CatalogItem) => void;
-  /** "+ Tambah": one more item for the request, beside the row's own pick. */
-  onAdd?: (item: CatalogItem) => void;
 }) {
   const [q, setQ] = useState(initial);
   // As you type, a page at a time; the list scrolls and loads more near its end (useCatalogSearch).
@@ -893,7 +896,6 @@ function CatalogSearch({
         <input className="input" autoFocus value={q} onChange={(e) => setQ(e.target.value)} aria-label="Kata kunci katalog" />
         {busy && <span className="muted small">Mencari…</span>}
       </div>
-      {onAdd && <span className="muted small">Klik nama barang untuk mengganti pilihan, atau "+ Tambah" untuk menambah barang lain di permintaan ini.</span>}
       {suggestion && (
         <span className="muted small">
           Mungkin maksud Anda:{" "}
@@ -912,21 +914,14 @@ function CatalogSearch({
           }}
         >
           {found.map((it) => (
-            <span key={it.id} className="pick-item">
-              <button className="chip" type="button" onClick={() => onPick(it)}>
-                {it.name}{" "}
-                <span className="muted">
-                  {/* A rep gets no cogs from the server; grp(undefined) printed "COGS 0" on items that
-                      have one. The unit is what they need to pick the right row anyway. */}
-                  · {it.code} · {seeCosts ? `COGS ${grp(it.cogs)}` : it.uom || "Pcs"}
-                </span>
-              </button>
-              {onAdd && (
-                <button className="link-btn" type="button" onClick={() => onAdd(it)} aria-label={`Tambah ${it.name} sebagai barang lain`}>
-                  + Tambah
-                </button>
-              )}
-            </span>
+            <button key={it.id} className="chip" type="button" onClick={() => onPick(it)}>
+              {it.name}{" "}
+              <span className="muted">
+                {/* A rep gets no cogs from the server; grp(undefined) printed "COGS 0" on items that
+                    have one. The unit is what they need to pick the right row anyway. */}
+                · {it.code} · {seeCosts ? `COGS ${grp(it.cogs)}` : it.uom || "Pcs"}
+              </span>
+            </button>
           ))}
           {found.length < total && (
             <button type="button" className="btn small ghost" onClick={loadMore} disabled={busy}>
