@@ -216,3 +216,15 @@ describe("stok Accurate (2026-10-30)", () => {
     expect(recapIsEmpty(recap({ ...nothing, stock }))).toBe(true);
   });
 });
+
+describe("recap: sold below cost (SI)", () => {
+  it("keeps the SI section at zero, saying whether invoices came in at all, and leaves it out while the sales sync is off", () => {
+    const quiet = recapEmail(recap({ belowCost: { checked: 0, below: [], unknownCost: 0, doubtfulCost: 0 } }), null, "x").html;
+    expect(quiet).toContain("Dijual di bawah modal (0)");
+    expect(quiet).toContain("Tidak ada faktur penjualan baru sejak rekap sebelumnya");
+    const fine = recapEmail(recap({ belowCost: { checked: 12, below: [], unknownCost: 0, doubtfulCost: 0 } }), null, "x").html;
+    expect(fine).toContain("12 baris dicek, tidak ada yang di bawah modal");
+    expect(recapPrompt(recap({ belowCost: { checked: 12, below: [], unknownCost: 0, doubtfulCost: 0 } }))).toContain("0 dari 12 dicek");
+    expect(recapEmail(recap({ belowCost: null }), null, "x").html).not.toContain("Dijual di bawah modal");
+  });
+});
