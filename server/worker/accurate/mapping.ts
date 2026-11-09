@@ -188,15 +188,29 @@ export interface StagedPurchaseLine extends StagedReceiptLine {
   inclusiveTax: 0 | 1;
 }
 
-/** A PI's lines with the unit price before PPN: as Accurate sends it, or divided by 1,11 when inclusive. */
+/**
+ * A PI's lines with the unit price as modal: the line total after its item discount (totalPrice) per
+ * unit, divided by 1,11 when "Total termasuk pajak" is ticked, less the invoice's cash discount pro rata.
+ * Checked on PT 9 Nov against Accurate's DPP: PI.2025.11.00024 (inclusive, 10% item discount)
+ * 2.076.921 / 27 / 1,11 = 69.300; PI.2025.11.00056 and 00047 (inclusive) and 00046 (not) match too.
+ * unitPrice alone would miss the item discount (85.470 / 1,11 = 77.000). No totalPrice: unitPrice.
+ */
 export function mapPurchaseLines(d: Row): StagedPurchaseLine[] {
   const inclusive = d.inclusiveTax === true;
-  return mapReceiptLines(d).map((l) => ({
-    ...l,
-    unitPriceGross: l.unitPrice,
-    inclusiveTax: inclusive ? 1 : 0,
-    unitPrice: inclusive ? l.unitPrice / PPN_DIVISOR : l.unitPrice,
-  }));
+  const subTotal = num(d.subTotal);
+  const cash = subTotal > 0 ? Math.min(1, Math.max(0, num(d.cashDiscount) / subTotal)) : 0;
+  const raw = Array.isArray(d.detailItem) ? (d.detailItem as Row[]) : [];
+  const byLine = new Map(raw.map((l, i) => [num(l.id) || i + 1, l]));
+  return mapReceiptLines(d).map((l) => {
+    const total = num(byLine.get(l.lineId)?.totalPrice);
+    const perUnit = total > 0 && l.quantity > 0 ? total / l.quantity : l.unitPrice;
+    return {
+      ...l,
+      unitPriceGross: l.unitPrice,
+      inclusiveTax: inclusive ? 1 : 0,
+      unitPrice: ((inclusive ? perUnit / PPN_DIVISOR : perUnit) * (1 - cash)),
+    };
+  });
 }
 
 /* ---------- Sales invoices (Faktur Penjualan), accurate/sales.ts ---------- */
