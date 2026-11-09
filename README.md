@@ -257,27 +257,11 @@ Semua pencarian barang (Pilih dari katalog di quotation, halaman Katalog, Silvy)
   - Hanya dipanggil bila kata menemukan kurang dari 20 barang atau tidak semua kata cocok.
   - Bila AI gagal, pencarian tetap jalan dengan lapis 1.
 
-Memasang lapis 2 (sekali):
-```bash
-npx wrangler vectorize create catalog-search --dimensions=1024 --metric=cosine
-```
-Lalu di `wrangler.toml`:
-```toml
-[ai]
-binding = "AI"
-
-[[vectorize]]
-binding = "CATALOG_VECTORS"
-index_name = "catalog-search"
-
-[vars]
-CATALOG_SEMANTIC_SEARCH = "true"   # "false" mematikan tanpa deploy ulang kode lain
-```
-Deploy, lalu admin mengisi indeks per halaman sampai `next` bernilai `null`:
-```
-POST /api/catalog/search-index?offset=0&limit=500   → { indexed, next }
-```
-Jalankan lagi setelah impor katalog besar; barang yang belum diindeks tetap ditemukan lewat lapis 1.
+Lapis 2 terpasang sejak 9 Nov 2026 (`wrangler.toml`: `[ai]`, `[[vectorize]]` `catalog-search`, `CATALOG_SEMANTIC_SEARCH = "true"`; indeks dibuat dengan `npx wrangler vectorize create catalog-search --dimensions=1024 --metric=cosine`).
+- Cron 5 menit (`vectorTick`) mengisi indeks 1.500 barang per putaran sampai penuh (±25 menit), lalu mengisi ulang hanya bila barang ditambah, dihapus, atau diganti nama/kategori. Progres ada di pengaturan `catalog_vectors_state`; `npx wrangler vectorize info catalog-search` menampilkan jumlah vektor.
+- Admin juga bisa mengisi manual: `POST /api/catalog/search-index?offset=0&limit=500` → `{ indexed, next }`.
+- Mematikan: `CATALOG_SEMANTIC_SEARCH = "false"` lalu deploy. Pencarian kata tetap jalan.
+- Tes e2e dan `e2e/serve.ts` membuang binding AI/Vectorize dari salinan konfigurasinya, jadi tes tidak pernah memakai akun Cloudflare.
 
 ## Silvy (asisten AI)
 

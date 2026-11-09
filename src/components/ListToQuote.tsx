@@ -16,6 +16,7 @@
    code, and opening it matches the lines again so prices are today's. */
 
 import { useEffect, useMemo, useState } from "react";
+import { useCatalogSearch } from "./useCatalogSearch";
 import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
@@ -776,42 +777,49 @@ function CatalogSearch({
   onPick: (item: CatalogItem) => void;
 }) {
   const [q, setQ] = useState(initial);
-  const [found, setFound] = useState<CatalogItem[] | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const search = async () => {
-    setBusy(true);
-    try {
-      const r = await api.get<{ items: CatalogItem[] }>(`/catalog?${new URLSearchParams({ q: q.trim(), limit: "8" })}`);
-      setFound(r.items);
-    } finally {
-      setBusy(false);
-    }
-  };
+  // As you type, a page at a time; the list scrolls and loads more near its end (useCatalogSearch).
+  const { items: found, total, suggestion, busy, loadMore } = useCatalogSearch(q);
 
   return (
     <div className="cell-stack inline-search">
-      <form
-        className="picker-row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void search();
-        }}
-      >
+      <div className="picker-row">
         <input className="input" autoFocus value={q} onChange={(e) => setQ(e.target.value)} aria-label="Kata kunci katalog" />
-        <button className="btn small" type="submit" disabled={busy || !q.trim()}>Cari</button>
-      </form>
+        {busy && <span className="muted small">Mencari…</span>}
+      </div>
+      {suggestion && (
+        <span className="muted small">
+          Mungkin maksud Anda:{" "}
+          <button type="button" className="link-btn" onClick={() => setQ(suggestion)}>
+            {suggestion}
+          </button>
+        </span>
+      )}
       {found && found.length === 0 && <span className="muted small">Tidak ada. Coba kata kunci lebih pendek, misal merek saja.</span>}
-      {found?.map((it) => (
-        <button key={it.id} className="chip" type="button" onClick={() => onPick(it)}>
-          {it.name}{" "}
-          <span className="muted">
-            {/* A rep gets no cogs from the server; grp(undefined) printed "COGS 0" on items that
-                have one. The unit is what they need to pick the right row anyway. */}
-            · {it.code} · {seeCosts ? `COGS ${grp(it.cogs)}` : it.uom || "Pcs"}
-          </span>
-        </button>
-      ))}
+      {found && found.length > 0 && (
+        <div
+          className="pick-scroll"
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            if (el.scrollTop + el.clientHeight > el.scrollHeight - 80) loadMore();
+          }}
+        >
+          {found.map((it) => (
+            <button key={it.id} className="chip" type="button" onClick={() => onPick(it)}>
+              {it.name}{" "}
+              <span className="muted">
+                {/* A rep gets no cogs from the server; grp(undefined) printed "COGS 0" on items that
+                    have one. The unit is what they need to pick the right row anyway. */}
+                · {it.code} · {seeCosts ? `COGS ${grp(it.cogs)}` : it.uom || "Pcs"}
+              </span>
+            </button>
+          ))}
+          {found.length < total && (
+            <button type="button" className="btn small ghost" onClick={loadMore} disabled={busy}>
+              Muat lagi ({found.length} dari {total})
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

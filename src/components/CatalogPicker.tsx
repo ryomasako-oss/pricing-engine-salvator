@@ -47,7 +47,9 @@ export function CatalogPicker({
   const [pickedItems, setPickedItems] = useState<Record<number, CatalogItem>>({});
   // What was typed when each item was picked: the search learns it (POST /catalog/search-picks).
   const [pickedQuery, setPickedQuery] = useState<Record<number, string>>({});
-  const [onlyPriced, setOnlyPriced] = useState(true);
+  // Off by default (Ryoma, 9 Nov: "hasil masih sedikit"): half the catalog has no COGS yet, and such
+  // an item goes on the quote held until a manager checks it, so it is safe to show.
+  const [onlyPriced, setOnlyPriced] = useState(false);
   // Managed satuan list. A row's UOM can be switched at pick time (e.g. an
   // item mastered in Pcs but ordered per Lusin); COGS/RRP are rescaled with
   // the item's ratio, and the override only applies to the quote line, never

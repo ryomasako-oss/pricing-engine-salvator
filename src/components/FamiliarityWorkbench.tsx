@@ -9,6 +9,7 @@
    ../familiarityApi.ts. */
 
 import { useEffect, useMemo, useState } from "react";
+import { useCatalogSearch } from "./useCatalogSearch";
 import { Link } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
@@ -533,57 +534,64 @@ function WorkbenchRow({
 /** The main catalog and barang baru already requested, so a request is never made twice. */
 function InlineSearch({ initial, onPick }: { initial: string; onPick: (t: Target) => void }) {
   const [q, setQ] = useState(initial);
-  const [found, setFound] = useState<(Target & { key: string; code: string })[] | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const search = async () => {
-    setBusy(true);
-    try {
-      const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
-      const [catalog, requested] = await Promise.all([
-        api.get<{ items: CatalogItem[] }>(`/catalog?${new URLSearchParams({ q: q.trim(), limit: "8" })}`),
-        api.get<{ items: PendingItem[] }>("/pending-items").catch(() => ({ items: [] as PendingItem[] })),
-      ]);
-      const live = requested.items.filter(
-        (p) => (p.status === "draft" || p.status === "submitted") && words.every((w) => p.name.toLowerCase().includes(w)),
-      );
-      setFound([
-        ...live.map((p) => ({
+  // Catalog matches as you type, a page at a time (useCatalogSearch); requested new items still lead.
+  const { items: catalogItems, total, suggestion, busy, loadMore } = useCatalogSearch(q);
+  const [pending, setPending] = useState<PendingItem[]>([]);
+  useEffect(() => {
+    api
+      .get<{ items: PendingItem[] }>("/pending-items")
+      .then((r) => setPending(r.items.filter((p) => p.status === "draft" || p.status === "submitted")))
+      .catch(() => setPending([]));
+  }, []);
+  const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const found: (Target & { key: string; code: string })[] | null = catalogItems
+    ? [
+        ...(words.length ? pending.filter((p) => words.every((w) => p.name.toLowerCase().includes(w))) : []).map((p) => ({
           key: `pending-${p.id}`,
           kind: "pending" as const,
           code: p.code,
           label: p.name,
           payload: pendingPayload(p.name, p.uom, p.code),
         })),
-        ...catalog.items.map((it) => ({ key: `item-${it.id}`, kind: "catalog" as const, code: it.code, label: it.name, itemId: String(it.id) })),
-      ]);
-    } finally {
-      setBusy(false);
-    }
-  };
+        ...catalogItems.map((it) => ({ key: `item-${it.id}`, kind: "catalog" as const, code: it.code, label: it.name, itemId: String(it.id) })),
+      ]
+    : null;
 
   return (
     <div className="cell-stack">
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void search();
-        }}
-      >
+      <div className="row">
         <input className="input" autoFocus value={q} onChange={(e) => setQ(e.target.value)} aria-label="Kata kunci katalog" />
-        <button className="btn small" type="submit" disabled={busy || !q.trim()}>
-          Cari
-        </button>
-      </form>
-      {found && found.length === 0 && <span className="muted small">Tidak ada. Coba kata kunci lebih pendek, misal merek saja.</span>}
-      <div className="row-wrap">
-        {found?.map((t) => (
-          <button key={t.key} className="chip" type="button" onClick={() => onPick(t)}>
-            {t.kind === "pending" && <span className="badge blue">Sudah diajukan</span>} {t.label} <span className="muted">· {t.code}</span>
-          </button>
-        ))}
+        {busy && <span className="muted small">Mencari…</span>}
       </div>
+      {suggestion && (
+        <span className="muted small">
+          Mungkin maksud Anda:{" "}
+          <button type="button" className="link-btn" onClick={() => setQ(suggestion)}>
+            {suggestion}
+          </button>
+        </span>
+      )}
+      {found && found.length === 0 && <span className="muted small">Tidak ada. Coba kata kunci lebih pendek, misal merek saja.</span>}
+      {found && found.length > 0 && (
+        <div
+          className="pick-scroll"
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            if (el.scrollTop + el.clientHeight > el.scrollHeight - 80) loadMore();
+          }}
+        >
+          {found.map((t) => (
+            <button key={t.key} className="chip" type="button" onClick={() => onPick(t)}>
+              {t.kind === "pending" && <span className="badge blue">Sudah diajukan</span>} {t.label} <span className="muted">· {t.code}</span>
+            </button>
+          ))}
+          {(catalogItems?.length ?? 0) < total && (
+            <button type="button" className="btn small ghost" onClick={loadMore} disabled={busy}>
+              Muat lagi ({catalogItems?.length ?? 0} dari {total})
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
