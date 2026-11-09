@@ -12,6 +12,7 @@
 import { all, get } from "../db.d1";
 import { COGS_JUMP, cogsProblem } from "../../shared/cogsCheck";
 import type { ChatSearch } from "../chat";
+import { PRIORITY_BRAND_SQL, splitBrandQuery } from "../../shared/priorityBrands";
 
 export const SEARCH_LIMIT = 20;
 
@@ -37,8 +38,16 @@ export async function runChatSearch(db: D1Database, s: ChatSearch, canSeeCosts: 
   const where: string[] = [];
   const params: (string | number)[] = [];
   if (s.q) {
-    where.push("(c.name LIKE ? OR c.code LIKE ?)");
-    params.push(`%${s.q}%`, `%${s.q}%`);
+    // A priority brand in any spelling ("vtec", "art line") matches every way the catalog writes it.
+    const { catalog, rest } = splitBrandQuery(s.q);
+    if (catalog) {
+      where.push(`(${catalog.map(() => (catalog[0] === "GM" ? "(' ' || UPPER(c.name) || ' ') LIKE ?" : "UPPER(c.name) LIKE ?")).join(" OR ")})`);
+      params.push(...catalog.map((w) => (w === "GM" ? "% GM %" : `%${w}%`)));
+    }
+    if (!catalog || /\p{L}/u.test(rest)) {
+      where.push("(c.name LIKE ? OR c.code LIKE ?)");
+      params.push(`%${rest}%`, `%${rest}%`);
+    }
   }
   if (s.cogsMin !== undefined) where.push("c.cogs >= ?"), params.push(s.cogsMin);
   if (s.cogsMax !== undefined) where.push("c.cogs <= ?"), params.push(s.cogsMax);
@@ -48,7 +57,7 @@ export async function runChatSearch(db: D1Database, s: ChatSearch, canSeeCosts: 
 
   const rows = await all<{ code: string; name: string; uom: string; stock: number; cogs: number; list_price: number; reference: number | null }>(
     db,
-    `SELECT c.code, c.name, c.uom, c.stock, c.cogs, c.list_price, b.cogs AS reference ${from} ORDER BY c.name LIMIT ?`,
+    `SELECT c.code, c.name, c.uom, c.stock, c.cogs, c.list_price, b.cogs AS reference ${from} ORDER BY ${PRIORITY_BRAND_SQL} DESC, c.name LIMIT ?`,
     ...params,
     SEARCH_LIMIT,
   );

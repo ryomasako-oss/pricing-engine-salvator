@@ -101,3 +101,53 @@ describe("chat catalog search", () => {
     expect(r.json.reply).toBe("Ini hasilnya.");
   });
 });
+
+describe("priority brands (Ryoma, 2026-11-09)", () => {
+  it("lists Artline, V-TEC and GM first, and does not take a gram weight for GM", async () => {
+    const { runChatSearch } = await import("./chatSearch");
+    const sqlite = new DatabaseSync(":memory:");
+    const dir = path.resolve(import.meta.dirname, "../../migrations");
+    for (const f of readdirSync(dir).filter((f) => f.endsWith(".sql")).sort()) sqlite.exec(readFileSync(path.join(dir, f), "utf8"));
+    const add = sqlite.prepare("INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock) VALUES(?, ?, 'Pcs', 1000, 2000, 1)");
+    for (const [code, name] of [
+      ["B1", "BOSTIK BLU TACK 75 GM"], ["B2", "BOSTIK GLU STIK 8GM TRAY OF 20"], ["J1", "JOYKO SPIDOL PERMANEN"],
+      ["G1", "GM ALVABOARD 2MM UK. 500 X 750 MM BIRU"], ["V1", "CAT ACRYLIC V-TEC 35ML"], ["A1", "ARTLINE PERMANENT MARKER EK-70 BLUE"],
+    ]) add.run(code, name);
+    const r = await runChatSearch(new D1DatabaseShim(sqlite) as unknown as D1Database, { kind: "catalog" }, false);
+    expect("items" in r && r.items.map((i) => i.code)).toEqual(["A1", "V1", "G1", "B1", "B2", "J1"]);
+  });
+
+  it("tells both Silvy prompts to recommend those brands by default", async () => {
+    const ask = setup();
+    await ask("rep", undefined, "usulkan ATK untuk sekolah");
+    const sent = JSON.stringify((globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][1]);
+    expect(sent).toContain("dahulukan merek Artline, V-TEC, GM");
+    const { chatSystem } = await import("../../agent-service/src/silvy/context");
+    expect(chatSystem("DATA")).toContain("dahulukan merek Artline, V-TEC, GM");
+  });
+});
+
+describe("priority brands typed another way", () => {
+  it("finds V-TEC and VTEC items for 'vtec' and 'v tec', Artline for 'art line', and keeps gram searches", async () => {
+    const { runChatSearch } = await import("./chatSearch");
+    const sqlite = new DatabaseSync(":memory:");
+    const dir = path.resolve(import.meta.dirname, "../../migrations");
+    for (const f of readdirSync(dir).filter((f) => f.endsWith(".sql")).sort()) sqlite.exec(readFileSync(path.join(dir, f), "utf8"));
+    const add = sqlite.prepare("INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock) VALUES(?, ?, 'Pcs', 1000, 2000, 1)");
+    for (const [code, name] of [
+      ["V1", "KUAS V-TEC ARTIST BRUSH FLAT TYPE 200F - 14"], ["V2", "Kuas Lukis Filbert VTEC Paint Brush 210FB - 10"], ["V3", "V-TEC VT-1036/10PCS PUSH PIN SOLID BESAR"],
+      ["A1", "ARTLINE PERMANENT MARKER EK-70 BLUE"], ["B1", "BOSTIK BLU TACK 75 GM"], ["P1", "LOAD CHAIN POWERTEC G80"],
+    ]) add.run(code, name);
+    const db = new D1DatabaseShim(sqlite) as unknown as D1Database;
+    const codes = async (q: string) => {
+      const r = await runChatSearch(db, { kind: "catalog", q }, false);
+      return "items" in r ? r.items.map((i) => i.code).sort() : [];
+    };
+    expect(await codes("vtec")).toEqual(["V1", "V2", "V3"]);
+    expect(await codes("v tec")).toEqual(["V1", "V2", "V3"]);
+    expect(await codes("kuas vtec")).toEqual(["V1", "V2"]);
+    expect(await codes("art line")).toEqual(["A1"]);
+    expect(await codes("75 GM")).toEqual(["B1"]);
+    expect(await codes("powertec")).toEqual(["P1"]);
+  });
+});
