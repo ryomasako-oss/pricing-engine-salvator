@@ -178,6 +178,27 @@ export function mapReceiptLines(d: Row): StagedReceiptLine[] {
   return out;
 }
 
+/* ---------- Purchase invoices (Faktur Pembelian), the cost source when ACCURATE_COGS_SOURCE = "PI" ---------- */
+
+/** PPN 11%: Ryoma's rule (2026-11-09) for a PI with "Total termasuk pajak" ticked. */
+export const PPN_DIVISOR = 1.11;
+
+export interface StagedPurchaseLine extends StagedReceiptLine {
+  unitPriceGross: number;
+  inclusiveTax: 0 | 1;
+}
+
+/** A PI's lines with the unit price before PPN: as Accurate sends it, or divided by 1,11 when inclusive. */
+export function mapPurchaseLines(d: Row): StagedPurchaseLine[] {
+  const inclusive = d.inclusiveTax === true;
+  return mapReceiptLines(d).map((l) => ({
+    ...l,
+    unitPriceGross: l.unitPrice,
+    inclusiveTax: inclusive ? 1 : 0,
+    unitPrice: inclusive ? l.unitPrice / PPN_DIVISOR : l.unitPrice,
+  }));
+}
+
 /* ---------- Sales invoices (Faktur Penjualan), accurate/sales.ts ---------- */
 
 export const SALES_LIST_FIELDS = "id,number,transDate,lastUpdate,status,approvalStatus";

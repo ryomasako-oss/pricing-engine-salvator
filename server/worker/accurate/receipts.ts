@@ -21,7 +21,7 @@
 
 import { batch, get, run, stmt } from "../../db.d1";
 import { AccurateClient, AccurateError, type AccurateCreds } from "./client";
-import { RECEIPT_LIST_FIELDS, mapReceipt, mapReceiptLines, updateKey, type StagedReceipt } from "./mapping";
+import { RECEIPT_LIST_FIELDS, mapPurchaseLines, mapReceipt, mapReceiptLines, updateKey, type StagedReceipt } from "./mapping";
 import type { Bindings } from "../env";
 import { catalogEntity, credsFor, syncConfig, type EntityKey } from "./sync";
 
@@ -56,6 +56,10 @@ export interface ReceiptConfig {
  * One kind of Accurate document whose lines are kept as history: goods receipts here, sales
  * invoices in sales.ts. The pass, the cursor, the call budget and the sweep below are shared.
  */
+/** The cost line tables (same columns); a type, so only these two names ever reach SQL. */
+export type CostLines = "accurate_receipt_lines" | "accurate_purchase_lines";
+export const RECEIPT_LINES: CostLines = "accurate_receipt_lines";
+
 export interface DocKind {
   /** Cursor table, with the columns of accurate_receipt_state. */
   stateTable: string;
@@ -90,6 +94,35 @@ export const RECEIPTS: DocKind = {
 
 export const receiptsEnabled = (env: Pick<Bindings, "ACCURATE_RECEIPTS_ENABLED">) => env.ACCURATE_RECEIPTS_ENABLED === "true";
 
+/** Faktur pembelian: same pass engine and line columns as receipts, price before PPN (mapPurchaseLines). */
+export const PURCHASES: DocKind = {
+  stateTable: "accurate_purchase_state",
+  linesTable: "accurate_purchase_lines",
+  docColumn: "receipt_id",
+  path: "purchase-invoice",
+  listFields: RECEIPT_LIST_FIELDS,
+  mapDoc: mapReceipt,
+  mapLines: mapPurchaseLines,
+  insertSql: `INSERT OR REPLACE INTO accurate_purchase_lines(entity, receipt_id, line_id, receipt_no, trans_date,
+                                                          item_code, unit, quantity, unit_price, unit_price_gross,
+                                                          inclusive_tax, synced_at)
+           SELECT ?1, json_extract(j.value, '$.receiptId'), json_extract(j.value, '$.lineId'),
+                  json_extract(j.value, '$.receiptNo'), json_extract(j.value, '$.transDate'),
+                  json_extract(j.value, '$.itemCode'), json_extract(j.value, '$.unit'),
+                  json_extract(j.value, '$.quantity'), json_extract(j.value, '$.unitPrice'),
+                  json_extract(j.value, '$.unitPriceGross'), json_extract(j.value, '$.inclusiveTax'), datetime('now')
+             FROM json_each(?2) j WHERE true`,
+};
+
+export const purchasesEnabled = (env: Pick<Bindings, "ACCURATE_PURCHASES_ENABLED">) => env.ACCURATE_PURCHASES_ENABLED === "true";
+
+/**
+ * Where modal comes from: goods receipts (default) or purchase invoices (ACCURATE_COGS_SOURCE = "PI",
+ * Ryoma 2026-11-09). Flip to PI only once the first PI pass has finished, or every item reads "no cost".
+ */
+export const costKind = (env: Pick<Bindings, "ACCURATE_COGS_SOURCE">): DocKind => (env.ACCURATE_COGS_SOURCE === "PI" ? PURCHASES : RECEIPTS);
+export const costLines = (env: Pick<Bindings, "ACCURATE_COGS_SOURCE">): CostLines => costKind(env).linesTable as CostLines;
+
 /** dd/MM/yyyy of a Date, in WIB (Accurate's clock for transaction dates). */
 const wibDate = (d: Date) => {
   const w = new Date(d.getTime() + 7 * 3_600_000);
@@ -120,9 +153,9 @@ export function receiptConfig(env: Bindings, now = new Date()): ReceiptConfig {
 
 const hoursSince = (iso: string | null) => (iso ? (Date.now() - Date.parse(iso)) / 3_600_000 : Infinity);
 
-export async function loadReceiptState(db: D1Database, entity: EntityKey): Promise<ReceiptState> {
-  await run(db, "INSERT OR IGNORE INTO accurate_receipt_state(entity) VALUES(?)", entity);
-  return (await get<ReceiptState>(db, "SELECT * FROM accurate_receipt_state WHERE entity = ?", entity))!;
+export async function loadReceiptState(db: D1Database, entity: EntityKey, kind: DocKind = RECEIPTS): Promise<ReceiptState> {
+  await run(db, `INSERT OR IGNORE INTO ${kind.stateTable}(entity) VALUES(?)`, entity);
+  return (await get<ReceiptState>(db, `SELECT * FROM ${kind.stateTable} WHERE entity = ?`, entity))!;
 }
 
 /** Completed passes between sweeps. Four passes ≈ one day at the deployed 6-hour cadence. */
@@ -383,6 +416,19 @@ export async function receiptsTick(env: Bindings, opts: { deadlineMs: number; fe
   const creds = credsFor(env, entity);
   if (!creds) return null;
   return receiptStep(env.DB, entity, creds, receiptConfig(env), {
+    budget: syncConfig(env).callsPerTick,
+    deadline: Date.now() + opts.deadlineMs,
+    fetchImpl: opts.fetchImpl,
+    gapMs: opts.gapMs,
+  });
+}
+
+export async function purchasesTick(env: Bindings, opts: { deadlineMs: number; fetchImpl?: typeof fetch; gapMs?: number }) {
+  if (!purchasesEnabled(env) || env.ACCURATE_SYNC_ENABLED === "false") return null;
+  const entity = catalogEntity(env);
+  const creds = credsFor(env, entity);
+  if (!creds) return null;
+  return docStep(PURCHASES, env.DB, entity, creds, receiptConfig(env), {
     budget: syncConfig(env).callsPerTick,
     deadline: Date.now() + opts.deadlineMs,
     fetchImpl: opts.fetchImpl,
