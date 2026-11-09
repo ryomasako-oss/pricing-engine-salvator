@@ -124,7 +124,7 @@ export function purchaseCostHold(from: number, to: number, listPrice: number, hi
   const fits = (ref: number) => to <= HOLD_RATIO * ref && to * HOLD_RATIO >= ref;
   const far = (ref: number) => (to > ref ? "lebih dari dua kali" : "kurang dari separuh");
   const past = history.length >= MIN_HISTORY ? round2(median(history)) : 0;
-  const pastText = `harga beli sebelumnya Rp ${grp(past)} (median ${history.length} RI)`;
+  const pastText = `harga beli sebelumnya Rp ${grp(past)} (median ${history.length} PI)`;
   const cur = Number(from) || 0;
   if (cur > 0 && !fits(cur)) {
     if (past > 0 && fits(past)) return null;

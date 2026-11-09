@@ -163,7 +163,7 @@ export function CatalogPage() {
         <div>
           <h1>Katalog barang</h1>
           <p>
-            Harga pokok = harga pembelian terakhir di Accurate (penerimaan barang); barang yang belum
+            Harga pokok = harga pembelian terakhir di Accurate (faktur pembelian); barang yang belum
             pernah dibeli memakai laporan Nilai Persediaan. Harga jual acuan dari Daftar Barang dan Jasa.
           </p>
         </div>
@@ -221,7 +221,7 @@ export function CatalogPage() {
       {stats && stats.total > 0 && stats.priced / stats.total < 0.6 && (
         <p className="notice warn">
           Hanya {Math.round((stats.priced / stats.total) * 100)}%
-          item punya harga pokok. Barang yang belum pernah dibeli (tanpa penerimaan barang di Accurate)
+          item punya harga pokok. Barang yang belum pernah dibeli (tanpa faktur pembelian di Accurate)
           tidak punya harga pembelian terakhir — isi manual atau lewat impor Nilai Persediaan untuk item
           yang benar-benar dijual.
         </p>

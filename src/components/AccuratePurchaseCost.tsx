@@ -184,8 +184,8 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
             <span className="badge green">Siap</span>
           )}
           <div className="muted small">
-            Harga satuan penerimaan barang (RI) terakhir per barang di Accurate {status.entity}, sebelum PPN.
-            {collecting && ` Riwayat setahun sedang dikumpulkan: ${grp(status.receiptsSeen)} RI terbaca. Pratinjau tersedia setelah selesai.`}
+            Harga satuan faktur pembelian (PI) terakhir per barang di Accurate {status.entity}, sebelum PPN.
+            {collecting && ` Riwayat setahun sedang dikumpulkan: ${grp(status.receiptsSeen)} PI terbaca. Pratinjau tersedia setelah selesai.`}
             {status.lastPassAt && ` Riwayat terakhir diperbarui ${fmtDateTime(status.lastPassAt)}.`}
           </div>
           {status.lastError && <div className="small text-err">{status.lastError}</div>}
@@ -232,14 +232,14 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
             >
               {grp(preview.skipped.length)} dilewati (satuan)
             </button>
-            <span className="badge grey">{grp(preview.noReceipt)} tanpa RI, COGS tetap</span>
+            <span className="badge grey">{grp(preview.noReceipt)} tanpa PI, COGS tetap</span>
           </div>
 
           {showHeld && preview.held.length > 0 && (
             <>
               <div className="muted note-block">
                 Tidak ikut diterapkan: harga beli 3x harga jual atau lebih, atau jauh (lebih dari dua kali / kurang dari separuh) dari COGS sekarang
-                dan dari harga beli di RI sebelumnya. Biasanya satu pak/box tercatat 1 PCS di RI. Betulkan RI di Accurate, isi COGS manual di
+                dan dari harga beli di PI sebelumnya. Biasanya satu pak/box tercatat 1 PCS di PI. Betulkan PI di Accurate, isi COGS manual di
                 katalog, atau kalau harganya memang benar, centang lalu terapkan.
               </div>
               <div className="row-wrap" style={{ marginTop: 4 }}>
@@ -395,7 +395,7 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
         <ConfirmModal
           title={`Terapkan harga untuk ${grp(picked.size)} barang yang ditahan?`}
           tone="primary"
-          message='COGS dan COGS acuannya ikut diubah, sama seperti menekan "COGS ini benar". Pastikan RI-nya sudah dicek.'
+          message='COGS dan COGS acuannya ikut diubah, sama seperti menekan "COGS ini benar". Pastikan PI-nya sudah dicek.'
           confirmLabel="Terapkan"
           busy={busy === "held"}
           onConfirm={() => void applyHeld()}
