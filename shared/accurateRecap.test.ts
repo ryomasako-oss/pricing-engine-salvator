@@ -61,7 +61,7 @@ describe("recapPrompt (what Silvy reads: kept small, one call a day)", () => {
 
   it("states the numbers Silvy may use, including an unfinished history", () => {
     const p = recapPrompt(recap({ receipts: { lastPassAt: null, inProgress: true, receiptsSeen: 127 } }));
-    expect(p).toContain("masih dikumpulkan, 127 RI terbaca");
+    expect(p).toContain("masih dikumpulkan, 127 PI terbaca");
     expect(p).toContain("101311 Barang 101311: Rp 10.831.300 -> Rp 11.005.000 (+1,6%), RI.101311 2026-05-22");
     expect(p).toContain("N0 Barang N0: kosong -> Rp 500 (baru)");
   });
@@ -124,7 +124,7 @@ describe("barang baru dari Accurate (2026-10-23)", () => {
     expect(mail.html).toContain("Map &lt;baru&gt;");
     expect(mail.html).toContain("<strong>isi manual</strong>");
     expect(mail.html).toContain("Rp 2.083");
-    expect(recapPrompt(r)).toContain("tanpa RI (isi COGS manual): 1");
+    expect(recapPrompt(r)).toContain("tanpa PI (isi COGS manual): 1");
   });
 
   it("a new item whose receipts disagree is held, not promised to Terapkan COGS", () => {
@@ -133,9 +133,9 @@ describe("barang baru dari Accurate (2026-10-23)", () => {
     expect(r.newItems).toMatchObject({ added: 2, withReceipt: 1, held: 1 });
     expect(r.newItems!.top.map((i) => [i.code, i.held])).toEqual([["103300", true], ["103279", false]]);
     const mail = recapEmail(r, null, "https://x");
-    expect(mail.html).toContain("1 ditahan karena harga di RI-nya tidak sepakat");
+    expect(mail.html).toContain("1 ditahan karena harga di PI-nya tidak sepakat");
     expect(mail.html).toContain("Rp 90.000 <small>(ditahan)</small>");
-    expect(recapPrompt(r)).toContain("ditahan (RI tidak sepakat): 1; tanpa RI (isi COGS manual): 0");
+    expect(recapPrompt(r)).toContain("ditahan (PI tidak sepakat): 1; tanpa PI (isi COGS manual): 0");
   });
 
   it("new items alone are worth an email; none and an app without the field are not", () => {

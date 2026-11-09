@@ -479,7 +479,7 @@ describe("POST /api/accurate/apply-cogs", () => {
     sqlite.exec("UPDATE accurate_receipt_lines SET unit_price = 387065.122461 WHERE receipt_id = 103961");
     const preview = (await (await post({})).json()) as any;
     expect(preview.held.find((h: any) => h.code === "103044")?.reason).toBe(
-      "Harga beli Rp 387.065 lebih dari dua kali harga beli sebelumnya Rp 111.158 (median 4 RI)",
+      "Harga beli Rp 387.065 lebih dari dua kali harga beli sebelumnya Rp 111.158 (median 4 PI)",
     );
     await post({ dryRun: false });
     expect(cogs()["103044"]).toBe(0);

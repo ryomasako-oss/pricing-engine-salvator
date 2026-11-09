@@ -268,7 +268,7 @@ describe("runAccurateRecap: dijual di bawah modal (Ryoma, 2026-11-04)", () => {
     expect(sent[0].html).not.toContain("SI.2026.06.00011"); // 3.000 per Pcs is above cost
     // Before any receipt: unknown cost, not a loss.
     expect(sent[0].html).not.toContain("SI.2026.05.00001");
-    expect(sent[0].html).toContain("1 tanpa RI sebelum tanggal faktur");
+    expect(sent[0].html).toContain("1 tanpa PI sebelum tanggal faktur");
     expect(silvy.calls[0].body.recap.belowCost).toMatchObject({ count: 1, checked: 2, unknownCost: 1, lossTotal: 12000 });
 
     // The next morning, with no new invoice lines, the same loss is not reported again.

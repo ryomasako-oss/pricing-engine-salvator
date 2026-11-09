@@ -81,7 +81,7 @@ ACCURATE_PURCHASES_ENABLED = "true"
 # first PI pass has finished (GET /api/accurate/receipts shows lastPassAt for the source in use,
 # so check accurate_purchase_state) and /api/accurate/probe?entity=PT&pinvoice=<nomor PI> shows
 # the ÷ 1,11 matching Accurate's DPP on a PI with "termasuk pajak" ticked.
-ACCURATE_COGS_SOURCE = "RI"
+ACCURATE_COGS_SOURCE = "PI"
 # ACCURATE_RECEIPTS_SINCE is how far back the FIRST pass reads, by transaction
 # date; left unset, it is one year. A year gave 3.231 receipts and left 3.749
 # catalog items without a purchase price, but 98% of those hold no stock in

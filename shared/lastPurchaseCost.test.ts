@@ -162,13 +162,13 @@ describe("purchaseCostHold with earlier receipts (2026-10-21)", () => {
 
   it("still holds a price that matches neither the current COGS nor the earlier receipts (100115 staples)", () => {
     expect(purchaseCostHold(22_895, 901, 0, [12_000, 12_040, 11_900, 13_000])).toBe(
-      "Harga beli Rp 901 kurang dari separuh COGS sekarang Rp 22.895, dan kurang dari separuh harga beli sebelumnya Rp 12.020 (median 4 RI)",
+      "Harga beli Rp 901 kurang dari separuh COGS sekarang Rp 22.895, dan kurang dari separuh harga beli sebelumnya Rp 12.020 (median 4 PI)",
     );
   });
 
   it("holds an empty item whose new price is far from its earlier receipts: the 16 Okt case, before it becomes the reference", () => {
     expect(purchaseCostHold(0, 387_065.12, 0, history)).toBe(
-      "Harga beli Rp 387.065 lebih dari dua kali harga beli sebelumnya Rp 111.158 (median 4 RI)",
+      "Harga beli Rp 387.065 lebih dari dua kali harga beli sebelumnya Rp 111.158 (median 4 PI)",
     );
     expect(purchaseCostHold(0, 103_992, 0, history)).toBeNull();
   });
