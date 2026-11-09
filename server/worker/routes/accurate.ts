@@ -13,12 +13,12 @@ import { requireAuth, requirePermission } from "../auth";
 import { hasPermission } from "../../../shared/permissions";
 import { zodMessage } from "../../validate";
 import { AccurateClient } from "../accurate/client";
-import { ITEM_FIELDS, RECEIPT_LIST_FIELDS } from "../accurate/mapping";
+import { ITEM_FIELDS, RECEIPT_LIST_FIELDS, mapPurchaseLines } from "../accurate/mapping";
 import { cogsHistory } from "../accurate/cogsHistory";
 import { salesHistory } from "../accurate/salesHistory";
 import { lastSales, salesEnabled } from "../accurate/sales";
 import { applyHeldCosts, applyPurchaseCosts } from "../accurate/purchaseCost";
-import { loadReceiptState, receiptsEnabled, wibTimestamp } from "../accurate/receipts";
+import { costKind, costLines, loadReceiptState, purchasesEnabled, receiptsEnabled, wibTimestamp } from "../accurate/receipts";
 import { sweepPending } from "./pendingItems";
 import { RESUME_NEW_ITEMS_SQL } from "../accurate/newItems";
 import { reconcileCounts, reconcileExamples, runReconcile } from "../accurate/reconcile";
@@ -310,10 +310,11 @@ accurateRouter.post("/apply", requirePermission("import_catalog"), async (c) => 
  */
 accurateRouter.get("/receipts", requirePermission("import_catalog"), requirePermission("view_costs"), async (c) => {
   const entity = catalogEntity(c.env);
-  const st = await loadReceiptState(c.env.DB, entity);
+  const st = await loadReceiptState(c.env.DB, entity, costKind(c.env));
   return c.json({
     entity,
-    enabled: receiptsEnabled(c.env),
+    enabled: c.env.ACCURATE_COGS_SOURCE === "PI" ? purchasesEnabled(c.env) : receiptsEnabled(c.env),
+    source: costKind(c.env).path,
     inProgress: !!st.pass_started_at,
     receiptsSeen: st.receipts_seen,
     lastPassAt: st.last_pass_at,
@@ -332,6 +333,7 @@ accurateRouter.get("/cogs-history", requirePermission("view_costs"), async (c) =
       q: (c.req.query("q") ?? "").trim().slice(0, 100),
       onlyPending: c.req.query("pending") === "1",
       page: Number.isInteger(page) && page > 0 ? page : 1,
+      lines: costLines(c.env),
     }),
   );
 });
@@ -361,11 +363,11 @@ accurateRouter.post("/apply-cogs", requirePermission("import_catalog"), requireP
     return c.json({ error: "Akses ditolak untuk peran Anda." }, 403);
   }
   const entity = catalogEntity(c.env);
-  const st = await loadReceiptState(c.env.DB, entity);
+  const st = await loadReceiptState(c.env.DB, entity, costKind(c.env));
   if (!st.last_pass_at) {
     return c.json({ error: `Riwayat penerimaan barang Accurate ${entity} belum lengkap. Tunggu satu putaran sinkron penerimaan selesai.` }, 409);
   }
-  const result = await applyPurchaseCosts(c.env.DB, entity, { dryRun: parsed.data.dryRun });
+  const result = await applyPurchaseCosts(c.env.DB, entity, { dryRun: parsed.data.dryRun, lines: costLines(c.env) });
   if (!result.dryRun) {
     await audit(c.env.DB, c.get("user")!.id, "catalog", 0, "cogs_from_purchases", {
       entity,
@@ -406,11 +408,11 @@ accurateRouter.post(
       .safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
     const entity = catalogEntity(c.env);
-    const st = await loadReceiptState(c.env.DB, entity);
+    const st = await loadReceiptState(c.env.DB, entity, costKind(c.env));
     if (!st.last_pass_at) {
       return c.json({ error: `Riwayat penerimaan barang Accurate ${entity} belum lengkap. Tunggu satu putaran sinkron penerimaan selesai.` }, 409);
     }
-    return c.json(await applyHeldCosts(c.env.DB, entity, c.get("user")!.id, parsed.data.items));
+    return c.json(await applyHeldCosts(c.env.DB, entity, c.get("user")!.id, parsed.data.items, costLines(c.env)));
   },
 );
 
@@ -536,7 +538,20 @@ accurateRouter.get("/probe", requirePermission("manage_company"), async (c) => {
           : null;
       sales = { list, filterCheck: { all: rowCount(list), updatedSince: yesterday, updatedRecently: rowCount(recent) }, detail };
     }
-    return c.json({ host: info.host, alias: info.alias, items, warehouses, stock, receipts, receiptFilterCheck, receiptDetail, sales });
+    // Purchase invoices (2026-11-09, modal from PI): ?pinvoice=<nomor PI> returns its raw detail and the
+    // lines as the PI sync would store them, so "Total termasuk pajak" and the ÷1,11 can be checked by hand.
+    let purchase: unknown = null;
+    const pinvoice = c.req.query("pinvoice");
+    if (pinvoice) {
+      try {
+        const detail = await client.raw("purchase-invoice/detail.do", { number: pinvoice });
+        const d = (detail as { d?: Record<string, unknown> }).d;
+        purchase = { detail, stored: d ? mapPurchaseLines(d) : null };
+      } catch (err) {
+        purchase = { error: (err as Error).message };
+      }
+    }
+    return c.json({ host: info.host, alias: info.alias, items, warehouses, stock, receipts, receiptFilterCheck, receiptDetail, sales, purchase });
   } catch (err) {
     return c.json({ error: (err as Error).message }, 502);
   }

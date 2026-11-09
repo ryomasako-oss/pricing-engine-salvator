@@ -10,6 +10,7 @@ import { sameUom, unitFactor } from "../../../shared/uom";
 import type { UnitFactor } from "../../../shared/types";
 import { applyPurchaseCosts } from "./purchaseCost";
 import type { EntityKey } from "./sync";
+import { RECEIPT_LINES, type CostLines } from "./receipts";
 
 export const HISTORY_PAGE_SIZE = 20;
 /** Newest receipts and COGS replacements shown on one card. */
@@ -49,16 +50,17 @@ export interface HistoryPage {
 export async function cogsHistory(
   db: D1Database,
   entity: EntityKey,
-  opts: { q: string; onlyPending: boolean; page: number },
+  opts: { q: string; onlyPending: boolean; page: number; lines?: CostLines },
 ): Promise<HistoryPage> {
+  const lines = opts.lines ?? RECEIPT_LINES;
   const pending = new Map<string, HistoryCard["pending"]>();
   if (opts.onlyPending) {
-    const r = await applyPurchaseCosts(db, entity, { dryRun: true });
+    const r = await applyPurchaseCosts(db, entity, { dryRun: true, lines });
     for (const c of r.changed) pending.set(c.code, { to: c.to, receiptNo: c.receiptNo, transDate: c.transDate, held: null });
     for (const c of r.held) pending.set(c.code, { to: c.to, receiptNo: c.receiptNo, transDate: c.transDate, held: c.reason });
   }
   const like = `%${opts.q.replace(/[\\%_]/g, "\\$&")}%`;
-  const where = `(c.cogs > 0 OR c.code IN (SELECT item_code FROM accurate_receipt_lines WHERE entity = ?1))
+  const where = `(c.cogs > 0 OR c.code IN (SELECT item_code FROM ${lines} WHERE entity = ?1))
                  AND (c.code LIKE ?2 ESCAPE '\\' OR c.name LIKE ?2 ESCAPE '\\')
                  AND (?3 = 0 OR c.code IN (SELECT value FROM json_each(?4)))`;
   const params = [entity, like, opts.onlyPending ? 1 : 0, JSON.stringify([...pending.keys()])] as const;
@@ -79,7 +81,7 @@ export async function cogsHistory(
     `SELECT item_code, receipt_no AS receiptNo, trans_date AS transDate, unit, quantity, unit_price AS unitPrice
        FROM (SELECT l.*, ROW_NUMBER() OVER (
                       PARTITION BY l.item_code ORDER BY l.trans_date DESC, l.receipt_id DESC, l.line_id DESC) AS rn
-               FROM accurate_receipt_lines l
+               FROM ${lines} l
               WHERE l.entity = ?1 AND l.unit_price > 0 AND l.quantity > 0
                 AND l.item_code IN (SELECT value FROM json_each(?2)))
       WHERE rn <= ${PER_CARD}

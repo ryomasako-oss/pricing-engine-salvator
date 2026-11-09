@@ -27,6 +27,7 @@ import {
 import { cogsProblemsFor } from "../quoteService";
 import { sweepPending } from "./pendingItems";
 import { catalogEntity } from "../accurate/sync";
+import { costLines } from "../accurate/receipts";
 import { lastSales, salesEnabled, salesNameMap } from "../accurate/sales";
 import { normalizeText } from "../../../shared/match";
 import { canSeeCosts, catalogItemsForViewer, problemsForViewer } from "../../staffView";
@@ -381,7 +382,7 @@ catalogRouter.post("/import", requirePermission("import_catalog"), async (c) => 
   for (const chunk of chunks([...existing.keys()], CHUNK - 1)) {
     const found = await all<{ item_code: string }>(
       c.env.DB,
-      `SELECT DISTINCT item_code FROM accurate_receipt_lines
+      `SELECT DISTINCT item_code FROM ${costLines(c.env)}
         WHERE entity = ? AND unit_price > 0 AND quantity > 0 AND item_code IN (${chunk.map(() => "?").join(",")})`,
       entity,
       ...chunk,
