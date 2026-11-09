@@ -91,7 +91,7 @@ for (const theme of THEMES) {
 
       // 1. A candidate pill: one click, sent as the catalog id, kept for this client.
       const gunting = wb.getByRole("row", { name: /Gunting kecil biru/ });
-      const guntingPill = gunting.getByRole("button", { name: /GUNTING KERTAS JOYKO KECIL/ });
+      const guntingPill = gunting.getByRole("button", { name: /^GUNTING KERTAS JOYKO KECIL/ });
       await expectReadable(guntingPill);
       await guntingPill.click();
       await expect(review).toHaveCount(0);
@@ -103,7 +103,7 @@ for (const theme of THEMES) {
       await sidu.getByRole("button", { name: "Cari di katalog untuk Kertas sidu" }).click();
       await sidu.getByLabel("Kata kunci katalog").fill("sinar dunia");
 
-      await sidu.getByRole("button", { name: /KERTAS HVS SINAR DUNIA A4 70GR/ }).click();
+      await sidu.getByRole("button", { name: /^KERTAS HVS SINAR DUNIA A4 70GR/ }).click();
       await expect(adjustment).toHaveText("3 adjustment");
       expect(calls.resolve.at(-1)).toMatchObject({ action: "verify_item", item_id: await itemId(page, "K-SD70") });
 
@@ -162,14 +162,14 @@ for (const theme of THEMES) {
       await expect(kertas.getByText(/Sekarang: KERTAS HVS SINAR DUNIA/)).toBeVisible();
       // The item it is paired with now is not offered as a correction of itself.
       await expect(kertas.getByRole("button", { name: /K-SD70/ })).toHaveCount(0);
-      await kertas.getByRole("button", { name: /KERTAS HVS BOLA DUNIA A4 70GR/ }).click();
+      await kertas.getByRole("button", { name: /^KERTAS HVS BOLA DUNIA A4 70GR/ }).click();
       expect(calls.resolve.at(-1)).toMatchObject({ action: "verify_item", item_id: await itemId(page, "K-BD70") });
       await expect(kertas).toContainText("KERTAS HVS BOLA DUNIA A4 70GR (K-BD70)");
 
       // Corrected again, back to Sinar Dunia: a settled row is never final.
       await kertas.getByRole("button", { name: "Koreksi" }).click();
       await expect(kertas.getByRole("button", { name: /K-BD70/ })).toHaveCount(0);
-      await kertas.getByRole("button", { name: /KERTAS HVS SINAR DUNIA A4 70GR/ }).click();
+      await kertas.getByRole("button", { name: /^KERTAS HVS SINAR DUNIA A4 70GR/ }).click();
       await expect(kertas).toContainText("KERTAS HVS SINAR DUNIA A4 70GR (K-SD70)");
 
       // Opening a correction and backing out sends nothing.
@@ -375,7 +375,7 @@ test.describe("sales", () => {
     await expectReadable(wb.getByText(/Latihan tanpa klien/));
     // A rep cannot store a rule for every client: no such switch.
     await expect(wb.getByRole("checkbox")).toHaveCount(0);
-    await wb.getByRole("button", { name: /GUNTING KERTAS JOYKO KECIL/ }).click();
+    await wb.getByRole("button", { name: /^GUNTING KERTAS JOYKO KECIL/ }).click();
     await expect(wb.getByRole("row", { name: /Gunting kecil biru/ })).toContainText("Sudah dibereskan");
     await wb.getByRole("button", { name: "Feed baru" }).click();
     await wb.getByRole("button", { name: "Cocokkan" }).click();
@@ -385,7 +385,7 @@ test.describe("sales", () => {
     await wb.getByRole("button", { name: "Feed baru" }).click();
     await wb.getByRole("combobox", { name: "Klien" }).selectOption({ label: "PT Agrinesia" });
     await wb.getByRole("button", { name: "Cocokkan" }).click();
-    await wb.getByRole("button", { name: /GUNTING KERTAS JOYKO KECIL/ }).click();
+    await wb.getByRole("button", { name: /^GUNTING KERTAS JOYKO KECIL/ }).click();
     await wb.getByRole("button", { name: "Feed baru" }).click();
     await wb.getByRole("combobox", { name: "Klien" }).selectOption({ label: "PT Agrinesia" });
     await wb.getByRole("button", { name: "Cocokkan" }).click();

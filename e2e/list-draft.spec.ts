@@ -27,7 +27,7 @@ for (const theme of THEMES) {
       await page.getByRole("button", { name: `Cari di katalog untuk Tisu gulung ${theme}` }).click();
       await page.getByLabel("Kata kunci katalog").fill("lakban");
 
-      await page.getByRole("button", { name: /LAKBAN BENING 48MM/ }).click();
+      await page.getByRole("button", { name: /^LAKBAN BENING 48MM/ }).click();
 
       await page.getByRole("button", { name: "Simpan", exact: true }).click();
       await expect(page.getByText("Draft disimpan.")).toBeVisible();

@@ -36,7 +36,7 @@ for (const theme of THEMES) {
       await page.getByRole("button", { name: "Cari di katalog untuk Tisu gulung nice" }).click();
       await page.getByLabel("Kata kunci katalog").fill("lakban");
 
-      await page.getByRole("button", { name: /LAKBAN BENING 48MM/ }).click();
+      await page.getByRole("button", { name: /^LAKBAN BENING 48MM/ }).click();
       await expect(adjustment).toHaveText("1 adjustment");
       await expect(header("cocok")).toHaveText("3 cocok");
 
