@@ -24,6 +24,8 @@ export function SettingsPage() {
   const [resetRequests, setResetRequests] = useState<PasswordResetRequest[]>([]);
   const [phone, setPhone] = useState(user?.phone ?? "");
   const [savingPhone, setSavingPhone] = useState(false);
+  const [tgPhone, setTgPhone] = useState(user?.telegram_phone ?? "");
+  const [savingTg, setSavingTg] = useState(false);
 
   const loadUsers = useCallback(() => {
     if (!can("manage_users")) return;
@@ -108,6 +110,19 @@ export function SettingsPage() {
       toast("Kata sandi diperbarui.", "success");
     } catch (e) {
       toast(e instanceof Error ? e.message : "Gagal mengubah kata sandi.", "error");
+    }
+  };
+
+  const saveTgPhone = async () => {
+    setSavingTg(true);
+    try {
+      await api.patch("/auth/profile", { telegram_phone: tgPhone });
+      await refreshUser();
+      toast("Nomor Telegram disimpan.", "success");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Gagal menyimpan nomor Telegram.", "error");
+    } finally {
+      setSavingTg(false);
     }
   };
 
@@ -381,28 +396,53 @@ export function SettingsPage() {
         )}
 
         {current === "notifikasi" && (
-          <section className="card">
-            <div className="card-head">
-              <div className="card-title">
-                <h2>Notifikasi WhatsApp</h2>
-                <span className="muted small">Kosongkan nomor untuk mematikan notifikasi WhatsApp.</span>
+          <div className="page-stack">
+            <section className="card">
+              <div className="card-head">
+                <div className="card-title">
+                  <h2>Notifikasi WhatsApp</h2>
+                  <span className="muted small">Kosongkan nomor untuk mematikan notifikasi WhatsApp.</span>
+                </div>
               </div>
-            </div>
-            <div className="card-body form-stack">
-              <p className="field-help">
-                Dipakai untuk mengirim WhatsApp saat ada quotation yang butuh persetujuan Anda, atau saat quotation Anda diputuskan.
-              </p>
-              <div className="inline-form">
-                <label className="field">
-                  <span>Nomor WhatsApp saya</span>
-                  <input className="input" placeholder="+62 812-3456-7890" value={phone} onChange={(e) => setPhone(e.target.value)} />
-                </label>
-                <button className="btn primary" onClick={savePhone} disabled={savingPhone || phone === (user?.phone ?? "")}>
-                  {savingPhone ? "Menyimpan…" : "Simpan nomor"}
-                </button>
+              <div className="card-body form-stack">
+                <p className="field-help">
+                  Dipakai untuk mengirim WhatsApp saat ada quotation yang butuh persetujuan Anda, atau saat quotation Anda diputuskan.
+                </p>
+                <div className="inline-form">
+                  <label className="field">
+                    <span>Nomor WhatsApp saya</span>
+                    <input className="input" placeholder="+62 812-3456-7890" value={phone} onChange={(e) => setPhone(e.target.value)} />
+                  </label>
+                  <button className="btn primary" onClick={savePhone} disabled={savingPhone || phone === (user?.phone ?? "")}>
+                    {savingPhone ? "Menyimpan…" : "Simpan nomor"}
+                  </button>
+                </div>
               </div>
-            </div>
-          </section>
+            </section>
+
+            <section className="card">
+              <div className="card-head">
+                <div className="card-title">
+                  <h2>Silvy di Telegram</h2>
+                  <span className="muted small">Kosongkan bila nomor Telegram sama dengan nomor WhatsApp.</span>
+                </div>
+              </div>
+              <div className="card-body form-stack">
+                <p className="field-help">
+                  Bot Telegram @SilvySalvatorBot mengenali Anda dari nomor ini saat Anda menekan "Bagikan nomor saya".
+                </p>
+                <div className="inline-form">
+                  <label className="field">
+                    <span>Nomor Telegram saya</span>
+                    <input className="input" placeholder={phone || "+62 812-3456-7890"} value={tgPhone} onChange={(e) => setTgPhone(e.target.value)} />
+                  </label>
+                  <button className="btn primary" onClick={saveTgPhone} disabled={savingTg || tgPhone === (user?.telegram_phone ?? "")}>
+                    {savingTg ? "Menyimpan…" : "Simpan nomor"}
+                  </button>
+                </div>
+              </div>
+            </section>
+          </div>
         )}
 
         {current === "sandi" && (

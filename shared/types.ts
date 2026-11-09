@@ -11,6 +11,8 @@ export interface User {
   role: Role;
   active: 0 | 1;
   phone: string;
+  /** Number on the user's Telegram account, when not the WhatsApp one (phone). */
+  telegram_phone: string;
   created_at: string;
 }
 
