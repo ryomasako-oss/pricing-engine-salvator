@@ -6,7 +6,9 @@ export const PRIORITY_BRANDS = ["Artline", "V-TEC", "GM"] as const;
 /** For the prompts: what to prefer, and that the client's own brand request still wins. */
 export const PRIORITY_BRANDS_RULE =
   `Saat merekomendasikan atau mengusulkan barang, dahulukan merek ${PRIORITY_BRANDS.join(", ")} sebagai pilihan default ` +
-  `bila jenis barangnya tersedia di merek itu (misalnya "spidol permanen Artline"); sebut merek lain hanya bila ketiganya tidak membuat barang itu ` +
+  `HANYA untuk jenis barang yang memang ada di merek itu (katalog PT, 9 Nov): Artline = spidol/marker (permanen, whiteboard, highlighter), pulpen (ballpoint, gel, roller), tinta, kuas dan alat gambar, file; ` +
+  `V-TEC = kuas dan cat akrilik, bahan maket, lakban/tape, sticky notes, klip, map/zipper bag/clear holder; GM = label, stempel (Trodat), alvaboard, papan tanda (dilarang merokok, toilet), binder, kertas kalkir. ` +
+  `Barang di luar itu tulis generik tanpa merek (jangan "Buku Tulis GM" atau "Pulpen V-TEC"). Merek lain boleh disebut bila ketiganya tidak membuat barang itu ` +
   `atau pengguna/klien meminta merek tertentu. Ejaan lain tetap merek yang sama: "vtec", "v tec", "v.tec", "vitek" = V-TEC; "artlin", "art line" = Artline; "G.M" = GM. Di search.q, tulis mereknya seperti diketik pengguna; server mencocokkan semua ejaannya.`;
 
 /**
