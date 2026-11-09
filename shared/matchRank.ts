@@ -2,7 +2,8 @@
    the first suggestion was often a variant nobody sells ("Pulpen Gel Artline" → a gel pen with stock 0,
    0.875, over the stocked one at 0.857). Among candidates within RANK_BAND of the best score, the one
    the sales team actually sells comes first, then one in stock, then a priority brand. Never changes a
-   status, never moves a candidate pinned by code, alias or invoice, never lets a worse match jump a band. */
+   status, never moves a candidate pinned by code, alias or invoice, never lets a worse match jump a band,
+   and only touches a tie (every client word in the item): a low score is a different kind of item. */
 
 import type { MatchResult } from "./match.js";
 
@@ -18,7 +19,9 @@ export interface RankFacts {
 /** Returns new results; the band of a "review" by name is re-ordered, everything else is as given. */
 export function rerankCandidates(results: MatchResult[], facts: Map<number, RankFacts>): MatchResult[] {
   return results.map((r) => {
-    if (r.via !== "name" || r.status !== "review" || r.candidates.length < 2) return r;
+    // Only a close call between full matches (shared/match.ts tie). Live, 9 Nov: re-ranking low scores
+    // put PRINTER KASIR over "Kertas Thermal Kasir" and DAIMARU over "Lakban Bening V-TEC".
+    if (!r.tie || r.via !== "name" || r.status !== "review" || r.candidates.length < 2) return r;
     const best = r.candidates[0].score;
     const band = r.candidates.filter((c) => c.score >= best - RANK_BAND);
     if (band.length < 2) return r;
