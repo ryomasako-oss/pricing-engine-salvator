@@ -310,7 +310,7 @@ export function recapPrompt(r: AccurateRecap): string {
       lines.push(`Stok minus di rekap sebelumnya (${fmtWib(f.since)} WIB): ${grp(f.was)} barang, sudah tidak minus ${grp(f.fixed)}, masih minus ${grp(f.stillNegative)}`);
     }
   }
-  if (r.belowCost?.count) {
+  if (r.belowCost) {
     const b = r.belowCost;
     lines.push(`Faktur penjualan di bawah modal hari faktur (baris SI baru): ${grp(b.count)} dari ${grp(b.checked)} dicek, total rugi ${rp(b.lossTotal)}`);
     for (const x of b.top.slice(0, PROMPT_SKIPS)) lines.push(`- ${x.invoiceNo} ${x.code} ${x.name} ke ${x.customerName}: jual ${rp(x.net)}, modal ${rp(x.cost)}`);
@@ -416,14 +416,19 @@ export function recapEmail(
         `</div>`,
     );
   }
-  if (r.belowCost && (r.belowCost.count || r.belowCost.unknownCost || r.belowCost.doubtfulCost)) {
+  // Shown even at zero: a vanished SI section reads as a broken email, and "0 baris dicek" exposes a stalled sales sync.
+  if (r.belowCost) {
     const b = r.belowCost;
     parts.push(
-      `<div style="border:1px solid #c0392b;border-radius:6px;padding:8px 12px;margin:12px 0">` +
+      `<div style="border:1px solid ${b.count ? "#c0392b" : "#ccc"};border-radius:6px;padding:8px 12px;margin:12px 0">` +
         `<h3 style="margin:4px 0">Dijual di bawah modal (${grp(b.count)})</h3>` +
         `<p><small>Baris faktur penjualan (SI) yang masuk sejak rekap sebelumnya. Harga jual setelah diskon dan sebelum PPN, ` +
         `dibandingkan dengan harga beli dari RI terakhir sebelum tanggal faktur. ${grp(b.checked)} baris dicek` +
-        (b.count ? `, total rugi <strong style="color:#c0392b">${esc(rp(b.lossTotal))}</strong>` : "") +
+        (b.count
+          ? `, total rugi <strong style="color:#c0392b">${esc(rp(b.lossTotal))}</strong>`
+          : b.checked || b.unknownCost || b.doubtfulCost
+            ? `, tidak ada yang di bawah modal`
+            : `. Tidak ada faktur penjualan baru sejak rekap sebelumnya`) +
         `.</small></p>` +
         (b.top.length
           ? `<table style="border-collapse:collapse;font-size:13px"><tr>${th("Faktur")}${th("Klien")}${th("Kode")}${th("Nama")}${th("Jual / satuan", true)}${th("Modal / satuan", true)}${th("Rugi", true)}</tr>` +
