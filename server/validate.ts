@@ -160,9 +160,11 @@ export const catalogRowSchema = z.object({
   units: unitsSchema.optional(),
 });
 
-export const profileSchema = z.object({
-  phone: z.string().max(32).regex(/^$|^\+?[0-9 ()-]{6,20}$/, "Format nomor WhatsApp tidak valid."),
-});
+const phoneNumber = (what: string) => z.string().max(32).regex(/^$|^\+?[0-9 ()-]{6,20}$/, `Format nomor ${what} tidak valid.`);
+/** Each number is saved on its own form, so either may be left out. */
+export const profileSchema = z
+  .object({ phone: phoneNumber("WhatsApp").optional(), telegram_phone: phoneNumber("Telegram").optional() })
+  .refine((p) => p.phone !== undefined || p.telegram_phone !== undefined, "Tidak ada nomor yang diubah.");
 
 /** Formats a ZodError into one human-readable line for the UI. */
 export function zodMessage(err: z.ZodError): string {

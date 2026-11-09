@@ -25,6 +25,8 @@ export function SettingsPage() {
   const [resetRequests, setResetRequests] = useState<PasswordResetRequest[]>([]);
   const [phone, setPhone] = useState(user?.phone ?? "");
   const [savingPhone, setSavingPhone] = useState(false);
+  const [tgPhone, setTgPhone] = useState(user?.telegram_phone ?? "");
+  const [savingTg, setSavingTg] = useState(false);
 
   const loadUsers = useCallback(() => {
     if (!can("manage_users")) return;
@@ -109,6 +111,19 @@ export function SettingsPage() {
       toast("Kata sandi diperbarui.", "success");
     } catch (e) {
       toast(e instanceof Error ? e.message : "Gagal mengubah kata sandi.", "error");
+    }
+  };
+
+  const saveTgPhone = async () => {
+    setSavingTg(true);
+    try {
+      await api.patch("/auth/profile", { telegram_phone: tgPhone });
+      await refreshUser();
+      toast("Nomor Telegram disimpan.", "success");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Gagal menyimpan nomor Telegram.", "error");
+    } finally {
+      setSavingTg(false);
     }
   };
 
@@ -342,6 +357,35 @@ export function SettingsPage() {
                 disabled={savingPhone || phone === (user?.phone ?? "")}
               >
                 {savingPhone ? "Menyimpan…" : "Simpan nomor"}
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section className="card">
+          <div className="card-head"><h2>Silvy di Telegram</h2></div>
+          <div className="card-body">
+            <p className="muted small" style={{ marginTop: 0, marginBottom: 12 }}>
+              Bot Telegram @SilvySalvatorBot mengenali Anda dari nomor ini saat Anda menekan "Bagikan nomor saya".
+              Kosongkan bila nomor Telegram Anda sama dengan nomor WhatsApp di atas.
+            </p>
+            <div className="row-wrap">
+              <label className="field" style={{ minWidth: 240 }}>
+                <span>Nomor Telegram saya</span>
+                <input
+                  className="input"
+                  placeholder={phone || "+62 812-3456-7890"}
+                  value={tgPhone}
+                  onChange={(e) => setTgPhone(e.target.value)}
+                />
+              </label>
+              <button
+                className="btn primary"
+                style={{ alignSelf: "flex-end" }}
+                onClick={saveTgPhone}
+                disabled={savingTg || tgPhone === (user?.telegram_phone ?? "")}
+              >
+                {savingTg ? "Menyimpan…" : "Simpan nomor"}
               </button>
             </div>
           </div>
