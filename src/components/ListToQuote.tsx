@@ -15,7 +15,7 @@
    (shared/listDrafts.ts): a draft keeps the read lines and the picks by
    code, and opening it matches the lines again so prices are today's. */
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useCatalogSearch } from "./useCatalogSearch";
 import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
@@ -347,19 +347,21 @@ export function ListToQuote({
 
   // Prices for staff: the same lines the quote will be built from, priced by
   // the server without saving anything. Index i -> unit price.
-  const [prices, setPrices] = useState<Record<number, number>>({});
-  const previewKey = JSON.stringify(lines.map((l) => l && [l.code, l.qty, l.uom, l.rrp]));
+  // Keyed "r{i}" for a row's own line and "a{i}_{k}" for its extra items ("+ Barang lain").
+  const [prices, setPrices] = useState<Record<string, number>>({});
+  const previewKey = JSON.stringify([lines.map((l) => l && [l.code, l.qty, l.uom, l.rrp]), alsoLines.map((ls) => ls.map((l) => [l.code, l.qty, l.uom]))]);
   useEffect(() => {
     if (seeCosts || !rows) return;
-    const send = lines
-      .map((l, i) => l && l.holdReason !== "unmatched" && { id: `r${i}`, code: l.code, name: l.name, qty: l.qty, uom: l.uom, rrp: l.rrp })
-      .filter(Boolean);
+    const send = [
+      ...lines.map((l, i) => l && l.holdReason !== "unmatched" && { id: `r${i}`, code: l.code, name: l.name, qty: l.qty, uom: l.uom, rrp: l.rrp }),
+      ...alsoLines.flatMap((ls, i) => ls.map((l, k) => ({ id: `a${i}_${k}`, code: l.code, name: l.name, qty: l.qty, uom: l.uom, rrp: l.rrp }))),
+    ].filter(Boolean);
     if (!send.length) return setPrices({});
     let live = true;
     const t = setTimeout(() => {
       api
         .post<{ quote: { items: { id: string; price: number }[] } }>("/quotes/preview", { snapshot: { items: send } })
-        .then((r) => live && setPrices(Object.fromEntries(r.quote.items.map((it) => [Number(it.id.slice(1)), it.price]))))
+        .then((r) => live && setPrices(Object.fromEntries(r.quote.items.map((it) => [it.id, it.price]))))
         .catch(() => live && setPrices({}));
     }, 300);
     return () => {
@@ -670,7 +672,8 @@ export function ListToQuote({
                   const pack = chosenItem && !row.request.uom && !row.request.noQty ? readPackUnit(row.request.name, chosenItem) : {};
                   const readUnit = pack.uom && chosenItem && !sameUom(pack.uom, chosenItem.uom || "Pcs") ? pack.uom : null;
                   return (
-                    <tr key={i} className={row.chosen == null ? "is-unused" : undefined}>
+                    <Fragment key={i}>
+                    <tr className={row.chosen == null ? "is-unused" : undefined}>
                       <td className="l muted">{i + 1}</td>
                       <td className="l">
                         <div className="cell-title">{row.request.name}</div>
@@ -756,27 +759,6 @@ export function ListToQuote({
                             }}
                           />
                         )}
-                        {(row.also ?? []).length > 0 && (
-                          <div className="row-wrap also-list">
-                            {(row.also ?? []).map((id) => {
-                              const it = items.get(id);
-                              if (!it) return null;
-                              return (
-                                <span key={id} className="chip">
-                                  + {it.name}
-                                  <button
-                                    type="button"
-                                    className="link-btn"
-                                    aria-label={`Hapus ${it.name} dari baris ${row.request.name}`}
-                                    onClick={() => setAlso(i, (row.also ?? []).filter((x) => x !== id))}
-                                  >
-                                    ×
-                                  </button>
-                                </span>
-                              );
-                            })}
-                          </div>
-                        )}
                         <button
                           type="button"
                           className="link-btn"
@@ -831,14 +813,57 @@ export function ListToQuote({
                           <span className="muted">ditahan</span>
                         ) : seeCosts ? (
                           grp(line.cogs)
-                        ) : prices[i] != null ? (
-                          <strong>{grp(prices[i])}</strong>
+                        ) : prices[`r${i}`] != null ? (
+                          <strong>{grp(prices[`r${i}`])}</strong>
                         ) : (
                           <span className="muted">…</span>
                         )}
                       </td>
                       <td className="num">{line ? grp(line.rrp) : <span className="muted">—</span>}</td>
                     </tr>
+                    {/* "+ Barang lain": each extra item is its own quote line, with its own cost and ceiling. */}
+                    {(row.also ?? []).map((id, k) => {
+                      const it = items.get(id);
+                      const al = alsoLines[i]?.find((l) => l.code === it?.code);
+                      if (!it || !al) return null;
+                      return (
+                        <tr key={`a${id}`} className="also-row">
+                          <td className="l muted">{i + 1}.{k + 1}</td>
+                          <td className="l muted small">Barang lain untuk "{row.request.name}"</td>
+                          <td className="num">{grp(al.qty)}</td>
+                          <td className="l">
+                            <div className="cell-title">{it.name}</div>
+                            <div className="muted small">{[shownCode(it.code), al.uom].filter(Boolean).join(" · ")}</div>
+                            {it.cogs_problem && (
+                              <div className="cell-warn">{it.cogs_problem}. Masuk sebagai baris ditahan sampai dicek manajer.</div>
+                            )}
+                          </td>
+                          <td className="l">
+                            <button
+                              type="button"
+                              className="btn small ghost"
+                              aria-label={`Hapus ${it.name} dari baris ${row.request.name}`}
+                              onClick={() => setAlso(i, (row.also ?? []).filter((x) => x !== id))}
+                            >
+                              Hapus
+                            </button>
+                          </td>
+                          <td className="num">
+                            {al.held && !seeCosts ? (
+                              <span className="muted">ditahan</span>
+                            ) : seeCosts ? (
+                              grp(al.cogs)
+                            ) : prices[`a${i}_${k}`] != null ? (
+                              <strong>{grp(prices[`a${i}_${k}`])}</strong>
+                            ) : (
+                              <span className="muted">…</span>
+                            )}
+                          </td>
+                          <td className="num">{grp(al.rrp)}</td>
+                        </tr>
+                      );
+                    })}
+                    </Fragment>
                   );
                 })}
               </tbody>

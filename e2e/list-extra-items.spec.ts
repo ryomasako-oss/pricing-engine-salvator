@@ -17,10 +17,13 @@ test("a row with two extra items makes three quote lines", async ({ page, errors
   const box = page.getByLabel("Kata kunci katalog");
   await box.fill("lakban");
   await page.getByRole("button", { name: /LAKBAN BENING 48MM/ }).first().click();
-  await expect(page.getByRole("button", { name: /^Hapus .*LAKBAN BENING 48MM/ })).toBeVisible();
+  // Its own row, with its own COGS (admin sees costs), not folded into the request's row.
+  const lakban = page.locator("tr.also-row", { hasText: "LAKBAN BENING 48MM" });
+  await expect(lakban).toBeVisible();
+  await expect(lakban.locator("td.num").nth(1)).not.toHaveText(await page.locator("tbody tr").first().locator("td.num").nth(1).innerText());
   await box.fill("kertas");
   await page.getByRole("button", { name: /KERTAS HVS BOLA DUNIA/ }).first().click();
-  await expect(page.locator(".also-list .chip")).toHaveCount(2);
+  await expect(page.locator("tr.also-row")).toHaveCount(2);
 
   await expect(page.getByText(/^3 item masuk/)).toBeVisible();
   await page.getByLabel("Judul quotation").fill("Barang lain e2e");
