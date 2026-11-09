@@ -120,9 +120,13 @@ export function ListToQuote({
   const [stage, setStage] = useState<"file" | "ai" | "match">("match");
   const [error, setError] = useState("");
   const [drag, setDrag] = useState(false);
-  const [searchRow, setSearchRow] = useState<number | null>(null);
-  // The row whose "Tambah barang lain" search is open.
-  const [alsoRow, setAlsoRow] = useState<number | null>(null);
+  // One search open at a time, in one row: the magnifier ("search": replace the pick) or "+ Barang lain"
+  // ("also"). Moving to another row, ×, or Escape closes it.
+  const [panel, setPanel] = useState<{ row: number; kind: "search" | "also" } | null>(null);
+  const searchRow = panel?.kind === "search" ? panel.row : null;
+  const setSearchRow = (row: number | null) => setPanel(row == null ? null : { row, kind: "search" });
+  const alsoRow = panel?.kind === "also" ? panel.row : null;
+  const setAlsoRow = (row: number | null) => setPanel(row == null ? null : { row, kind: "also" });
   /** Row whose "Barang baru" form is open (catatan 24/25: a row with no match can still become an item). */
   const [newItemRow, setNewItemRow] = useState<number | null>(null);
   const [uomOptions, setUomOptions] = useState<string[]>([]);
@@ -673,7 +677,12 @@ export function ListToQuote({
                   const readUnit = pack.uom && chosenItem && !sameUom(pack.uom, chosenItem.uom || "Pcs") ? pack.uom : null;
                   return (
                     <Fragment key={i}>
-                    <tr className={row.chosen == null ? "is-unused" : undefined}>
+                    <tr
+                      className={row.chosen == null ? "is-unused" : undefined}
+                      // Before the click lands: touching another row closes this row's open search.
+                      onMouseDownCapture={() => panel && panel.row !== i && setPanel(null)}
+                      onFocusCapture={() => panel && panel.row !== i && setPanel(null)}
+                    >
                       <td className="l muted">{i + 1}</td>
                       <td className="l">
                         <div className="cell-title">{row.request.name}</div>
@@ -752,6 +761,7 @@ export function ListToQuote({
                           <CatalogSearch
                             initial={row.request.name}
                             seeCosts={seeCosts}
+                            onClose={() => setPanel(null)}
                             onPick={(it) => {
                               setItems((m) => new Map(m).set(it.id, it));
                               update(i, { chosen: it.id, confirmed: true, unitOk: false, extra: [...row.extra, it.id] });
@@ -771,6 +781,7 @@ export function ListToQuote({
                           <CatalogSearch
                             initial={row.request.name}
                             seeCosts={seeCosts}
+                            onClose={() => setPanel(null)}
                             onPick={(it) => {
                               if (it.id === row.chosen || (row.also ?? []).includes(it.id)) return;
                               setItems((m) => new Map(m).set(it.id, it));
@@ -880,11 +891,14 @@ function CatalogSearch({
   initial,
   seeCosts,
   onPick,
+  onClose,
 }: {
   initial: string;
   /** PE-1: the server strips cogs for a rep, so the chip must not print it either. */
   seeCosts: boolean;
   onPick: (item: CatalogItem) => void;
+  /** × and Escape: put the search away. */
+  onClose: () => void;
 }) {
   const [q, setQ] = useState(initial);
   // As you type, a page at a time; the list scrolls and loads more near its end (useCatalogSearch).
@@ -893,8 +907,18 @@ function CatalogSearch({
   return (
     <div className="cell-stack inline-search">
       <div className="picker-row">
-        <input className="input" autoFocus value={q} onChange={(e) => setQ(e.target.value)} aria-label="Kata kunci katalog" />
+        <input
+          className="input"
+          autoFocus
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => e.key === "Escape" && (e.stopPropagation(), onClose())}
+          aria-label="Kata kunci katalog"
+        />
         {busy && <span className="muted small">Mencari…</span>}
+        <button type="button" className="icon-btn" onClick={onClose} aria-label="Tutup pencarian" title="Tutup pencarian">
+          <Icon name="x" size={15} />
+        </button>
       </div>
       {suggestion && (
         <span className="muted small">
