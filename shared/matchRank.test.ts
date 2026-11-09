@@ -36,7 +36,7 @@ describe("rerankCandidates", () => {
   const facts = (o: Record<number, Partial<RankFacts>>) =>
     new Map(Object.entries(o).map(([id, f]) => [Number(id), { sold: 0, inStock: false, priorityBrand: false, ...f }]));
   const review = (cands: [number, number][], over: Partial<MatchResult> = {}): MatchResult => ({
-    index: 0, status: "review", via: "name", candidates: cands.map(([id, score]) => ({ id, score })), ...over,
+    index: 0, status: "review", via: "name", tie: true, candidates: cands.map(([id, score]) => ({ id, score })), ...over,
   });
 
   it("within the band: sold first, then in stock, then a priority brand", () => {
@@ -51,6 +51,11 @@ describe("rerankCandidates", () => {
     expect(r.candidates.map((c) => c.id)).toEqual([10, 11]);
     const [s] = rerankCandidates([review([[10, 0.9], [11, 0.89]])], new Map());
     expect(s.candidates.map((c) => c.id)).toEqual([10, 11]);
+  });
+  it("leaves a low-score review alone: a bestseller there is often another kind of item", () => {
+    // Live, 9 Nov: "Kertas Thermal Kasir" 0.6 thermal paper vs 0.583 PRINTER KASIR, which sells more.
+    const [r] = rerankCandidates([review([[20, 0.6], [21, 0.583]], { tie: undefined })], facts({ 21: { sold: 500, inStock: true } }));
+    expect(r.candidates.map((c) => c.id)).toEqual([20, 21]);
   });
   it("leaves pinned and settled results alone", () => {
     const f = facts({ 11: { sold: 99 } });
