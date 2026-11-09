@@ -43,7 +43,10 @@ export function CatalogPage() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(0);
-  const [sortBy, setSortBy] = useState<"name" | "stock" | "cogs" | "list_price">("name");
+  // "" = by relevance while searching (shared/catalogSearch.ts), by name otherwise; a column header sorts.
+  const [sortBy, setSortBy] = useState<"" | "name" | "stock" | "cogs" | "list_price">("");
+  const [suggestion, setSuggestion] = useState<string | null>(null);
+  const [partial, setPartial] = useState(false);
   const [imageFilter, setImageFilter] = useState<"all" | "with" | "without">("all");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [loading, setLoading] = useState(true);
@@ -73,16 +76,17 @@ export function CatalogPage() {
       q: query.trim(),
       limit: String(PAGE),
       offset: String(page * PAGE),
-      sortBy,
-      sortDir,
+      ...(sortBy ? { sortBy, sortDir } : {}),
       ...(imageFilter === "all" ? {} : { image: imageFilter }),
     });
     api
-      .get<{ items: CatalogItem[]; total: number; stockAsOf: string | null }>(`/catalog?${params}`)
+      .get<{ items: CatalogItem[]; total: number; stockAsOf: string | null; suggestion?: string | null; partial?: boolean }>(`/catalog?${params}`)
       .then((r) => {
         setItems(r.items);
         setTotal(r.total);
         setStockAsOf(r.stockAsOf);
+        setSuggestion(r.suggestion ?? null);
+        setPartial(!!r.partial);
       })
       .catch((e) => toast(e.message, "error"))
       .finally(() => setLoading(false));
@@ -258,6 +262,23 @@ export function CatalogPage() {
             {grp(total)} item cocok{stockAsOf && ` · stok Accurate per ${fmtDateTime(stockAsOf)}`}
           </span>
         </div>
+        {partial && items.length > 0 && (
+          <p className="note pad">Tidak ada barang yang cocok dengan semua kata. Ini yang paling mendekati.</p>
+        )}
+        {suggestion && (
+          <p className="note pad">
+            Mungkin maksud Anda:{" "}
+            <button
+              className="link-btn"
+              onClick={() => {
+                setQuery(suggestion);
+                setPage(0);
+              }}
+            >
+              {suggestion}
+            </button>
+          </p>
+        )}
 
         {loading ? (
           <div className="card-body skeleton-list" role="status" aria-label="Memuat katalog…">

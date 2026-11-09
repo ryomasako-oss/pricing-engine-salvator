@@ -2,6 +2,11 @@
 
 export interface Bindings {
   DB: D1Database;
+  /* Pencarian AI (server/worker/catalogSemantic.ts): Workers AI + a Vectorize index of catalog
+     embeddings, used only when CATALOG_SEMANTIC_SEARCH = "true". Both optional. */
+  AI?: Ai;
+  CATALOG_VECTORS?: VectorizeIndex;
+  CATALOG_SEMANTIC_SEARCH?: string;
   ASSETS: Fetcher;
   JWT_SECRET: string;
   NODE_ENV?: string;

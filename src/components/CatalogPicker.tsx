@@ -1,7 +1,7 @@
 /* Adds priced catalogue items to a quote. Cost comes from the imported
    inventory, and the ceiling defaults to the item master's list price. */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { fmtDateTime, grp } from "@shared/format";
@@ -13,6 +13,8 @@ import { Modal } from "./Modal";
 import { UomCell } from "./UomCell";
 import { Thumb } from "./Thumb";
 import { NewItemForm } from "./NewItemForm";
+
+const PAGE = 50;
 
 export function CatalogPicker({
   onClose,
@@ -32,11 +34,19 @@ export function CatalogPicker({
   const [total, setTotal] = useState(0);
   const [stockAsOf, setStockAsOf] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  // Typo correction and "no item has every word" from the search (shared/catalogSearch.ts).
+  const [suggestion, setSuggestion] = useState<string | null>(null);
+  const [partial, setPartial] = useState(false);
+  const [byMeaning, setByMeaning] = useState(0);
+  const seq = useRef(0);
   const [chosen, setChosen] = useState<Record<number, number>>({});
   // Items stay picked across searches, but a later search replaces `items` and
   // drops earlier matches from it. Cache the full row here so add() doesn't
   // need the item to still be in the current search results.
   const [pickedItems, setPickedItems] = useState<Record<number, CatalogItem>>({});
+  // What was typed when each item was picked: the search learns it (POST /catalog/search-picks).
+  const [pickedQuery, setPickedQuery] = useState<Record<number, string>>({});
   const [onlyPriced, setOnlyPriced] = useState(true);
   // Managed satuan list. A row's UOM can be switched at pick time (e.g. an
   // item mastered in Pcs but ordered per Lusin); COGS/RRP are rescaled with
@@ -54,24 +64,52 @@ export function CatalogPicker({
       .catch(() => setUomOptions([]));
   }, []);
 
+  type Page = { items: CatalogItem[]; total: number; stockAsOf: string | null; suggestion?: string | null; partial?: boolean; byMeaning?: number };
+  const params = useCallback(
+    (offset: number) => {
+      const p = new URLSearchParams({ q: query.trim(), limit: String(PAGE), offset: String(offset) });
+      if (onlyPriced) p.set("withCogs", "1");
+      return p;
+    },
+    [query, onlyPriced],
+  );
+
+  // Results follow the typing; a slower, older answer never replaces a newer one.
   const search = useCallback(() => {
+    const mine = ++seq.current;
     setLoading(true);
-    const params = new URLSearchParams({ q: query.trim(), limit: "60" });
-    if (onlyPriced) params.set("withCogs", "1");
     api
-      .get<{ items: CatalogItem[]; total: number; stockAsOf: string | null }>(`/catalog?${params}`)
+      .get<Page>(`/catalog?${params(0)}`)
       .then((r) => {
+        if (mine !== seq.current) return;
         setItems(r.items);
         setTotal(r.total);
         setStockAsOf(r.stockAsOf);
+        setSuggestion(r.suggestion ?? null);
+        setPartial(!!r.partial);
+        setByMeaning(r.byMeaning ?? 0);
       })
-      .finally(() => setLoading(false));
-  }, [query, onlyPriced]);
+      .finally(() => mine === seq.current && setLoading(false));
+  }, [params]);
 
   useEffect(() => {
-    const t = setTimeout(search, 220);
+    const t = setTimeout(search, 150);
     return () => clearTimeout(t);
   }, [search]);
+
+  // The next page as the list nears its end, so a long result list keeps scrolling.
+  const loadMore = () => {
+    if (loading || loadingMore || items.length >= total) return;
+    const mine = seq.current;
+    setLoadingMore(true);
+    api
+      .get<Page>(`/catalog?${params(items.length)}`)
+      .then((r) => {
+        if (mine !== seq.current) return;
+        setItems((prev) => [...prev, ...r.items.filter((i) => !prev.some((p) => p.id === i.id))]);
+      })
+      .finally(() => setLoadingMore(false));
+  };
 
   const selected = useMemo(
     () => Object.entries(chosen).filter(([, qty]) => qty > 0),
@@ -93,6 +131,14 @@ export function CatalogPicker({
         return item ? lineFor(item, qty) : null;
       })
       .filter(Boolean) as QuoteItem[];
+    const byQuery = new Map<string, string[]>();
+    for (const [id] of selected) {
+      const q = pickedQuery[Number(id)];
+      const item = pickedItems[Number(id)];
+      if (q && item) byQuery.set(q, [...(byQuery.get(q) ?? []), item.code]);
+    }
+    // Learning is best effort: a failure never blocks adding the items.
+    for (const [q, codes] of byQuery) void api.post("/catalog/search-picks", { q, codes: codes.slice(0, 50) }).catch(() => undefined);
     onAdd(picked);
   };
 
@@ -142,7 +188,21 @@ export function CatalogPicker({
         </button>
       </div>
 
-      {loading ? (
+      {suggestion && (
+        <p className="note first">
+          Mungkin maksud Anda:{" "}
+          <button className="link-btn" onClick={() => setQuery(suggestion)}>
+            {suggestion}
+          </button>
+        </p>
+      )}
+      {partial && items.length > 0 && (
+        <p className="note first">Tidak ada barang yang cocok dengan semua kata. Ini yang paling mendekati.</p>
+      )}
+      {byMeaning > 0 && items.length > 0 && (
+        <p className="note first">{byMeaning} barang ditemukan dari kemiripan makna (AI), bukan dari kata yang sama persis.</p>
+      )}
+      {loading && items.length === 0 ? (
         <div className="loading"><span className="dots"><i /><i /><i /></span> Mencari…</div>
       ) : items.length === 0 ? (
         <div className="empty">
@@ -156,7 +216,13 @@ export function CatalogPicker({
           </button>
         </div>
       ) : (
-        <div className="table-wrap scroll">
+        <div
+          className="table-wrap scroll"
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            if (el.scrollTop + el.clientHeight > el.scrollHeight - 240) loadMore();
+          }}
+        >
           <table className="table">
             <thead>
               <tr>
@@ -214,6 +280,8 @@ export function CatalogPicker({
                       onChange={(e) => {
                         setChosen((c) => ({ ...c, [item.id]: Math.max(0, Number(e.target.value)) }));
                         setPickedItems((p) => ({ ...p, [item.id]: item }));
+                        const typed = query.trim();
+                        if (typed) setPickedQuery((p) => ({ ...p, [item.id]: typed }));
                       }}
                       aria-label={`Qty untuk ${item.name}`}
                     />
@@ -223,6 +291,16 @@ export function CatalogPicker({
               })}
             </tbody>
           </table>
+          {items.length < total && (
+            <div className="table-foot">
+              <span className="muted small grow">
+                {items.length} dari {total} ditampilkan
+              </span>
+              <button className="btn small ghost" onClick={loadMore} disabled={loadingMore}>
+                {loadingMore ? "Memuat…" : "Muat lagi"}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </Modal>

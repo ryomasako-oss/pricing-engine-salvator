@@ -39,6 +39,18 @@ const GROUPS: string[][] = [
   ["KABEL", "CABLE"],
   ["SEKAT", "DIVIDER"],
   ["SARUNG", "GLOVE", "GLOVES"],
+  // Warna (catalog names mix both: "HITAM" and "BLACK", "MERAH" and "RED").
+  ["HITAM", "BLACK"],
+  ["MERAH", "RED"],
+  ["BIRU", "BLUE"],
+  ["HIJAU", "GREEN"],
+  ["KUNING", "YELLOW"],
+  ["PUTIH", "WHITE"],
+  ["UNGU", "PURPLE", "VIOLET"],
+  ["COKLAT", "COKELAT", "BROWN"],
+  ["ABU", "GREY", "GRAY"],
+  ["ORANYE", "ORANGE", "JINGGA"],
+  ["BENING", "TRANSPARAN", "CLEAR", "TRANSPARENT"],
 ];
 
 const BY_WORD = new Map<string, string[]>();
@@ -67,4 +79,10 @@ export function searchWords(q: string): WordMatch[] {
         synonyms: group.filter((w) => w !== typed.toUpperCase()).map((word) => ({ word, whole: word.length <= WHOLE_WORD_MAX })),
       };
     });
+}
+
+/** The other words of a typed word's group, lowercase ("spidol" → ["marker"]); none when it has no group. */
+export function synonymsOf(word: string): string[] {
+  const up = (word ?? "").toUpperCase();
+  return (BY_WORD.get(up) ?? []).filter((w) => w !== up).map((w) => w.toLowerCase());
 }

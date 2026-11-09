@@ -28,6 +28,8 @@ import { cogsProblemsFor } from "../quoteService";
 import { sweepPending } from "./pendingItems";
 import { catalogEntity } from "../accurate/sync";
 import { costLines } from "../accurate/receipts";
+import { forgetCatalogIndex, recordPicks, saveSearchPriority, searchPriority, searchWithMeaning, type IndexedItem } from "../catalogSearchIndex";
+import { indexCatalogPage } from "../catalogSemantic";
 import { lastSales, salesEnabled, salesNameMap } from "../accurate/sales";
 import { normalizeText } from "../../../shared/match";
 import { canSeeCosts, catalogItemsForViewer, problemsForViewer } from "../../staffView";
@@ -40,6 +42,51 @@ import type { Env } from "../env";
 
 export const catalogRouter = new Hono<Env>();
 catalogRouter.use(requireAuth);
+// Any catalog write: the next search in this isolate rebuilds its index (catalogSearchIndex.ts).
+catalogRouter.use(async (c, next) => {
+  await next();
+  if (c.req.method !== "GET" && c.res.status < 400) forgetCatalogIndex();
+});
+
+const searchPriorityInput = z.object({ priority: z.array(z.string().trim().min(1).max(80)).max(12) });
+
+/** Pengaturan › Pencarian: the priority categories, and every category to choose from. */
+catalogRouter.get("/search-settings", async (c) => {
+  const categories = await all<{ category: string; items: number }>(
+    c.env.DB,
+    "SELECT category, COUNT(*) AS items FROM catalog_items WHERE category != '' GROUP BY category ORDER BY items DESC, category",
+  );
+  return c.json({ priority: await searchPriority(c.env.DB), categories });
+});
+
+const searchPicksInput = z.object({ q: z.string().trim().min(1).max(200), codes: z.array(z.string().min(1).max(64)).min(1).max(50) });
+
+/** Learn from habit: these items were picked after typing `q` (shared/catalogSearch.ts). */
+catalogRouter.post("/search-picks", async (c) => {
+  const parsed = searchPicksInput.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
+  await recordPicks(c.env.DB, parsed.data.q, parsed.data.codes);
+  return c.json({ ok: true });
+});
+
+/** Pencarian AI: embed one page of the catalog into the Vectorize index; call again with `next` until null. */
+catalogRouter.post("/search-index", requirePermission("manage_company"), async (c) => {
+  const offset = Math.max(0, Number(c.req.query("offset")) || 0);
+  const limit = Math.min(1000, Math.max(1, Number(c.req.query("limit")) || 500));
+  if (!c.env.AI || !c.env.CATALOG_VECTORS) return c.json({ error: "Pencarian AI belum dipasang (binding AI dan CATALOG_VECTORS)." }, 503);
+  const r = await indexCatalogPage(c.env, offset, limit);
+  await audit(c.env.DB, c.get("user")!.id, "catalog", 0, "search_index_page", { offset, ...r });
+  return c.json(r);
+});
+
+catalogRouter.put("/search-settings", requirePermission("edit_catalog"), async (c) => {
+  const parsed = searchPriorityInput.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
+  const priority = [...new Set(parsed.data.priority)];
+  await saveSearchPriority(c.env.DB, priority);
+  await audit(c.env.DB, c.get("user")!.id, "settings", 0, "search_priority_updated", { priority });
+  return c.json({ priority });
+});
 
 const CHUNK = 90;
 
@@ -94,20 +141,9 @@ catalogRouter.get("/", async (c) => {
   // Daftar kode bergambar sudah basi? Perbarui sekalian (bucket R2).
   await refreshItemImagesIfStale(c.env);
 
-  const where: string[] = [];
-  const params: (string | number)[] = [];
-  if (q) {
-    where.push("(name LIKE ? OR code LIKE ?)");
-    params.push(`%${q}%`, `%${q}%`);
-  }
-  if (withCogs) where.push("cogs > 0");
   // Filter gambar: "with" = punya gambar, "without" = belum. Kode lain diabaikan (sama dengan "semua").
   const imageFilter = c.req.query("image");
-  if (imageFilter === "with") where.push("code IN (SELECT code FROM item_images)");
-  if (imageFilter === "without") where.push("code NOT IN (SELECT code FROM item_images)");
-  const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
-
-  const sortColumns: Record<string, string> = {
+  const sortColumns: Record<string, keyof IndexedItem> = {
     name: "name",
     code: "code",
     stock: "stock",
@@ -116,18 +152,55 @@ catalogRouter.get("/", async (c) => {
   };
   // Sorting by COGS would tell staff which items cost more (PE-1).
   const sortKey = c.req.query("sortBy") ?? "";
-  const sortField = (sortKey === "cogs" && !canSeeCosts(c.get("user")!.role) ? undefined : sortColumns[sortKey]) ?? "name";
-  const sortDir = (c.req.query("sortDir") ?? "").toLowerCase() === "desc" ? "DESC" : "ASC";
-  const orderBy = sortField === "name" ? "name" : `${sortField} ${sortDir}, name`;
+  const sortField = sortKey === "cogs" && !canSeeCosts(c.get("user")!.role) ? undefined : sortColumns[sortKey];
+  const desc = (c.req.query("sortDir") ?? "").toLowerCase() === "desc";
 
-  const total = await get<{ n: number }>(c.env.DB, `SELECT COUNT(*) AS n FROM catalog_items ${clause}`, ...params);
-  const items = await all<CatalogItem>(
-    c.env.DB,
-    `SELECT * FROM catalog_items ${clause} ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
-    ...params,
-    limit,
-    offset,
-  );
+  let items: CatalogItem[];
+  let total: number;
+  let suggestion: string | null = null;
+  let partial = false;
+  let byMeaning = 0;
+  if (q) {
+    // Ala mesin cari (shared/catalogSearch.ts): ranked by relevance unless a column sort is asked for.
+    const found = await searchWithMeaning(c.env, q);
+    suggestion = found.suggestion;
+    partial = found.partial;
+    byMeaning = found.byMeaning;
+    let rows = found.items.filter(
+      (r) => (!withCogs || r.cogs > 0) && (imageFilter === "with" ? r.has_image : imageFilter === "without" ? !r.has_image : true),
+    );
+    if (sortField) {
+      const dir = desc ? -1 : 1;
+      rows = [...rows].sort((a, b) => {
+        const x = a[sortField];
+        const y = b[sortField];
+        const cmp = typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y));
+        return dir * cmp || a.name.localeCompare(b.name);
+      });
+    }
+    total = rows.length;
+    const page = rows.slice(offset, offset + limit).map((r) => r.code);
+    const full = new Map<string, CatalogItem>();
+    for (let i = 0; i < page.length; i += 90) {
+      const chunk = page.slice(i, i + 90);
+      for (const r of await all<CatalogItem>(c.env.DB, `SELECT * FROM catalog_items WHERE code IN (${chunk.map(() => "?").join(",")})`, ...chunk)) {
+        full.set(r.code, r);
+      }
+    }
+    items = page.map((code) => full.get(code)).filter((r): r is CatalogItem => !!r);
+    // An item deleted since the index was built is not counted, so "load more" stops at the real end.
+    total -= page.length - items.length;
+  } else {
+    const where: string[] = [];
+    if (withCogs) where.push("cogs > 0");
+    if (imageFilter === "with") where.push("code IN (SELECT code FROM item_images)");
+    if (imageFilter === "without") where.push("code NOT IN (SELECT code FROM item_images)");
+    const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+    const field = sortField ?? "name";
+    const orderBy = field === "name" ? `name ${desc ? "DESC" : "ASC"}` : `${field} ${desc ? "DESC" : "ASC"}, name`;
+    total = (await get<{ n: number }>(c.env.DB, `SELECT COUNT(*) AS n FROM catalog_items ${clause}`))?.n ?? 0;
+    items = await all<CatalogItem>(c.env.DB, `SELECT * FROM catalog_items ${clause} ORDER BY ${orderBy} LIMIT ? OFFSET ?`, limit, offset);
+  }
   const codes = items.map((i) => i.code);
   const units = await unitsByCode(c.env.DB, codes);
   const withUnits = items.map((i) => ({ ...i, units: units.get(i.code) ?? [] }));
@@ -137,8 +210,11 @@ catalogRouter.get("/", async (c) => {
   const stockAsOf = await get<{ value: string }>(c.env.DB, "SELECT value FROM settings WHERE key = ?", STOCK_AS_OF_KEY);
   return c.json({
     items: visible.map((i) => ({ ...i, image: images.get(i.code) ?? null })),
-    total: total?.n ?? 0,
+    total,
     stockAsOf: stockAsOf?.value ?? null,
+    suggestion,
+    partial,
+    byMeaning,
   });
 });
 

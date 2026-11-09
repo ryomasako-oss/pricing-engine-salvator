@@ -174,9 +174,11 @@ describe("synonyms in the chat search (Ryoma, 2026-11-09)", () => {
       const r = await runChatSearch(db, { kind: "catalog", q }, false);
       return "items" in r ? r.items.map((i) => i.code) : [];
     };
-    // Artline first (priority brand), then by name.
-    expect(await codes("spidol permanen")).toEqual(["A1", "J1", "S1"]);
-    expect(await codes("permanen spidol")).toEqual(["A1", "J1", "S1"]);
+    // Artline first (priority brand), then by relevance (shared/catalogSearch.ts); word order does not matter.
+    const permanen = await codes("spidol permanen");
+    expect(permanen[0]).toBe("A1");
+    expect([...permanen].sort()).toEqual(["A1", "J1", "S1"]);
+    expect(await codes("permanen spidol")).toEqual(permanen);
     expect((await codes("pulpen")).sort()).toEqual(["P1", "P2"]);
     expect((await codes("kertas a4")).sort()).toEqual(["K1", "K2"]);
     expect(await codes("spidol artline")).toEqual(["A1", "W1"]);
