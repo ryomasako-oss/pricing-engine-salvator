@@ -1119,7 +1119,8 @@ a.btn, a.btn:hover { text-decoration: none; }
 .picker-row { display: flex; align-items: center; gap: var(--space-2); }
 .inline-search { margin-top: var(--space-2); }
 /* Small picker results (Dari list klien, Pencocokan): a long list scrolls in place and loads more near its end. */
-.also-list { margin-top: var(--space-2); }
+/* "+ Barang lain": an extra item under its request row (ListToQuote). */
+.table tr.also-row > td { background: var(--color-layer-2, var(--color-hover)); }
 .pick-scroll { max-height: 280px; overflow-y: auto; display: flex; flex-wrap: wrap; gap: var(--space-2); align-content: flex-start; }
 .cell-warn { font: var(--text-caption); color: var(--color-warn-text); }
 .card.send-pic { padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); }

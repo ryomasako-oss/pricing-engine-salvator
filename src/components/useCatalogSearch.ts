@@ -23,6 +23,7 @@ export function useCatalogSearch(q: string, pageSize = 30) {
   useEffect(() => {
     const mine = ++seq.current;
     if (!query) {
+      setBusy(false);
       setItems(null);
       setTotal(0);
       setSuggestion(null);
