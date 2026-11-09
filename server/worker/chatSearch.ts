@@ -13,6 +13,7 @@ import { all, get } from "../db.d1";
 import { COGS_JUMP, cogsProblem } from "../../shared/cogsCheck";
 import type { ChatSearch } from "../chat";
 import { PRIORITY_BRAND_SQL, splitBrandQuery } from "../../shared/priorityBrands";
+import { searchWords } from "../../shared/searchSynonyms";
 
 export const SEARCH_LIMIT = 20;
 
@@ -44,9 +45,15 @@ export async function runChatSearch(db: D1Database, s: ChatSearch, canSeeCosts: 
       where.push(`(${catalog.map(() => (catalog[0] === "GM" ? "(' ' || UPPER(c.name) || ' ') LIKE ?" : "UPPER(c.name) LIKE ?")).join(" OR ")})`);
       params.push(...catalog.map((w) => (w === "GM" ? "% GM %" : `%${w}%`)));
     }
-    if (!catalog || /\p{L}/u.test(rest)) {
-      where.push("(c.name LIKE ? OR c.code LIKE ?)");
-      params.push(`%${rest}%`, `%${rest}%`);
+    // Each remaining word, in any order, also by its synonyms ("spidol permanen" finds PERMANENT MARKER).
+    for (const w of searchWords(rest)) {
+      const alts = ["c.name LIKE ?", "c.code LIKE ?"];
+      params.push(`%${w.typed}%`, `%${w.typed}%`);
+      for (const syn of w.synonyms) {
+        alts.push(syn.whole ? "(' ' || UPPER(c.name) || ' ') LIKE ?" : "UPPER(c.name) LIKE ?");
+        params.push(syn.whole ? `% ${syn.word} %` : `%${syn.word}%`);
+      }
+      where.push(`(${alts.join(" OR ")})`);
     }
   }
   if (s.cogsMin !== undefined) where.push("c.cogs >= ?"), params.push(s.cogsMin);

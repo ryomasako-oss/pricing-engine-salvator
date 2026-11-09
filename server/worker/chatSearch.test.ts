@@ -151,3 +151,29 @@ describe("priority brands typed another way", () => {
     expect(await codes("powertec")).toEqual(["P1"]);
   });
 });
+
+describe("synonyms in the chat search (Ryoma, 2026-11-09)", () => {
+  it("finds the Artline PERMANENT MARKER for 'spidol permanen', without PEN matching PENSIL", async () => {
+    const { runChatSearch } = await import("./chatSearch");
+    const sqlite = new DatabaseSync(":memory:");
+    const dir = path.resolve(import.meta.dirname, "../../migrations");
+    for (const f of readdirSync(dir).filter((f) => f.endsWith(".sql")).sort()) sqlite.exec(readFileSync(path.join(dir, f), "utf8"));
+    const add = sqlite.prepare("INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock) VALUES(?, ?, 'Pcs', 1000, 2000, 1)");
+    for (const [code, name] of [
+      ["A1", "ARTLINE PERMANENT MARKER EK-70 BLUE"], ["J1", "JOYKO SPIDOL PERMANENT PM-17 BLACK"], ["S1", "SNOWMAN SPIDOL PERMANEN BLACK G-12"],
+      ["W1", "ARTLINE WHITEBOARD MARKER EK-157 BLACK"], ["P1", "JOYKO GEL PEN GP-265"], ["P2", "STANDARD BALLPOINT AE7"], ["X1", "FABER PENSIL 2B"],
+      ["K1", "SIDU KERTAS A4 70GR"], ["K2", "PAPERLINE PAPER A4 80GR"],
+    ]) add.run(code, name);
+    const db = new D1DatabaseShim(sqlite) as unknown as D1Database;
+    const codes = async (q: string) => {
+      const r = await runChatSearch(db, { kind: "catalog", q }, false);
+      return "items" in r ? r.items.map((i) => i.code) : [];
+    };
+    // Artline first (priority brand), then by name.
+    expect(await codes("spidol permanen")).toEqual(["A1", "J1", "S1"]);
+    expect(await codes("permanen spidol")).toEqual(["A1", "J1", "S1"]);
+    expect((await codes("pulpen")).sort()).toEqual(["P1", "P2"]);
+    expect((await codes("kertas a4")).sort()).toEqual(["K1", "K2"]);
+    expect(await codes("spidol artline")).toEqual(["A1", "W1"]);
+  });
+});
