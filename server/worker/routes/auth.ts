@@ -43,6 +43,7 @@ authRouter.post("/login", async (c) => {
     role: row.role,
     active: row.active,
     phone: row.phone,
+    telegram_phone: row.telegram_phone,
     created_at: row.created_at,
   };
   await issueSession(c, user, row.token_version);
@@ -126,18 +127,23 @@ authRouter.post("/password", requireAuth, async (c) => {
   return c.json({ ok: true });
 });
 
-/** Self-service: a user sets their own WhatsApp number for approval-workflow notifications. */
+/** Self-service: a user sets their own WhatsApp number (approval notifications) and Telegram number (Silvy bot). */
 authRouter.patch("/profile", requireAuth, async (c) => {
   const user = c.get("user")!;
   const parsed = profileSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
 
-  await run(c.env.DB, "UPDATE users SET phone = ? WHERE id = ?", parsed.data.phone, user.id);
-  await audit(c.env.DB, user.id, "user", user.id, "profile_updated", { phone: Boolean(parsed.data.phone) });
+  const { phone, telegram_phone } = parsed.data;
+  if (phone !== undefined) await run(c.env.DB, "UPDATE users SET phone = ? WHERE id = ?", phone, user.id);
+  if (telegram_phone !== undefined) await run(c.env.DB, "UPDATE users SET telegram_phone = ? WHERE id = ?", telegram_phone, user.id);
+  await audit(c.env.DB, user.id, "user", user.id, "profile_updated", {
+    ...(phone !== undefined && { phone: Boolean(phone) }),
+    ...(telegram_phone !== undefined && { telegram_phone: Boolean(telegram_phone) }),
+  });
   return c.json({
     user: await get<User>(
       c.env.DB,
-      "SELECT id, email, name, role, active, phone, created_at FROM users WHERE id = ?",
+      "SELECT id, email, name, role, active, phone, telegram_phone, created_at FROM users WHERE id = ?",
       user.id,
     ),
   });
@@ -148,7 +154,7 @@ authRouter.patch("/profile", requireAuth, async (c) => {
 authRouter.get("/users", requirePermission("manage_users"), async (c) => {
   const users = await all<User>(
     c.env.DB,
-    "SELECT id, email, name, role, active, phone, created_at FROM users ORDER BY name",
+    "SELECT id, email, name, role, active, phone, telegram_phone, created_at FROM users ORDER BY name",
   );
   return c.json({ users });
 });
@@ -179,7 +185,7 @@ authRouter.post("/users", requirePermission("manage_users"), async (c) => {
   );
   const id = Number(info.meta.last_row_id);
   await audit(c.env.DB, actor.id, "user", id, "created", { email: parsed.data.email, role: parsed.data.role });
-  const user = await get<User>(c.env.DB, "SELECT id, email, name, role, active, phone, created_at FROM users WHERE id = ?", id);
+  const user = await get<User>(c.env.DB, "SELECT id, email, name, role, active, phone, telegram_phone, created_at FROM users WHERE id = ?", id);
   return c.json({ user }, 201);
 });
 
@@ -233,6 +239,6 @@ authRouter.patch("/users/:id", requirePermission("manage_users"), async (c) => {
       id,
     );
   await audit(c.env.DB, actor.id, "user", id, "updated", { ...d, password: d.password ? "(reset)" : undefined });
-  const user = await get<User>(c.env.DB, "SELECT id, email, name, role, active, phone, created_at FROM users WHERE id = ?", id);
+  const user = await get<User>(c.env.DB, "SELECT id, email, name, role, active, phone, telegram_phone, created_at FROM users WHERE id = ?", id);
   return c.json({ user });
 });

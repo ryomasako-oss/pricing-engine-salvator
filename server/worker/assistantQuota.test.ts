@@ -18,7 +18,7 @@ const payloads = {
   ask: { context, messages: [{ role: "user", content: "hello" }] },
   document: { context, kind: "briefing" },
 };
-const user: User = { id: 1, email: "m@x", name: "M", role: "manager", active: 1, phone: "", created_at: "2026-10-10 00:00:00" };
+const user: User = { id: 1, email: "m@x", name: "M", role: "manager", active: 1, phone: "", telegram_phone: "", created_at: "2026-10-10 00:00:00" };
 
 async function fakeAgent(holdFirst: boolean, status = 200) {
   let calls = 0;
