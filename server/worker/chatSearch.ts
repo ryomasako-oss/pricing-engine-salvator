@@ -12,6 +12,7 @@
 import { all, get } from "../db.d1";
 import { COGS_JUMP, cogsProblem } from "../../shared/cogsCheck";
 import type { ChatSearch } from "../chat";
+import { PRIORITY_BRAND_SQL } from "../../shared/priorityBrands";
 
 export const SEARCH_LIMIT = 20;
 
@@ -48,7 +49,7 @@ export async function runChatSearch(db: D1Database, s: ChatSearch, canSeeCosts: 
 
   const rows = await all<{ code: string; name: string; uom: string; stock: number; cogs: number; list_price: number; reference: number | null }>(
     db,
-    `SELECT c.code, c.name, c.uom, c.stock, c.cogs, c.list_price, b.cogs AS reference ${from} ORDER BY c.name LIMIT ?`,
+    `SELECT c.code, c.name, c.uom, c.stock, c.cogs, c.list_price, b.cogs AS reference ${from} ORDER BY ${PRIORITY_BRAND_SQL} DESC, c.name LIMIT ?`,
     ...params,
     SEARCH_LIMIT,
   );

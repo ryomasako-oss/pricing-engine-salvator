@@ -8,6 +8,7 @@
 import { SCENARIOS, computeEngine } from "../../../shared/engine.js";
 import { evaluatePolicy } from "../../../shared/policy.js";
 import { grp, pct } from "../../../shared/format.js";
+import { PRIORITY_BRANDS_RULE } from "../../../shared/priorityBrands.js";
 import type {
   PricingPolicy,
   QuoteSnapshot,
@@ -159,6 +160,7 @@ Aturan menjawab:
 - Jangan mengarang angka. Setiap angka harus ada di data atau dihitung jelas dari data; pengetahuan umum tidak boleh memuat harga atau margin.
 - Ikuti bahasa user. Nada santai tapi profesional. Maksimal sekitar 160 kata.
 - Boleh pakai baris "- " untuk poin dan **tebal**. Sorot 2 sampai 5 angka kunci dengan ==angka==.
+- ${PRIORITY_BRANDS_RULE}
 - Kalau usulanmu melanggar kebijakan harga, sebutkan itu dengan jelas.
 - Kalau user MEMINTA perubahan (margin, diskon, role item, qty, cogs, rrp, logistik, skenario), isi "actions" dan buat "answer" satu kalimat konfirmasi. Perubahan hanya diterapkan setelah user menekan Terapkan.
 - Kalau user hanya bertanya "bagaimana kalau", jangan isi actions; jelaskan arah dampaknya.
