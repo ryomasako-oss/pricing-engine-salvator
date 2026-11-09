@@ -13,17 +13,16 @@ test("a row with two extra items makes three quote lines", async ({ page, errors
   await page.locator('input[type="file"]').setInputFiles(LIST);
 
   const row = "Kertas HVS Sinar Dunia A4 70gr";
-  // The magnifier opens the search; "+ Tambah" adds an item beside the row's own pick.
-  await page.getByRole("button", { name: `Cari di katalog untuk ${row}` }).click();
+  await page.getByRole("button", { name: `Tambah barang lain untuk ${row}` }).click();
   const box = page.getByLabel("Kata kunci katalog");
   await box.fill("lakban");
-  await page.getByRole("button", { name: "Tambah LAKBAN BENING 48MM sebagai barang lain" }).click();
+  await page.getByRole("button", { name: /LAKBAN BENING 48MM/ }).first().click();
   // Its own row, with its own COGS (admin sees costs), not folded into the request's row.
   const lakban = page.locator("tr.also-row", { hasText: "LAKBAN BENING 48MM" });
   await expect(lakban).toBeVisible();
   await expect(lakban.locator("td.num").nth(1)).not.toHaveText(await page.locator("tbody tr").first().locator("td.num").nth(1).innerText());
   await box.fill("kertas");
-  await page.getByRole("button", { name: "Tambah KERTAS HVS BOLA DUNIA A4 70GR sebagai barang lain" }).click();
+  await page.getByRole("button", { name: /KERTAS HVS BOLA DUNIA/ }).first().click();
   await expect(page.locator("tr.also-row")).toHaveCount(2);
 
   await expect(page.getByText(/^3 item masuk/)).toBeVisible();
@@ -36,4 +35,32 @@ test("a row with two extra items makes three quote lines", async ({ page, errors
   expect(quote.items).toHaveLength(3);
   expect(quote.items[0].name).toMatch(/SINAR DUNIA/);
   expect(quote.items[1].name).toMatch(/LAKBAN BENING 48MM/);
+});
+
+test("an open search closes on ×, on Escape, and when moving to another row", async ({ page, errors }) => {
+  void errors;
+  const LIST = csvFile("dua.csv", [["Nama Barang", "Qty", "Satuan"], ["Kertas HVS Sinar Dunia A4 70gr", "5", "Rim"], ["Lakban bening", "2", "Roll"]]);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Dari list klien" }).click();
+  await page.locator('input[type="file"]').setInputFiles(LIST);
+  const box = page.getByLabel("Kata kunci katalog");
+
+  await page.getByRole("button", { name: "Cari di katalog untuk Kertas HVS Sinar Dunia A4 70gr" }).click();
+  await expect(box).toBeVisible();
+  await page.getByRole("button", { name: "Tutup pencarian" }).click();
+  await expect(box).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Tambah barang lain untuk Kertas HVS Sinar Dunia A4 70gr" }).click();
+  await expect(box).toBeVisible();
+  await box.press("Escape");
+  await expect(box).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Quotation dari list klien" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Cari di katalog untuk Kertas HVS Sinar Dunia A4 70gr" }).click();
+  await expect(box).toBeVisible();
+  await page.getByLabel("Item katalog untuk Lakban bening").click();
+  await expect(box).toHaveCount(0);
+  // Opening another row's search leaves only that one open.
+  await page.getByRole("button", { name: "Cari di katalog untuk Lakban bening" }).click();
+  await expect(box).toHaveCount(1);
 });
