@@ -154,7 +154,7 @@ export function CogsHistoryPage() {
                       <p className="muted">Belum ada RI dalam riwayat yang tersimpan.</p>
                     ) : (
                       <div className="table-wrap">
-                        <table className="table">
+                        <table className="table stack">
                           <thead>
                             <tr>
                               <th className="l">Nomor RI</th>
@@ -167,13 +167,13 @@ export function CogsHistoryPage() {
                           <tbody>
                             {c.receipts.map((r, i) => (
                               <tr key={r.receiptNo + i}>
-                                <td className="l num nowrap">{r.receiptNo}</td>
-                                <td className="l nowrap">{fmtDate(r.transDate)}</td>
-                                <td className="num">{grp(r.quantity)}</td>
-                                <td className="num nowrap">
-                                  {rp(r.unitPrice)} <span className="muted">/ {r.unit || "satuan dasar"}</span>
+                                <td className="l num nowrap stack-title">{r.receiptNo}</td>
+                                <td className="l nowrap" data-label="Tanggal">{fmtDate(r.transDate)}</td>
+                                <td className="num" data-label="Qty">{grp(r.quantity)}</td>
+                                <td className="num nowrap" data-label="Harga / satuan">
+                                  <span>{rp(r.unitPrice)} <span className="muted">/ {r.unit || "satuan dasar"}</span></span>
                                 </td>
-                                <td className="l">
+                                <td className="l stack-action">
                                   <div className="badge-row">
                                     {i === 0 && <span className="badge blue">Terbaru</span>}
                                     {r.used && (

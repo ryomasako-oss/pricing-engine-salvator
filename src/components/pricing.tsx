@@ -116,7 +116,7 @@ export function CompareTable({ engine }: { engine: EngineResult }) {
       <table className="table">
         <thead>
           <tr>
-            <th className="l">Metrik</th>
+            <th className="l label-col">Metrik</th>
             {SCENARIOS.map((s, i) => (
               <th key={s.key} style={{ color: `var(--s${i + 1})` }}>
                 {s.key} {s.name}

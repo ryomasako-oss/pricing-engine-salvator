@@ -138,7 +138,7 @@ export function QuotationDoc({
           <thead>
             <tr>
               {layout.columns.map((c) => (
-                <th key={c.key} className={ALIGN[c.key] === "l" ? "l" : undefined}>{c.label}</th>
+                <th key={c.key} className={c.key === "name" ? "l label-col" : ALIGN[c.key] === "l" ? "l" : undefined}>{c.label}</th>
               ))}
             </tr>
           </thead>

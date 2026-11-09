@@ -149,7 +149,7 @@ export function SalesHistoryPage() {
                   <div className="card-section">
                     <h4 className="label-title">Faktur terbaru</h4>
                     <div className="table-wrap">
-                      <table className="table">
+                      <table className="table stack">
                         <thead>
                           <tr>
                             <th className="l">Tanggal</th>
@@ -162,16 +162,17 @@ export function SalesHistoryPage() {
                         <tbody>
                           {c.sales.map((s, i) => (
                             <tr key={s.invoiceNo + i}>
-                              <td className="l nowrap">{fmtDate(s.transDate)}</td>
-                              <td className="l num nowrap">{s.invoiceNo}</td>
-                              <td className="l">
+                              <td className="l nowrap" data-label="Tanggal">{fmtDate(s.transDate)}</td>
+                              <td className="l num nowrap" data-label="Nomor faktur">{s.invoiceNo}</td>
+                              <td className="l stack-title">
                                 {s.customerName || "—"}
                                 {s.detailName && <div className="muted small">“{s.detailName}”</div>}
                               </td>
-                              <td className="num nowrap">
-                                {grp(s.quantity)} {s.unit}
+                              <td className="num nowrap" data-label="Qty">
+                                <span>{grp(s.quantity)} {s.unit}</span>
                               </td>
-                              <td className="num nowrap">
+                              <td className="num nowrap" data-label="Harga">
+                                <div>
                                 {s.price === null ? (
                                   <span className="badge grey">Diretur semua</span>
                                 ) : (
@@ -184,6 +185,7 @@ export function SalesHistoryPage() {
                                     )}
                                   </>
                                 )}
+                                </div>
                               </td>
                             </tr>
                           ))}

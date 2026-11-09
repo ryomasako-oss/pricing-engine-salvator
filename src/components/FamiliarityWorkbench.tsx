@@ -307,7 +307,7 @@ export function FamiliarityWorkbench() {
         <div className="card match-result">
           <div className="card-body empty">
             <h3>Belum ada daftar</h3>
-            <p>Tempel atau unggah daftar barang klien di kiri, lalu klik Cocokkan. Hasilnya muncul di sini.</p>
+            <p>Tempel atau unggah daftar barang klien, lalu klik Cocokkan. Hasilnya muncul di sini.</p>
           </div>
         </div>
       ) : (
