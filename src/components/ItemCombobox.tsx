@@ -124,6 +124,11 @@ export function ItemCombobox({
             } else if (e.key === "ArrowUp") {
               e.preventDefault();
               setActive((a) => Math.max(a - 1, 0));
+            } else if (e.key === "Enter" && e.shiftKey && open && options[active] && !e.nativeEvent.isComposing) {
+              // Keyboard twin of "+ Tambah": the highlighted item becomes one more item for the request.
+              e.preventDefault();
+              const it = options[active].item;
+              if (it.source !== "pending" && it.id !== value?.id && !added.includes(it.id)) onAdd(it);
             } else if (e.key === "Enter" && open && options[active] && !e.nativeEvent.isComposing) {
               e.preventDefault();
               choose(options[active].item);
@@ -164,6 +169,7 @@ export function ItemCombobox({
                   ? "Tidak ada yang cocok dengan semua kata · ini yang paling mendekati"
                   : `Hasil cari katalog${total ? ` · ${grp(total)} barang` : ""}`
               : "Saran pencocokan · ketik untuk mencari di seluruh katalog"}
+            <span className="combo-keys"> · Enter pilih · Shift+Enter tambah</span>
           </div>
           {typing && suggestion && (
             <div className="combo-group small">

@@ -28,6 +28,39 @@ const TTL_MS = 60_000;
 // The build in flight is shared, so a burst of searches on a cold isolate reads the catalog once.
 let cached: { db: D1Database; at: number; index: Promise<SearchIndex<IndexedItem>> } | null = null;
 
+/* Popularity moves slowly (a year of SI/PI, every quote) and is the expensive read, so it is kept for an hour,
+   apart from the minute-long index. shortcut: a quotes scan per hour per isolate; a counts table kept by the
+   quote save would replace it once there are thousands of quotes (that save is the main developer's logic). */
+const POPULARITY_TTL_MS = 60 * 60_000;
+let popCache: { db: D1Database; at: number; value: Promise<Map<string, number>> } | null = null;
+
+function popularity(db: D1Database): Promise<Map<string, number>> {
+  if (popCache && popCache.db === db && Date.now() - popCache.at < POPULARITY_TTL_MS) return popCache.value;
+  const value = (async () => {
+    const [sold, bought, quoted] = await Promise.all([
+      all<{ code: string; n: number }>(
+        db,
+        "SELECT item_code AS code, COUNT(DISTINCT invoice_id) AS n FROM accurate_sales_lines WHERE trans_date >= date('now', '-365 day') GROUP BY item_code",
+      ),
+      all<{ code: string; n: number }>(
+        db,
+        "SELECT item_code AS code, COUNT(DISTINCT receipt_id) AS n FROM accurate_purchase_lines WHERE trans_date >= date('now', '-365 day') GROUP BY item_code",
+      ).catch(() => []),
+      // Counted in SQL: no quote JSON crosses into the Worker.
+      all<{ code: string; n: number }>(
+        db,
+        "SELECT TRIM(json_extract(j.value, '$.code')) AS code, COUNT(*) AS n FROM quotes q, json_each(q.items) j WHERE json_valid(q.items) GROUP BY 1",
+      ).catch(() => []),
+    ]);
+    const pop = new Map<string, number>();
+    for (const r of [...sold, ...bought, ...quoted]) if (r.code) pop.set(r.code, (pop.get(r.code) ?? 0) + r.n);
+    return pop;
+  })();
+  popCache = { db, at: Date.now(), value };
+  value.catch(() => popCache?.value === value && (popCache = null));
+  return value;
+}
+
 /** Drop the index so the next search rebuilds it (call after a catalog write in this isolate). */
 export function forgetCatalogIndex(): void {
   cached = null;
@@ -49,32 +82,13 @@ async function buildIndex(db: D1Database): Promise<SearchIndex<IndexedItem>> {
        FROM catalog_items c`,
   );
   // What it learns from (catalogSearch.ts): wordings matched before, and how often each item appears on
-  // sales invoices (SI) and purchase invoices (PI) of the last year and on quotations.
-  const [aliases, sold, bought, quotes] = await Promise.all([
+  // sales invoices (SI) and purchase invoices (PI) of the last year and on quotations (popularity()).
+  const [aliases, pop] = await Promise.all([
     all<{ code: string; alias: string }>(db, "SELECT code, alias FROM catalog_aliases"),
-    all<{ code: string; n: number }>(
-      db,
-      "SELECT item_code AS code, COUNT(DISTINCT invoice_id) AS n FROM accurate_sales_lines WHERE trans_date >= date('now', '-365 day') GROUP BY item_code",
-    ),
-    all<{ code: string; n: number }>(
-      db,
-      "SELECT item_code AS code, COUNT(DISTINCT receipt_id) AS n FROM accurate_purchase_lines WHERE trans_date >= date('now', '-365 day') GROUP BY item_code",
-    ).catch(() => []),
-    // shortcut: reads every quote's items once a minute; fine for hundreds of quotes, a counts table past that.
-    all<{ items: string }>(db, "SELECT items FROM quotes"),
+    popularity(db),
   ]);
   const aliasOf = new Map<string, string[]>();
   for (const a of aliases) aliasOf.set(a.code, [...(aliasOf.get(a.code) ?? []), a.alias]);
-  const pop = new Map<string, number>();
-  const bump = (code: string, n: number) => code && pop.set(code, (pop.get(code) ?? 0) + n);
-  for (const r of [...sold, ...bought]) bump(r.code, r.n);
-  for (const q of quotes) {
-    try {
-      for (const it of JSON.parse(q.items) as { code?: string }[]) bump(String(it.code ?? "").trim(), 1);
-    } catch {
-      /* a quote with unreadable items adds nothing */
-    }
-  }
   const full: IndexedItem[] = rows.map((r) => ({ ...r, aliases: aliasOf.get(r.code) ?? [], popularity: pop.get(r.code) ?? 0 }));
   return buildSearchIndex(full);
 }
