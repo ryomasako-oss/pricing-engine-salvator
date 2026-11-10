@@ -44,10 +44,13 @@ import type { Env } from "../env";
 
 export const catalogRouter = new Hono<Env>();
 catalogRouter.use(requireAuth);
-// Any catalog write: the next search in this isolate rebuilds its index (catalogSearchIndex.ts).
+// A catalog write: the next search in this isolate rebuilds its index (catalogSearchIndex.ts). POSTs that
+// only read (matching, units, the COGS check) or only record a search pick leave it alone: a rebuild reads
+// the whole catalog, a year of SI/PI and every quote.
+const READ_ONLY_POSTS = /\/(match|units|cogs-check|search-picks)\/?$/;
 catalogRouter.use(async (c, next) => {
   await next();
-  if (c.req.method !== "GET" && c.res.status < 400) forgetCatalogIndex();
+  if (c.req.method !== "GET" && c.res.status < 400 && !READ_ONLY_POSTS.test(c.req.path)) forgetCatalogIndex();
 });
 
 const searchPriorityInput = z.object({ priority: z.array(z.string().trim().min(1).max(80)).max(12) });
@@ -67,7 +70,10 @@ const searchPicksInput = z.object({ q: z.string().trim().min(1).max(200), codes:
 catalogRouter.post("/search-picks", async (c) => {
   const parsed = searchPicksInput.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
-  await recordPicks(c.env.DB, parsed.data.q, parsed.data.codes);
+  // Only codes that are in the catalog: a made-up code would sit in the table and rank nothing.
+  const codes = [...new Set(parsed.data.codes)];
+  const known = await all<{ code: string }>(c.env.DB, `SELECT code FROM catalog_items WHERE code IN (${codes.map(() => "?").join(",")})`, ...codes);
+  if (known.length) await recordPicks(c.env.DB, parsed.data.q, known.map((k) => k.code));
   return c.json({ ok: true });
 });
 
@@ -159,10 +165,15 @@ catalogRouter.get("/", async (c) => {
 
   let items: CatalogItem[];
   let total: number;
+  // Exact codes (a reopened draft's picks): no search ranking, up to 90 at once.
+  const exact = (c.req.query("codes") ?? "").split(",").map((x) => x.trim()).filter(Boolean).slice(0, 90);
   let suggestion: string | null = null;
   let partial = false;
   let byMeaning = 0;
-  if (q) {
+  if (exact.length) {
+    items = await all<CatalogItem>(c.env.DB, `SELECT * FROM catalog_items WHERE code COLLATE NOCASE IN (${exact.map(() => "?").join(",")})`, ...exact);
+    total = items.length;
+  } else if (q) {
     // Ala mesin cari (shared/catalogSearch.ts): ranked by relevance unless a column sort is asked for.
     const found = await searchWithMeaning(c.env, q);
     suggestion = found.suggestion;

@@ -5,6 +5,7 @@
    on Escape, on a click outside, or when another row is touched (ListToQuote). */
 
 import { useEffect, useId, useRef, useState } from "react";
+import { api } from "../api";
 import { grp } from "@shared/format";
 import type { CatalogItem } from "@shared/types";
 import { useCatalogSearch } from "./useCatalogSearch";
@@ -48,7 +49,7 @@ export function ItemCombobox({
   const root = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const listId = useId();
-  const { items: found, total, suggestion, busy, loadMore } = useCatalogSearch(open ? q : "");
+  const { items: found, total, suggestion, partial, busy, loadMore, fresh } = useCatalogSearch(open ? q : "");
 
   // Each opening starts from the suggestions.
   useEffect(() => {
@@ -60,10 +61,13 @@ export function ItemCombobox({
   }, [open, onClose]);
 
   const typing = q.trim().length > 0;
-  const options: Suggestion[] = typing ? (found ?? []).map((item) => ({ item })) : suggestions;
+  // While typing, only results for what is typed now: an older search's list must not be picked by Enter.
+  const options: Suggestion[] = typing ? (fresh ? (found ?? []) : []).map((item) => ({ item })) : suggestions;
   useEffect(() => setActive(0), [q]);
 
   const choose = (item: CatalogItem | null) => {
+    // A pick after typing teaches the search (shared/catalogSearch.ts "picked"); best effort.
+    if (item && typing && item.source !== "pending") void api.post("/catalog/search-picks", { q: q.trim(), codes: [item.code] }).catch(() => undefined);
     onChoose(item);
     onClose();
     input.current?.blur();
@@ -93,6 +97,10 @@ export function ItemCombobox({
           value={open ? q : value ? value.name : ""}
           placeholder={open ? value?.name || "Ketik untuk mencari di katalog" : "— tidak dipakai —"}
           onFocus={onOpen}
+          // Tab out of the box (not into its own list) puts it away.
+          onBlur={(e) => {
+            if (open && !root.current?.contains(e.relatedTarget as Node | null)) onClose();
+          }}
           onClick={onOpen}
           onChange={(e) => {
             if (!open) onOpen();
@@ -110,7 +118,7 @@ export function ItemCombobox({
             } else if (e.key === "ArrowUp") {
               e.preventDefault();
               setActive((a) => Math.max(a - 1, 0));
-            } else if (e.key === "Enter" && open && options[active]) {
+            } else if (e.key === "Enter" && open && options[active] && !e.nativeEvent.isComposing) {
               e.preventDefault();
               choose(options[active].item);
             }
@@ -126,7 +134,13 @@ export function ItemCombobox({
       {open && (
         <div className="combo-pop">
           <div className="combo-group muted small">
-            {typing ? (busy && !found ? "Mencari…" : `Hasil cari katalog${total ? ` · ${grp(total)} barang` : ""}`) : "Saran pencocokan · ketik untuk mencari di seluruh katalog"}
+            {typing
+              ? !fresh
+                ? "Mencari…"
+                : partial
+                  ? "Tidak ada yang cocok dengan semua kata · ini yang paling mendekati"
+                  : `Hasil cari katalog${total ? ` · ${grp(total)} barang` : ""}`
+              : "Saran pencocokan · ketik untuk mencari di seluruh katalog"}
           </div>
           {typing && suggestion && (
             <div className="combo-group small">
@@ -147,7 +161,7 @@ export function ItemCombobox({
             }}
           >
             {options.length === 0 && (
-              <li className="combo-empty muted small">{typing ? (busy ? "Mencari…" : "Tidak ada. Coba kata yang lebih pendek, misal merek saja.") : "Belum ada saran. Ketik untuk mencari."}</li>
+              <li className="combo-empty muted small">{typing ? (!fresh || busy ? "Mencari…" : "Tidak ada. Coba kata yang lebih pendek, misal merek saja.") : "Belum ada saran. Ketik untuk mencari."}</li>
             )}
             {options.map((s, k) => {
               const isAdded = added.includes(s.item.id);
@@ -172,9 +186,15 @@ export function ItemCombobox({
                   <button
                     type="button"
                     className="btn small ghost"
-                    disabled={isAdded || isValue}
+                    disabled={isAdded || isValue || s.item.source === "pending"}
                     aria-label={`Tambah ${s.item.name} sebagai barang lain`}
-                    title={isAdded ? "Sudah ditambahkan" : "Tambah sebagai barang lain (baris sendiri)"}
+                    title={
+                      s.item.source === "pending"
+                        ? "Barang baru belum ada di katalog: pilih sebagai barang baris ini"
+                        : isAdded
+                          ? "Sudah ditambahkan"
+                          : "Tambah sebagai barang lain (baris sendiri)"
+                    }
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -186,7 +206,7 @@ export function ItemCombobox({
                 </li>
               );
             })}
-            {typing && found && found.length < total && (
+            {typing && fresh && found && found.length < total && (
               <li className="combo-empty">
                 <button type="button" className="btn small ghost" onMouseDown={(e) => e.preventDefault()} onClick={loadMore} disabled={busy}>
                   Muat lagi ({found.length} dari {total})

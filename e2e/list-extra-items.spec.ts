@@ -81,3 +81,44 @@ test("one box: suggestions, search, pick, clear; closes on Escape, outside click
   await page.getByRole("button", { name: "Kosongkan pilihan untuk Lakban bening" }).click();
   await expect(lakban).toHaveValue("");
 });
+
+test("numbering: 1, 1.1, 2 or 1, 2, 3, remembered", async ({ page, errors }) => {
+  void errors;
+  const LIST = csvFile("nomor.csv", [["Nama Barang", "Qty", "Satuan"], ["Kertas HVS Sinar Dunia A4 70gr", "5", "Rim"], ["Lakban bening", "2", "Roll"]]);
+  await page.goto("/");
+  await page.evaluate(() => localStorage.removeItem("ltq-nomor"));
+  await page.getByRole("button", { name: "Dari list klien" }).click();
+  await page.locator('input[type="file"]').setInputFiles(LIST);
+  // No choice while no row has extra items.
+  await expect(page.getByRole("group", { name: "Penomoran barang lain" })).toHaveCount(0);
+  const box = page.getByRole("combobox", { name: "Item katalog untuk Kertas HVS Sinar Dunia A4 70gr" });
+  await box.fill("lakban");
+  await page.getByRole("button", { name: "Tambah LAKBAN BENING 48MM sebagai barang lain" }).click();
+  await box.press("Escape");
+  const nums = page.locator(".ltq-table tbody tr > td:first-child");
+  await expect(nums).toHaveText(["1", "1.1", "2"]);
+  await page.getByRole("button", { name: "1, 2, 3" }).click();
+  await expect(nums).toHaveText(["1", "2", "3"]);
+  expect(await page.evaluate(() => localStorage.getItem("ltq-nomor"))).toBe("flat");
+});
+
+test("a request served only by extra items is not a held 'menyusul' line", async ({ page, errors }) => {
+  void errors;
+  const LIST = csvFile("served.csv", [["Nama Barang", "Qty", "Satuan"], ["Kertas HVS Sinar Dunia A4 70gr", "5", "Rim"]]);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Dari list klien" }).click();
+  await page.locator('input[type="file"]').setInputFiles(LIST);
+  const box = page.getByRole("combobox", { name: "Item katalog untuk Kertas HVS Sinar Dunia A4 70gr" });
+  await box.fill("kertas bola");
+  await page.getByRole("button", { name: "Tambah KERTAS HVS BOLA DUNIA A4 70GR sebagai barang lain" }).click();
+  await box.press("Escape");
+  await page.getByRole("button", { name: "Kosongkan pilihan untuk Kertas HVS Sinar Dunia A4 70gr" }).click();
+  await expect(page.getByText(/^1 item masuk$/)).toBeVisible();
+  await expect(page.getByText(/menyusul/)).toHaveCount(0);
+  await page.getByLabel("Judul quotation").fill("Dilayani barang lain");
+  await page.getByRole("button", { name: /Buat quotation/ }).click();
+  await expect(page).toHaveURL(/\/quotes\/\d+$/);
+  const id = Number(page.url().split("/").pop());
+  const { quote } = (await (await page.request.get(`/api/quotes/${id}`)).json()) as { quote: { items: { name: string }[] } };
+  expect(quote.items.map((i) => i.name)).toEqual([expect.stringMatching(/BOLA DUNIA/)]);
+});

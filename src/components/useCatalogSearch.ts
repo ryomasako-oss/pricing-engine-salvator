@@ -5,12 +5,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { CatalogItem } from "@shared/types";
 
-type Page = { items: CatalogItem[]; total: number; suggestion?: string | null };
+type Page = { items: CatalogItem[]; total: number; suggestion?: string | null; partial?: boolean };
 
 export function useCatalogSearch(q: string, pageSize = 30) {
   const [items, setItems] = useState<CatalogItem[] | null>(null);
   const [total, setTotal] = useState(0);
   const [suggestion, setSuggestion] = useState<string | null>(null);
+  const [partial, setPartial] = useState(false);
+  // The query the shown items answer: until it equals the typed one, they are the previous search's.
+  const [answered, setAnswered] = useState("");
   const [busy, setBusy] = useState(false);
   const seq = useRef(0);
   const query = q.trim();
@@ -27,6 +30,8 @@ export function useCatalogSearch(q: string, pageSize = 30) {
       setItems(null);
       setTotal(0);
       setSuggestion(null);
+      setPartial(false);
+      setAnswered("");
       return;
     }
     const t = setTimeout(() => {
@@ -37,6 +42,8 @@ export function useCatalogSearch(q: string, pageSize = 30) {
           setItems(r.items);
           setTotal(r.total);
           setSuggestion(r.suggestion ?? null);
+          setPartial(!!r.partial);
+          setAnswered(query);
         })
         .catch(() => mine === seq.current && setItems([]))
         .finally(() => mine === seq.current && setBusy(false));
@@ -51,10 +58,14 @@ export function useCatalogSearch(q: string, pageSize = 30) {
     fetchPage(items.length)
       .then((r) => {
         if (mine !== seq.current) return;
-        setItems((prev) => [...(prev ?? []), ...r.items.filter((i) => !(prev ?? []).some((p) => p.id === i.id))]);
+        const fresh = r.items.filter((i) => !(items ?? []).some((p) => p.id === i.id));
+        setItems((prev) => [...(prev ?? []), ...fresh]);
+        // Nothing new (the list changed under us): stop offering more instead of asking again forever.
+        setTotal(fresh.length ? r.total : (items ?? []).length);
       })
+      .catch(() => mine === seq.current && setTotal((items ?? []).length))
       .finally(() => mine === seq.current && setBusy(false));
   }, [busy, items, total, fetchPage]);
 
-  return { items, total, suggestion, busy, loadMore };
+  return { items, total, suggestion, partial, busy, loadMore, fresh: answered === query };
 }

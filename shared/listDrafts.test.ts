@@ -89,3 +89,13 @@ describe("extra items for one request (binder clip → several binder clips)", (
     expect(back.rows[0].also).toEqual([2, 3]);
   });
 });
+
+describe("a reopened draft whose extra item left the catalog", () => {
+  it("counts it as lost", () => {
+    const items = new Map([[1, item(1, "BC-15")]]);
+    const choices = [{ chosen: { kind: "catalog" as const, code: "BC-15" }, confirmed: true, extra: [], also: ["GONE-1"] }];
+    const back = restoreRows([lines[0]], [result(0, "match", [1])], choices, items);
+    expect(back.lost).toBe(1);
+    expect(back.rows[0].also).toBeUndefined();
+  });
+});

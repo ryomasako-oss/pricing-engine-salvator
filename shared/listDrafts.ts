@@ -136,6 +136,8 @@ export function restoreRows(
     if (!saved) return fresh;
     const extra = saved.extra.map((code) => byCode.get(code.toLowerCase())?.id).filter((id): id is number => id != null);
     const also = (saved.also ?? []).map((code) => byCode.get(code.toLowerCase())?.id).filter((id): id is number => id != null);
+    // An extra item gone from the catalog is said, like a lost pick.
+    lost += (saved.also ?? []).length - also.length;
     if (also.length) fresh.also = also;
     if (!saved.chosen) return { ...fresh, chosen: null, confirmed: saved.confirmed, extra };
     let id: number | undefined;
