@@ -3,7 +3,7 @@
    salah satuan, emang salah harga, atau salah yang mana lagi?").
    A loss row is only a guess at a real loss; these marks say when the numbers look like a recording
    slip instead. They never hide a row or change the loss: the user checks the invoice in Accurate.
-   A row with no slip mark is "rugi sungguhan" (lossCause). */
+   A row with no slip mark is "tanpa tanda": not proof of a loss either (pemilik: "jangan judging"). */
 
 export type HintKind =
   | "unit" // cost ≈ a pack size × price
@@ -65,7 +65,7 @@ export function belowCostHints(r: {
   const ratio = r.net > 0 ? r.cost / r.net : 0;
   const pack = PACKS.find((k) => Math.abs(ratio / k - 1) <= 0.08);
   if (pack) out.push({ kind: "unit", label: `Cek satuan: harga beli ≈ ${pack}× harga jual` });
-  else if (ratio >= 1.08 && ratio <= 1.14) out.push({ kind: "ppn", label: "Cek PPN: selisih ≈ 11%, mungkin salah centang \"termasuk pajak\"" });
+  else if (ratio >= 1.08 && ratio <= 1.14) out.push({ kind: "ppn", label: "Cek PPN: selisih ≈ 11%, cek centang \"termasuk pajak\" di nota" });
   if (r.saleUnit && !same(r.saleUnit, r.baseUom) && !(r.saleRatio > 1)) {
     out.push({ kind: "sale_unit", label: `Cek satuan: isi 1 ${r.saleUnit} di faktur jual belum diisi` });
   }
@@ -98,19 +98,19 @@ export const looksLikeSlip = (hints: Hint[]) => hints.some((h) => !INFO.includes
 
 /** Filter groups for the report: what the owner asked to tell apart. */
 export const CAUSES = [
-  { key: "data", label: "Perlu dibetulkan datanya", kinds: ["unit", "sale_unit", "ppn", "input_cost", "input_price", "code"] },
-  { key: "unit", label: "Salah satuan", kinds: ["unit", "sale_unit"] },
-  { key: "ppn", label: "Salah PPN", kinds: ["ppn"] },
-  { key: "input", label: "Salah input harga", kinds: ["input_cost", "input_price"] },
-  { key: "code", label: "Salah kode barang", kinds: ["code"] },
-  { key: "real", label: "Rugi sungguhan", kinds: [] },
+  { key: "data", label: "Perlu cek data (semua)", kinds: ["unit", "sale_unit", "ppn", "input_cost", "input_price", "code"] },
+  { key: "unit", label: "Cek satuan", kinds: ["unit", "sale_unit"] },
+  { key: "ppn", label: "Cek PPN", kinds: ["ppn"] },
+  { key: "input", label: "Cek input harga", kinds: ["input_cost", "input_price"] },
+  { key: "code", label: "Cek kode barang", kinds: ["code"] },
+  { key: "none", label: "Tanpa tanda", kinds: [] },
 ] as const satisfies readonly { key: string; label: string; kinds: readonly HintKind[] }[];
 
 export type CauseKey = (typeof CAUSES)[number]["key"];
 
 export function matchesCause(hints: Hint[], key: CauseKey | ""): boolean {
   if (!key) return true;
-  if (key === "real") return !looksLikeSlip(hints);
+  if (key === "none") return !looksLikeSlip(hints);
   const kinds: readonly HintKind[] = CAUSES.find((c) => c.key === key)!.kinds;
   return hints.some((h) => kinds.includes(h.kind));
 }

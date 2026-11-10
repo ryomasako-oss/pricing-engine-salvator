@@ -87,6 +87,10 @@ export interface BelowCostRow {
     discount: number;
     receiptDate: string;
     receiptUnit: string;
+    /** As on the SI: "Total termasuk pajak" ticked, PPN %, and the line total before PPN (after item discount). */
+    inclusiveTax: boolean;
+    taxRate: number;
+    lineAmount: number;
   };
 }
 
@@ -165,6 +169,7 @@ export function findBelowCost(
         trace: {
           unit: l.unit, quantity: l.quantity, returnQty: l.returnQty, unitRatio: l.unitRatio, baseUom: item.baseUom,
           detailName: l.detailName ?? "", discount: discountShare(l), receiptDate: c.transDate, receiptUnit: c.unit,
+          inclusiveTax: l.inclusiveTax, taxRate: l.taxRate, lineAmount: l.salesAmount,
         },
       });
     }

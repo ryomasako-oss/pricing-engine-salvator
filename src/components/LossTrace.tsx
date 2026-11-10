@@ -12,7 +12,7 @@ import { Modal } from "./Modal";
 import { LoadError } from "./LoadError";
 
 interface Purchases {
-  cards: { code: string; purchases: { invoiceNo: string; transDate: string; unit: string; quantity: number; price: number; inclusiveTax: boolean }[] }[];
+  cards: { code: string; purchases: { invoiceNo: string; transDate: string; unit: string; quantity: number; invoicePrice: number; price: number; inclusiveTax: boolean }[] }[];
 }
 interface Sales {
   cards: { code: string; baseUom: string; sales: { invoiceNo: string; transDate: string; customerName: string; detailName: string; unit: string; quantity: number; perBase: number | null }[] }[];
@@ -40,13 +40,20 @@ export function LossTrace({ row, onClose }: { row: BelowCostRow; onClose: () => 
   }, [row.code, retry]);
 
   const slip = looksLikeSlip(row.hints);
+  const ppn = 1 + (t.taxRate > 0 ? t.taxRate : 11) / 100;
+  // shortcut: an SI with no tax rate is shown at the usual 11% for comparison, and says so.
+  const ppnPct = `PPN ${Math.round((ppn - 1) * 100)}%`;
+  const qty = t.quantity > 0 ? t.quantity : 1;
+  // The SI line as written: per invoice unit after the item discount; with PPN when the box was ticked.
+  const siWritten = (t.lineAmount / qty) * (t.inclusiveTax ? ppn : 1);
+  const pi = hist?.buy.find((p) => p.invoiceNo === row.receiptNo);
   const soldBase = (t.quantity - t.returnQty) * (t.unitRatio > 0 ? t.unitRatio : 1);
 
   return (
-    <Modal title={`Telusuri ${row.invoiceNo}`} sub={`${row.name} · ${row.code}`} onClose={onClose}>
+    <Modal title={`Telusuri ${row.invoiceNo}`} sub={`${row.name} · ${row.code}`} onClose={onClose} size="wide">
       <div className="trace">
         <div className={`notice ${slip ? "warn" : "info"}`} role="status">
-          <strong>{slip ? "Kemungkinan salah data" : "Rugi sungguhan"}</strong>
+          <strong>{slip ? "Perlu cek data" : "Tanpa tanda"}</strong>
           {slip ? (
             <ul className="hint-list">
               {row.hints.map((h) => (
@@ -55,7 +62,8 @@ export function LossTrace({ row, onClose }: { row: BelowCostRow; onClose: () => 
             </ul>
           ) : (
             <p>
-              Satuan, PPN, input harga, dan kode barang tidak menunjukkan salah catat. Harga jual memang di bawah harga beli
+              Cek otomatis satuan, PPN, input harga, dan kode barang tidak menemukan tanda. Harga jual tercatat di bawah harga beli;
+              cocokkan tetap dengan nota asli
               {row.hints.length ? ` (${row.hints.map((h) => h.label).join("; ")})` : ""}.
             </p>
           )}
@@ -73,19 +81,37 @@ export function LossTrace({ row, onClose }: { row: BelowCostRow; onClose: () => 
             </div>
             {t.detailName && <div className="muted small">Tertulis di faktur: "{t.detailName}"</div>}
           </dd>
-          <dt>Harga jual bersih</dt>
+          <dt>Di nota SI</dt>
+          <dd>
+            {rp(siWritten)} / {t.unit} {t.inclusiveTax ? `(termasuk ${ppnPct})` : t.taxRate > 0 ? "(belum termasuk PPN)" : "(SI tanpa tarif PPN)"}
+            <div className="muted small">setelah diskon barang{t.discount > 0 ? ", sebelum diskon faktur" : ""}</div>
+          </dd>
+          <dt>Harga jual dibandingkan</dt>
           <dd className="num">
-            {rp(row.net)} / {t.baseUom}
+            {rp(row.net)} / {t.baseUom} sebelum PPN · {rp(row.net * ppn)} dengan {ppnPct}
           </dd>
           <dt>Faktur beli (PI) dipakai</dt>
           <dd>
             {row.receiptNo} · {fmtDate(t.receiptDate)} · dibeli per {t.receiptUnit}
           </dd>
-          <dt>Harga beli</dt>
-          <dd className="num">
-            {rp(row.cost)} / {t.baseUom}
+          <dt>Di nota PI</dt>
+          <dd>
+            {pi ? (
+              <>
+                {rp(pi.invoicePrice)} / {pi.unit} {pi.inclusiveTax ? `(termasuk ${ppnPct}, dibagi ${ppn.toLocaleString("id-ID")})` : "(belum termasuk PPN)"}
+                <div className="muted small">sebelum diskon</div>
+              </>
+            ) : hist ? (
+              <span className="muted small">PI ini tidak ada di 10 PI terbaru barang ini</span>
+            ) : (
+              <span className="muted small">memuat…</span>
+            )}
           </dd>
-          <dt>Selisih rugi</dt>
+          <dt>Harga beli dibandingkan</dt>
+          <dd className="num">
+            {rp(row.cost)} / {t.baseUom} sebelum PPN · {rp(row.cost * ppn)} dengan {ppnPct}
+          </dd>
+          <dt>Selisih (beli − jual)</dt>
           <dd className="num">
             <strong>{rp(row.lossTotal)}</strong>
           </dd>
@@ -113,8 +139,12 @@ export function LossTrace({ row, onClose }: { row: BelowCostRow; onClose: () => 
                           {grp(p.quantity)} {p.unit}
                         </td>
                         <td className="num nowrap">
+                          {rp(p.invoicePrice)} / {p.unit}
+                          <div className="muted small">{p.inclusiveTax ? `di nota, termasuk ${ppnPct}` : "di nota, belum PPN"}</div>
+                        </td>
+                        <td className="num nowrap">
                           {rp(p.price)} / {p.unit}
-                          {p.inclusiveTax ? <span className="muted small"> · termasuk pajak</span> : null}
+                          <div className="muted small">bersih, sebelum PPN</div>
                         </td>
                       </tr>
                     ))}
@@ -150,7 +180,10 @@ export function LossTrace({ row, onClose }: { row: BelowCostRow; onClose: () => 
             </section>
           </>
         )}
-        <p className="muted small">Baris yang ditandai adalah faktur yang sedang ditelusuri. Betulkan datanya di Accurate; laporan ini ikut berubah setelah sinkron.</p>
+        <p className="muted small">
+          Baris yang ditandai adalah faktur yang sedang ditelusuri. Angka "di nota" bisa dicocokkan langsung dengan nota SI/PI di Accurate; bila
+          berbeda, data di Accurate yang dibetulkan, dan laporan ini ikut berubah setelah sinkron.
+        </p>
       </div>
     </Modal>
   );

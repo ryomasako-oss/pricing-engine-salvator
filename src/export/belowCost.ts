@@ -27,8 +27,8 @@ export function belowCostSheet(rows: BelowCostExportRow[]): XLSX.WorkBook {
       "Harga Jual (sebelum PPN)": r.net,
       "Harga Beli PI (sebelum PPN)": r.cost,
       "Nomor PI": r.receiptNo,
-      "Selisih Rugi": r.lossTotal,
-      Penyebab: r.hints && looksLikeSlip(r.hints) ? r.hints.map((h) => h.label).join("; ") : ["Rugi sungguhan", ...(r.hints ?? []).map((h) => h.label)].join("; "),
+      "Selisih (Beli - Jual)": r.lossTotal,
+      Penyebab: r.hints && looksLikeSlip(r.hints) ? r.hints.map((h) => h.label).join("; ") : ["Tanpa tanda", ...(r.hints ?? []).map((h) => h.label)].join("; "),
     })),
   );
   sheet["!cols"] = [{ wch: 20 }, { wch: 12 }, { wch: 36 }, { wch: 14 }, { wch: 44 }, { wch: 18 }, { wch: 20 }, { wch: 20 }, { wch: 16 }, { wch: 60 }];
