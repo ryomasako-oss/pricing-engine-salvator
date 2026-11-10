@@ -346,8 +346,10 @@ export function ListToQuote({
           .map((id) => items.get(id))
           .filter((item): item is CatalogItem => !!item && item.source !== "pending")
           .map((item) => {
+            // The client's ceiling for the request binds every item offered for it (Ryoma, 10 Nov: "plafon ikut klien").
             const line = lineFromCatalog(item, r.request.qty ?? 1, {
               uom: r.request.uom,
+              rrp: r.request.rrp,
               requestName: r.request.noQty ? undefined : r.request.name,
               toBase: true,
             });
