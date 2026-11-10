@@ -124,6 +124,17 @@ export function findBelowCost(
     if (list) list.push(l);
     else netsByItem.set(l.itemCode, [l]);
   }
+  // Paid money over every unit of an item on one SI (bonus lines included), for the "bonus ke klien" mark.
+  const onInvoice = new Map<string, { money: number; units: number }>();
+  for (const l of sales) {
+    const units = (l.quantity - l.returnQty) * (l.unitRatio > 0 ? l.unitRatio : 1);
+    if (!(units > 0)) continue;
+    const k = `${l.invoiceNo}|${l.itemCode}`;
+    const t = onInvoice.get(k) ?? { money: 0, units: 0 };
+    t.money += (nets.get(l) ?? 0) * units;
+    t.units += units;
+    onInvoice.set(k, t);
+  }
   const costsByReceipt = new Map<ReceiptLine, number>();
   const costOf = (r: ReceiptLine, item: CatalogFacts) => {
     if (!costsByReceipt.has(r)) {
@@ -165,6 +176,8 @@ export function findBelowCost(
           otherCosts: (receiptsByItem.get(l.itemCode) ?? []).filter((r) => r.receiptNo !== c.receiptNo).map((r) => costOf(r, item)),
           otherPrices: (netsByItem.get(l.itemCode) ?? []).filter((o) => o !== l).map((o) => nets.get(o)!),
           detailName: l.detailName, name: item.name, discount: discountShare(l),
+          invoiceTotal: l.subTotal, lineAmount: l.salesAmount,
+          invoicePrice: ((t) => (t && t.units > 0 ? t.money / t.units : undefined))(onInvoice.get(`${l.invoiceNo}|${l.itemCode}`)),
         }),
         trace: {
           unit: l.unit, quantity: l.quantity, returnQty: l.returnQty, unitRatio: l.unitRatio, baseUom: item.baseUom,

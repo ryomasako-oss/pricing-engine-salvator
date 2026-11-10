@@ -144,7 +144,7 @@ export function LossTrace({ row, onClose }: { row: BelowCostRow; onClose: () => 
                         </td>
                         <td className="num nowrap">
                           {rp(p.price)} / {p.unit}
-                          <div className="muted small">bersih, sebelum PPN</div>
+                          <div className="muted small">{p.price === 0 && p.invoicePrice > 0 ? "bonus (gratis)" : "bersih, sebelum PPN"}</div>
                         </td>
                       </tr>
                     ))}

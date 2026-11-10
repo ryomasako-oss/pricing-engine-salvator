@@ -20,6 +20,17 @@ describe("belowCostHints", () => {
     expect(h.map((x) => x.label)).toEqual(["Diskon faktur 15%"]);
     expect(looksLikeSlip(h)).toBe(false);
   });
+  it("found in Accurate: a 0 invoice, a catch-all code, a free line to the client", () => {
+    // SI.2026.06.00126 "TIDAK DITAGIH. DOUBLE NOTA": every line 100% off, sub-total 0. Only that mark.
+    expect(kinds({ net: 0, invoiceTotal: 0, lineAmount: 0, listPrice: 0 })).toEqual(["no_value"]);
+    expect(kinds({ name: "SPAREPARTS", detailName: "SPAREPARTS" })).toEqual(["generic"]);
+    expect(kinds({ name: "JASA CUCI AC SPLIT 1 PK", detailName: "JASA CUCI AC SPLIT 1 PK" })).toEqual(["generic"]);
+    // SI.2026.10.00299: 240 LSN paid, 12 LSN free ("beli 20 gratis 1").
+    const h = belowCostHints({ ...base, net: 0, invoiceTotal: 77_916_816, lineAmount: 0, invoicePrice: 9975.4 });
+    expect(h).toEqual([{ kind: "bonus_sale", label: "Bonus ke klien (Rp 0); harga efektif barang ini di faktur Rp 9.975" }]);
+    expect(matchesCause(h, "other")).toBe(true);
+    expect(matchesCause(h, "none")).toBe(false);
+  });
   it("causes filter the rows the owner asked to tell apart", () => {
     const unit = belowCostHints({ ...base, net: 1000, cost: 12000 });
     expect(matchesCause(unit, "unit")).toBe(true);
