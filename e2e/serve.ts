@@ -55,6 +55,11 @@ const seed = [
      detail_name, unit, unit_ratio, quantity, sales_amount, sub_total) VALUES
    ('PT', 9001, 1, 'SI.2026.10.09001', '2026-10-20', 'C.09001', 'PT Zqsi Klien', 'ZQSI-1', 'zqsi oli rantai 800ml', 'BOX', 12, 2, 288000, 288000),
    ('PT', 9002, 1, 'SI.2026.09.09002', '2026-09-02', 'C.09001', 'PT Zqsi Klien', 'ZQSI-1', 'ZQSI PELUMAS RANTAI', 'Btl', 1, 5, 62500, 62500);`,
+  // Riwayat pembelian (PI): purchase lines of the same ZQSI item, only e2e/purchase-history.spec.ts reads them.
+  `INSERT INTO accurate_purchase_lines(entity, receipt_id, line_id, receipt_no, trans_date, item_code, unit, quantity,
+     unit_price, unit_price_gross, inclusive_tax) VALUES
+   ('PT', 9101, 1, 'PI.2026.10.09101', '2026-10-15', 'ZQSI-1', 'Btl', 24, 9000, 9990, 1),
+   ('PT', 9102, 1, 'PI.2026.08.09102', '2026-08-01', 'ZQSI-1', 'Btl', 12, 8800, 8800, 0);`,
   // Colour variants that tie on a plain "zqhl highlighter": only e2e/match-accept-all.spec.ts lists them.
   `INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock, source) VALUES
    ('ZQHL-B', 'ZQHL HIGHLIGHTER BLUE', 'Pcs', 4000, 7000, 10, 'e2e'), ('ZQHL-G', 'ZQHL HIGHLIGHTER GREEN', 'Pcs', 4000, 7000, 10, 'e2e');`,

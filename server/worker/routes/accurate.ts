@@ -15,6 +15,7 @@ import { zodMessage } from "../../validate";
 import { AccurateClient } from "../accurate/client";
 import { ITEM_FIELDS, RECEIPT_LIST_FIELDS, mapPurchaseLines } from "../accurate/mapping";
 import { cogsHistory } from "../accurate/cogsHistory";
+import { purchaseHistory } from "../accurate/purchaseHistory";
 import { salesHistory } from "../accurate/salesHistory";
 import { lastSales, salesEnabled } from "../accurate/sales";
 import { applyHeldCosts, applyPurchaseCosts } from "../accurate/purchaseCost";
@@ -343,6 +344,17 @@ accurateRouter.get("/sales-history", requirePermission("view_costs"), async (c) 
   const page = Number(c.req.query("page"));
   return c.json(
     await salesHistory(c.env.DB, catalogEntity(c.env), {
+      q: (c.req.query("q") ?? "").trim().slice(0, 100),
+      page: Number.isInteger(page) && page > 0 ? page : 1,
+    }),
+  );
+});
+
+/** Riwayat pembelian (PI) per barang (read-only): what each item was bought at. Purchase prices are cost data, hence view_costs. */
+accurateRouter.get("/purchase-history", requirePermission("view_costs"), async (c) => {
+  const page = Number(c.req.query("page"));
+  return c.json(
+    await purchaseHistory(c.env.DB, catalogEntity(c.env), {
       q: (c.req.query("q") ?? "").trim().slice(0, 100),
       page: Number.isInteger(page) && page > 0 ? page : 1,
     }),

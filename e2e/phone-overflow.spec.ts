@@ -13,6 +13,7 @@ const PAGES = [
   "/catalog",
   "/cogs-history",
   "/sales-history",
+  "/purchase-history",
   "/clients",
   ...["kebijakan", "identitas", "excel", "notifikasi", "sandi", "pengguna", "reset"].map((b) => `/settings?bagian=${b}`),
 ];
