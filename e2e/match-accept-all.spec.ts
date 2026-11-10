@@ -31,12 +31,12 @@ for (const theme of THEMES) {
       await page.screenshot({ path: info.outputPath(`before-${theme}.png`), fullPage: true });
       await accept.click();
       await expect(accept).toHaveCount(0);
-      await expect(page.getByLabel("Item katalog untuk Zqhl highlighter").locator("option:checked")).toContainText("ZQHL HIGHLIGHTER");
+      await expect(page.getByRole("combobox", { name: "Item katalog untuk Zqhl highlighter" })).toHaveValue(/ZQHL HIGHLIGHTER/);
       await page.screenshot({ path: info.outputPath(`after-${theme}.png`), fullPage: true });
 
       // The other review row still asks; settle it by hand, pick a client, create.
-      const sel = page.getByLabel(`Item katalog untuk ${paper}`);
-      await sel.selectOption((await sel.locator("option", { hasText: "KERTAS HVS SINAR DUNIA A4 70GR" }).first().getAttribute("value"))!);
+      await page.getByRole("combobox", { name: `Item katalog untuk ${paper}` }).click();
+      await page.getByRole("option", { name: /^KERTAS HVS SINAR DUNIA A4 70GR/ }).first().click();
       await page.getByLabel("Judul quotation").fill(`Terima semua ${theme}`);
       const saved = page.waitForRequest((r) => r.url().endsWith("/api/catalog/aliases") && r.method() === "POST");
       await page.getByRole("button", { name: /Buat quotation/ }).click();

@@ -1121,6 +1121,20 @@ a.btn, a.btn:hover { text-decoration: none; }
 .ltq-head > .field { flex: 1 1 260px; }
 .ltq-table { max-height: 58vh; }
 .ltq-pick { min-width: 320px; }
+/* One box to pick a row's item (components/ItemCombobox.tsx): suggestions, then catalog search, [+] adds.
+   The list opens below the box, in the row, so the table's own scroll never clips it. */
+.combo { flex: 1; min-width: 0; }
+.combo-field { display: flex; align-items: center; gap: var(--space-2); }
+.combo-field > .input { flex: 1; min-width: 0; }
+.combo-flag { flex: none; }
+.combo-pop { margin-top: var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-md); background: var(--color-layer); box-shadow: var(--elevation-overlay); }
+.combo-group { padding: var(--space-2) var(--space-4) 0; }
+.combo-list { list-style: none; margin: 0; padding: var(--space-2) 0; max-height: 320px; overflow-y: auto; }
+.combo-option { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-4); cursor: pointer; }
+.combo-option.active { background: var(--color-hover); }
+.combo-option .badge { margin-left: var(--space-2); }
+.combo-name { font: var(--text-body-strong); }
+.combo-empty { padding: var(--space-2) var(--space-4); }
 .table tr.is-unused > td { opacity: .6; }
 .picker-row { display: flex; align-items: center; gap: var(--space-2); }
 .inline-search { margin-top: var(--space-2); }
