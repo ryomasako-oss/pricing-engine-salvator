@@ -153,6 +153,7 @@ export function PurchaseHistoryPage() {
                                 <div>
                                   {rp(p.invoicePrice)} / {p.unit || c.uom}
                                   {p.inclusiveTax && <div className="muted small">termasuk PPN</div>}
+                                  {p.price === 0 && p.invoicePrice > 0 && <span className="badge grey">Bonus (gratis)</span>}
                                 </div>
                               </td>
                               <td className="num nowrap" data-label="Modal (sebelum PPN)">

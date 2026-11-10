@@ -41,6 +41,28 @@ describe("purchase invoice lines", () => {
     expect(mapPurchaseLines({ ...pi46, subTotal: 196_500, cashDiscount: 19_650 })[0].unitPrice).toBeCloseTo(58_950, 6);
   });
 
+  it("a bonus line (100% item discount, total 0) costs nothing, and lowers its paid lines' cost (pemilik, 10 Nov)", () => {
+    // PI.2026.09.00452 as Accurate returned it: 480 LSN at 73.260 incl. PPN less 10%, then 24 LSN free ("beli 20 gratis 1").
+    const pi = { id: 452, number: "PI.2026.09.00452", transDate: "25/09/2026", inclusiveTax: true, subTotal: 61_484_832, cashDiscount: 0,
+      detailItem: [
+        { id: 1, itemNo: "EK-500SBK", itemUnitName: "LSN", quantity: 480, unitRatio: 12, unitPrice: 73_260, itemDiscPercent: "10", totalPrice: 31_648_320 },
+        { id: 2, itemNo: "EK-500SBK", itemUnitName: "LSN", quantity: 24, unitRatio: 12, unitPrice: 73_260, itemDiscPercent: "100", totalPrice: 0 },
+        { id: 3, itemNo: "OTHER", itemUnitName: "PCS", quantity: 2, unitPrice: 1_110, totalPrice: 2_220 },
+      ] };
+    const [paid, free, other] = mapPurchaseLines(pi);
+    // 31.648.320 / 1,11 over 504 LSN = 56.571,43 per LSN (4.714,29 per PCS), on both lines.
+    expect(paid.unitPrice).toBeCloseTo(31_648_320 / 1.11 / 504, 4);
+    expect(free.unitPrice).toBeCloseTo(paid.unitPrice, 6);
+    expect(free.unitPriceGross).toBe(73_260);
+    expect(other.unitPrice).toBeCloseTo(1_000, 6);
+    // A PI of bonus lines only ("BONUS", PI.2026.04.00202): 0, which the cost readers skip.
+    const bonus = { id: 202, number: "PI.2026.04.00202", transDate: "16/04/2026", inclusiveTax: true, subTotal: 0, cashDiscount: 0,
+      detailItem: [{ id: 1, itemNo: "EK-500SBK", itemUnitName: "LSN", quantity: 48, unitRatio: 12, unitPrice: 73_260, itemDiscPercent: "100", totalPrice: 0 }] };
+    expect(mapPurchaseLines(bonus)[0]).toMatchObject({ unitPrice: 0, unitPriceGross: 73_260 });
+    // A line without totalPrice (older fixtures) still takes unitPrice.
+    expect(mapPurchaseLines(PIS[1])[0].unitPrice).toBe(20_000);
+  });
+
   it("divides the price by 1,11 only when the PI has 'Total termasuk pajak' ticked, keeping Accurate's price", () => {
     const [inc] = mapPurchaseLines(PIS[0]);
     expect(inc).toMatchObject({ receiptNo: "PI.2026.10.00010", itemCode: "A1", unitPriceGross: 11_100, inclusiveTax: 1 });

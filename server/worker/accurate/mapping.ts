@@ -201,16 +201,37 @@ export function mapPurchaseLines(d: Row): StagedPurchaseLine[] {
   const cash = subTotal > 0 ? Math.min(1, Math.max(0, num(d.cashDiscount) / subTotal)) : 0;
   const raw = Array.isArray(d.detailItem) ? (d.detailItem as Row[]) : [];
   const byLine = new Map(raw.map((l, i) => [num(l.id) || i + 1, l]));
-  return mapReceiptLines(d).map((l) => {
-    const total = num(byLine.get(l.lineId)?.totalPrice);
-    const perUnit = total > 0 && l.quantity > 0 ? total / l.quantity : l.unitPrice;
+  const lines = mapReceiptLines(d).map((l) => {
+    const raw = byLine.get(l.lineId);
+    const total = num(raw?.totalPrice);
+    // A bonus line (pemilik, 10 Nov: "beli 20 gratis 1"): written price, 100% item discount, totalPrice 0.
+    const free = raw != null && "totalPrice" in raw && total === 0 && l.quantity > 0;
+    const perUnit = free ? 0 : total > 0 && l.quantity > 0 ? total / l.quantity : l.unitPrice;
     return {
       ...l,
       unitPriceGross: l.unitPrice,
-      inclusiveTax: inclusive ? 1 : 0,
-      unitPrice: ((inclusive ? perUnit / PPN_DIVISOR : perUnit) * (1 - cash)),
+      inclusiveTax: inclusive ? (1 as const) : (0 as const),
+      unitPrice: (inclusive ? perUnit / PPN_DIVISOR : perUnit) * (1 - cash),
+      free,
+      ratio: num(raw?.unitRatio) > 0 ? num(raw?.unitRatio) : 1,
     };
   });
+  // Paid and bonus lines of one item in one PI: the paid money over every unit received, bonus included,
+  // so 480 LSN paid + 24 LSN free costs 480/504 of the price per unit (PI.2026.09.00452). A PI of bonus
+  // lines only stays at 0, which every cost reader skips (unit_price > 0): the last paid PI stays the cost.
+  const byItem = new Map<string, typeof lines>();
+  for (const l of lines) {
+    const g = byItem.get(l.itemCode);
+    if (g) g.push(l);
+    else byItem.set(l.itemCode, [l]);
+  }
+  for (const group of byItem.values()) {
+    if (!group.some((l) => l.free) || group.every((l) => l.free)) continue;
+    const paid = group.reduce((s, l) => s + l.unitPrice * l.quantity, 0);
+    const units = group.reduce((s, l) => s + l.quantity * l.ratio, 0);
+    for (const l of group) l.unitPrice = units > 0 ? (paid / units) * l.ratio : l.unitPrice;
+  }
+  return lines.map(({ free: _free, ratio: _ratio, ...l }) => l);
 }
 
 /* ---------- Sales invoices (Faktur Penjualan), accurate/sales.ts ---------- */

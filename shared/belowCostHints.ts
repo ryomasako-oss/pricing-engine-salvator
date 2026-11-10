@@ -12,6 +12,9 @@ export type HintKind =
   | "input_cost" // this PI far above the item's other PIs
   | "input_price" // this SI far below the item's other SIs
   | "code" // the invoice wording shares no word with the catalog name
+  | "no_value" // the whole SI is 0: a return swap or a "double nota, tidak ditagih"
+  | "generic" // a catch-all code (SPAREPARTS, JASA ...): different goods under one code
+  | "bonus_sale" // a free line to the client ("beli 20 gratis 1"): the invoice's effective price says more
   | "old_pi" // info: the PI is old
   | "discount" // info: a big invoice discount explains the loss
   | "no_list"; // info: the 3x list-price check could not run
@@ -30,6 +33,7 @@ const COST_OUTLIER = 1.5;
 const PRICE_OUTLIER = 0.5;
 const BIG_DISCOUNT = 0.1;
 
+const GENERIC = /SPAREPART|^\s*JASA\b|LAIN-LAIN|ONGKIR|^\s*BIAYA\b/i;
 const days = (from: string, to: string) => Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000);
 const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 const rupiah = (n: number) => Math.round(n).toLocaleString("id-ID");
@@ -60,8 +64,25 @@ export function belowCostHints(r: {
   name?: string;
   /** Invoice discount as a share of the sub-total, 0-1. */
   discount?: number;
+  /** The SI's sub-total and this line's amount, to tell a free line or a 0 invoice. */
+  invoiceTotal?: number;
+  lineAmount?: number;
+  /** Paid money over every unit of this item on this SI, bonus lines included; per base unit. */
+  invoicePrice?: number;
 }): Hint[] {
   const out: Hint[] = [];
+  // Found in Accurate on 10 Nov (laporan "Telusur selisih jual di bawah beli"): these are no sale at a price.
+  if (r.invoiceTotal === 0 && r.lineAmount === 0) {
+    return [{ kind: "no_value", label: "Faktur tanpa nilai (tukar retur, nota ganda tidak ditagih, atau sejenisnya): cek keterangan faktur" }];
+  }
+  if (r.name && GENERIC.test(r.name)) out.push({ kind: "generic", label: "Kode umum/jasa: barang berbeda di bawah satu kode, harga beli dan jual tidak sebanding" });
+  if (r.lineAmount === 0 && (r.invoiceTotal ?? 0) > 0) {
+    out.push({
+      kind: "bonus_sale",
+      label: r.invoicePrice && r.invoicePrice > 0 ? `Bonus ke klien (Rp 0); harga efektif barang ini di faktur Rp ${rupiah(r.invoicePrice)}` : "Bonus ke klien (Rp 0) tanpa baris berbayar di faktur ini",
+    });
+    return out;
+  }
   const ratio = r.net > 0 ? r.cost / r.net : 0;
   const pack = PACKS.find((k) => Math.abs(ratio / k - 1) <= 0.08);
   if (pack) out.push({ kind: "unit", label: `Cek satuan: harga beli ≈ ${pack}× harga jual` });
@@ -98,11 +119,12 @@ export const looksLikeSlip = (hints: Hint[]) => hints.some((h) => !INFO.includes
 
 /** Filter groups for the report: what the owner asked to tell apart. */
 export const CAUSES = [
-  { key: "data", label: "Perlu cek data (semua)", kinds: ["unit", "sale_unit", "ppn", "input_cost", "input_price", "code"] },
+  { key: "data", label: "Perlu cek data (semua)", kinds: ["unit", "sale_unit", "ppn", "input_cost", "input_price", "code", "no_value", "generic", "bonus_sale"] },
   { key: "unit", label: "Cek satuan", kinds: ["unit", "sale_unit"] },
   { key: "ppn", label: "Cek PPN", kinds: ["ppn"] },
   { key: "input", label: "Cek input harga", kinds: ["input_cost", "input_price"] },
   { key: "code", label: "Cek kode barang", kinds: ["code"] },
+  { key: "other", label: "Bukan penjualan biasa / bonus", kinds: ["no_value", "generic", "bonus_sale"] },
   { key: "none", label: "Tanpa tanda", kinds: [] },
 ] as const satisfies readonly { key: string; label: string; kinds: readonly HintKind[] }[];
 
