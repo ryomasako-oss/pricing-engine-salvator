@@ -1,6 +1,7 @@
 /* Laporan "Jual di bawah beli" as Excel: the rows on screen (after the filter), numbers as numbers. */
 
 import * as XLSX from "xlsx";
+import { looksLikeSlip, type Hint } from "@shared/belowCostHints";
 
 export interface BelowCostExportRow {
   invoiceNo: string;
@@ -12,6 +13,7 @@ export interface BelowCostExportRow {
   cost: number;
   receiptNo: string;
   lossTotal: number;
+  hints?: Hint[];
 }
 
 export function belowCostSheet(rows: BelowCostExportRow[]): XLSX.WorkBook {
@@ -26,9 +28,10 @@ export function belowCostSheet(rows: BelowCostExportRow[]): XLSX.WorkBook {
       "Harga Beli PI (sebelum PPN)": r.cost,
       "Nomor PI": r.receiptNo,
       "Selisih Rugi": r.lossTotal,
+      Penyebab: r.hints && looksLikeSlip(r.hints) ? r.hints.map((h) => h.label).join("; ") : ["Rugi sungguhan", ...(r.hints ?? []).map((h) => h.label)].join("; "),
     })),
   );
-  sheet["!cols"] = [{ wch: 20 }, { wch: 12 }, { wch: 36 }, { wch: 14 }, { wch: 44 }, { wch: 18 }, { wch: 20 }, { wch: 20 }, { wch: 16 }];
+  sheet["!cols"] = [{ wch: 20 }, { wch: 12 }, { wch: 36 }, { wch: 14 }, { wch: 44 }, { wch: 18 }, { wch: 20 }, { wch: 20 }, { wch: 16 }, { wch: 60 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, sheet, "Jual di bawah beli");
   return wb;

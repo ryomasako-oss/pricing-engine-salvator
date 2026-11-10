@@ -9,6 +9,9 @@ import { api } from "../api";
 import { HistoryTabs } from "../components/HistoryTabs";
 import { LoadError } from "../components/LoadError";
 import { fmtDate, grp, rp } from "@shared/format";
+import { CAUSES, looksLikeSlip, matchesCause, type CauseKey } from "@shared/belowCostHints";
+import type { BelowCostRow } from "@shared/salesBelowCost";
+import { LossTrace } from "../components/LossTrace";
 
 interface Report {
   from: string;
@@ -16,7 +19,7 @@ interface Report {
   checked: number;
   unknownCost: number;
   doubtfulCost: number;
-  below: { invoiceNo: string; transDate: string; customerName: string; code: string; name: string; net: number; cost: number; receiptNo: string; lossTotal: number }[];
+  below: BelowCostRow[];
 }
 
 const iso = (d: Date) => new Date(d.getTime() + 7 * 3_600_000).toISOString().slice(0, 10);
@@ -30,6 +33,8 @@ export function BelowCostPage() {
   const [retry, setRetry] = useState(0);
   const [q, setQ] = useState("");
   const [client, setClient] = useState("");
+  const [cause, setCause] = useState<CauseKey | "">("");
+  const [tracing, setTracing] = useState<BelowCostRow | null>(null);
 
   useEffect(() => {
     if (!from || !to) return;
@@ -51,12 +56,15 @@ export function BelowCostPage() {
     const words = q.toLowerCase().split(/\s+/).filter(Boolean);
     return (data?.below ?? []).filter((r) => {
       if (client && r.customerName !== client) return false;
+      if (!matchesCause(r.hints, cause)) return false;
       const hay = `${r.invoiceNo} ${r.customerName} ${r.code} ${r.name} ${r.receiptNo}`.toLowerCase();
       return words.every((w) => hay.includes(w));
     });
-  }, [data, q, client]);
+  }, [data, q, client, cause]);
   const filtered = rows.length !== (data?.below.length ?? 0);
   const loss = rows.reduce((s, r) => s + r.lossTotal, 0);
+  const slipRows = rows.filter((r) => looksLikeSlip(r.hints));
+  const slipLoss = slipRows.reduce((s, r) => s + r.lossTotal, 0);
 
   return (
     <main className="hk-main page-stack">
@@ -98,6 +106,14 @@ export function BelowCostPage() {
               </option>
             ))}
           </select>
+          <select className="select inline" value={cause} onChange={(e) => setCause(e.target.value as CauseKey | "")} aria-label="Filter penyebab">
+            <option value="">Semua penyebab</option>
+            {CAUSES.map((c) => (
+              <option key={c.key} value={c.key}>
+                {c.label}
+              </option>
+            ))}
+          </select>
           <span className="grow" />
           <button
             className="btn"
@@ -128,11 +144,19 @@ export function BelowCostPage() {
               <div className="foot">
                 {filtered ? `terfilter dari ${grp(data.below.length)} · ` : ""}dari {grp(data.checked)} baris SI yang dibandingkan
               </div>
+
             </div>
             <div className="kpi">
-              <div className="label">Total selisih rugi</div>
-              <div className="value num">{rp(loss)}</div>
-              <div className="foot">(harga beli − harga jual) × qty terjual</div>
+              <div className="label">Rugi sungguhan</div>
+              <div className="value num">{rp(loss - slipLoss)}</div>
+              <div className="foot">
+                {grp(rows.length - slipRows.length)} baris · dari total selisih {rp(loss)}
+              </div>
+            </div>
+            <div className={`kpi${slipRows.length ? " tone-warn" : ""}`}>
+              <div className="label">Perlu dibetulkan datanya</div>
+              <div className="value num">{rp(slipLoss)}</div>
+              <div className="foot">{grp(slipRows.length)} baris · salah satuan, PPN, input, atau kode</div>
             </div>
             <div className="kpi">
               <div className="label">Tidak dibandingkan</div>
@@ -170,6 +194,7 @@ export function BelowCostPage() {
                       <th>Harga jual</th>
                       <th>Harga beli (PI)</th>
                       <th>Selisih rugi</th>
+                      <th className="l">Penyebab</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -194,6 +219,23 @@ export function BelowCostPage() {
                         <td className="num nowrap" data-label="Selisih rugi">
                           <strong>{rp(r.lossTotal)}</strong>
                         </td>
+                        <td className="l" data-label="Penyebab">
+                          <ul className="hint-list">
+                            {!looksLikeSlip(r.hints) && (
+                              <li>
+                                <span className="badge red">Rugi sungguhan</span>
+                              </li>
+                            )}
+                            {r.hints.map((h) => (
+                              <li key={h.kind} className={looksLikeSlip([h]) ? "small cell-warn" : "muted small"}>
+                                {h.label}
+                              </li>
+                            ))}
+                          </ul>
+                          <button type="button" className="link-btn small" onClick={() => setTracing(r)} aria-label={`Telusuri ${r.invoiceNo} ${r.code}`}>
+                            Telusuri ›
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -203,6 +245,7 @@ export function BelowCostPage() {
           </div>
         </>
       ) : null}
+      {tracing && <LossTrace row={tracing} onClose={() => setTracing(null)} />}
     </main>
   );
 }

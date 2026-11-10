@@ -69,7 +69,7 @@ export async function salesTick(env: Bindings, opts: { deadlineMs: number; fetch
 interface SalesRow {
   invoice_no: string; trans_date: string; customer_name: string; item_code: string; unit: string; unit_ratio: number;
   quantity: number; return_qty: number; sales_amount: number; inclusive_tax: number; tax_rate: number;
-  cash_discount: number; sub_total: number; synced_at: string;
+  cash_discount: number; sub_total: number; synced_at: string; detail_name: string;
   name: string; catalog_uom: string; list_price: number; accurate_uom: string; units: string;
 }
 
@@ -107,7 +107,7 @@ async function belowCost(
   const rows = await all<SalesRow>(
     db,
     `SELECT s.invoice_no, s.trans_date, s.customer_name, s.item_code, s.unit, s.unit_ratio, s.quantity, s.return_qty,
-            s.sales_amount, s.inclusive_tax, s.tax_rate, s.cash_discount, s.sub_total, s.synced_at,
+            s.sales_amount, s.inclusive_tax, s.tax_rate, s.cash_discount, s.sub_total, s.synced_at, s.detail_name,
             c.name, c.uom AS catalog_uom, c.list_price, COALESCE(NULLIF(i.uom, ''), 'Pcs') AS accurate_uom, i.units
        FROM accurate_sales_lines s
        JOIN catalog_items c ON c.code = s.item_code
@@ -145,6 +145,7 @@ async function belowCost(
       invoiceNo: r.invoice_no, transDate: r.trans_date, customerName: r.customer_name, itemCode: r.item_code, unit: r.unit,
       unitRatio: r.unit_ratio, quantity: r.quantity, returnQty: r.return_qty, salesAmount: r.sales_amount,
       inclusiveTax: r.inclusive_tax === 1, taxRate: r.tax_rate, cashDiscount: r.cash_discount, subTotal: r.sub_total,
+      detailName: r.detail_name ?? "",
     });
     if (!next || r.synced_at > next) next = r.synced_at;
   }
