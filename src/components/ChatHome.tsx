@@ -7,7 +7,7 @@ import { ChatThread } from "./ChatThread";
 export function ChatHome() {
   const { messages, busy, reset } = useChat();
   return (
-    <div className="card chat-home" style={{ marginBottom: 16 }}>
+    <div className="card chat-home">
       <div className="card-head">
         <h2>Silvy · asisten penawaran</h2>
         {messages.length > 0 && (

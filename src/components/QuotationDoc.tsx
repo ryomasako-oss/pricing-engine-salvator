@@ -68,7 +68,7 @@ export function QuotationDoc({
   );
 
   return (
-    <div className="quote-doc print-area" style={{ ["--c" as string]: sc.color }}>
+    <div className="quote-doc print-area" style={{ ["--c" as string]: `var(--s${scenario + 1})` }}>
       <div className="quote-top">
         <div>
           {company.logo ? (
@@ -90,7 +90,7 @@ export function QuotationDoc({
         <div>
           <div className="quote-title">{layout.title}</div>
           {draft && (
-            <div className="small right" style={{ color: "#B42318", fontWeight: 600 }}>
+            <div className="small right" style={{ color: "var(--doc-err)", fontWeight: 600 }}>
               Draft — belum disetujui
             </div>
           )}
@@ -131,14 +131,14 @@ export function QuotationDoc({
         )}
       </div>
 
-      {layout.opening && <p className="small" style={{ whiteSpace: "pre-line" }}>{layout.opening}</p>}
+      {layout.opening && <p className="small pre-line">{layout.opening}</p>}
 
       <div className="table-wrap">
         <table className="table">
           <thead>
             <tr>
               {layout.columns.map((c) => (
-                <th key={c.key} className={ALIGN[c.key] === "l" ? "l" : undefined}>{c.label}</th>
+                <th key={c.key} className={c.key === "name" ? "l label-col" : ALIGN[c.key] === "l" ? "l" : undefined}>{c.label}</th>
               ))}
             </tr>
           </thead>
@@ -171,7 +171,7 @@ export function QuotationDoc({
       </p>
       {meta.notes && <p className="small">{meta.notes}</p>}
       {heldNote(engine.rows) && <p className="small"><strong>Item menyusul:</strong> {heldNote(engine.rows)}</p>}
-      {layout.closing && <p className="small" style={{ whiteSpace: "pre-line" }}>{layout.closing}</p>}
+      {layout.closing && <p className="small pre-line">{layout.closing}</p>}
 
       {/* Meeting 2026-10-05: room for a wet or digital signature on both sides. */}
       <div className="quote-sign">

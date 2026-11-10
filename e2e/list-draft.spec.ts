@@ -24,10 +24,8 @@ for (const theme of THEMES) {
       await page.getByRole("button", { name: "Dari list klien" }).click();
       await page.locator('input[type="file"]').setInputFiles(LIST);
       await page.getByLabel("Judul quotation").fill(title);
-      await page.getByRole("button", { name: `Cari di katalog untuk Tisu gulung ${theme}` }).click();
-      await page.getByLabel("Kata kunci katalog").fill("lakban");
-      await page.getByRole("button", { name: "Cari", exact: true }).click();
-      await page.getByRole("button", { name: /LAKBAN BENING 48MM/ }).click();
+      await page.getByRole("combobox", { name: `Item katalog untuk Tisu gulung ${theme}` }).fill("lakban");
+      await page.getByRole("option", { name: /^LAKBAN BENING 48MM/ }).click();
 
       await page.getByRole("button", { name: "Simpan", exact: true }).click();
       await expect(page.getByText("Draft disimpan.")).toBeVisible();
@@ -58,8 +56,7 @@ for (const theme of THEMES) {
       await row.getByRole("button", { name: "Buka" }).click();
 
       // Reopened as it was left: the hand-picked item is still chosen, and the rep sees prices, not COGS.
-      await expect(rep.getByLabel(`Item katalog untuk Tisu gulung ${theme}`)).toHaveValue(/\d+/);
-      await expect(rep.getByLabel(`Item katalog untuk Tisu gulung ${theme}`).locator("option:checked")).toContainText("LAKBAN BENING 48MM");
+      await expect(rep.getByRole("combobox", { name: `Item katalog untuk Tisu gulung ${theme}` })).toHaveValue(/LAKBAN BENING 48MM/);
       await expect(rep.getByLabel("Judul quotation")).toHaveValue(title);
       await expect(rep.getByText(/Draft dari .*PIC: Sales E2E\. Catatan: Tolong selesaikan hari ini/)).toBeVisible();
       await expect(rep.getByRole("columnheader", { name: "Harga satuan" })).toBeVisible();

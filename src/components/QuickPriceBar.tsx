@@ -16,16 +16,16 @@ export function QuickPriceBar(props: {
   const [scenario, setScenario] = useState<ScenarioIndex>(props.scenario);
   const [base, setBase] = useState<QuickBase>("cogs");
   return (
-    <div className="row" style={{ gap: 6, flexWrap: "wrap", alignItems: "center", margin: "0 0 10px" }}>
+    <div className="row-wrap gap-below">
       <span className="muted small">Naikkan harga</span>
-      <select className="select" style={{ width: "auto" }} aria-label="Skenario" value={scenario} onChange={(e) => setScenario(Number(e.target.value) as ScenarioIndex)}>
+      <select className="select inline" aria-label="Skenario" value={scenario} onChange={(e) => setScenario(Number(e.target.value) as ScenarioIndex)}>
         {SCENARIOS.map((s, k) => (
           <option key={k} value={k}>
             S{k + 1} {s.name}
           </option>
         ))}
       </select>
-      <select className="select" style={{ width: "auto" }} aria-label="Dasar harga" value={base} onChange={(e) => setBase(e.target.value as QuickBase)}>
+      <select className="select inline" aria-label="Dasar harga" value={base} onChange={(e) => setBase(e.target.value as QuickBase)}>
         <option value="cogs">dari COGS (margin)</option>
         <option value="plafon">dari plafon (RRP)</option>
       </select>

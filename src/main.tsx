@@ -1,6 +1,6 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter } from "react-router-dom";
+import { RouterProvider, createBrowserRouter } from "react-router-dom";
 import { App } from "./App";
 import { AuthProvider } from "./context/AuthContext";
 import { ThemeProvider } from "./context/ThemeContext";
@@ -11,7 +11,7 @@ import "./styles.css";
 // A tab opened before a deploy still asks for the old chunk names (ocr-…js),
 // which the new build no longer has: reload onto the new build. At most once
 // per 30 s, so a chunk that is really missing can't loop. Unsaved quote edits
-// still get the editor's beforeunload prompt.
+// still get the beforeunload prompt (UnsavedGuardContext).
 window.addEventListener("vite:preloadError", (event) => {
   try {
     const last = Number(sessionStorage.getItem("chunk-reload-at") ?? 0);
@@ -24,18 +24,27 @@ window.addEventListener("vite:preloadError", (event) => {
   window.location.reload();
 });
 
+// A data router (not BrowserRouter) so the unsaved-edits guard can use useBlocker;
+// the app keeps its own <Routes> under this one catch-all route.
+const router = createBrowserRouter([
+  {
+    path: "*",
+    element: (
+      <ToastProvider>
+        <AuthProvider>
+          <UnsavedGuardProvider>
+            <App />
+          </UnsavedGuardProvider>
+        </AuthProvider>
+      </ToastProvider>
+    ),
+  },
+]);
+
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <ThemeProvider>
-      <BrowserRouter>
-        <ToastProvider>
-          <AuthProvider>
-            <UnsavedGuardProvider>
-              <App />
-            </UnsavedGuardProvider>
-          </AuthProvider>
-        </ToastProvider>
-      </BrowserRouter>
+      <RouterProvider router={router} />
     </ThemeProvider>
   </React.StrictMode>,
 );

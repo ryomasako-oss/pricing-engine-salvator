@@ -11,7 +11,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
 import { useToast } from "../context/ToastContext";
-import { Icon } from "./Icon";
+import { ConfirmModal } from "./Modal";
 import { fmtDate, fmtDateTime, grp, pct, rp } from "@shared/format";
 
 interface ReceiptStatus {
@@ -66,7 +66,9 @@ function LastSale({ sale, cogs }: { sale?: { price: number; invoiceNo: string; d
   const under = sale.price < cogs;
   return (
     <td title={under ? "Terakhir dijual di bawah COGS baru" : undefined}>
-      <span style={under ? { color: "var(--danger)", fontWeight: 600 } : undefined}>{rp(sale.price)}</span>
+      <span className={under ? "text-err" : undefined}>{rp(sale.price)}</span>
+      {/* Not by colour alone (WCAG 1.4.1). */}
+      {under && <div className="small text-err">di bawah COGS baru</div>}
       <div className="muted">
         {sale.invoiceNo} · {fmtDate(sale.date)}
       </div>
@@ -90,6 +92,7 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
   const [showHeld, setShowHeld] = useState(true);
   const [busy, setBusy] = useState<"preview" | "apply" | "held" | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [asking, setAsking] = useState<null | "apply" | "held">(null);
 
   const loadStatus = useCallback(() => {
     api.get<ReceiptStatus>("/accurate/receipts").then(setStatus).catch(() => setStatus(null));
@@ -123,14 +126,7 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
 
   const apply = async () => {
     if (!preview) return;
-    const big = preview.changed.filter((c) => Math.abs(jump(c)) > BIG_JUMP).length;
-    const ok = window.confirm(
-      `Ubah COGS ${grp(preview.changed.length)} barang ke harga pembelian terakhir?\n\n` +
-        (big ? `${grp(big)} barang berubah lebih dari 50%: barisnya di quotation akan ditahan sampai manajer menekan "COGS ini benar".\n\n` : "") +
-        (preview.held.length ? `${grp(preview.held.length)} barang ditahan dan tidak ikut diubah.\n\n` : "") +
-        "COGS acuan tidak berubah. Barang yang dilewati tetap memakai COGS lamanya.",
-    );
-    if (!ok) return;
+    setAsking(null);
     setBusy("apply");
     try {
       const r = await api.post<Preview>("/accurate/apply-cogs", { dryRun: false });
@@ -157,11 +153,7 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
     if (!preview) return;
     const items = preview.held.filter((h) => picked.has(h.code));
     if (!items.length) return;
-    const ok = window.confirm(
-      `Terapkan harga pembelian terakhir untuk ${grp(items.length)} barang yang ditahan?\n\n` +
-        "COGS dan COGS acuannya ikut diubah, sama seperti menekan \"COGS ini benar\". Pastikan RI-nya sudah dicek.",
-    );
-    if (!ok) return;
+    setAsking(null);
     setBusy("held");
     try {
       const r = await api.post<HeldApplied>("/accurate/apply-held-cogs", { items: items.map((h) => ({ code: h.code, to: h.to })) });
@@ -180,8 +172,8 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
   };
 
   return (
-    <div style={{ marginTop: 16, borderTop: "1px solid var(--rule)", paddingTop: 12 }}>
-      <div className="row-wrap" style={{ justifyContent: "space-between" }}>
+    <div className="subsection">
+      <div className="row-between">
         <div>
           <strong>COGS dari harga pembelian terakhir</strong>{" "}
           {!status.enabled ? (
@@ -194,32 +186,32 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
             <span className="badge green">Siap</span>
           )}
           <div className="muted small">
-            Harga satuan penerimaan barang (RI) terakhir per barang di Accurate {status.entity}, sebelum PPN.
-            {collecting && ` Riwayat setahun sedang dikumpulkan: ${grp(status.receiptsSeen)} RI terbaca. Pratinjau tersedia setelah selesai.`}
+            Harga satuan faktur pembelian (PI) terakhir per barang di Accurate {status.entity}, sebelum PPN.
+            {collecting && ` Riwayat setahun sedang dikumpulkan: ${grp(status.receiptsSeen)} PI terbaca. Pratinjau tersedia setelah selesai.`}
             {status.lastPassAt && ` Riwayat terakhir diperbarui ${fmtDateTime(status.lastPassAt)}.`}
           </div>
-          {status.lastError && <div className="small" style={{ color: "var(--danger)" }}>{status.lastError}</div>}
+          {status.lastError && <div className="small text-err">{status.lastError}</div>}
         </div>
         <div className="row-wrap">
           <button className="btn small ghost" disabled={!!busy || !status.lastPassAt} onClick={runPreview}>
-            <Icon name="eye" size={13} /> {busy === "preview" ? "Menghitung…" : "Pratinjau"}
+            {busy === "preview" ? "Menghitung…" : "Pratinjau"}
           </button>
           <Link className="btn small ghost" to="/cogs-history">
-            <Icon name="search" size={13} /> Cari riwayat COGS
+            Cari riwayat COGS
           </Link>
           <Link className="btn small ghost" to="/sales-history">
-            <Icon name="search" size={13} /> Cari riwayat SI
+            Cari riwayat SI
           </Link>
           {preview && preview.changed.length > 0 && (
-            <button className="btn small" disabled={!!busy} onClick={apply}>
-              <Icon name="check" size={13} /> {busy === "apply" ? "Menerapkan…" : `Terapkan ${grp(preview.changed.length)} perubahan`}
+            <button className="btn small" disabled={!!busy} onClick={() => setAsking("apply")}>
+              {busy === "apply" ? "Menerapkan…" : `Terapkan ${grp(preview.changed.length)} perubahan`}
             </button>
           )}
         </div>
       </div>
 
       {preview && (
-        <div className="small" style={{ marginTop: 8 }}>
+        <div className="small note-block">
           <div className="row-wrap">
             <span className="badge amber">{grp(preview.changed.length)} berubah</span>
             <span className="badge green">{grp(preview.unchanged)} sudah sama</span>
@@ -242,23 +234,22 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
             >
               {grp(preview.skipped.length)} dilewati (satuan)
             </button>
-            <span className="badge grey">{grp(preview.noReceipt)} tanpa RI, COGS tetap</span>
+            <span className="badge grey">{grp(preview.noReceipt)} tanpa PI, COGS tetap</span>
           </div>
 
           {showHeld && preview.held.length > 0 && (
             <>
-              <div className="muted" style={{ marginTop: 8 }}>
+              <div className="muted note-block">
                 Tidak ikut diterapkan: harga beli 3x harga jual atau lebih, atau jauh (lebih dari dua kali / kurang dari separuh) dari COGS sekarang
-                dan dari harga beli di RI sebelumnya. Biasanya satu pak/box tercatat 1 PCS di RI. Betulkan RI di Accurate, isi COGS manual di
+                dan dari harga beli di PI sebelumnya. Biasanya satu pak/box tercatat 1 PCS di PI. Betulkan PI di Accurate, isi COGS manual di
                 katalog, atau kalau harganya memang benar, centang lalu terapkan.
               </div>
-              <div className="row-wrap" style={{ marginTop: 4 }}>
-                <button className="btn small" disabled={!!busy || picked.size === 0} onClick={applyHeld}>
-                  <Icon name="check" size={13} />{" "}
+              <div className="row-wrap note-block">
+                <button className="btn small" disabled={!!busy || picked.size === 0} onClick={() => setAsking("held")}>
                   {busy === "held" ? "Menerapkan…" : picked.size ? `Terapkan ${grp(picked.size)} yang dicentang` : "Centang barang yang harganya benar"}
                 </button>
               </div>
-              <div className="table-wrap" style={{ marginTop: 4 }}>
+              <div className="table-wrap note-block">
                 <table className="table">
                   <thead>
                     <tr>
@@ -309,7 +300,7 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
           )}
 
           {showSkipped && preview.skipped.length > 0 && (
-            <div className="table-wrap" style={{ marginTop: 8 }}>
+            <div className="table-wrap note-block">
               <table className="table">
                 <thead>
                   <tr>
@@ -333,9 +324,9 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
           )}
 
           {preview.changed.length === 0 ? (
-            <p className="muted" style={{ marginTop: 8 }}>Tidak ada COGS yang berubah.</p>
+            <p className="muted note-block">Tidak ada COGS yang berubah.</p>
           ) : (
-            <div className="table-wrap" style={{ marginTop: 8 }}>
+            <div className="table-wrap note-block">
               <table className="table">
                 <thead>
                   <tr>
@@ -358,7 +349,7 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
                         <td className="l">{c.name}</td>
                         <td>{c.from > 0 ? rp(c.from) : "kosong"}</td>
                         <td>{rp(c.to)}</td>
-                        <td style={Math.abs(j) > BIG_JUMP ? { color: "var(--danger)", fontWeight: 600 } : undefined}>
+                        <td className={Math.abs(j) > BIG_JUMP ? "text-err" : undefined}>
                           {Number.isFinite(j) ? `${j > 0 ? "+" : ""}${pct(j)}` : "baru"}
                         </td>
                         <LastSale sale={preview.lastSales?.[c.code]} cogs={c.to} />
@@ -382,6 +373,36 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
             </div>
           )}
         </div>
+      )}
+      {asking === "apply" && preview && (
+        <ConfirmModal
+          title={`Ubah COGS ${grp(preview.changed.length)} barang?`}
+          tone="primary"
+          message={
+            <>
+              COGS diganti ke harga pembelian terakhir.
+              {preview.changed.filter((c) => Math.abs(jump(c)) > BIG_JUMP).length > 0 &&
+                ` ${grp(preview.changed.filter((c) => Math.abs(jump(c)) > BIG_JUMP).length)} barang berubah lebih dari 50%: barisnya di quotation ditahan sampai manajer menekan "COGS ini benar".`}
+              {preview.held.length > 0 && ` ${grp(preview.held.length)} barang ditahan dan tidak ikut diubah.`} COGS acuan tidak
+              berubah; barang yang dilewati tetap memakai COGS lamanya.
+            </>
+          }
+          confirmLabel="Ubah COGS"
+          busy={busy === "apply"}
+          onConfirm={() => void apply()}
+          onClose={() => setAsking(null)}
+        />
+      )}
+      {asking === "held" && preview && (
+        <ConfirmModal
+          title={`Terapkan harga untuk ${grp(picked.size)} barang yang ditahan?`}
+          tone="primary"
+          message='COGS dan COGS acuannya ikut diubah, sama seperti menekan "COGS ini benar". Pastikan PI-nya sudah dicek.'
+          confirmLabel="Terapkan"
+          busy={busy === "held"}
+          onConfirm={() => void applyHeld()}
+          onClose={() => setAsking(null)}
+        />
       )}
     </div>
   );

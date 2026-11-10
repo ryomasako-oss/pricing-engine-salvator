@@ -32,11 +32,9 @@ for (const theme of THEMES) {
       await expect(header("cocok")).toHaveText("2 cocok");
       await expectReadable(adjustment);
 
-      // Row 3: picked from the inline catalog search.
-      await page.getByRole("button", { name: "Cari di katalog untuk Tisu gulung nice" }).click();
-      await page.getByLabel("Kata kunci katalog").fill("lakban");
-      await page.getByRole("button", { name: "Cari", exact: true }).click();
-      await page.getByRole("button", { name: /LAKBAN BENING 48MM/ }).click();
+      // Row 3: picked from the catalog search in the row's own box (ItemCombobox).
+      await page.getByRole("combobox", { name: "Item katalog untuk Tisu gulung nice" }).fill("lakban");
+      await page.getByRole("option", { name: /^LAKBAN BENING 48MM/ }).click();
       await expect(adjustment).toHaveText("1 adjustment");
       await expect(header("cocok")).toHaveText("3 cocok");
 

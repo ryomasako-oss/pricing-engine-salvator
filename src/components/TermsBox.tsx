@@ -114,8 +114,8 @@ export function TermsBox({
           />
         </label>
       </div>
-      <div className="row" style={{ gap: 18, flexWrap: "wrap", marginTop: 10 }}>
-        <label className="row" style={{ gap: 6 }}>
+      <div className="check-row note-block">
+        <label className="check">
           <input
             type="checkbox"
             checked={!meta.hideQty}
@@ -123,7 +123,7 @@ export function TermsBox({
           />
           <span>Tampilkan Qty di penawaran</span>
         </label>
-        <label className="row" style={{ gap: 6, opacity: meta.hideQty ? 0.5 : 1 }}>
+        <label className={`check${meta.hideQty ? " is-dim" : ""}`}>
           <input
             type="checkbox"
             checked={!meta.hideQty && !meta.hideLineTotal}
@@ -133,7 +133,7 @@ export function TermsBox({
           <span>Tampilkan total per baris</span>
         </label>
       </div>
-      <div className="row" style={{ gap: 18, flexWrap: "wrap", marginTop: 8, opacity: meta.hideQty ? 0.5 : 1 }}>
+      <div className={`check-row note-block${meta.hideQty ? " is-dim" : ""}`}>
         <span className="muted small">Baris total:</span>
         {TOTAL_ROWS.map(([key, label]) => (
           <label key={key} className="row" style={{ gap: 6 }}>
@@ -151,12 +151,12 @@ export function TermsBox({
         ))}
       </div>
       {meta.hideQty && (
-        <p className="muted small" style={{ margin: "6px 0 0" }}>
+        <p className="note">
           Tanpa Qty, penawaran menjadi daftar harga: total per baris, subtotal, PPN, dan nilai kontrak ikut disembunyikan.
         </p>
       )}
       {missing.length > 0 && !readOnly && (
-        <p className="small" style={{ color: "var(--danger)", margin: "8px 0 0" }}>
+        <p className="small text-err note-block">
           Wajib diisi sebelum diajukan: {missing.join(" dan ")}.
         </p>
       )}

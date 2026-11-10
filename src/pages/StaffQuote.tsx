@@ -14,7 +14,7 @@ import { useToast } from "../context/ToastContext";
 import { useUnsavedGuard } from "../context/UnsavedGuardContext";
 import { CatalogPicker } from "../components/CatalogPicker";
 import { Icon } from "../components/Icon";
-import { Modal } from "../components/Modal";
+import { Modal, ConfirmModal } from "../components/Modal";
 import { type CompanyInfo, QuotationDoc } from "../components/QuotationDoc";
 import { StatusChip } from "../components/pricing";
 import { TermsBox } from "../components/TermsBox";
@@ -124,6 +124,9 @@ export function StaffQuotePage() {
   const [meta, setMeta] = useState<QuoteMeta | null>(null);
   const [pricing, setPricing] = useState<StaffPricing | null>(null);
   const [dirty, setDirty] = useState(false);
+  // Read by async loads: an edit made while a load is in flight must not be overwritten by it.
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
   const [saving, setSaving] = useState(false);
   const [pricingBusy, setPricingBusy] = useState(false);
   const [error, setError] = useState("");
@@ -137,15 +140,19 @@ export function StaffQuotePage() {
   const [cogsBlocked, setCogsBlocked] = useState<string[] | null>(null);
   const previewSeq = useRef(0);
 
-  const load = useCallback(async () => {
+  /** keepEdits: a background (re)load that must not overwrite edits typed meanwhile. */
+  const load = useCallback(async (keepEdits = false) => {
     const [d, sr] = await Promise.all([
       api.get<Detail>(`/quotes/${quoteId}`),
       api.get<{ review: SalesReviewRecord | null }>(`/quotes/${quoteId}/sales-review`).catch(() => ({ review: null })),
     ]);
-    setDetail(d);
+    // Edits kept: keep the version they were made on, so a save still gets the 409 if
+    // someone else changed the quote meanwhile (instead of silently overwriting it).
+    setDetail((prev) => (keepEdits && dirtyRef.current && prev ? { ...d, quote: { ...d.quote, version: prev.quote.version } } : d));
     setSalesReview(sr.review);
     // Submits and sales checks add "Perlu diperbaiki" tasks: refresh the nav count.
     window.dispatchEvent(new Event("fix-tasks-changed"));
+    if (keepEdits && dirtyRef.current) return;
     setLines(d.quote.items);
     setMeta(d.quote.meta);
     setPricing(d.quote.pricing);
@@ -154,7 +161,7 @@ export function StaffQuotePage() {
   }, [quoteId]);
 
   useEffect(() => {
-    load().catch((e) => toast(e instanceof Error ? e.message : "Gagal memuat quotation.", "error"));
+    load(true).catch((e) => toast(e instanceof Error ? e.message : "Gagal memuat quotation.", "error"));
     api.get<{ clients: Client[] }>("/clients").then((r) => setClients(r.clients)).catch(() => undefined);
     api.get<{ company: CompanyInfo }>("/settings").then((r) => setCompany(r.company)).catch(() => undefined);
     api
@@ -196,7 +203,13 @@ export function StaffQuotePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dirty, editKey(lines), meta, quoteId]);
 
-  useUnsavedGuard(dirty ? () => window.confirm("Ada perubahan yang belum disimpan. Tinggalkan halaman ini?") : null);
+  useUnsavedGuard(dirty);
+
+  // Counts edits so a save can tell whether something changed while it was in flight.
+  const editSeq = useRef(0);
+  useEffect(() => {
+    editSeq.current += 1;
+  }, [lines, meta]);
 
   const edit = (id: string, patch: Partial<StaffLine>) => {
     setLines((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
@@ -205,6 +218,7 @@ export function StaffQuotePage() {
 
   const save = async () => {
     if (!detail || !meta) return;
+    const seq = editSeq.current;
     setSaving(true);
     try {
       const r = await api.put<{ quote: StaffQuote }>(`/quotes/${quoteId}`, {
@@ -213,11 +227,18 @@ export function StaffQuotePage() {
         expected_version: detail.quote.version,
       });
       setDetail({ ...detail, quote: r.quote });
+      // Edited while the request was in flight: keep those edits (and dirty) instead of
+      // overwriting them with what the server just stored; the next save sends them.
+      if (editSeq.current !== seq) {
+        toast("Tersimpan. Perubahan terakhir Anda belum disimpan.", "success");
+        return;
+      }
       setLines(r.quote.items);
       setPricing(r.quote.pricing);
       setDirty(false);
       toast("Tersimpan", "success");
-      await load();
+      // Background refresh: edits typed while it is in flight stay (and stay unsaved).
+      await load(true);
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
         toast("Quotation ini sudah diubah pengguna lain. Memuat ulang…", "error");
@@ -292,38 +313,36 @@ export function StaffQuotePage() {
   };
 
   return (
-    <main className="hk-main">
+    <main className="hk-main page-stack">
       <div className="hk-page-head">
         <div>
           <button
             className="link-btn"
-            onClick={() => {
-              if (dirty && !window.confirm("Ada perubahan yang belum disimpan. Tinggalkan halaman ini?")) return;
-              navigate("/quotes");
-            }}
+            onClick={() => navigate("/quotes")}
           >
             <Icon name="back" size={14} /> Semua quotation
           </button>
-          <h1 style={{ marginTop: 4 }}>{quote.title}</h1>
-          <p className="row-wrap" style={{ gap: 8 }}>
-            <span className="num">{quote.number}</span>
+          <h1>{quote.title}</h1>
+          <div className="status-bar">
+            <span className="num muted">{quote.number}</span>
             <StatusChip status={quote.status} />
-            <span className="muted">{clientName} · {lines.length} item</span>
-          </p>
+            <span className="muted small">{clientName} · {lines.length} item</span>
+            {dirty && <span className="badge amber">Belum disimpan</span>}
+          </div>
         </div>
-        <div className="row-wrap" style={{ gap: 8 }}>
+        <div className="row-wrap">
           {!readOnly && (
-            <button className="btn primary" onClick={() => void save()} disabled={!dirty || saving || pricingBusy || !!error}>
+            <button className="btn" onClick={() => void save()} disabled={!dirty || saving || pricingBusy || !!error}>
               {saving ? "Menyimpan…" : dirty ? "Simpan" : "Tersimpan"}
             </button>
           )}
           {quote.status === "approved" && isResponsible && (
             <button className="btn" onClick={() => setModal("sales-import")}>
-              <Icon name="upload" size={15} /> Import cek sales
+              Import cek sales
             </button>
           )}
           <button className="btn" onClick={exportPdf} disabled={!company || dirty}>
-            <Icon name="download" size={15} /> PDF
+            Ekspor PDF
           </button>
           <WorkflowButtons
             quote={quote as unknown as Quote}
@@ -352,28 +371,36 @@ export function StaffQuotePage() {
         />
       )}
       {quote.status === "rejected" && quote.decision_note && (
-        <p className="notice error" style={{ marginBottom: 12 }}>
+        <p className="notice error">
           <strong>Ditolak{quote.approved_by_name ? ` oleh ${quote.approved_by_name}` : ""}:</strong> {quote.decision_note}
         </p>
       )}
-      {error && <p className="notice error" style={{ marginBottom: 12 }}>{error}</p>}
+      {error && <p className="notice error">{error}</p>}
 
-      <div className="card" style={{ marginBottom: 14 }}>
+      <div className="card">
         <div className="card-head">
           <h2>Item</h2>
-          <div className="row-wrap" style={{ gap: 8 }}>
-            <span className={`badge ${outcome.cls}`} title={detail.policy.breaches.map((b) => b.message).join(" ")}>
-              {outcome.label}
-            </span>
+          <div className="row-wrap">
+            {outcome.cls === "green" && <span className="badge green">{outcome.label}</span>}
             {!readOnly && (
-              <button className="btn small" onClick={() => setModal("catalog")}>
-                <Icon name="plus" size={14} /> Tambah dari katalog
+              <button className="btn small primary" onClick={() => setModal("catalog")}>
+                Tambah dari katalog
               </button>
             )}
           </div>
         </div>
-        <div className="table-wrap" style={{ border: 0, borderRadius: 0 }}>
-          <table className="table">
+        {/* A banner, not a badge. Staff get one generic breach on purpose (server/staffView.ts):
+            which line or rule tripped would let a rep work out COGS, so none is shown here. */}
+        {outcome.cls !== "green" && (
+          <div className="card-body policy-banner">
+            <p className={`notice ${outcome.cls === "amber" ? "warn" : "info"}`}>
+              <strong>{outcome.label}.</strong>{" "}
+              {outcome.cls === "amber" ? "Anda tetap bisa mengajukan; manajer yang memutuskan." : detail.policy.breaches[0]?.message}
+            </p>
+          </div>
+        )}
+        <div className="table-wrap flush">
+          <table className="table stack">
             <thead>
               <tr>
                 <th className="l">#</th>
@@ -388,10 +415,10 @@ export function StaffQuotePage() {
             </thead>
             <tbody>
               {lines.map((l, i) => (
-                <tr key={l.id}>
-                  <td className="l muted">{i + 1}</td>
-                  <td className="l">
-                    <div style={{ fontWeight: 550 }}>{l.name}</div>
+                <tr key={l.id} className={l.held ? "flagged" : undefined}>
+                  <td className="l muted stack-hide">{i + 1}</td>
+                  <td className="l stack-title">
+                    <div className="cell-title">{l.name}</div>
                     <div className="muted small">{l.code}</div>
                     {l.held && (
                       <span className={`badge ${holdInfo(l.holdReason).tone}`} title={holdInfo(l.holdReason).staff}>
@@ -399,7 +426,7 @@ export function StaffQuotePage() {
                       </span>
                     )}
                   </td>
-                  <td className="l">
+                  <td className="l" data-label="Satuan">
                     <UomCell
                       value={l.uom}
                       choices={uomChoices(uomOptions, units[l.code], l.uom)}
@@ -416,7 +443,7 @@ export function StaffQuotePage() {
                       }}
                     />
                   </td>
-                  <td>
+                  <td data-label="Qty">
                     <NumberCell
                       live className="cell" disabled={readOnly}
                       aria-label={`Qty ${l.name}`}
@@ -424,7 +451,7 @@ export function StaffQuotePage() {
                       onCommit={(v) => edit(l.id, { qty: v })}
                     />
                   </td>
-                  <td>
+                  <td data-label="Plafon klien">
                     <NumberCell
                       live className="cell" disabled={readOnly}
                       aria-label={`Plafon klien ${l.name}`}
@@ -432,7 +459,7 @@ export function StaffQuotePage() {
                       onCommit={(v) => edit(l.id, { rrp: v })}
                     />
                   </td>
-                  <td className="num">
+                  <td className="num" data-label="Harga satuan">
                     {l.held ? (
                       <span className="muted">ditahan</span>
                     ) : readOnly ? (
@@ -447,9 +474,9 @@ export function StaffQuotePage() {
                       />
                     )}
                   </td>
-                  <td className="num">{l.held ? <span className="muted">—</span> : grp(l.price * l.qty)}</td>
+                  <td className="num" data-label="Total">{l.held ? <span className="muted">—</span> : grp(l.price * l.qty)}</td>
                   {!readOnly && (
-                    <td>
+                    <td className="stack-action">
                       <button
                         className="icon-btn" aria-label={`Hapus ${l.name}`}
                         onClick={() => {
@@ -464,13 +491,13 @@ export function StaffQuotePage() {
                 </tr>
               ))}
               {lines.length === 0 && (
-                <tr><td colSpan={8} className="muted" style={{ padding: 16 }}>Belum ada item. Tambahkan dari katalog.</td></tr>
+                <tr><td colSpan={8} className="l muted empty-row">Belum ada item. Tambahkan dari katalog.</td></tr>
               )}
             </tbody>
           </table>
         </div>
         <div className="card-body">
-          <div className="quote-totals" style={{ opacity: pricingBusy ? 0.5 : 1 }} aria-busy={pricingBusy}>
+          <div className={`quote-totals${pricingBusy ? " is-dim" : ""}`} aria-busy={pricingBusy}>
             <div><span>Subtotal per bulan</span><span className="num">{rp(pricing.subtotal)}</span></div>
             <div><span>PPN {pct(pricing.ppnRate, 0)}</span><span className="num">{rp(pricing.ppn)}</span></div>
             <div className="grand"><span>Total per bulan</span><span className="num">{rp(pricing.total)}</span></div>
@@ -483,8 +510,13 @@ export function StaffQuotePage() {
       </div>
 
       <div className="card">
-        <div className="card-head"><h2>Dokumen penawaran</h2></div>
-        <div className="card-body col" style={{ gap: 14 }}>
+        <div className="card-head">
+          <h2>Dokumen penawaran</h2>
+          <button className="btn small" onClick={() => setShowDoc((v) => !v)}>
+            <Icon name="eye" size={14} /> {showDoc ? "Sembunyikan dokumen" : "Lihat dokumen"}
+          </button>
+        </div>
+        <div className="card-body form-stack">
           <div className="field-grid">
             <label className="field">
               <span>Klien</span>
@@ -535,9 +567,6 @@ export function StaffQuotePage() {
               onChange={(e) => { setMeta({ ...meta, notes: e.target.value }); setDirty(true); }}
             />
           </label>
-          <button className="btn" style={{ alignSelf: "flex-start" }} onClick={() => setShowDoc((v) => !v)}>
-            <Icon name="eye" size={15} /> {showDoc ? "Sembunyikan dokumen" : "Lihat dokumen"}
-          </button>
           {showDoc && company && (
             <QuotationDoc
               {...docInput}
@@ -592,19 +621,19 @@ export function StaffQuotePage() {
         >
           {missing.length > 0 && <p className="notice error">{missingTermsMessage(missing)}</p>}
           {cogsBlocked && cogsBlocked.length > 0 && (
-            <div className={`notice ${cogsBlocked.length === lines.length ? "error" : "warn"}`} style={{ marginTop: 8 }}>
+            <div className={`notice ${cogsBlocked.length === lines.length ? "error" : "warn"}`}>
               <strong>
                 {cogsBlocked.length === lines.length
                   ? "Semua item sedang dicek manajer, jadi belum ada yang bisa diajukan:"
                   : `${cogsBlocked.length} item ditahan (harganya sedang dicek manajer) dan tidak ikut penawaran:`}
               </strong>
-              <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+              <ul className="notice-list">
                 {cogsBlocked.map((b) => <li key={b}>{b}</li>)}
               </ul>
               Di dokumen ke customer, item ini ditulis sebagai "item menyusul".
             </div>
           )}
-          <p className="muted small" style={{ marginTop: 10 }}>
+          <p className="muted small">
             {outcome.cls === "amber"
               ? "Quotation ini perlu persetujuan manajer sebelum bisa dikirim ke klien."
               : "Quotation masuk antrean manajer untuk dicek."}

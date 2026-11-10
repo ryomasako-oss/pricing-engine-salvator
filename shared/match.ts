@@ -69,6 +69,12 @@ export interface MatchResult {
   via: "code" | "alias" | "si" | "name" | null;
   /** Best candidate first; at most MAX_ALTERNATIVES. Empty when nothing scored. */
   candidates: Candidate[];
+  /**
+   * A "review" by name that is only a close call: the best scores at least MATCH_SCORE and has every
+   * word the client wrote, but the runner-up is within MATCH_MARGIN (mostly colour/size variants).
+   * These, and only these, may be accepted in bulk; a row missing a client word (maybe the brand) may not.
+   */
+  tie?: true;
 }
 
 /** Alias text (normalised with `normalizeText`) -> catalog code. */
@@ -361,9 +367,9 @@ export function matchLine<T extends MatchableItem>(
   // may be the brand. Never auto-accept that, however high the score.
   const bestTokens = catalog.tokens[posOf.get(best.id)!];
   const complete = compare(wording(posOf.get(best.id)!), bestTokens).complete;
-  const status: MatchStatus =
-    complete && best.score >= MATCH_SCORE && best.score - runnerUp >= MATCH_MARGIN ? "match" : "review";
-  return { index, status, via: "name", candidates: top };
+  const sure = complete && best.score >= MATCH_SCORE;
+  const status: MatchStatus = sure && best.score - runnerUp >= MATCH_MARGIN ? "match" : "review";
+  return { index, status, via: "name", candidates: top, ...(sure && status === "review" ? { tie: true as const } : {}) };
 }
 
 export function matchLines<T extends MatchableItem>(

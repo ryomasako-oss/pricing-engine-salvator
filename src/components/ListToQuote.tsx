@@ -15,7 +15,8 @@
    (shared/listDrafts.ts): a draft keeps the read lines and the picks by
    code, and opening it matches the lines again so prices are today's. */
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { ItemCombobox } from "./ItemCombobox";
 import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
@@ -64,11 +65,17 @@ interface Row {
   chosen: number | null;
   /** The rep accepted or changed the pairing (required for "review" rows). */
   confirmed: boolean;
+  /** Accepted with "Terima semua saran": never saved as an alias or as learning feedback. */
+  bulk?: boolean;
   /** The rep looked at a unit read from the wording (see packUnitNeedsCheck). Reset when the item changes. */
   unitOk: boolean;
   /** Extra items found by a manual search for this row. */
   extra: number[];
+  /** More items quoted for this one request ("binder clip" → several binder clips), each its own quote line. */
+  also?: number[];
 }
+
+const NUMBERING_KEY = "ltq-nomor";
 
 export function ListToQuote({
   clients,
@@ -115,7 +122,10 @@ export function ListToQuote({
   const [stage, setStage] = useState<"file" | "ai" | "match">("match");
   const [error, setError] = useState("");
   const [drag, setDrag] = useState(false);
-  const [searchRow, setSearchRow] = useState<number | null>(null);
+  // One search open at a time, in one row: the magnifier ("search": replace the pick) or "+ Barang lain"
+  // ("also"). Moving to another row, ×, or Escape closes it.
+  const [panel, setPanel] = useState<{ row: number } | null>(null);
+  const closePanel = useCallback(() => setPanel(null), []);
   /** Row whose "Barang baru" form is open (catatan 24/25: a row with no match can still become an item). */
   const [newItemRow, setNewItemRow] = useState<number | null>(null);
   const [uomOptions, setUomOptions] = useState<string[]>([]);
@@ -177,14 +187,16 @@ export function ListToQuote({
       if (d.status !== "open") throw new Error("Draft ini sudah dibatalkan.");
       const res = await api.post<MatchResponse>("/catalog/match", { client_id: d.client_id, lines: d.lines });
       // Items picked by hand aren't in the match: fetch them by code, through the same viewer filter.
-      const found = await Promise.all(
-        codesToFetch(d.choices, res.items).map((code) =>
-          api
-            .get<{ items: CatalogItem[] }>(`/catalog?${new URLSearchParams({ q: code, limit: "5" })}`)
-            .then((r) => r.items.find((i) => i.code.toLowerCase() === code.toLowerCase()))
-            .catch(() => undefined),
-        ),
-      );
+      // By exact code, 90 at a time (GET /catalog?codes=): a search could rank another item above it.
+      const want = codesToFetch(d.choices, res.items);
+      const found: (CatalogItem | undefined)[] = [];
+      for (let i = 0; i < want.length; i += 90) {
+        const chunk = want.slice(i, i + 90);
+        const r = await api
+          .get<{ items: CatalogItem[] }>(`/catalog?${new URLSearchParams({ codes: chunk.join(","), limit: "90" })}`)
+          .catch(() => ({ items: [] as CatalogItem[] }));
+        found.push(...r.items);
+      }
       const known = new Map([...res.items, ...found.filter((i): i is CatalogItem => !!i)].map((i) => [i.id, i]));
       const restored = restoreRows(d.lines, res.results, d.choices, known);
       for (const p of restored.extraItems) known.set(p.id, p);
@@ -272,12 +284,16 @@ export function ListToQuote({
   };
 
   const update = (i: number, patch: Partial<Row>) =>
-    setRows((rs) => rs && rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+    setRows((rs) => rs && rs.map((r, j) => (j === i ? { ...r, bulk: false, ...patch } : r)));
+  // Extra items don't touch the row's own pick, so they leave how it was accepted alone.
+  const setAlso = (i: number, also: number[]) => setRows((rs) => rs && rs.map((r, j) => (j === i ? { ...r, also } : r)));
 
   const lines = useMemo(() => {
     if (!rows) return [];
     return rows.map((r) => {
       const item = r.chosen != null ? items.get(r.chosen) : undefined;
+      // Nothing chosen but extra items added ("binder clip" served by 5 clips): the request is served.
+      if (!item && (r.also ?? []).length > 0) return null;
       // Nothing chosen: the client's own line stays on the quote, held, so all of their list shows.
       if (!item) {
         return {
@@ -320,21 +336,47 @@ export function ListToQuote({
     });
   }, [rows, items]);
 
+  // "Tambah barang lain": each extra item of a row is its own quote line, same qty and unit as the
+  // request (editable in the editor). Held like any pick when its COGS needs a check.
+  // Same reading of the client's unit as the row's own line ("isi 12/Lusin" in the name), keyed by item id.
+  const alsoLines = useMemo(
+    () =>
+      (rows ?? []).map((r) =>
+        (r.also ?? [])
+          .map((id) => items.get(id))
+          .filter((item): item is CatalogItem => !!item && item.source !== "pending")
+          .map((item) => {
+            // The client's ceiling for the request binds every item offered for it (Ryoma, 10 Nov: "plafon ikut klien").
+            const line = lineFromCatalog(item, r.request.qty ?? 1, {
+              uom: r.request.uom,
+              rrp: r.request.rrp,
+              requestName: r.request.noQty ? undefined : r.request.name,
+              toBase: true,
+            });
+            return { id: item.id, item, line: item.cogs_problem ? { ...line, held: true } : line };
+          }),
+      ),
+    [rows, items],
+  );
+
   // Prices for staff: the same lines the quote will be built from, priced by
   // the server without saving anything. Index i -> unit price.
-  const [prices, setPrices] = useState<Record<number, number>>({});
-  const previewKey = JSON.stringify(lines.map((l) => l && [l.code, l.qty, l.uom, l.rrp]));
+  // Keyed "r{i}" for a row's own line and "a{i}_{item id}" for its extra items ("+ Barang lain"),
+  // so removing one extra never shows another's price.
+  const [prices, setPrices] = useState<Record<string, number>>({});
+  const previewKey = JSON.stringify([lines.map((l) => l && [l.code, l.qty, l.uom, l.rrp]), alsoLines.map((ls) => ls.map((a) => [a.id, a.line.qty, a.line.uom]))]);
   useEffect(() => {
     if (seeCosts || !rows) return;
-    const send = lines
-      .map((l, i) => l && l.holdReason !== "unmatched" && { id: `r${i}`, code: l.code, name: l.name, qty: l.qty, uom: l.uom, rrp: l.rrp })
-      .filter(Boolean);
+    const send = [
+      ...lines.map((l, i) => l && l.holdReason !== "unmatched" && { id: `r${i}`, code: l.code, name: l.name, qty: l.qty, uom: l.uom, rrp: l.rrp }),
+      ...alsoLines.flatMap((ls, i) => ls.map(({ id, line: l }) => ({ id: `a${i}_${id}`, code: l.code, name: l.name, qty: l.qty, uom: l.uom, rrp: l.rrp }))),
+    ].filter(Boolean);
     if (!send.length) return setPrices({});
     let live = true;
     const t = setTimeout(() => {
       api
         .post<{ quote: { items: { id: string; price: number }[] } }>("/quotes/preview", { snapshot: { items: send } })
-        .then((r) => live && setPrices(Object.fromEntries(r.quote.items.map((it) => [Number(it.id.slice(1)), it.price]))))
+        .then((r) => live && setPrices(Object.fromEntries(r.quote.items.map((it) => [it.id, it.price]))))
         .catch(() => live && setPrices({}));
     }, 300);
     return () => {
@@ -363,22 +405,36 @@ export function ListToQuote({
     const it = r.chosen != null ? items.get(r.chosen) : undefined;
     return it?.source === "pending" && !(Number(it.list_price) > 0);
   };
-  const heldCount = rows?.filter((r) => blockedOf(r) || isPending(r)).length ?? 0;
-  const used = lines.filter((l) => l && l.holdReason !== "unmatched").length;
-  // Rows with no item and no price: they stay on the quote as "menyusul" (held) and in Perlu diperbaiki.
-  const skipped = (rows?.length ?? 0) - used;
+  // "Perlu dicek" only because near-equal variants tie (shared/match.ts tie): the first suggestion,
+  // untouched, not held and not a barang baru. A row missing a word the client wrote is never in here.
+  const bulkable = (r: Row) =>
+    !!r.result.tie && !r.confirmed && r.chosen != null && r.chosen === r.result.candidates[0]?.id && !isPending(r) && !blockedOf(r);
+  const bulkCount = rows?.filter(bulkable).length ?? 0;
+  const acceptAll = () => setRows((rs) => rs && rs.map((r) => (bulkable(r) ? { ...r, confirmed: true, bulk: true } : r)));
+  const heldCount =
+    (rows?.filter((r) => blockedOf(r) || isPending(r)).length ?? 0) + alsoLines.flat().filter((a) => a.line.held).length;
+  const usedRows = lines.filter((l) => l && l.holdReason !== "unmatched").length;
+  // Rows with no item, no extra item and no price: they stay on the quote as "menyusul" (held) and in Perlu diperbaiki.
+  const unserved = (r: Row) => r.chosen == null && !(r.also ?? []).length;
+  const skipped = rows?.filter(unserved).length ?? 0;
+  // Items going on the quote: each row's own pick plus its extra items ("+ Barang lain").
+  const used = usedRows + alsoLines.flat().length;
 
 
   const create = async () => {
     if (!rows) return;
     setBusy(true);
     try {
-      const quoteItems = (lines.filter(Boolean) as QuoteItem[]).map((l, i) => ({ ...l, lineNo: i + 1 }));
+      // A row's extra items ("Tambah barang lain") follow its own line.
+      const quoteItems = (lines.flatMap((l, i) => [l, ...(alsoLines[i] ?? []).map((a) => a.line)]).filter(Boolean) as QuoteItem[]).map((l, i) => ({
+        ...l,
+        lineNo: i + 1,
+      }));
       // Rows that don't go on the quote are kept on "Perlu diperbaiki" (saved
       // with the quote, in the same request), so nothing the client asked for
       // is silently dropped.
       const unmatched = rows
-        .filter((row) => row.chosen == null)
+        .filter(unserved)
         .map((row) => ({
           name: row.request.name.slice(0, 300),
           qty: Math.max(0, Number(row.request.qty) || 0),
@@ -399,7 +455,7 @@ export function ListToQuote({
       // every rep and every client, so one hurried "Benar" would become a
       // company-wide rule.
       const pairs = clientId === "" ? [] : rows
-        .filter((row) => row.chosen != null && row.result.via !== "code")
+        .filter((row) => row.chosen != null && row.result.via !== "code" && !row.bulk)
         // A "barang baru" code (BARU-0001) is replaced once Accurate has the real one,
         // so an alias pointing at it would never match anything.
         .filter((row) => items.get(row.chosen!)?.source !== "pending")
@@ -408,7 +464,7 @@ export function ListToQuote({
       // Every row is reported, right or wrong, with or without a client: the
       // pairs above become rules, this is the evidence behind the learning
       // report (shared/matchLearning.ts). Without it nothing was ever recorded.
-      const feedback = rows.map((row) => {
+      const feedback = rows.filter((row) => !row.bulk).map((row) => {
         const item = row.chosen != null ? items.get(row.chosen) : undefined;
         const suggested = row.result.candidates[0] ? (items.get(row.result.candidates[0].id)?.code ?? null) : null;
         return {
@@ -445,6 +501,24 @@ export function ListToQuote({
   });
   const summary = rows && reviewSummary(rows.map(rowState));
 
+  // Penomoran (Ryoma, 10 Nov: boss may want 1.1 as 2): "nested" = 1, 1.1, 1.2, 2 (extra items under
+  // their request); "flat" = 1, 2, 3, 4, the order the quote itself uses. Remembered on this browser.
+  const [numbering, setNumbering] = useState<"nested" | "flat">(() =>
+    localStorage.getItem(NUMBERING_KEY) === "flat" ? "flat" : "nested",
+  );
+  const chooseNumbering = (n: "nested" | "flat") => {
+    setNumbering(n);
+    localStorage.setItem(NUMBERING_KEY, n);
+  };
+  const numbers = useMemo(() => {
+    let n = 0;
+    return (rows ?? []).map((r, i) => {
+      const own = numbering === "flat" ? String(++n) : String(i + 1);
+      const extra = (r.also ?? []).map((_, k) => (numbering === "flat" ? String(++n) : `${i + 1}.${k + 1}`));
+      return { own, extra };
+    });
+  }, [rows, numbering]);
+
   return (
     <Modal
       title="Quotation dari list klien"
@@ -465,10 +539,10 @@ export function ListToQuote({
               !draft && <button className="btn ghost" onClick={() => setRows(null)} disabled={busy}>Ganti file</button>
             )}
             <button className="btn" onClick={() => void saveDraft()} disabled={busy || saving}>
-              <Icon name="check" size={14} /> {saving ? "Menyimpan…" : "Simpan"}
+              {saving ? "Menyimpan…" : "Simpan"}
             </button>
             <button className="btn" onClick={() => setSending(true)} disabled={busy || saving || sending}>
-              <Icon name="send" size={14} /> Kirim ke PIC…
+              Kirim ke PIC…
             </button>
             <button className="btn primary" onClick={create} disabled={busy || saving || !rows?.length || (pending > 0 && !skipReview) || !title.trim()}>
               {busy ? "Membuat…" : `Buat quotation (${used} item${skipped ? ` + ${skipped} menyusul` : ""})`}
@@ -481,12 +555,12 @@ export function ListToQuote({
     >
       {!rows && (initial || draftId) ? (
         // A list from chat or a saved draft has no file step: just the wait for matching, or why it failed.
-        <div className="col" style={{ gap: 12 }}>
+        <div className="form-stack">
           {busy && <WaitingLine lines={WAITING.match} />}
           {error && <p className="notice error">{error}</p>}
         </div>
       ) : !rows ? (
-        <div className="col" style={{ gap: 12 }}>
+        <div className="form-stack">
           {adding ? (
             <ClientQuickAdd clients={list} onDone={chooseClient} onCancel={() => setAdding(false)} />
           ) : (
@@ -505,11 +579,11 @@ export function ListToQuote({
                 </select>
               </label>
               <button className="btn ghost" onClick={() => setAdding(true)}>
-                <Icon name="plus" size={15} /> Klien baru
+                Klien baru
               </button>
             </div>
           )}
-          <p className="muted small" style={{ margin: "-6px 0 0" }}>
+          <p className="field-help">
             {clientId === ""
               ? "Tanpa klien, pilihan Anda tidak diingat. Pilih klien supaya istilah yang Anda cek otomatis cocok di list berikutnya."
               : "Istilah yang Anda cek atau ganti akan diingat untuk klien ini, jadi list berikutnya lebih cepat."}
@@ -527,7 +601,6 @@ export function ListToQuote({
               void read(e.dataTransfer.files?.[0]);
             }}
           >
-            <Icon name="upload" size={24} />
             <div>
               <strong>Tarik file daftar klien ke sini</strong>
               <div className="muted small">
@@ -549,16 +622,25 @@ export function ListToQuote({
           {error && <p className="notice error">{error}</p>}
         </div>
       ) : (
-        <div className="col" style={{ gap: 12 }}>
-          <div className="row-wrap" style={{ gap: 12, alignItems: "end" }}>
-            <label className="field" style={{ flex: "1 1 260px" }}>
+        <div className="form-stack">
+          <div className="ltq-head">
+            <label className="field">
               <span>Judul quotation</span>
               <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} />
             </label>
-            <div className="row-wrap" style={{ gap: 6 }}>
+            <div className="badge-row">
               <span className="badge grey">{fileName}</span>
               <span className="badge green">{summary!.sure} cocok</span>
               {summary!.review > 0 && <span className="badge amber">{summary!.review} perlu dicek</span>}
+              {bulkCount > 0 && (
+                <button
+                  className="btn small"
+                  onClick={acceptAll}
+                  title="Untuk baris yang saran pertamanya sudah cocok semua kata, hanya ada varian lain yang mirip. Baris yang diterima di sini tidak disimpan sebagai istilah klien."
+                >
+                  Terima {bulkCount} saran
+                </button>
+              )}
               {summary!.none > 0 && <span className="badge blue">{summary!.none} adjustment</span>}
               {heldCount > 0 && <span className="badge amber">{heldCount} ditahan</span>}
             </div>
@@ -601,7 +683,18 @@ export function ListToQuote({
             />
           )}
 
-          <div className="table-wrap" style={{ maxHeight: "58vh" }}>
+          {/* Always here, so the boss finds it: barang lain numbered 1.1 under their request, or 1, 2, 3
+              as the quote itself numbers them. */}
+          <div className="row-wrap" role="group" aria-label="Penomoran barang lain">
+            <span className="muted small">Nomor barang lain:</span>
+            <button type="button" className={`chip${numbering === "nested" ? " on" : ""}`} aria-pressed={numbering === "nested"} onClick={() => chooseNumbering("nested")}>
+              1, 1.1, 2
+            </button>
+            <button type="button" className={`chip${numbering === "flat" ? " on" : ""}`} aria-pressed={numbering === "flat"} onClick={() => chooseNumbering("flat")}>
+              1, 2, 3
+            </button>
+          </div>
+          <div className="table-wrap ltq-table">
             <table className="table">
               <thead>
                 <tr>
@@ -625,10 +718,16 @@ export function ListToQuote({
                   const pack = chosenItem && !row.request.uom && !row.request.noQty ? readPackUnit(row.request.name, chosenItem) : {};
                   const readUnit = pack.uom && chosenItem && !sameUom(pack.uom, chosenItem.uom || "Pcs") ? pack.uom : null;
                   return (
-                    <tr key={i} style={row.chosen == null ? { opacity: 0.6 } : undefined}>
-                      <td className="l muted">{i + 1}</td>
+                    <Fragment key={i}>
+                    <tr
+                      className={row.chosen == null ? "is-unused" : undefined}
+                      // Before the click lands: touching another row closes this row's open search.
+                      onMouseDownCapture={() => panel && panel.row !== i && setPanel(null)}
+                      onFocusCapture={() => panel && panel.row !== i && setPanel(null)}
+                    >
+                      <td className="l muted">{numbers[i]?.own}</td>
                       <td className="l">
-                        <div style={{ fontWeight: 550 }}>{row.request.name}</div>
+                        <div className="cell-title">{row.request.name}</div>
                         <div className="muted small">
                           {[row.request.code, row.request.noQty ? "Tanpa qty: 1 per satuan terkecil" : row.request.uom]
                             .filter(Boolean)
@@ -636,8 +735,7 @@ export function ListToQuote({
                         </div>
                         {readUnit && <div className="muted small">Satuan dibaca dari teks: {readUnit}.</div>}
                         {chosenItem && unitAssumed(row.request.uom, chosenItem) && (
-                          <div className="small" style={{ color: "var(--warn)" }}>
-                            ⚠ Rasio {row.request.uom} belum ada di katalog: dianggap 1 {row.request.uom} = 1 {chosenItem.uom || "Pcs"}. Kalau isinya lebih, ubah qty atau isi rasionya di Katalog.
+                          <div className="cell-warn">Rasio {row.request.uom} belum ada di katalog: dianggap 1 {row.request.uom} = 1 {chosenItem.uom || "Pcs"}. Kalau isinya lebih, ubah qty atau isi rasionya di Katalog.
                           </div>
                         )}
                         {line && chosenItem && !line.priceUom && line.qty !== (row.request.qty ?? 1) && (
@@ -652,68 +750,58 @@ export function ListToQuote({
                           </div>
                         )}
                         {pack.conflict && chosenItem && (
-                          <div className="small" style={{ color: "var(--warn)" }}>
-                            ⚠ Teks menyebut isi {pack.conflict.text} per {pack.conflict.word}, katalog mencatat 1 {pack.conflict.word} = {pack.conflict.catalog}. Satuan tidak diubah: COGS dihitung per {chosenItem.uom || "Pcs"}. Periksa satuan dan rasio.
+                          <div className="cell-warn">Teks menyebut isi {pack.conflict.text} per {pack.conflict.word}, katalog mencatat 1 {pack.conflict.word} = {pack.conflict.catalog}. Satuan tidak diubah: COGS dihitung per {chosenItem.uom || "Pcs"}. Periksa satuan dan rasio.
                           </div>
                         )}
                         {pack.unmatched && chosenItem && (
-                          <div className="small" style={{ color: "var(--warn)" }}>
-                            ⚠ Teks menyebut {pack.unmatched}, tapi barang ini tidak punya satuan itu: COGS dihitung per {chosenItem.uom || "Pcs"}. Periksa satuan.
+                          <div className="cell-warn">Teks menyebut {pack.unmatched}, tapi barang ini tidak punya satuan itu: COGS dihitung per {chosenItem.uom || "Pcs"}. Periksa satuan.
                           </div>
                         )}
                       </td>
                       <td className="num">{grp(row.request.qty ?? 1)}</td>
-                      <td className="l" style={{ minWidth: 320 }}>
-                        <div className="row" style={{ gap: 6 }}>
-                          <select
-                            className="select"
-                            aria-label={`Item katalog untuk ${row.request.name}`}
-                            value={row.chosen ?? ""}
-                            onChange={(e) =>
-                              update(i, { chosen: e.target.value === "" ? null : Number(e.target.value), confirmed: true, unitOk: false })
-                            }
-                          >
-                            <option value="">— tidak dipakai —</option>
-                            {options.map((id) => {
+                      <td className="l ltq-pick">
+                        <div className="picker-row">
+                          <ItemCombobox
+                            label={`Item katalog untuk ${row.request.name}`}
+                            value={chosenItem}
+                            suggestions={options.flatMap((id) => {
                               const it = items.get(id);
-                              if (!it) return null;
-                              const score = scoreOf.get(id);
-                              return (
-                                <option key={id} value={id}>
-                                  {it.name}{shownCode(it.code) ? ` (${shownCode(it.code)})` : ""}{score != null && score < 1 ? ` · ${Math.round(score * 100)}%` : ""}
-                                  {it.cogs_problem ? " · COGS bermasalah" : ""}
-                                </option>
-                              );
+                              return it ? [{ item: it, score: scoreOf.get(id) }] : [];
                             })}
-                          </select>
+                            seeCosts={seeCosts}
+                            added={row.also ?? []}
+                            open={panel?.row === i}
+                            onOpen={() => setPanel({ row: i })}
+                            onClose={closePanel}
+                            onChoose={(it) => {
+                              if (it) setItems((m) => new Map(m).set(it.id, it));
+                              update(i, {
+                                chosen: it ? it.id : null,
+                                confirmed: true,
+                                unitOk: false,
+                                // A pick from the catalog search stays among the row's options.
+                                ...(it && !options.includes(it.id) ? { extra: [...row.extra, it.id].slice(-20) } : {}),
+                                // An extra item made the row's own pick is no longer an extra.
+                                also: (row.also ?? []).filter((x) => x !== it?.id),
+                              });
+                            }}
+                            onAdd={(it) => {
+                              // A barang baru is not in the catalog yet: it can be the row's pick, not an extra line.
+                              if (it.source === "pending" || it.id === row.chosen || (row.also ?? []).includes(it.id)) return;
+                              if ((row.also ?? []).length >= 20) return toast("Maksimal 20 barang lain per permintaan.", "error");
+                              setItems((m) => new Map(m).set(it.id, it));
+                              setAlso(i, [...(row.also ?? []), it.id].slice(0, 20));
+                            }}
+                          />
                           <button
-                            className="icon-btn"
-                            title="Cari di katalog"
-                            aria-label={`Cari di katalog untuk ${row.request.name}`}
-                            onClick={() => setSearchRow(searchRow === i ? null : i)}
-                          >
-                            <Icon name="search" size={15} />
-                          </button>
-                          <button
-                            className="icon-btn"
-                            title="Barang baru: belum ada di katalog"
+                            className="btn small ghost nowrap"
+                            title="Barang yang belum ada di katalog Accurate"
                             aria-label={`Buat barang baru untuk ${row.request.name}`}
                             onClick={() => setNewItemRow(i)}
                           >
-                            <Icon name="plus" size={15} />
+                            Barang baru
                           </button>
                         </div>
-                        {searchRow === i && (
-                          <CatalogSearch
-                            initial={row.request.name}
-                            seeCosts={seeCosts}
-                            onPick={(it) => {
-                              setItems((m) => new Map(m).set(it.id, it));
-                              update(i, { chosen: it.id, confirmed: true, unitOk: false, extra: [...row.extra, it.id] });
-                              setSearchRow(null);
-                            }}
-                          />
-                        )}
                         {row.result.via === "alias" && (
                           <div className="muted small">Dari pilihan sebelumnya untuk istilah ini</div>
                         )}
@@ -723,10 +811,9 @@ export function ListToQuote({
                             {row.result.status === "review" ? " (ke klien lain, cek dulu)" : " ke klien ini"}
                           </div>
                         )}
-                        {warn && <div className="small" style={{ color: "var(--warn)" }}>⚠ {warn}</div>}
+                        {warn && <div className="cell-warn">{warn}</div>}
                         {blockedOf(row) && (
-                          <div className="small" style={{ color: "var(--warn)" }}>
-                            ⚠ {blockedOf(row)}. Masuk sebagai baris ditahan: tidak ikut total dan dokumen sampai dicek manajer.
+                          <div className="cell-warn">{blockedOf(row)}. Masuk sebagai baris ditahan: tidak ikut total dan dokumen sampai dicek manajer.
                           </div>
                         )}
                       </td>
@@ -737,7 +824,7 @@ export function ListToQuote({
                             onClick={() => update(i, { confirmed: true, unitOk: true })}
                             aria-label={`Benar, pakai saran untuk ${row.request.name}`}
                           >
-                            <Icon name="check" size={13} /> Benar
+                            Benar
                           </button>
                         ) : (
                           <span className={`badge ${badge.cls}`}>{badge.text}</span>
@@ -750,14 +837,63 @@ export function ListToQuote({
                           <span className="muted">ditahan</span>
                         ) : seeCosts ? (
                           grp(line.cogs)
-                        ) : prices[i] != null ? (
-                          <strong>{grp(prices[i])}</strong>
+                        ) : prices[`r${i}`] != null ? (
+                          <strong>{grp(prices[`r${i}`])}</strong>
                         ) : (
                           <span className="muted">…</span>
                         )}
                       </td>
                       <td className="num">{line ? grp(line.rrp) : <span className="muted">—</span>}</td>
                     </tr>
+                    {/* "+ Barang lain": each extra item is its own quote line, with its own cost and ceiling. */}
+                    {(row.also ?? []).map((id, k) => {
+                      const it = items.get(id);
+                      const al = alsoLines[i]?.find((a) => a.id === id)?.line;
+                      if (!it || !al) return null;
+                      const unitWarn = uomWarning(al);
+                      return (
+                        <tr key={`a${id}`} className="also-row">
+                          <td className="l muted">{numbers[i]?.extra[k]}</td>
+                          <td className="l muted small">Barang lain untuk "{row.request.name}"</td>
+                          <td className="num">{grp(al.qty)}</td>
+                          <td className="l">
+                            <div className="cell-title">{it.name}</div>
+                            <div className="muted small">{[shownCode(it.code), al.uom].filter(Boolean).join(" · ")}</div>
+                            {it.cogs_problem && (
+                              <div className="cell-warn">{it.cogs_problem}. Masuk sebagai baris ditahan sampai dicek manajer.</div>
+                            )}
+                            {/* The client's unit applies to every item of the request: say when it was assumed. */}
+                            {row.request.uom && unitAssumed(row.request.uom, it) && (
+                              <div className="cell-warn">Rasio {row.request.uom} belum ada di katalog untuk barang ini: dianggap 1 {row.request.uom} = 1 {it.uom || "Pcs"}. Periksa qty di quotation.</div>
+                            )}
+                            {unitWarn && <div className="cell-warn">{unitWarn}</div>}
+                          </td>
+                          <td className="l">
+                            <button
+                              type="button"
+                              className="btn small ghost"
+                              aria-label={`Hapus ${it.name} dari baris ${row.request.name}`}
+                              onClick={() => setAlso(i, (row.also ?? []).filter((x) => x !== id))}
+                            >
+                              Hapus
+                            </button>
+                          </td>
+                          <td className="num">
+                            {al.held && !seeCosts ? (
+                              <span className="muted">ditahan</span>
+                            ) : seeCosts ? (
+                              grp(al.cogs)
+                            ) : prices[`a${i}_${id}`] != null ? (
+                              <strong>{grp(prices[`a${i}_${id}`])}</strong>
+                            ) : (
+                              <span className="muted">…</span>
+                            )}
+                          </td>
+                          <td className="num">{grp(al.rrp)}</td>
+                        </tr>
+                      );
+                    })}
+                    </Fragment>
                   );
                 })}
               </tbody>
@@ -766,59 +902,6 @@ export function ListToQuote({
         </div>
       )}
     </Modal>
-  );
-}
-
-/** Small inline catalog search for a row the matcher could not resolve. */
-function CatalogSearch({
-  initial,
-  seeCosts,
-  onPick,
-}: {
-  initial: string;
-  /** PE-1: the server strips cogs for a rep, so the chip must not print it either. */
-  seeCosts: boolean;
-  onPick: (item: CatalogItem) => void;
-}) {
-  const [q, setQ] = useState(initial);
-  const [found, setFound] = useState<CatalogItem[] | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const search = async () => {
-    setBusy(true);
-    try {
-      const r = await api.get<{ items: CatalogItem[] }>(`/catalog?${new URLSearchParams({ q: q.trim(), limit: "8" })}`);
-      setFound(r.items);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="col" style={{ gap: 6, marginTop: 6 }}>
-      <form
-        className="row"
-        style={{ gap: 6 }}
-        onSubmit={(e) => {
-          e.preventDefault();
-          void search();
-        }}
-      >
-        <input className="input" autoFocus value={q} onChange={(e) => setQ(e.target.value)} aria-label="Kata kunci katalog" />
-        <button className="btn small" type="submit" disabled={busy || !q.trim()}>Cari</button>
-      </form>
-      {found && found.length === 0 && <span className="muted small">Tidak ada. Coba kata kunci lebih pendek, misal merek saja.</span>}
-      {found?.map((it) => (
-        <button key={it.id} className="chip" type="button" onClick={() => onPick(it)}>
-          {it.name}{" "}
-          <span className="muted">
-            {/* A rep gets no cogs from the server; grp(undefined) printed "COGS 0" on items that
-                have one. The unit is what they need to pick the right row anyway. */}
-            · {it.code} · {seeCosts ? `COGS ${grp(it.cogs)}` : it.uom || "Pcs"}
-          </span>
-        </button>
-      ))}
-    </div>
   );
 }
 
@@ -846,9 +929,9 @@ function SendToPic({
   }, [user?.id]);
   const target = users.find((u) => u.id === to);
   return (
-    <div className="card" style={{ padding: 12 }}>
-      <div className="row-wrap" style={{ gap: 12, alignItems: "end" }}>
-        <label className="field" style={{ flex: "1 1 200px" }}>
+    <div className="card send-pic">
+      <div className="inline-form">
+        <label className="field">
           <span>Kirim ke PIC</span>
           <select className="select" value={to} onChange={(e) => setTo(e.target.value === "" ? "" : Number(e.target.value))}>
             <option value="">— pilih orang —</option>
@@ -857,18 +940,18 @@ function SendToPic({
             ))}
           </select>
         </label>
-        <label className="field" style={{ flex: "2 1 260px" }}>
+        <label className="field wide">
           <span>Catatan untuk PIC (opsional)</span>
           <input className="input" value={note} maxLength={500} onChange={(e) => setNote(e.target.value)} placeholder="Misal: tolong selesaikan hari ini" />
         </label>
-        <div className="row" style={{ gap: 6 }}>
+        <div className="form-actions">
           <button className="btn ghost" onClick={onCancel} disabled={busy}>Batal</button>
           <button className="btn primary" disabled={busy || !target} onClick={() => target && onSend(target.id, note.trim(), target.name)}>
-            <Icon name="send" size={14} /> {busy ? "Mengirim…" : "Simpan & kirim"}
+            {busy ? "Mengirim…" : "Simpan & kirim"}
           </button>
         </div>
       </div>
-      <p className="muted small" style={{ margin: "8px 0 0" }}>
+      <p className="field-help">
         List disimpan dulu, lalu PIC mendapat email berisi tautan. Ia membuka list ini persis seperti sekarang dan bisa langsung membuat quotation.
       </p>
     </div>

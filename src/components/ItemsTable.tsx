@@ -93,21 +93,25 @@ export function ItemsTable({
     });
   }, [engine.rows, query, sort, onlyFlagged, scenario]);
 
-  const head = (key: SortKey, label: string, className = "", minWidth?: number) => (
-    <th
-      className={className}
-      style={{ cursor: "pointer", minWidth }}
-      onClick={() => setSort((s) => ({ key, dir: s.key === key && s.dir === 1 ? -1 : 1 }))}
-      title="Klik untuk mengurutkan"
-    >
-      {label}
-      {sort.key === key ? (sort.dir === 1 ? " ▲" : " ▼") : ""}
-    </th>
-  );
+  // Same as the catalog: the label is a button (keyboard reachable), the icon and aria-sort carry the state.
+  const head = (key: SortKey, label: string, className = "", minWidth?: number) => {
+    const on = sort.key === key;
+    return (
+      <th className={className} style={minWidth ? { minWidth } : undefined} aria-sort={on ? (sort.dir === 1 ? "ascending" : "descending") : "none"}>
+        <button
+          type="button"
+          className={`th-sort${on ? " on" : ""}`}
+          onClick={() => setSort((s) => ({ key, dir: s.key === key && s.dir === 1 ? -1 : 1 }))}
+        >
+          {label} <Icon name={on ? (sort.dir === 1 ? "sort-asc" : "sort-desc") : "sort"} size={14} />
+        </button>
+      </th>
+    );
+  };
 
   return (
     <div>
-      <div className="search-bar" style={{ marginBottom: 10 }}>
+      <div className="search-bar">
         <input
           className="input"
           placeholder="Cari item atau kode"
@@ -130,11 +134,9 @@ export function ItemsTable({
         {!readOnly && (
           <>
             <button className="btn small" onClick={onOpenCatalog}>
-              <Icon name="search" size={14} />
               Dari katalog
             </button>
             <button className="btn small" onClick={onAdd}>
-              <Icon name="plus" size={14} />
               Baris kosong
             </button>
           </>
@@ -143,11 +145,10 @@ export function ItemsTable({
 
       {engine.rows.length === 0 ? (
         <div className="empty">
-          <Icon name="table" size={28} />
           <h3>Belum ada item</h3>
           <p>Tambahkan dari katalog, impor file Excel klien, atau buat baris kosong.</p>
           {!readOnly && (
-            <div className="row" style={{ justifyContent: "center" }}>
+            <div className="row-center">
               <button className="btn primary" onClick={onOpenCatalog}>
                 Pilih dari katalog
               </button>
@@ -158,8 +159,8 @@ export function ItemsTable({
           )}
         </div>
       ) : (
-        <div className="table-wrap" style={{ maxHeight: "62vh" }}>
-          <table className="table">
+        <div className="table-wrap scroll">
+          <table className="table stack">
             <thead>
               <tr>
                 {head("lineNo", "No", "c")}
@@ -173,7 +174,7 @@ export function ItemsTable({
                   <th
                     key={s.key}
                     className={i === scenario ? "col-selected" : ""}
-                    style={{ color: s.color, ["--c" as string]: s.color }}
+                    style={{ color: `var(--s${i + 1})`, ["--c" as string]: `var(--s${i + 1})` }}
                   >
                     {s.key}
                   </th>
@@ -184,17 +185,19 @@ export function ItemsTable({
             </thead>
             <tbody>
               {rows.map((r) => {
-                const flagged =
-                  r.margins[scenario] < 0 || r.estCogs || r.status[scenario] === "BELOW COST";
+                // Two levels: a loss (below cost, negative margin) blocks and is red, with its "Rugi" badge;
+                // an estimated COGS only needs a check and is yellow.
+                const blocked = r.margins[scenario] < 0 || r.status[scenario] === "BELOW COST";
+                const flagged = !blocked && r.estCogs;
                 return (
-                  <tr key={r.id} className={flagged ? "flagged" : ""}>
-                    <td className="c muted">{r.lineNo}</td>
-                    <td className="l">
+                  <tr key={r.id} className={blocked ? "blocked" : flagged ? "flagged" : ""}>
+                    <td className="c muted stack-hide">{r.lineNo}</td>
+                    <td className="l stack-title">
                       <div className="with-thumb">
                         <Thumb src={imagesByCode[r.code.trim()]} alt={r.name} />
                         <div className="grow">
                           {readOnly ? (
-                            <div style={{ fontWeight: 550 }}>{r.name}</div>
+                            <div className="cell-title">{r.name}</div>
                           ) : (
                             <input
                               className="cell l"
@@ -216,7 +219,7 @@ export function ItemsTable({
                         )}
                       </div>
                     </td>
-                    <td>
+                    <td data-label="Qty">
                       <NumberCell
                         live
                         className="cell"
@@ -226,7 +229,7 @@ export function ItemsTable({
                         aria-label={`Qty ${r.name}`}
                       />
                     </td>
-                    <td className="l">
+                    <td className="l" data-label="Satuan">
                       <UomCell
                         value={r.uom}
                         choices={uomOptions.length ? uomChoices(uomOptions, unitsByCode[r.code.trim()], r.uom) : []}
@@ -241,7 +244,7 @@ export function ItemsTable({
                         onConfirm={readOnly ? undefined : () => onUpdate(r.id, { priceUom: undefined })}
                       />
                     </td>
-                    <td>
+                    <td data-label="COGS">
                       <NumberCell
                         live
                         className={`cell ${r.estCogs ? "est" : ""}`}
@@ -251,7 +254,7 @@ export function ItemsTable({
                         aria-label={`COGS ${r.name}`}
                       />
                     </td>
-                    <td>
+                    <td data-label="RRP">
                       <NumberCell
                         live
                         className="cell"
@@ -261,7 +264,7 @@ export function ItemsTable({
                         aria-label={`RRP ${r.name}`}
                       />
                     </td>
-                    <td>
+                    <td data-label="Role S2">
                       <select
                         className="cell"
                         value={r.role}
@@ -278,8 +281,10 @@ export function ItemsTable({
                       <td
                         key={k}
                         className={k === scenario ? "col-selected" : ""}
-                        style={k === scenario ? { ["--c" as string]: SCENARIOS[k].color } : undefined}
+                        data-label={SCENARIOS[k].key}
+                        style={k === scenario ? { ["--c" as string]: `var(--s${k + 1})` } : undefined}
                       >
+                        <div>
                         {!readOnly ? (
                           <NumberCell
                             className={`cell ${r.overridden[k] ? "manual" : ""}`}
@@ -293,19 +298,20 @@ export function ItemsTable({
                             aria-label={`Harga ${SCENARIOS[k].key} untuk ${r.name}`}
                           />
                         ) : (
-                          <div className="num" style={{ fontWeight: k === scenario ? 650 : 400 }}>
+                          <div className={`num${k === scenario ? " cell-title" : ""}`}>
                             {grp(r.prices[k])}
                           </div>
                         )}
                         <div className="small muted nowrap">
                           {pct(r.margins[k])} <LineBadge status={r.status[k]} />
                         </div>
+                        </div>
                       </td>
                     ))}
-                    <td className="num">{grp(r.qty * r.prices[scenario])}</td>
+                    <td className="num" data-label="Nilai/bln">{grp(r.qty * r.prices[scenario])}</td>
                     {!readOnly && (
-                      <td>
-                        <div className="row" style={{ justifyContent: "flex-end" }}>
+                      <td className="stack-action">
+                        <div className="row-actions">
                           {onPushToCatalog && r.code && (
                             <button
                               className="icon-btn"
@@ -335,7 +341,7 @@ export function ItemsTable({
         </div>
       )}
       {!readOnly && engine.rows.length > 0 && (
-        <p className="muted small" style={{ marginTop: 8 }}>
+        <p className="note">
           Kolom skenario terpilih bisa diketik langsung untuk mengunci harga manual. Kosongkan
           (isi 0) untuk kembali ke harga hitungan engine. Harga manual tetap dibatasi RRP.
         </p>
