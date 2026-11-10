@@ -85,6 +85,12 @@ export function ItemCombobox({
   return (
     <div className="combo" ref={root}>
       <div className="combo-field">
+        {/* The clear button sits inside the box, like a search field's, not loose beside it. */}
+        <div className="combo-input">
+        {/* A magnifier and a ▾ say "type to search, or open the list", for people new to the box. */}
+        <span className="combo-search" aria-hidden="true">
+          <Icon name="search" size={16} />
+        </span>
         <input
           ref={input}
           className="input"
@@ -95,7 +101,7 @@ export function ItemCombobox({
           aria-autocomplete="list"
           aria-activedescendant={open && options[active] ? `${listId}-${active}` : undefined}
           value={open ? q : value ? value.name : ""}
-          placeholder={open ? value?.name || "Ketik untuk mencari di katalog" : "— tidak dipakai —"}
+          placeholder={open ? value?.name || "Ketik nama atau kode barang" : "Cari barang di katalog"}
           onFocus={onOpen}
           // Tab out of the box (not into its own list) puts it away.
           onBlur={(e) => {
@@ -124,12 +130,29 @@ export function ItemCombobox({
             }
           }}
         />
-        {value?.cogs_problem && !open && <span className="badge amber combo-flag">COGS bermasalah</span>}
-        {value && (
-          <button type="button" className="icon-btn" aria-label={`Kosongkan pilihan untuk ${label.replace(/^Item katalog untuk /, "")}`} title="Tidak dipakai" onClick={() => choose(null)}>
-            <Icon name="x" size={15} />
+        <button
+          type="button"
+          className="combo-toggle"
+          tabIndex={-1}
+          aria-label={open ? "Tutup daftar" : "Buka daftar"}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => (open ? onClose() : (onOpen(), input.current?.focus()))}
+        >
+          <Icon name={open ? "chevron-up" : "chevron-down"} size={16} />
+        </button>
+        {value && !open && (
+          <button
+            type="button"
+            className="combo-clear"
+            aria-label={`Kosongkan pilihan untuk ${label.replace(/^Item katalog untuk /, "")}`}
+            title="Kosongkan: baris ini tidak dipakai"
+            onClick={() => choose(null)}
+          >
+            <Icon name="x" size={14} />
           </button>
         )}
+        </div>
+        {value?.cogs_problem && !open && <span className="badge amber combo-flag">COGS bermasalah</span>}
       </div>
       {open && (
         <div className="combo-pop">

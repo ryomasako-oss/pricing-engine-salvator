@@ -346,8 +346,10 @@ export function ListToQuote({
           .map((id) => items.get(id))
           .filter((item): item is CatalogItem => !!item && item.source !== "pending")
           .map((item) => {
+            // The client's ceiling for the request binds every item offered for it (Ryoma, 10 Nov: "plafon ikut klien").
             const line = lineFromCatalog(item, r.request.qty ?? 1, {
               uom: r.request.uom,
+              rrp: r.request.rrp,
               requestName: r.request.noQty ? undefined : r.request.name,
               toBase: true,
             });
@@ -641,17 +643,6 @@ export function ListToQuote({
               )}
               {summary!.none > 0 && <span className="badge blue">{summary!.none} adjustment</span>}
               {heldCount > 0 && <span className="badge amber">{heldCount} ditahan</span>}
-              {rows.some((r) => (r.also ?? []).length > 0) && (
-                <span className="row-wrap" role="group" aria-label="Penomoran barang lain">
-                  <span className="muted small">Nomor:</span>
-                  <button type="button" className={`chip${numbering === "nested" ? " on" : ""}`} aria-pressed={numbering === "nested"} onClick={() => chooseNumbering("nested")}>
-                    1, 1.1, 2
-                  </button>
-                  <button type="button" className={`chip${numbering === "flat" ? " on" : ""}`} aria-pressed={numbering === "flat"} onClick={() => chooseNumbering("flat")}>
-                    1, 2, 3
-                  </button>
-                </span>
-              )}
             </div>
           </div>
           {draft?.assigned_to != null && (
@@ -692,6 +683,17 @@ export function ListToQuote({
             />
           )}
 
+          {/* Always here, so the boss finds it: barang lain numbered 1.1 under their request, or 1, 2, 3
+              as the quote itself numbers them. */}
+          <div className="row-wrap" role="group" aria-label="Penomoran barang lain">
+            <span className="muted small">Nomor barang lain:</span>
+            <button type="button" className={`chip${numbering === "nested" ? " on" : ""}`} aria-pressed={numbering === "nested"} onClick={() => chooseNumbering("nested")}>
+              1, 1.1, 2
+            </button>
+            <button type="button" className={`chip${numbering === "flat" ? " on" : ""}`} aria-pressed={numbering === "flat"} onClick={() => chooseNumbering("flat")}>
+              1, 2, 3
+            </button>
+          </div>
           <div className="table-wrap ltq-table">
             <table className="table">
               <thead>
@@ -792,12 +794,12 @@ export function ListToQuote({
                             }}
                           />
                           <button
-                            className="icon-btn"
-                            title="Barang baru: belum ada di katalog"
+                            className="btn small ghost nowrap"
+                            title="Barang yang belum ada di katalog Accurate"
                             aria-label={`Buat barang baru untuk ${row.request.name}`}
                             onClick={() => setNewItemRow(i)}
                           >
-                            <Icon name="plus" size={15} />
+                            Barang baru
                           </button>
                         </div>
                         {row.result.via === "alias" && (

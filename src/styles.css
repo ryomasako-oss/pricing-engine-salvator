@@ -268,7 +268,8 @@ a { color: var(--color-action); }
 .dash-row:empty { display: none; }
 .dash-row > .list-drafts { flex: 2 1 560px; min-width: 0; }
 .dash-row > .chat-home { flex: 1 1 380px; min-width: 0; }
-.filter-chip { align-self: flex-start; gap: var(--space-3); }
+.filter-chip { align-self: flex-start; gap: var(--space-3); padding-right: var(--space-1); }
+.filter-chip > .icon-btn { padding: 4px; border-radius: var(--radius-full); color: inherit; }
 
 /* Tabs across the top of a card, then a toolbar row. */
 .card-tabs { padding: 0 var(--space-5); }
@@ -1083,7 +1084,23 @@ a.btn, a.btn:hover { text-decoration: none; }
    The list opens below the box, in the row, so the table's own scroll never clips it. */
 .combo { flex: 1; min-width: 0; }
 .combo-field { display: flex; align-items: center; gap: var(--space-2); }
-.combo-field > .input { flex: 1; min-width: 0; }
+.combo-input { position: relative; flex: 1; min-width: 0; }
+.combo-input > .input { width: 100%; padding-left: 36px; padding-right: 72px; }
+.combo-search { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--color-text-2); pointer-events: none; display: grid; }
+.combo-toggle {
+  position: absolute; top: 50%; right: 4px; transform: translateY(-50%); width: 32px; height: 32px;
+  display: grid; place-items: center; border: 0; border-radius: var(--radius-sm); background: transparent;
+  color: var(--color-text-2); cursor: pointer;
+}
+.combo-toggle:hover { background: var(--color-hover); color: var(--color-text); }
+/* Clear button inside the box, right edge, a 32px target with the same hover as other icon buttons. */
+.combo-clear {
+  position: absolute; top: 50%; right: 36px; transform: translateY(-50%); width: 32px; height: 32px;
+  display: grid; place-items: center; border: 0; border-radius: var(--radius-sm); background: transparent;
+  color: var(--color-text-2); cursor: pointer;
+}
+.combo-clear:hover { background: var(--color-hover); color: var(--color-text); }
+.combo-clear:focus-visible { outline: 2px solid var(--color-focus); outline-offset: -2px; }
 .combo-flag { flex: none; }
 .combo-pop { margin-top: var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-md); background: var(--color-layer); box-shadow: var(--elevation-overlay); }
 .combo-group { padding: var(--space-2) var(--space-4) 0; }

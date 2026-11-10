@@ -89,8 +89,8 @@ test("numbering: 1, 1.1, 2 or 1, 2, 3, remembered", async ({ page, errors }) => 
   await page.evaluate(() => localStorage.removeItem("ltq-nomor"));
   await page.getByRole("button", { name: "Dari list klien" }).click();
   await page.locator('input[type="file"]').setInputFiles(LIST);
-  // No choice while no row has extra items.
-  await expect(page.getByRole("group", { name: "Penomoran barang lain" })).toHaveCount(0);
+  // Always shown above the table.
+  await expect(page.getByRole("group", { name: "Penomoran barang lain" })).toBeVisible();
   const box = page.getByRole("combobox", { name: "Item katalog untuk Kertas HVS Sinar Dunia A4 70gr" });
   await box.fill("lakban");
   await page.getByRole("button", { name: "Tambah LAKBAN BENING 48MM sebagai barang lain" }).click();
@@ -121,4 +121,19 @@ test("a request served only by extra items is not a held 'menyusul' line", async
   const id = Number(page.url().split("/").pop());
   const { quote } = (await (await page.request.get(`/api/quotes/${id}`)).json()) as { quote: { items: { name: string }[] } };
   expect(quote.items.map((i) => i.name)).toEqual([expect.stringMatching(/BOLA DUNIA/)]);
+});
+
+test("the client's ceiling (plafon) binds the extra items too", async ({ page, errors }) => {
+  void errors;
+  const LIST = csvFile("plafon.csv", [["Nama Barang", "Qty", "Satuan", "Harga Maksimal"], ["Kertas HVS Sinar Dunia A4 70gr", "5", "Rim", "45000"]]);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Dari list klien" }).click();
+  await page.locator('input[type="file"]').setInputFiles(LIST);
+  const box = page.getByRole("combobox", { name: "Item katalog untuk Kertas HVS Sinar Dunia A4 70gr" });
+  await box.fill("kertas bola");
+  await page.getByRole("button", { name: "Tambah KERTAS HVS BOLA DUNIA A4 70GR sebagai barang lain" }).click();
+  await box.press("Escape");
+  // Catalog list price is 56.000; the client's 45.000 is the ceiling for both lines.
+  await expect(page.locator(".ltq-table tbody tr").first().locator("td.num").last()).toHaveText("45.000");
+  await expect(page.locator("tr.also-row").locator("td.num").last()).toHaveText("45.000");
 });
