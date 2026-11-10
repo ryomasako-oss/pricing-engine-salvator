@@ -24,6 +24,7 @@ const FixTasksPage = lazy(() => import("./pages/FixTasks").then((m) => ({ defaul
 const MatchingPage = lazy(() => import("./pages/Matching").then((m) => ({ default: m.MatchingPage })));
 const CogsHistoryPage = lazy(() => import("./pages/CogsHistory").then((m) => ({ default: m.CogsHistoryPage })));
 const SalesHistoryPage = lazy(() => import("./pages/SalesHistory").then((m) => ({ default: m.SalesHistoryPage })));
+const PurchaseHistoryPage = lazy(() => import("./pages/PurchaseHistory").then((m) => ({ default: m.PurchaseHistoryPage })));
 
 function PageLoading() {
   return (
@@ -103,6 +104,10 @@ function TopBar() {
             <NavLink to="/sales-history" className={({ isActive }) => (isActive ? "active" : "")}>
               <Icon name="doc" size={16} />
               <span className="label">Riwayat SI</span>
+            </NavLink>
+            <NavLink to="/purchase-history" className={({ isActive }) => (isActive ? "active" : "")}>
+              <Icon name="truck" size={16} />
+              <span className="label">Riwayat PI</span>
             </NavLink>
           </>
         )}
@@ -213,6 +218,14 @@ export function App() {
           element={
             <RequirePermission permission="view_costs">
               <SalesHistoryPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/purchase-history"
+          element={
+            <RequirePermission permission="view_costs">
+              <PurchaseHistoryPage />
             </RequirePermission>
           }
         />

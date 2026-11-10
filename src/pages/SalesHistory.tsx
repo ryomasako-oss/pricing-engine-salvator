@@ -86,9 +86,14 @@ export function SalesHistoryPage() {
             nama katalog, tulisan klien, atau nama customer untuk mengecek pencocokan. Harga setelah diskon, sebelum PPN.
           </p>
         </div>
-        <Link className="btn ghost" to="/cogs-history">
-          Riwayat COGS
-        </Link>
+        <div className="row-wrap">
+          <Link className="btn ghost" to="/cogs-history">
+            Riwayat COGS
+          </Link>
+          <Link className="btn ghost" to="/purchase-history">
+            Riwayat PI
+          </Link>
+        </div>
       </div>
 
       <div className="card">
