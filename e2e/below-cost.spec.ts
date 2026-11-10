@@ -1,18 +1,25 @@
-/* Jual di bawah beli: SI lines sold under the PI price of their date. Managers and admins only. */
+/* Jual di bawah beli: SI lines sold under the PI price of their date, a filter, and an Excel export
+   of the filtered rows. Managers and admins only. */
 
+import { readFileSync } from "node:fs";
+import * as XLSX from "xlsx";
 import { expect, test } from "./helpers";
+
+async function open(page: import("@playwright/test").Page) {
+  await page.goto("/");
+  await page.getByRole("navigation", { name: "Navigasi utama" }).getByRole("link", { name: "Riwayat", exact: true }).click();
+  await page.getByRole("navigation", { name: "Jenis riwayat" }).getByRole("link", { name: "Jual < Beli" }).click();
+  await expect(page.getByRole("heading", { name: "Jual di bawah beli" })).toBeVisible();
+  await page.getByLabel("Tanggal SI dari").fill("2026-09-01");
+  await page.getByLabel("Tanggal SI sampai").fill("2026-09-30");
+}
 
 for (const theme of ["light", "dark"] as const) {
   test.describe(theme, () => {
     test.use({ theme });
     test(`an SI under its PI price, with the loss (${theme})`, async ({ page, errors }) => {
       void errors;
-      await page.goto("/");
-      await page.getByRole("navigation", { name: "Navigasi utama" }).getByRole("link", { name: "Riwayat", exact: true }).click();
-      await page.getByRole("navigation", { name: "Jenis riwayat" }).getByRole("link", { name: "Jual < Beli" }).click();
-      await expect(page.getByRole("heading", { name: "Jual di bawah beli" })).toBeVisible();
-      await page.getByLabel("Tanggal SI dari").fill("2026-09-01");
-      await page.getByLabel("Tanggal SI sampai").fill("2026-09-30");
+      await open(page);
       const row = page.getByRole("row", { name: /SI\.2026\.09\.09201/ });
       await expect(row).toContainText("ZQBC MAP PLASTIK");
       await expect(row).toContainText("Rp 9.000");
@@ -22,6 +29,32 @@ for (const theme of ["light", "dark"] as const) {
     });
   });
 }
+
+test.use({ theme: "light" });
+
+test("filters by client and text, and exports only the filtered rows", async ({ page, errors }) => {
+  void errors;
+  await open(page);
+  await expect(page.getByRole("row", { name: /SI\.2026\.09\.0920[12]/ })).toHaveCount(2);
+
+  await page.getByLabel("Filter klien").selectOption("CV Zqbc Lain");
+  await expect(page.getByRole("row", { name: /SI\.2026\.09\.09201/ })).toHaveCount(0);
+  await expect(page.getByRole("row", { name: /SI\.2026\.09\.09202/ })).toBeVisible();
+  await expect(page.getByText("terfilter dari")).toBeVisible();
+
+  const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Export Excel" }).click()]);
+  expect(download.suggestedFilename()).toBe("jual-di-bawah-beli-2026-09-01-sd-2026-09-30.xlsx");
+  const wb = XLSX.read(readFileSync((await download.path())!));
+  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[wb.SheetNames[0]]);
+  expect(rows).toEqual([
+    expect.objectContaining({ "Nomor SI": "SI.2026.09.09202", Klien: "CV Zqbc Lain", "Harga Jual (sebelum PPN)": 8000, "Harga Beli PI (sebelum PPN)": 10000, "Selisih Rugi": 10000 }),
+  ]);
+
+  await page.getByLabel("Filter klien").selectOption("");
+  await page.getByLabel("Filter laporan").fill("tidak ada yang cocok");
+  await expect(page.getByRole("heading", { name: "Tidak ada baris yang cocok dengan filter" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Export Excel" })).toBeDisabled();
+});
 
 test.describe("sales", () => {
   test.use({ storageState: "e2e/.auth/rep.json" });
