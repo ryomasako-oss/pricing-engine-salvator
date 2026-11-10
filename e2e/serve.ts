@@ -63,6 +63,11 @@ const seed = [
   // Colour variants that tie on a plain "zqhl highlighter": only e2e/match-accept-all.spec.ts lists them.
   `INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock, source) VALUES
    ('ZQHL-B', 'ZQHL HIGHLIGHTER BLUE', 'Pcs', 4000, 7000, 10, 'e2e'), ('ZQHL-G', 'ZQHL HIGHLIGHTER GREEN', 'Pcs', 4000, 7000, 10, 'e2e');`,
+  // A unit read from the wording ("isi 12/Lusin"): the marker's catalog has LSN = 12, the glue's has none.
+  // Only e2e/unit-accept-all.spec.ts lists them.
+  `INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock, source) VALUES
+   ('ZQLS-M', 'ZQLS SPIDOL MERAH', 'PCS', 5000, 9000, 50, 'e2e'), ('ZQLS-G', 'ZQLS LEM BATANG', 'PCS', 3000, 6000, 50, 'e2e');
+   INSERT INTO catalog_item_uoms(code, uom, factor) VALUES ('ZQLS-M', 'LSN', 12);`,
   // As if a completed Accurate run had refreshed the stock (server/worker/accurate/stock.ts).
   `INSERT INTO settings(key, value) VALUES('accurate_stock_as_of', '2026-10-30T01:00:00.000Z');`,
 ].join("\n");

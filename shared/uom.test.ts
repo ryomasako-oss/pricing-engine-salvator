@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { amountInUnit, changeLineUom, cleanUnits, toBaseUnit, uomChoices, uomWarning, unitFactor, type ItemUnits, packUnitNeedsCheck, packUnitWord, readPackUnit } from "./uom.js";
+import { amountInUnit, changeLineUom, cleanUnits, toBaseUnit, uomChoices, uomWarning, unitFactor, type ItemUnits, packUnitFromCatalog, packUnitNeedsCheck, packUnitWord, readPackUnit } from "./uom.js";
 import type { QuoteItem } from "./types.js";
 
 const line = (over: Partial<QuoteItem> = {}): QuoteItem => ({
@@ -208,6 +208,15 @@ describe("which lines need a person to check the unit", () => {
     expect(packUnitNeedsCheck("Pena Oval Joyko Gel 0,5 mm Biru", artline)).toBe(false);
     expect(packUnitNeedsCheck("Binder Clip No.300 (1 box @6 PCS)", { uom: "KTK", units: [] })).toBe(false);
     expect(packUnitNeedsCheck("Binder Clip No.260 (1 box @12 PCS)", { uom: "LSN", units: [] })).toBe(false);
+  });
+  it("only a unit converted with the catalog's own ratio may be accepted in bulk", () => {
+    expect(packUnitFromCatalog("Artline EK-660 (isi 12/Lusin)", artline)).toBe(true);
+    // Missing from the catalog, or the text's count disagrees with it: per row.
+    expect(packUnitFromCatalog("Glue Stick GS-25 (isi 12/lusin)", { uom: "PCS", units: [] })).toBe(false);
+    expect(packUnitFromCatalog("Artline (isi 12/Lusin)", { uom: "PCS", units: [{ uom: "LSN", factor: 6 }] })).toBe(false);
+    // No check needed at all.
+    expect(packUnitFromCatalog("Binder Clip No.300 (1 box @6 PCS)", { uom: "KTK", units: [] })).toBe(false);
+    expect(packUnitFromCatalog("Pena Oval Joyko Gel 0,5 mm Biru", artline)).toBe(false);
   });
 });
 

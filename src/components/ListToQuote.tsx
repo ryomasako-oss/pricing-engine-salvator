@@ -25,7 +25,7 @@ import { shownCode } from "@shared/pendingItems";
 import { lineFromCatalog, type MatchResult, type RequestLine } from "@shared/match";
 import { choicesFromRows, codesToFetch, restoreRows, type Draft } from "@shared/listDrafts";
 import type { CatalogItem, Client, QuoteItem } from "@shared/types";
-import { packUnitNeedsCheck, readPackUnit, sameUom, unitAssumed, uomWarning } from "@shared/uom";
+import { packUnitFromCatalog, packUnitNeedsCheck, readPackUnit, sameUom, unitAssumed, uomWarning } from "@shared/uom";
 import { Icon } from "./Icon";
 import { ClientQuickAdd } from "./ClientQuickAdd";
 import { Modal } from "./Modal";
@@ -411,6 +411,15 @@ export function ListToQuote({
     !!r.result.tie && !r.confirmed && r.chosen != null && r.chosen === r.result.candidates[0]?.id && !isPending(r) && !blockedOf(r);
   const bulkCount = rows?.filter(bulkable).length ?? 0;
   const acceptAll = () => setRows((rs) => rs && rs.map((r) => (bulkable(r) ? { ...r, confirmed: true, bulk: true } : r)));
+  // "Terima N satuan": rows whose match is settled and whose only open check is a unit read from the
+  // wording that the catalog already has (packUnitFromCatalog). A ratio the catalog lacks, or a count that
+  // disagrees with it, stays a per-row check. setRows, not update(): update() would reset `bulk`.
+  const unitBulkable = (r: Row) => {
+    const item = r.chosen != null ? items.get(r.chosen) : undefined;
+    return !!item && r.confirmed && !r.unitOk && !r.request.uom && !r.request.noQty && packUnitFromCatalog(r.request.name, item);
+  };
+  const unitBulkCount = rows?.filter(unitBulkable).length ?? 0;
+  const acceptUnits = () => setRows((rs) => rs && rs.map((r) => (unitBulkable(r) ? { ...r, unitOk: true } : r)));
   const heldCount =
     (rows?.filter((r) => blockedOf(r) || isPending(r)).length ?? 0) + alsoLines.flat().filter((a) => a.line.held).length;
   const usedRows = lines.filter((l) => l && l.holdReason !== "unmatched").length;
@@ -639,6 +648,15 @@ export function ListToQuote({
                   title="Untuk baris yang saran pertamanya sudah cocok semua kata, hanya ada varian lain yang mirip. Baris yang diterima di sini tidak disimpan sebagai istilah klien."
                 >
                   Terima {bulkCount} saran
+                </button>
+              )}
+              {unitBulkCount > 0 && (
+                <button
+                  className="btn small"
+                  onClick={acceptUnits}
+                  title="Untuk baris yang satuannya dibaca dari teks klien (mis. isi 12/Lusin) dan rasionya sudah ada di katalog. Satuan tanpa rasio di katalog, atau isi yang berbeda dengan katalog, tetap dicek per baris."
+                >
+                  Terima {unitBulkCount} satuan
                 </button>
               )}
               {summary!.none > 0 && <span className="badge blue">{summary!.none} adjustment</span>}
