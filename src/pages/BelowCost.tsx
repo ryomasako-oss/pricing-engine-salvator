@@ -147,16 +147,16 @@ export function BelowCostPage() {
 
             </div>
             <div className="kpi">
-              <div className="label">Rugi sungguhan</div>
+              <div className="label">Selisih tanpa tanda</div>
               <div className="value num">{rp(loss - slipLoss)}</div>
               <div className="foot">
                 {grp(rows.length - slipRows.length)} baris · dari total selisih {rp(loss)}
               </div>
             </div>
             <div className={`kpi${slipRows.length ? " tone-warn" : ""}`}>
-              <div className="label">Perlu dibetulkan datanya</div>
+              <div className="label">Selisih yang perlu cek data</div>
               <div className="value num">{rp(slipLoss)}</div>
-              <div className="foot">{grp(slipRows.length)} baris · salah satuan, PPN, input, atau kode</div>
+              <div className="foot">{grp(slipRows.length)} baris · cek satuan, PPN, input harga, atau kode</div>
             </div>
             <div className="kpi">
               <div className="label">Tidak dibandingkan</div>
@@ -191,9 +191,9 @@ export function BelowCostPage() {
                       <th className="l">Tanggal</th>
                       <th className="l">Klien</th>
                       <th className="l">Barang</th>
-                      <th>Harga jual</th>
-                      <th>Harga beli (PI)</th>
-                      <th>Selisih rugi</th>
+                      <th>Harga jual (sblm PPN)</th>
+                      <th>Harga beli PI (sblm PPN)</th>
+                      <th>Selisih (beli − jual)</th>
                       <th className="l">Penyebab</th>
                     </tr>
                   </thead>
@@ -216,14 +216,14 @@ export function BelowCostPage() {
                             <div className="muted small">{r.receiptNo}</div>
                           </div>
                         </td>
-                        <td className="num nowrap" data-label="Selisih rugi">
+                        <td className="num nowrap" data-label="Selisih (beli − jual)">
                           <strong>{rp(r.lossTotal)}</strong>
                         </td>
                         <td className="l" data-label="Penyebab">
                           <ul className="hint-list">
                             {!looksLikeSlip(r.hints) && (
                               <li>
-                                <span className="badge red">Rugi sungguhan</span>
+                                <span className="badge grey">Tanpa tanda</span>
                               </li>
                             )}
                             {r.hints.map((h) => (

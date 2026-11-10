@@ -47,7 +47,7 @@ test("filters by client and text, and exports only the filtered rows", async ({ 
   const wb = XLSX.read(readFileSync((await download.path())!));
   const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[wb.SheetNames[0]]);
   expect(rows).toEqual([
-    expect.objectContaining({ "Nomor SI": "SI.2026.09.09202", Klien: "CV Zqbc Lain", "Harga Jual (sebelum PPN)": 8000, "Harga Beli PI (sebelum PPN)": 10000, "Selisih Rugi": 10000 }),
+    expect.objectContaining({ "Nomor SI": "SI.2026.09.09202", Klien: "CV Zqbc Lain", "Harga Jual (sebelum PPN)": 8000, "Harga Beli PI (sebelum PPN)": 10000, "Selisih (Beli - Jual)": 10000 }),
   ]);
 
   await page.getByLabel("Filter klien").selectOption("");
@@ -56,24 +56,26 @@ test("filters by client and text, and exports only the filtered rows", async ({ 
   await expect(page.getByRole("button", { name: "Export Excel" })).toBeDisabled();
 });
 
-test("tells a data slip from a real loss, and traces a row", async ({ page, errors }) => {
+test("tells a possible data slip from an unmarked row, and traces a row", async ({ page, errors }) => {
   void errors;
   await open(page);
-  // 9.000 against 10.000 is the 11% of PPN; 8.000 against 10.000 is a real loss.
+  // 9.000 against 10.000 is the 11% of PPN; 8.000 against 10.000 carries no mark.
   await expect(page.getByRole("row", { name: /SI\.2026\.09\.09201/ })).toContainText("Cek PPN");
-  await expect(page.getByRole("row", { name: /SI\.2026\.09\.09202/ })).toContainText("Rugi sungguhan");
+  await expect(page.getByRole("row", { name: /SI\.2026\.09\.09202/ })).toContainText("Tanpa tanda");
 
   await page.getByLabel("Filter penyebab").selectOption("ppn");
   await expect(page.getByRole("row", { name: /SI\.2026\.09\.09201/ })).toBeVisible();
   await expect(page.getByRole("row", { name: /SI\.2026\.09\.09202/ })).toHaveCount(0);
-  await page.getByLabel("Filter penyebab").selectOption("real");
+  await page.getByLabel("Filter penyebab").selectOption("none");
   await expect(page.getByRole("row", { name: /SI\.2026\.09\.09201/ })).toHaveCount(0);
   await page.getByLabel("Filter penyebab").selectOption("");
 
   await page.getByRole("button", { name: /Telusuri SI\.2026\.09\.09201/ }).click();
   const dialog = page.getByRole("dialog", { name: /Telusuri SI\.2026\.09\.09201/ });
-  await expect(dialog.getByText("Kemungkinan salah data")).toBeVisible();
+  await expect(dialog.getByText("Perlu cek data", { exact: true })).toBeVisible();
   await expect(dialog.getByText("PI.2026.09.09201").first()).toBeVisible();
+  await expect(dialog).toContainText("Di nota SI");
+  await expect(dialog).toContainText("Rp 10.000 / Pcs sebelum PPN · Rp 11.100 dengan PPN 11%");
   await expect(dialog.getByRole("region", { name: "Riwayat beli barang ini" })).toContainText("PI.2026.09.09201");
   await expect(dialog.getByRole("region", { name: "Riwayat jual barang ini" })).toContainText("CV Zqbc Lain");
   await page.screenshot({ path: "test-results/below-cost-trace.png" });

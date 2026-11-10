@@ -24,8 +24,8 @@ describe("belowCostHints", () => {
     const unit = belowCostHints({ ...base, net: 1000, cost: 12000 });
     expect(matchesCause(unit, "unit")).toBe(true);
     expect(matchesCause(unit, "data")).toBe(true);
-    expect(matchesCause(unit, "real")).toBe(false);
-    expect(matchesCause(belowCostHints({ ...base, listPrice: 0 }), "real")).toBe(true);
+    expect(matchesCause(unit, "none")).toBe(false);
+    expect(matchesCause(belowCostHints({ ...base, listPrice: 0 }), "none")).toBe(true);
     expect(matchesCause(unit, "")).toBe(true);
   });
 
