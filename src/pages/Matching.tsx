@@ -5,14 +5,13 @@
 
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { Icon } from "../components/Icon";
 import { FamiliarityWorkbench } from "../components/FamiliarityWorkbench";
 import { MatchLearningPanel } from "../components/MatchLearningPanel";
 
 export function MatchingPage() {
   const { can } = useAuth();
   return (
-    <main className="hk-main">
+    <main className="hk-main page-stack">
       <div className="hk-page-head">
         <div>
           <h1>Pencocokan barang</h1>
@@ -22,16 +21,12 @@ export function MatchingPage() {
           </p>
         </div>
         {can("view_costs") && (
-          <Link className="btn small ghost" to="/sales-history">
-            <Icon name="search" size={13} /> Riwayat penjualan (SI)
+          <Link className="btn ghost" to="/sales-history">
+            Riwayat penjualan (SI)
           </Link>
         )}
       </div>
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-body">
-          <FamiliarityWorkbench />
-        </div>
-      </div>
+      <FamiliarityWorkbench />
       {can("import_catalog") && <MatchLearningPanel />}
     </main>
   );

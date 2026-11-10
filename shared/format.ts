@@ -8,14 +8,26 @@ export const grp = (n: number): string =>
 export const rp = (n: number): string =>
   (n < 0 ? "−Rp " : "Rp ") + grp(Math.abs(Number(n) || 0));
 
-export const pct = (x: number, d = 1): string =>
-  ((Number(x) || 0) * 100).toFixed(d).replace(".", ",") + "%";
+/** "12,5%"; a negative gets the true minus sign "−" (U+2212), like rp(), not a hyphen. */
+export const pct = (x: number, d = 1): string => {
+  const v = (Number(x) || 0) * 100;
+  const s = Math.abs(v).toFixed(d).replace(".", ",") + "%";
+  return v < 0 && Number(Math.abs(v).toFixed(d)) !== 0 ? `−${s}` : s;
+};
 
 export const uid = (): string => Math.random().toString(36).slice(2, 10);
 
+/**
+ * SQLite's datetime('now') is UTC written without a zone ("2026-11-08 15:31:00");
+ * `new Date()` would read it as local time, 7 hours early in WIB. Every such
+ * string the server stores is UTC (datetime('now'), toISOString), so read it as UTC.
+ */
+const asDate = (d: string | number | Date): Date =>
+  typeof d === "string" && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(d) ? new Date(`${d.replace(" ", "T")}Z`) : new Date(d);
+
 export const fmtDate = (d: string | number | Date): string => {
   try {
-    return new Date(d).toLocaleDateString("id-ID", {
+    return asDate(d).toLocaleDateString("id-ID", {
       day: "numeric",
       month: "long",
       year: "numeric",
@@ -27,7 +39,7 @@ export const fmtDate = (d: string | number | Date): string => {
 
 export const fmtDateTime = (d: string | number | Date): string => {
   try {
-    return new Date(d).toLocaleString("id-ID", {
+    return asDate(d).toLocaleString("id-ID", {
       day: "2-digit",
       month: "short",
       year: "numeric",

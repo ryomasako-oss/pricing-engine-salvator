@@ -97,7 +97,7 @@ export function ClientQuickAdd({
 
   return (
     <div className="quick-add" role="group" aria-label="Klien baru">
-      <div className="row" style={{ justifyContent: "space-between" }}>
+      <div className="row-between">
         <strong>Klien baru</strong>
         <button className="btn small ghost" onClick={onCancel} disabled={busy}>
           Batal
@@ -172,7 +172,7 @@ export function ClientQuickAdd({
       </div>
       <details>
         <summary className="muted small">Alamat & pengiriman (opsional)</summary>
-        <div className="field-grid" style={{ marginTop: 8 }}>
+        <div className="field-grid">
           <label className="field">
             <span>Alamat</span>
             <input className="input" value={form.address} onChange={(e) => set("address", e.target.value)} />
@@ -189,14 +189,14 @@ export function ClientQuickAdd({
       </details>
 
       {missing.length > 0 && !error && (
-        <p className="muted small" style={{ margin: 0 }}>
+        <p className="field-help">
           Wajib diisi: {missingNewClientMessage(missing)}.
         </p>
       )}
 
       {error && <p className="notice error">{error}</p>}
 
-      <div className="row" style={{ justifyContent: "flex-end" }}>
+      <div className="row-actions">
         <button className="btn primary" onClick={save} disabled={busy || !!same}>
           {busy ? "Menyimpan…" : "Simpan klien"}
         </button>

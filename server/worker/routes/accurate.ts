@@ -15,6 +15,7 @@ import { zodMessage } from "../../validate";
 import { AccurateClient } from "../accurate/client";
 import { ITEM_FIELDS, RECEIPT_LIST_FIELDS, mapPurchaseLines } from "../accurate/mapping";
 import { cogsHistory } from "../accurate/cogsHistory";
+import { purchaseHistory } from "../accurate/purchaseHistory";
 import { salesHistory } from "../accurate/salesHistory";
 import { lastSales, salesEnabled } from "../accurate/sales";
 import { applyHeldCosts, applyPurchaseCosts } from "../accurate/purchaseCost";
@@ -349,6 +350,17 @@ accurateRouter.get("/sales-history", requirePermission("view_costs"), async (c) 
   );
 });
 
+/** Riwayat pembelian (PI) per barang (read-only): what each item was bought at. Purchase prices are cost data, hence view_costs. */
+accurateRouter.get("/purchase-history", requirePermission("view_costs"), async (c) => {
+  const page = Number(c.req.query("page"));
+  return c.json(
+    await purchaseHistory(c.env.DB, catalogEntity(c.env), {
+      q: (c.req.query("q") ?? "").trim().slice(0, 100),
+      page: Number.isInteger(page) && page > 0 ? page : 1,
+    }),
+  );
+});
+
 /**
  * COGS = harga pembelian terakhir: sets each catalog item's COGS to the unit
  * price of its latest Accurate goods receipt (server/worker/accurate/purchaseCost.ts).
@@ -365,7 +377,7 @@ accurateRouter.post("/apply-cogs", requirePermission("import_catalog"), requireP
   const entity = catalogEntity(c.env);
   const st = await loadReceiptState(c.env.DB, entity, costKind(c.env));
   if (!st.last_pass_at) {
-    return c.json({ error: `Riwayat penerimaan barang Accurate ${entity} belum lengkap. Tunggu satu putaran sinkron penerimaan selesai.` }, 409);
+    return c.json({ error: `Riwayat faktur pembelian Accurate ${entity} belum lengkap. Tunggu satu putaran sinkron faktur pembelian selesai.` }, 409);
   }
   const result = await applyPurchaseCosts(c.env.DB, entity, { dryRun: parsed.data.dryRun, lines: costLines(c.env) });
   if (!result.dryRun) {
@@ -410,7 +422,7 @@ accurateRouter.post(
     const entity = catalogEntity(c.env);
     const st = await loadReceiptState(c.env.DB, entity, costKind(c.env));
     if (!st.last_pass_at) {
-      return c.json({ error: `Riwayat penerimaan barang Accurate ${entity} belum lengkap. Tunggu satu putaran sinkron penerimaan selesai.` }, 409);
+      return c.json({ error: `Riwayat faktur pembelian Accurate ${entity} belum lengkap. Tunggu satu putaran sinkron faktur pembelian selesai.` }, 409);
     }
     return c.json(await applyHeldCosts(c.env.DB, entity, c.get("user")!.id, parsed.data.items, costLines(c.env)));
   },

@@ -32,12 +32,12 @@ export function Breakdown({
   }
 
   return (
-    <div className="col" style={{ gap: 14 }}>
+    <div className="form-stack">
       <p className="notice info">
         Khusus internal: berisi COGS dan margin, tidak ikut ke dokumen klien. Mengikuti skenario yang sedang dipakai.
       </p>
       <div>
-        <h3 style={{ margin: "0 0 6px", fontSize: 15 }}>{b.headline}</h3>
+        <h3 className="subhead">{b.headline}</h3>
         <ul className="breakdown-points">
           {b.points.map((p) => (
             <li key={p}>{p}</li>
@@ -45,8 +45,8 @@ export function Breakdown({
         </ul>
       </div>
 
-      <div className="row-wrap" style={{ justifyContent: "space-between" }}>
-        <strong style={{ fontSize: 13.5 }}>Per item</strong>
+      <div className="row-between">
+        <strong>Per item</strong>
         {flagged > 0 && (
           <label className="toggle">
             <input type="checkbox" checked={onlyFlagged} onChange={(e) => setOnlyFlagged(e.target.checked)} />
@@ -55,17 +55,17 @@ export function Breakdown({
         )}
       </div>
 
-      <div className="col" style={{ gap: 8 }}>
+      <div className="cell-stack">
         {lines.map((l) => (
           <details key={l.lineNo} className="breakdown-line" open={l.flags.length > 0}>
             <summary>
               <span className="muted num">{l.lineNo}</span>
-              <span className="grow" style={{ fontWeight: 550 }}>{l.name}</span>
+              <span className="grow cell-title">{l.name}</span>
               {l.flags.map((f) => (
                 <span key={f} className={`badge ${f === "Di bawah modal" ? "red" : "amber"}`}>{f}</span>
               ))}
               <span className="num">Rp {grp(l.price)}</span>
-              <span className="num muted" style={{ minWidth: 52, textAlign: "right" }}>{pct(l.margin)}</span>
+              <span className="num muted pct-cell">{pct(l.margin)}</span>
             </summary>
             <ol>
               {l.steps.map((s, i) => (

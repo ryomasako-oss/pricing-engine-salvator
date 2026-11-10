@@ -6,8 +6,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { useToast } from "../context/ToastContext";
-import { Icon } from "./Icon";
 import { AccurateReconcile } from "./AccurateReconcile";
+import { Modal } from "./Modal";
 import { AccuratePurchaseCost } from "./AccuratePurchaseCost";
 import { useAuth } from "../context/AuthContext";
 import { fmtDateTime, grp } from "@shared/format";
@@ -56,6 +56,8 @@ export function AccuratePanel({ onApplied }: { onApplied: () => void }) {
   const [catalogEntity, setCatalogEntity] = useState<Entity>("PT");
   const [flags, setFlags] = useState<Flags | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  /** Entity whose "Terapkan ke katalog" is waiting for a choice. */
+  const [applying, setApplying] = useState<Entity | null>(null);
 
   // `fresh` skips the server's short cache; use it only right after an action that changed the data.
   const loadStatus = useCallback((fresh = false) => {
@@ -122,11 +124,9 @@ export function AccuratePanel({ onApplied }: { onApplied: () => void }) {
     }
   };
 
-  const apply = async (entity: Entity) => {
-    const insertNew = window.confirm(
-      `Terapkan harga jual & stok Accurate ${entity} ke katalog.\n\n` +
-        "OK = juga tambahkan barang yang belum ada di katalog.\nBatal = hanya perbarui barang yang sudah ada.",
-    );
+  // Two real choices plus a real cancel (window.confirm's Batal used to mean "update only").
+  const apply = async (entity: Entity, insertNew: boolean) => {
+    setApplying(null);
     setBusy(`apply-${entity}`);
     try {
       const r = await api.post<{ changed: number; stockApplied: boolean; unitMismatch: string[] }>("/accurate/apply", { entity, insertNew });
@@ -147,7 +147,7 @@ export function AccuratePanel({ onApplied }: { onApplied: () => void }) {
   };
 
   return (
-    <div className="card" style={{ marginBottom: 16 }}>
+    <div className="card">
       <div className="card-head">
         <h3>Sinkron Accurate</h3>
         <span className="muted small">Hanya membaca dari Accurate. COGS dari harga pembelian terakhir.</span>
@@ -155,14 +155,14 @@ export function AccuratePanel({ onApplied }: { onApplied: () => void }) {
       <div className="card-body">
         {configured.length === 0 ? (
           <p className="notice warn">
-            <Icon name="alert" size={14} /> Token Accurate belum dipasang di server. Admin perlu menjalankan{" "}
+            Token Accurate belum dipasang di server. Admin perlu menjalankan{" "}
             <code>wrangler secret put ACCURATE_SIGNATURE_SECRET</code> dan <code>ACCURATE_TOKEN_CV</code> /{" "}
             <code>ACCURATE_TOKEN_PT</code>.
           </p>
         ) : (
-          <div style={{ display: "grid", gap: 12 }}>
+          <div className="list-stack">
             {configured.map((e) => (
-              <div key={e.entity} className="row-wrap" style={{ justifyContent: "space-between" }}>
+              <div key={e.entity} className="row-between">
                 <div>
                   <strong>{e.entity}</strong>
                   {e.dbAlias && <span className="muted small"> · {e.dbAlias}</span>}{" "}
@@ -175,15 +175,15 @@ export function AccuratePanel({ onApplied }: { onApplied: () => void }) {
                     {e.lastSuccessAt ? fmtDateTime(e.lastSuccessAt) : "belum pernah"}
                     {e.phase !== "idle" && ` · berjalan: ${grp(e.itemsSeen)} barang, ${grp(e.stockRows)} stok`}
                   </div>
-                  {e.lastError && <div className="small" style={{ color: "var(--danger)" }}>{e.lastError}</div>}
+                  {e.lastError && <div className="small text-err">{e.lastError}</div>}
                 </div>
                 <div className="row-wrap">
                   <button className="btn small ghost" disabled={!!busy} onClick={() => sync(e.entity)}>
-                    <Icon name="history" size={13} /> {e.phase === "idle" ? "Sinkron sekarang" : "Lanjutkan"}
+                    {e.phase === "idle" ? "Sinkron sekarang" : "Lanjutkan"}
                   </button>
                   {e.entity === catalogEntity ? (
-                    <button className="btn small" disabled={!!busy || e.items === 0} onClick={() => apply(e.entity)}>
-                      <Icon name="download" size={13} /> Terapkan ke katalog
+                    <button className="btn small" disabled={!!busy || e.items === 0} onClick={() => setApplying(e.entity)}>
+                      Terapkan ke katalog
                     </button>
                   ) : (
                     <span className="muted small">Untuk pengecekan saja</span>
@@ -206,6 +206,25 @@ export function AccuratePanel({ onApplied }: { onApplied: () => void }) {
           </div>
         )}
       </div>
+      {applying && (
+        <Modal
+          title={`Terapkan Accurate ${applying} ke katalog?`}
+          onClose={() => setApplying(null)}
+          footer={
+            <>
+              <button className="btn ghost" onClick={() => setApplying(null)}>Batal</button>
+              <span className="grow" />
+              <button className="btn" onClick={() => void apply(applying, false)}>Perbarui saja</button>
+              <button className="btn primary" onClick={() => void apply(applying, true)}>Perbarui + tambah baru</button>
+            </>
+          }
+        >
+          <p>
+            Harga jual dan stok dari Accurate {applying} ditulis ke katalog. "Perbarui saja" hanya mengubah barang yang sudah
+            ada; "Perbarui + tambah baru" juga menambahkan barang yang belum ada di katalog.
+          </p>
+        </Modal>
+      )}
     </div>
   );
 }

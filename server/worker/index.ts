@@ -5,6 +5,7 @@
    ============================================================ */
 
 import { Hono } from "hono";
+import { vectorTick } from "./catalogSemantic";
 import { secureHeaders } from "hono/secure-headers";
 import { loadUser } from "./auth";
 import { authRouter } from "./routes/auth";
@@ -144,6 +145,13 @@ async function scheduled(controller: ScheduledController, env: Bindings, ctx: Ex
     syncTick(env, { deadlineMs: 25_000 }).then(
       (r) => r.length && console.log("[accurate] tick", JSON.stringify(r)),
       (err) => console.error("[accurate] tick failed:", err),
+    ),
+  );
+  // Pencarian AI: keep the catalog's meaning index filled (server/worker/catalogSemantic.ts).
+  ctx.waitUntil(
+    vectorTick(env).then(
+      (r) => r.outcome !== "idle" && console.log("[search] vectors", JSON.stringify(r)),
+      (err) => console.error("[search] vectors failed:", err),
     ),
   );
 }

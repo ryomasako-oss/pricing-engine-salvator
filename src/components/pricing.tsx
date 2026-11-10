@@ -70,7 +70,7 @@ export function ScenarioCards({
             key={sc.key}
             type={onSelect ? "button" : undefined}
             className={`scen-card ${onSelect ? "selectable" : ""} ${selected === i ? "on" : ""}`}
-            style={{ ["--c" as string]: sc.color, ["--t" as string]: sc.tint }}
+            style={{ ["--c" as string]: `var(--s${i + 1})` }}
             onClick={onSelect ? () => onSelect(i as ScenarioIndex) : undefined}
             aria-pressed={onSelect ? selected === i : undefined}
             title={sc.rule}
@@ -116,9 +116,9 @@ export function CompareTable({ engine }: { engine: EngineResult }) {
       <table className="table">
         <thead>
           <tr>
-            <th className="l">Metrik</th>
-            {SCENARIOS.map((s) => (
-              <th key={s.key} style={{ color: s.color }}>
+            <th className="l label-col">Metrik</th>
+            {SCENARIOS.map((s, i) => (
+              <th key={s.key} style={{ color: `var(--s${i + 1})` }}>
                 {s.key} {s.name}
               </th>
             ))}
@@ -149,7 +149,7 @@ export function CompareTable({ engine }: { engine: EngineResult }) {
           })}
         </tbody>
       </table>
-      <p className="muted small" style={{ padding: "8px 10px", margin: 0 }}>
+      <p className="note pad">
         Sorotan kuning menandai skenario terbaik untuk metrik itu. Subsidi S2 diberikan{" "}
         {rp(engine.subsidy.given)} dan ditutup {rp(engine.subsidy.recovered)} per bulan (
         {pct(engine.subsidy.coverage)}).
@@ -173,10 +173,10 @@ export interface LeverDef {
 export const LEVERS: LeverDef[] = [
   { key: "opex", label: "Opex", hint: "Handling, gudang, admin dari COGS", min: 0, max: 0.3, step: 0.005 },
   { key: "targetMargin", label: "Target margin", hint: "Dipakai S1 dan item core", min: 0, max: 0.5, step: 0.005 },
-  { key: "leaderMargin", label: "Margin item leader", hint: "S2: item yang dibandingkan klien", min: 0, max: 0.4, step: 0.005, color: SCENARIOS[1].color },
-  { key: "profitDiscount", label: "Diskon item profit", hint: "S2: 0% berarti di harga plafon", min: 0, max: 0.3, step: 0.005, color: SCENARIOS[1].color },
-  { key: "rrpDiscount", label: "Diskon dari RRP", hint: "S3: berlaku ke semua item", min: 0, max: 0.4, step: 0.005, color: SCENARIOS[2].color },
-  { key: "marginFloor", label: "Margin minimum", hint: "S3: harga tidak boleh di bawah ini", min: 0, max: 0.3, step: 0.005, color: SCENARIOS[2].color },
+  { key: "leaderMargin", label: "Margin item leader", hint: "S2: item yang dibandingkan klien", min: 0, max: 0.4, step: 0.005, color: "var(--s2)" },
+  { key: "profitDiscount", label: "Diskon item profit", hint: "S2: 0% berarti di harga plafon", min: 0, max: 0.3, step: 0.005, color: "var(--s2)" },
+  { key: "rrpDiscount", label: "Diskon dari RRP", hint: "S3: berlaku ke semua item", min: 0, max: 0.4, step: 0.005, color: "var(--s3)" },
+  { key: "marginFloor", label: "Margin minimum", hint: "S3: harga tidak boleh di bawah ini", min: 0, max: 0.3, step: 0.005, color: "var(--s3)" },
 ];
 
 export function Lever({
@@ -205,7 +205,7 @@ export function Lever({
         disabled={disabled}
         style={{
           ["--fill" as string]: `${((value - lever.min) / (lever.max - lever.min)) * 100}%`,
-          ["--c" as string]: lever.color || "var(--brand)",
+          ["--c" as string]: lever.color || "var(--color-action)",
         }}
         onChange={(e) => onChange(Number(e.target.value))}
       />
@@ -220,7 +220,7 @@ export function BreachList({ breaches }: { breaches: PolicyBreach[] }) {
   if (!breaches.length) {
     return (
       <p className="notice ok">
-        <Icon name="check" size={14} /> Semua angka di dalam batas kebijakan harga.
+        Semua angka di dalam batas kebijakan harga.
       </p>
     );
   }
@@ -341,16 +341,16 @@ export function DeliveryTable({
         </table>
       </div>
       {!readOnly && (
-        <button className="btn small ghost" style={{ marginTop: 10 }} onClick={onAdd}>
-          <Icon name="plus" size={14} /> Tambah lokasi
+        <button className="btn small ghost note-block" onClick={onAdd}>
+          Tambah lokasi
         </button>
       )}
       {Math.abs(shareTotal - 1) > 0.0001 && (
-        <p className="notice warn" style={{ marginTop: 10 }}>
+        <p className="notice warn note-block">
           Total share order {pct(shareTotal, 0)}. Ubah sampai 100% supaya modifier akurat.
         </p>
       )}
-      <p className="muted small" style={{ marginTop: 8 }}>
+      <p className="note">
         Modifier = (kirim per bulan × biaya per kirim) ÷ (nilai order @COGS × share region).
       </p>
     </>

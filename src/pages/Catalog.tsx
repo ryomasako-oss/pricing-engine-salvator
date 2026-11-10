@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
+import { LoadError } from "../components/LoadError";
 import { Icon } from "../components/Icon";
-import { Modal } from "../components/Modal";
+import { ConfirmModal, Modal } from "../components/Modal";
+import { Menu, type MenuEntry } from "../components/Menu";
 import { ImportDialog } from "../components/ImportDialog";
 import { Thumb } from "../components/Thumb";
 import { ItemImageEditor } from "../components/ItemImageEditor";
@@ -42,11 +44,15 @@ export function CatalogPage() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(0);
-  const [sortBy, setSortBy] = useState<"name" | "stock" | "cogs" | "list_price">("name");
+  // "" = by relevance while searching (shared/catalogSearch.ts), by name otherwise; a column header sorts.
+  const [sortBy, setSortBy] = useState<"" | "name" | "stock" | "cogs" | "list_price">("");
+  const [suggestion, setSuggestion] = useState<string | null>(null);
+  const [partial, setPartial] = useState(false);
   const [imageFilter, setImageFilter] = useState<"all" | "with" | "without">("all");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState<null | "inventory" | "master" | "full" | "fullMerge" | "images">(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [modal, setModal] = useState<null | "inventory" | "master" | "full" | "confirmFull" | "fullMerge" | "images">(null);
   const [editing, setEditing] = useState<EditingItem | null>(null);
   const [uomOptions, setUomOptions] = useState<string[]>([]);
   const [addingUom, setAddingUom] = useState(false);
@@ -66,25 +72,31 @@ export function CatalogPage() {
     }
   };
 
+  // Only the newest load may write: an older, slower request must not overwrite it.
+  const loadSeq = useRef(0);
   const load = useCallback(() => {
+    const seq = ++loadSeq.current;
     setLoading(true);
+    setLoadError(null);
     const params = new URLSearchParams({
       q: query.trim(),
       limit: String(PAGE),
       offset: String(page * PAGE),
-      sortBy,
-      sortDir,
+      ...(sortBy ? { sortBy, sortDir } : {}),
       ...(imageFilter === "all" ? {} : { image: imageFilter }),
     });
     api
-      .get<{ items: CatalogItem[]; total: number; stockAsOf: string | null }>(`/catalog?${params}`)
+      .get<{ items: CatalogItem[]; total: number; stockAsOf: string | null; suggestion?: string | null; partial?: boolean }>(`/catalog?${params}`)
       .then((r) => {
+        if (seq !== loadSeq.current) return;
         setItems(r.items);
         setTotal(r.total);
         setStockAsOf(r.stockAsOf);
+        setSuggestion(r.suggestion ?? null);
+        setPartial(!!r.partial);
       })
-      .catch((e) => toast(e.message, "error"))
-      .finally(() => setLoading(false));
+      .catch((e) => seq === loadSeq.current && setLoadError(e instanceof Error ? e.message : String(e)))
+      .finally(() => seq === loadSeq.current && setLoading(false));
     api.get<{ stats: Stats }>("/catalog/stats").then((r) => setStats(r.stats)).catch(() => undefined);
   }, [query, page, sortBy, sortDir, imageFilter, toast]);
 
@@ -123,62 +135,66 @@ export function CatalogPage() {
   }, [loadUom]);
 
   const pages = Math.ceil(total / PAGE);
+  const filtered = query.trim() !== "" || imageFilter !== "all";
+
+  const importMenu: MenuEntry[] = [
+    { label: "Nilai Persediaan", hint: "COGS dari Accurate", onSelect: () => setModal("inventory") },
+    { label: "Daftar Barang dan Jasa", hint: "Harga jual acuan", onSelect: () => setModal("master") },
+    { label: "Katalog lengkap (gabung)", hint: "Template katalog, barang lama tetap", onSelect: () => setModal("fullMerge") },
+    "divider",
+    {
+      label: "Unduh template katalog",
+      onSelect: () => void import("../import/parsers").then((m) => m.downloadFullCatalogTemplate()),
+    },
+    ...(can("delete_catalog")
+      ? ([
+          "divider",
+          {
+            label: "Ganti seluruh katalog…", hint: "Hapus semua barang, isi dari file", danger: true,
+            onSelect: () => setModal("confirmFull"),
+          },
+        ] satisfies MenuEntry[])
+      : []),
+  ];
+
+  const sortHead = (field: "stock" | "cogs" | "list_price", label: string) => {
+    const on = sortBy === field;
+    return (
+      <th aria-sort={on ? (sortDir === "asc" ? "ascending" : "descending") : "none"}>
+        <button type="button" className={`th-sort${on ? " on" : ""}`} onClick={() => toggleSort(field)}>
+          {label} <Icon name={on ? `sort-${sortDir}` : "sort"} size={14} />
+        </button>
+      </th>
+    );
+  };
 
   return (
-    <main className="hk-main">
+    <main className="hk-main page-stack">
       <div className="hk-page-head">
         <div>
           <h1>Katalog barang</h1>
           <p>
-            Harga pokok = harga pembelian terakhir di Accurate (penerimaan barang); barang yang belum
+            Harga pokok = harga pembelian terakhir di Accurate (faktur pembelian); barang yang belum
             pernah dibeli memakai laporan Nilai Persediaan. Harga jual acuan dari Daftar Barang dan Jasa.
           </p>
         </div>
         {can("import_catalog") && (
           <div className="row-wrap">
-            <button className="btn" onClick={() => openEditing({ ...EMPTY_ITEM })}>
-              <Icon name="plus" size={15} /> Tambah barang
-            </button>
-            <button
-              className="btn ghost"
-              onClick={() => {
-                void import("../import/parsers").then((m) => m.downloadFullCatalogTemplate());
-              }}
-            >
-              <Icon name="download" size={15} /> Unduh template katalog
-            </button>
+            <Menu label="Impor" items={importMenu} />
             {can("edit_catalog") && (
               <button className="btn" onClick={() => setModal("images")}>
-                <Icon name="upload" size={15} /> Unggah gambar massal
+                Unggah gambar massal
               </button>
             )}
-            <button className="btn" onClick={() => setModal("inventory")}>
-              <Icon name="box" size={15} /> Impor inventory (COGS)
+            <button className="btn primary" onClick={() => openEditing({ ...EMPTY_ITEM })}>
+              Tambah barang
             </button>
-            <button className="btn" onClick={() => setModal("master")}>
-              <Icon name="table" size={15} /> Impor daftar barang (harga jual)
-            </button>
-            <button className="btn" onClick={() => setModal("fullMerge")}>
-              <Icon name="table" size={15} /> Impor katalog lengkap (gabung)
-            </button>
-            {can("delete_catalog") && (
-              <button
-                className="btn danger"
-                onClick={() => {
-                  if (window.confirm("Seluruh isi katalog saat ini akan dihapus dan diganti. Lanjutkan?")) {
-                    setModal("full");
-                  }
-                }}
-              >
-                <Icon name="upload" size={15} /> Impor katalog lengkap (ganti semua)
-              </button>
-            )}
           </div>
         )}
       </div>
 
       {stats && (
-        <div className="kpi-grid" style={{ marginBottom: 16 }}>
+        <div className="kpi-grid">
           <div className="kpi">
             <div className="label">Item di katalog</div>
             <div className="value num">{grp(stats.total)}</div>
@@ -201,7 +217,7 @@ export function CatalogPage() {
           </div>
           <div className="kpi">
             <div className="label">Terakhir diperbarui</div>
-            <div className="value" style={{ fontSize: 15 }}>
+            <div className="value text">
               {stats.updated ? fmtDateTime(stats.updated) : "—"}
             </div>
           </div>
@@ -214,19 +230,19 @@ export function CatalogPage() {
 
 
       {stats && stats.total > 0 && stats.priced / stats.total < 0.6 && (
-        <p className="notice warn" style={{ marginBottom: 12 }}>
-          <Icon name="alert" size={14} /> Hanya {Math.round((stats.priced / stats.total) * 100)}%
-          item punya harga pokok. Barang yang belum pernah dibeli (tanpa penerimaan barang di Accurate)
+        <p className="notice warn">
+          Hanya {Math.round((stats.priced / stats.total) * 100)}%
+          item punya harga pokok. Barang yang belum pernah dibeli (tanpa faktur pembelian di Accurate)
           tidak punya harga pembelian terakhir — isi manual atau lewat impor Nilai Persediaan untuk item
           yang benar-benar dijual.
         </p>
       )}
 
       <div className="card">
-        <div className="card-head">
+        <div className="toolbar">
           <input
-            className="input"
-            style={{ maxWidth: 320 }}
+            className="input toolbar-search"
+            type="search"
             placeholder="Cari nama atau kode barang"
             value={query}
             onChange={(e) => {
@@ -236,8 +252,7 @@ export function CatalogPage() {
             aria-label="Cari katalog"
           />
           <select
-            className="select"
-            style={{ maxWidth: 190 }}
+            className="select toolbar-select"
             value={imageFilter}
             onChange={(e) => {
               setImageFilter(e.target.value as "all" | "with" | "without");
@@ -249,26 +264,60 @@ export function CatalogPage() {
             <option value="with">Sudah ada gambar</option>
             <option value="without">Belum ada gambar</option>
           </select>
-          <span className="muted small">
+          <span className="grow" />
+          <span className="muted small" hidden={!!loadError}>
             {grp(total)} item cocok{stockAsOf && ` · stok Accurate per ${fmtDateTime(stockAsOf)}`}
           </span>
         </div>
+        {partial && items.length > 0 && (
+          <p className="note pad">Tidak ada barang yang cocok dengan semua kata. Ini yang paling mendekati.</p>
+        )}
+        {suggestion && (
+          <p className="note pad">
+            Mungkin maksud Anda:{" "}
+            <button
+              className="link-btn"
+              onClick={() => {
+                setQuery(suggestion);
+                setPage(0);
+              }}
+            >
+              {suggestion}
+            </button>
+          </p>
+        )}
 
-        {loading ? (
-          <div className="card-body loading"><span className="dots"><i /><i /><i /></span> Memuat…</div>
+        {loadError ? (
+          <LoadError message={loadError} onRetry={load} />
+        ) : loading ? (
+          <div className="card-body skeleton-list" role="status" aria-label="Memuat katalog…">
+            {[0, 1, 2, 3, 4].map((i) => <span key={i} className="skeleton" />)}
+          </div>
+        ) : items.length === 0 && filtered ? (
+          <div className="card-body empty">
+            <h3>Tidak ada barang yang cocok</h3>
+            <p>Coba kata lain, atau ubah filter gambar.</p>
+            <button className="btn" onClick={() => { setQuery(""); setImageFilter("all"); setPage(0); }}>
+              Hapus pencarian
+            </button>
+          </div>
         ) : items.length === 0 ? (
           <div className="card-body empty">
-            <Icon name="box" size={28} />
             <h3>Katalog masih kosong</h3>
             <p>
               Impor laporan Nilai Persediaan untuk harga pokok, lalu Daftar Barang dan Jasa untuk
               harga jual acuan.
             </p>
+            {can("import_catalog") && (
+              <button className="btn primary" onClick={() => setModal("inventory")}>
+                Impor Nilai Persediaan
+              </button>
+            )}
           </div>
         ) : (
           <>
-            <div className="table-wrap" style={{ border: 0 }}>
-              <table className="table">
+            <div className="table-wrap flush">
+              <table className="table stack">
                 <thead>
                   <tr>
                     <th className="l">Kode</th>
@@ -276,70 +325,37 @@ export function CatalogPage() {
                     <th className="l">Kategori</th>
                     <th className="l">Satuan</th>
                     <th className="l">Konversi</th>
-                    {seeCosts && (
-                      <th
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => toggleSort("cogs")}
-                        onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && toggleSort("cogs")}
-                        style={{ cursor: "pointer", userSelect: "none" }}
-                        title="Urutkan berdasarkan COGS"
-                      >
-                        COGS{sortBy === "cogs" && (sortDir === "asc" ? " ▲" : " ▼")}
-                      </th>
-                    )}
-                    <th
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => toggleSort("list_price")}
-                      onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && toggleSort("list_price")}
-                      style={{ cursor: "pointer", userSelect: "none" }}
-                      title="Urutkan berdasarkan harga jual"
-                    >
-                      Harga jual{sortBy === "list_price" && (sortDir === "asc" ? " ▲" : " ▼")}
-                    </th>
-                    <th
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => toggleSort("stock")}
-                      onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && toggleSort("stock")}
-                      style={{ cursor: "pointer", userSelect: "none" }}
-                      title="Urutkan berdasarkan stok"
-                    >
-                      Stok{sortBy === "stock" && (sortDir === "asc" ? " ▲" : " ▼")}
-                    </th>
+                    {seeCosts && sortHead("cogs", "COGS")}
+                    {sortHead("list_price", "Harga jual")}
+                    {sortHead("stock", "Stok")}
                     {can("edit_catalog") && <th aria-label="Aksi" />}
                   </tr>
                 </thead>
                 <tbody>
                   {items.map((item) => (
                     <tr key={item.id} className={(seeCosts ? item.cogs > 0 : !item.cogs_problem) ? "" : "flagged"}>
-                      <td className="l muted num">{item.code}</td>
-                      <td className="l">
+                      <td className="l muted num" data-label="Kode">{item.code}</td>
+                      <td className="l stack-title">
                         <div className="with-thumb">
                           <Thumb src={item.image} alt={item.name} />
                           <span className="grow">{item.name}</span>
                         </div>
                         {item.cogs_problem && (!seeCosts || item.cogs > 0) && (
-                          <div className="small" style={{ color: "var(--danger)" }}>
-                            ⚠ {item.cogs_problem}. Tidak bisa dipakai di penawaran.
+                          <div className="cell-problem">
+                            <span>{item.cogs_problem}. Tidak bisa dipakai di penawaran.</span>
                             {can("edit_catalog") && /COGS acuan/.test(item.cogs_problem) && (
-                              <button
-                                className="btn small"
-                                style={{ marginLeft: 6 }}
-                                onClick={() => void verifyCogs(item.id)}
-                              >
+                              <button className="btn small" onClick={() => void verifyCogs(item.id)}>
                                 COGS ini benar
                               </button>
                             )}
                           </div>
                         )}
                       </td>
-                      <td className="l muted small">{item.category || "—"}</td>
-                      <td className="l muted">{item.uom}</td>
-                      <td className="l">
+                      <td className="l muted small" data-label="Kategori">{item.category || "—"}</td>
+                      <td className="l muted" data-label="Satuan">{item.uom}</td>
+                      <td className="l" data-label="Konversi">
                         {item.units?.length ? (
-                          <div className="row-wrap" style={{ gap: 4 }}>
+                          <div className="badge-row">
                             {item.units.map((u) => (
                               <span key={u.uom} className="badge grey num">
                                 1 {u.uom} = {grp(u.factor)} {item.uom}
@@ -351,14 +367,14 @@ export function CatalogPage() {
                         )}
                       </td>
                       {seeCosts && (
-                        <td className="num">
+                        <td className="num" data-label="COGS">
                           {item.cogs > 0 ? grp(item.cogs) : <span className="badge amber">kosong</span>}
                         </td>
                       )}
-                      <td className="num">{item.list_price > 0 ? grp(item.list_price) : "—"}</td>
-                      <td className="num muted">{grp(item.stock)}</td>
+                      <td className="num" data-label="Harga jual">{item.list_price > 0 ? grp(item.list_price) : "—"}</td>
+                      <td className="num muted" data-label="Stok">{grp(item.stock)}</td>
                       {can("edit_catalog") && (
-                        <td>
+                        <td className="stack-action">
                           <button className="btn small ghost" onClick={() => openEditing({ ...item, units: item.units ?? [] })}>Ubah</button>
                         </td>
                       )}
@@ -368,15 +384,18 @@ export function CatalogPage() {
               </table>
             </div>
             {pages > 1 && (
-              <div className="card-body row" style={{ justifyContent: "center" }}>
+              <div className="table-foot">
+                <span className="muted small num">
+                  Menampilkan {grp(page * PAGE + 1)}–{grp(Math.min(total, (page + 1) * PAGE))} dari {grp(total)}
+                </span>
+                <span className="grow" />
                 <button className="btn small" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
                   Sebelumnya
                 </button>
                 <label className="muted small">
                   Halaman{" "}
                   <select
-                    className="input"
-                    style={{ width: "auto", display: "inline-block" }}
+                    className="select inline"
                     value={page}
                     onChange={(e) => setPage(Number(e.target.value))}
                     aria-label="Pilih halaman"
@@ -422,12 +441,28 @@ export function CatalogPage() {
         />
       )}
 
+      {modal === "confirmFull" && (
+        <ConfirmModal
+          title="Ganti seluruh katalog?"
+          message={
+            <>
+              Barang yang tidak ada di file akan dihapus dari katalog
+              {stats ? ` (sekarang ${grp(stats.total)} barang)` : ""}; barang yang ada di file diperbarui.
+              Tindakan ini tidak bisa dibatalkan.
+            </>
+          }
+          confirmLabel="Ya, pilih file"
+          onConfirm={() => setModal("full")}
+          onClose={() => setModal(null)}
+        />
+      )}
+
       {modal === "full" && (
         <ImportDialog
           title="Impor katalog lengkap"
           description={
             <>
-              <strong style={{ color: "var(--danger)" }}>
+              <strong className="text-err">
                 Ini menghapus seluruh isi katalog lalu menggantinya dengan isi file ini.
               </strong>{" "}
               Pakai template "Unduh template katalog". Kolom Kode Barang dan Nama Barang wajib diisi.
@@ -555,7 +590,7 @@ export function CatalogPage() {
             </>
           }
         >
-          <div className="col" style={{ gap: 12 }}>
+          <div className="form-stack">
             {!editing.id && (
               <label className="field">
                 <span>Kode barang</span>
@@ -586,7 +621,7 @@ export function CatalogPage() {
               <label className="field">
                 <span>Satuan dasar</span>
                 {addingUom ? (
-                  <div className="row-wrap" style={{ gap: 6 }}>
+                  <div className="row-wrap">
                     <input
                       className="input"
                       autoFocus
@@ -709,7 +744,7 @@ function UnitsEditor({
   return (
     <div className="field">
       <span>Konversi satuan</span>
-      <div className="table-wrap" style={{ borderRadius: 12 }}>
+      <div className="table-wrap">
         <table className="table">
           <thead>
             <tr>
@@ -753,7 +788,7 @@ function UnitsEditor({
                       aria-label={`Rasio ${u.uom}`}
                     />
                   </td>
-                  <td style={{ width: 36 }}>
+                  <td className="col-icon">
                     <button
                       type="button"
                       className="icon-btn"
@@ -770,7 +805,7 @@ function UnitsEditor({
           </tbody>
         </table>
       </div>
-      <div className="row-wrap" style={{ justifyContent: "space-between" }}>
+      <div className="row-between">
         <span className="muted small">
           {units[0]?.factor > 0
             ? `Contoh: 1 ${units[0].uom} = ${units[0].factor} ${base}.`
@@ -782,7 +817,6 @@ function UnitsEditor({
             className="btn small"
             onClick={() => onChange([...units, { uom: unused[0], factor: 0 }])}
           >
-            <Icon name="plus" size={14} />
             Tambah satuan
           </button>
         )}

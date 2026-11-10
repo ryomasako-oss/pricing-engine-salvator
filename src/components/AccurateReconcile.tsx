@@ -6,7 +6,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 import { useToast } from "../context/ToastContext";
-import { Icon } from "./Icon";
 import { fmtDateTime, grp } from "@shared/format";
 
 interface Check {
@@ -68,7 +67,7 @@ export function AccurateReconcile() {
   if (!report) return null;
   if (!report.ready) {
     return (
-      <p className="muted small" style={{ marginTop: 12 }}>
+      <p className="note">
         Cek silang dengan Accurate tersedia setelah sinkron {report.entity} selesai satu kali.
       </p>
     );
@@ -76,8 +75,8 @@ export function AccurateReconcile() {
   const problems = report.checks.filter((c) => c.notify && c.count > 0).length;
 
   return (
-    <div style={{ marginTop: 16, borderTop: "1px solid var(--rule)", paddingTop: 12 }}>
-      <div className="row-wrap" style={{ justifyContent: "space-between" }}>
+    <div className="subsection">
+      <div className="row-between">
         <div>
           <strong>Cek silang dengan Accurate {report.entity}</strong>{" "}
           <span className={`badge ${problems ? "amber" : "green"}`}>{problems ? `${problems} jenis perlu dicek` : "tidak ada selisih"}</span>
@@ -88,10 +87,10 @@ export function AccurateReconcile() {
           </div>
         </div>
         <button className="btn small ghost" disabled={busy || !report.complete} onClick={recheck}>
-          <Icon name="history" size={13} /> Cek ulang &amp; beri tahu
+          Cek ulang &amp; beri tahu
         </button>
       </div>
-      <ul style={{ listStyle: "none", padding: 0, margin: "8px 0 0", display: "grid", gap: 6 }}>
+      <ul className="list-stack compact note-block">
         {report.checks.map((c) => (
           <li key={c.key}>
             <button
@@ -108,7 +107,7 @@ export function AccurateReconcile() {
               <span className={`badge ${c.count === 0 ? "grey" : c.notify ? "amber" : "blue"}`} style={{ flexShrink: 0 }}>{grp(c.count)}</span>
             </button>
             {open === c.key && (
-              <div className="small" style={{ padding: "6px 8px" }}>
+              <div className="small pad-sm">
                 <div className="muted">{c.todo}</div>
                 {rows === null ? (
                   <div className="muted">Memuat…</div>

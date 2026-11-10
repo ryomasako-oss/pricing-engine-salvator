@@ -75,3 +75,27 @@ describe("restoreRows: picks laid over a fresh match", () => {
     expect(codesToFetch(saved, [item(1, "P1"), item(2, "K1")]).sort()).toEqual(["GONE", "MANUAL"]);
   });
 });
+
+describe("extra items for one request (binder clip → several binder clips)", () => {
+  it("a draft keeps them by code and a reopened draft lays them back on the row", () => {
+    const items = new Map([[1, item(1, "BC-15")], [2, item(2, "BC-25")], [3, item(3, "BC-32")]]);
+    const rows: EditorRow[] = [
+      { request: lines[0], result: result(0, "match", [1]), chosen: 1, confirmed: true, unitOk: false, extra: [], also: [2, 3] },
+    ];
+    const choices = choicesFromRows(rows, items);
+    expect(choices[0].also).toEqual(["BC-25", "BC-32"]);
+    expect(codesToFetch(choices, [items.get(1)!])).toEqual(["BC-25", "BC-32"]);
+    const back = restoreRows([lines[0]], [result(0, "match", [1])], choices, items);
+    expect(back.rows[0].also).toEqual([2, 3]);
+  });
+});
+
+describe("a reopened draft whose extra item left the catalog", () => {
+  it("counts it as lost", () => {
+    const items = new Map([[1, item(1, "BC-15")]]);
+    const choices = [{ chosen: { kind: "catalog" as const, code: "BC-15" }, confirmed: true, extra: [], also: ["GONE-1"] }];
+    const back = restoreRows([lines[0]], [result(0, "match", [1])], choices, items);
+    expect(back.lost).toBe(1);
+    expect(back.rows[0].also).toBeUndefined();
+  });
+});

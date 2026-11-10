@@ -25,7 +25,7 @@ function Bubble({ m, onReview }: { m: ChatMessage; onReview: (m: ChatMessage) =>
   if (m.role === "user") return <div className="bubble">{m.text}</div>;
   return (
     <div className={`answer ${m.error ? "error" : ""}`}>
-      <div style={{ whiteSpace: "pre-wrap" }}>{m.text}</div>
+      <div className="pre-wrap">{m.text}</div>
       {m.found && <Found found={m.found} />}
       {m.lines && m.lines.length > 0 && (
         <div className="proposal">
@@ -52,7 +52,7 @@ function Found({ found }: { found: NonNullable<ChatMessage["found"]> }) {
   if (!found.items.length) return <p className="muted small">Tidak ada barang di katalog yang cocok.</p>;
   const costs = found.items.some((i) => i.cogs !== undefined);
   return (
-    <div className="proposal" style={{ overflowX: "auto" }}>
+    <div className="proposal scroll-x">
       <strong>
         {found.total > found.items.length ? `${found.items.length} dari ${grp(found.total)} barang` : `${found.total} barang`} dari katalog
       </strong>
@@ -102,8 +102,8 @@ export function ChatThread({ maxHeight = 320 }: { maxHeight?: number | string })
   return (
     <>
       {messages.length === 0 && (
-        <div className="card-body" style={{ paddingBottom: 4 }}>
-          <p className="muted small" style={{ margin: "0 0 8px" }}>
+        <div className="card-body tight-bottom">
+          <p className="note first">
             Halo, saya Silvy. Ceritakan kebutuhan klien dengan kata-kata sendiri. Daftar yang tersusun bisa Anda tinjau sebelum jadi quotation;
             harga selalu diambil dari katalog.
           </p>
@@ -134,7 +134,7 @@ export function ChatThread({ maxHeight = 320 }: { maxHeight?: number | string })
         <textarea
           rows={1}
           value={input}
-          placeholder="Tanya Silvy, mis. untuk PT Maju Jaya: pulpen 10 lusin, kertas A4 5 rim"
+          placeholder="Tanya Silvy, mis. pulpen 10 lusin"
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {

@@ -26,6 +26,21 @@ const PIS = [
 ];
 
 describe("purchase invoice lines", () => {
+  it("takes the line total after its item discount, ÷ 1,11 when inclusive: Accurate's DPP (PT, 9 Nov)", () => {
+    // PI.2025.11.00024 line 1, as the probe returned it: 27 KTK at 85.470 incl. PPN, 10% item discount.
+    const pi24 = { id: 24, number: "PI.2025.11.00024", transDate: "10/11/2025", inclusiveTax: true, subTotal: 11_275_713, cashDiscount: 0,
+      detailItem: [{ id: 1, itemNo: "80801483", itemUnitName: "KTK", quantity: 27, unitPrice: 85_470, itemDiscPercent: "10", itemCashDiscount: 230_769, totalPrice: 2_076_921 }] };
+    const [l] = mapPurchaseLines(pi24);
+    expect(l.unitPrice).toBeCloseTo(69_300, 2);
+    expect(l.unitPriceGross).toBe(85_470);
+    // PI.2025.11.00046, no tax ticked: the price as is.
+    const pi46 = { id: 46, number: "PI.2025.11.00046", transDate: "12/11/2025", inclusiveTax: false, subTotal: 1_807_500, cashDiscount: 0,
+      detailItem: [{ id: 1, itemNo: "X", itemUnitName: "Pcs", quantity: 3, unitPrice: 65_500, totalPrice: 196_500 }] };
+    expect(mapPurchaseLines(pi46)[0].unitPrice).toBe(65_500);
+    // An invoice-level cash discount comes off pro rata.
+    expect(mapPurchaseLines({ ...pi46, subTotal: 196_500, cashDiscount: 19_650 })[0].unitPrice).toBeCloseTo(58_950, 6);
+  });
+
   it("divides the price by 1,11 only when the PI has 'Total termasuk pajak' ticked, keeping Accurate's price", () => {
     const [inc] = mapPurchaseLines(PIS[0]);
     expect(inc).toMatchObject({ receiptNo: "PI.2026.10.00010", itemCode: "A1", unitPriceGross: 11_100, inclusiveTax: 1 });

@@ -1,6 +1,5 @@
-import { lazy, Suspense, useEffect, useState } from "react";
-import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
-import { api } from "./api";
+import { lazy, Suspense } from "react";
+import { NavLink, Navigate, Route, Routes, useLocation, useParams } from "react-router-dom";
 import { useAuth } from "./context/AuthContext";
 import { useTheme } from "./context/ThemeContext";
 import { useConfirmLeave } from "./context/UnsavedGuardContext";
@@ -8,8 +7,8 @@ import { Icon } from "./components/Icon";
 import { LoginPage } from "./pages/Login";
 import { DashboardPage } from "./pages/Dashboard";
 import { ChatProvider } from "./context/ChatContext";
+import { NavCountsProvider, useNavCounts } from "./context/NavCountsContext";
 import { ChatDock } from "./components/ChatDock";
-import type { Approval } from "@shared/types";
 import type { Permission } from "@shared/permissions";
 
 // Pages other than the quote list load on first visit, so the PDF, Excel and
@@ -25,100 +24,98 @@ const FixTasksPage = lazy(() => import("./pages/FixTasks").then((m) => ({ defaul
 const MatchingPage = lazy(() => import("./pages/Matching").then((m) => ({ default: m.MatchingPage })));
 const CogsHistoryPage = lazy(() => import("./pages/CogsHistory").then((m) => ({ default: m.CogsHistoryPage })));
 const SalesHistoryPage = lazy(() => import("./pages/SalesHistory").then((m) => ({ default: m.SalesHistoryPage })));
+const PurchaseHistoryPage = lazy(() => import("./pages/PurchaseHistory").then((m) => ({ default: m.PurchaseHistoryPage })));
 
 function PageLoading() {
   return (
-    <div className="hk-main">
-      <div className="loading" role="status">
-        <span className="dots"><i /><i /><i /></span>
-        Memuat…
+    <main className="hk-main">
+      <div className="card">
+        <div className="card-body skeleton-list" role="status" aria-label="Memuat halaman…">
+          {[0, 1, 2, 3].map((i) => <span key={i} className="skeleton" />)}
+        </div>
       </div>
-    </div>
+    </main>
   );
 }
 
 function TopBar() {
   const { user, logout, can } = useAuth();
   const { theme, toggleTheme } = useTheme();
-  const location = useLocation();
-  const [pending, setPending] = useState(0);
-  const [toFix, setToFix] = useState(0);
+  const { pending, toFix } = useNavCounts();
   const confirmLeave = useConfirmLeave();
 
-  const guardedClick = (e: React.MouseEvent) => {
-    if (!confirmLeave()) e.preventDefault();
-  };
-
-  // Keep the approvals badge fresh as the user moves around the app.
-  useEffect(() => {
-    if (!can("decide_quotes")) return;
-    api
-      .get<{ approvals: Approval[] }>("/approvals?decision=pending")
-      .then((r) => setPending(r.approvals.length))
-      .catch(() => undefined);
-  }, [can, location.pathname]);
-
-  // "Perlu diperbaiki": open tasks this user can see (staff: their own quotes).
-  useEffect(() => {
-    const refresh = () =>
-      api.get<{ open: number }>("/fix-tasks/count").then((r) => setToFix(r.open)).catch(() => undefined);
-    refresh();
-    window.addEventListener("fix-tasks-changed", refresh);
-    return () => window.removeEventListener("fix-tasks-changed", refresh);
-  }, [location.pathname]);
+  // Route changes are guarded by the router blocker (UnsavedGuardContext); logout is not one.
 
   return (
     <header className="hk-top">
-      <NavLink to="/" className="hk-brand" onClick={guardedClick}>
+      {/* First Tab stop: jump past the nine menu links to the page itself. */}
+      <a
+        href="#isi"
+        className="skip-link"
+        onClick={(e) => {
+          e.preventDefault();
+          const main = document.querySelector<HTMLElement>("main");
+          if (!main) return;
+          main.setAttribute("tabindex", "-1");
+          main.focus();
+        }}
+      >
+        Lewati ke isi halaman
+      </a>
+      <NavLink to="/" className="hk-brand">
         <span className="hk-logo" aria-hidden="true">h</span>
         <span>
-          <span className="hk-title" style={{ display: "block" }}>Pricing Engine Salvator</span>
+          <span className="hk-title block">Pricing Engine Salvator</span>
           <span className="hk-sub">PT Salvator Inti Pratama</span>
         </span>
       </NavLink>
 
       <nav className="hk-nav" aria-label="Navigasi utama">
-        <NavLink to="/quotes" className={({ isActive }) => (isActive ? "active" : "")} onClick={guardedClick}>
+        <NavLink to="/quotes" className={({ isActive }) => (isActive ? "active" : "")}>
           <Icon name="quote" size={16} />
           <span className="label">Quotation</span>
         </NavLink>
-        <NavLink to="/pencocokan" className={({ isActive }) => (isActive ? "active" : "")} onClick={guardedClick}>
+        <NavLink to="/pencocokan" className={({ isActive }) => (isActive ? "active" : "")}>
           <Icon name="search" size={16} />
           <span className="label">Pencocokan</span>
         </NavLink>
         {can("decide_quotes") && (
-          <NavLink to="/approvals" className={({ isActive }) => (isActive ? "active" : "")} onClick={guardedClick}>
+          <NavLink to="/approvals" className={({ isActive }) => (isActive ? "active" : "")}>
             <Icon name="shield" size={16} />
             <span className="label">Persetujuan</span>
-            {pending > 0 && <span className="count">{pending}</span>}
+            {!!pending && <span className="count">{pending}</span>}
           </NavLink>
         )}
-        <NavLink to="/perbaikan" className={({ isActive }) => (isActive ? "active" : "")} onClick={guardedClick}>
+        <NavLink to="/perbaikan" className={({ isActive }) => (isActive ? "active" : "")}>
           <Icon name="alert" size={16} />
           <span className="label">Perbaikan</span>
-          {toFix > 0 && <span className="count" aria-label={`${toFix} perlu diperbaiki`}>{toFix}</span>}
+          {!!toFix && <span className="count" aria-label={`${toFix} perlu diperbaiki`}>{toFix}</span>}
         </NavLink>
-        <NavLink to="/catalog" className={({ isActive }) => (isActive ? "active" : "")} onClick={guardedClick}>
+        <NavLink to="/catalog" className={({ isActive }) => (isActive ? "active" : "")}>
           <Icon name="box" size={16} />
           <span className="label">Katalog</span>
         </NavLink>
         {can("view_costs") && (
           <>
-            <NavLink to="/cogs-history" className={({ isActive }) => (isActive ? "active" : "")} onClick={guardedClick}>
+            <NavLink to="/cogs-history" className={({ isActive }) => (isActive ? "active" : "")}>
               <Icon name="history" size={16} />
               <span className="label">Riwayat COGS</span>
             </NavLink>
-            <NavLink to="/sales-history" className={({ isActive }) => (isActive ? "active" : "")} onClick={guardedClick}>
+            <NavLink to="/sales-history" className={({ isActive }) => (isActive ? "active" : "")}>
               <Icon name="doc" size={16} />
               <span className="label">Riwayat SI</span>
             </NavLink>
+            <NavLink to="/purchase-history" className={({ isActive }) => (isActive ? "active" : "")}>
+              <Icon name="truck" size={16} />
+              <span className="label">Riwayat PI</span>
+            </NavLink>
           </>
         )}
-        <NavLink to="/clients" className={({ isActive }) => (isActive ? "active" : "")} onClick={guardedClick}>
+        <NavLink to="/clients" className={({ isActive }) => (isActive ? "active" : "")}>
           <Icon name="building" size={16} />
           <span className="label">Klien</span>
         </NavLink>
-        <NavLink to="/settings" className={({ isActive }) => (isActive ? "active" : "")} onClick={guardedClick}>
+        <NavLink to="/settings" className={({ isActive }) => (isActive ? "active" : "")}>
           <Icon name="gear" size={16} />
           <span className="label">Pengaturan</span>
         </NavLink>
@@ -127,7 +124,7 @@ function TopBar() {
       <div className="row">
         <span className="muted small hide-sm">
           {user?.name}
-          <span className="badge grey" style={{ marginLeft: 6 }}>
+          <span className="badge grey rev-badge">
             {user?.role === "admin" ? "Admin" : user?.role === "manager" ? "Manajer" : "Sales"}
           </span>
         </span>
@@ -141,7 +138,7 @@ function TopBar() {
         </button>
         <button
           className="icon-btn"
-          onClick={() => confirmLeave() && void logout()}
+          onClick={() => confirmLeave(() => void logout())}
           title="Keluar"
           aria-label="Keluar"
         >
@@ -156,15 +153,14 @@ function RequirePermission({ permission, children }: { permission: Permission; c
   const { can } = useAuth();
   if (!can(permission)) {
     return (
-      <div className="hk-main">
+      <main className="hk-main">
         <div className="card">
           <div className="card-body empty">
-            <Icon name="shield" size={28} />
             <h3>Halaman ini khusus manajer dan admin</h3>
             <p>Akun Anda tidak punya akses ke bagian ini.</p>
           </div>
         </div>
-      </div>
+      </main>
     );
   }
   return <>{children}</>;
@@ -189,6 +185,7 @@ export function App() {
 
   return (
     <ChatProvider>
+    <NavCountsProvider>
     <div className="hk-app">
       <TopBar />
       <Suspense fallback={<PageLoading />}>
@@ -196,7 +193,7 @@ export function App() {
         <Route path="/" element={<Navigate to="/quotes" replace />} />
         <Route path="/quotes" element={<DashboardPage />} />
         {/* Staff get a screen without cost data; the server sends them none (PE-1). */}
-        <Route path="/quotes/:id" element={can("view_costs") ? <QuoteEditorPage /> : <StaffQuotePage />} />
+        <Route path="/quotes/:id" element={<QuotePage />} />
         <Route
           path="/approvals"
           element={
@@ -224,6 +221,14 @@ export function App() {
             </RequirePermission>
           }
         />
+        <Route
+          path="/purchase-history"
+          element={
+            <RequirePermission permission="view_costs">
+              <PurchaseHistoryPage />
+            </RequirePermission>
+          }
+        />
         <Route path="/clients" element={<ClientsPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/quotes" replace />} />
@@ -233,6 +238,15 @@ export function App() {
           button there would cover the panel's composer. Staff get no panel, so they keep it. */}
       {!(can("view_costs") && /^\/quotes\/\d+/.test(pathname)) && <ChatDock />}
     </div>
+    </NavCountsProvider>
     </ChatProvider>
   );
+}
+
+/** Keyed by id: moving from one quote to another (e.g. from Silvy) mounts a fresh page,
+    so no state of the previous quote can be saved onto the next one. */
+function QuotePage() {
+  const { id } = useParams();
+  const { can } = useAuth();
+  return can("view_costs") ? <QuoteEditorPage key={id} /> : <StaffQuotePage key={id} />;
 }
