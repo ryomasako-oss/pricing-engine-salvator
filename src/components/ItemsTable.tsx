@@ -185,10 +185,12 @@ export function ItemsTable({
             </thead>
             <tbody>
               {rows.map((r) => {
-                const flagged =
-                  r.margins[scenario] < 0 || r.estCogs || r.status[scenario] === "BELOW COST";
+                // Two levels: a loss (below cost, negative margin) blocks and is red, with its "Rugi" badge;
+                // an estimated COGS only needs a check and is yellow.
+                const blocked = r.margins[scenario] < 0 || r.status[scenario] === "BELOW COST";
+                const flagged = !blocked && r.estCogs;
                 return (
-                  <tr key={r.id} className={flagged ? "flagged" : ""}>
+                  <tr key={r.id} className={blocked ? "blocked" : flagged ? "flagged" : ""}>
                     <td className="c muted stack-hide">{r.lineNo}</td>
                     <td className="l stack-title">
                       <div className="with-thumb">
@@ -280,7 +282,7 @@ export function ItemsTable({
                         key={k}
                         className={k === scenario ? "col-selected" : ""}
                         data-label={SCENARIOS[k].key}
-                        style={k === scenario ? { ["--c" as string]: SCENARIOS[k].color } : undefined}
+                        style={k === scenario ? { ["--c" as string]: `var(--s${k + 1})` } : undefined}
                       >
                         <div>
                         {!readOnly ? (

@@ -8,8 +8,12 @@ export const grp = (n: number): string =>
 export const rp = (n: number): string =>
   (n < 0 ? "−Rp " : "Rp ") + grp(Math.abs(Number(n) || 0));
 
-export const pct = (x: number, d = 1): string =>
-  ((Number(x) || 0) * 100).toFixed(d).replace(".", ",") + "%";
+/** "12,5%"; a negative gets the true minus sign "−" (U+2212), like rp(), not a hyphen. */
+export const pct = (x: number, d = 1): string => {
+  const v = (Number(x) || 0) * 100;
+  const s = Math.abs(v).toFixed(d).replace(".", ",") + "%";
+  return v < 0 && Number(Math.abs(v).toFixed(d)) !== 0 ? `−${s}` : s;
+};
 
 export const uid = (): string => Math.random().toString(36).slice(2, 10);
 

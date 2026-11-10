@@ -67,6 +67,8 @@ function LastSale({ sale, cogs }: { sale?: { price: number; invoiceNo: string; d
   return (
     <td title={under ? "Terakhir dijual di bawah COGS baru" : undefined}>
       <span className={under ? "text-err" : undefined}>{rp(sale.price)}</span>
+      {/* Not by colour alone (WCAG 1.4.1). */}
+      {under && <div className="small text-err">di bawah COGS baru</div>}
       <div className="muted">
         {sale.invoiceNo} · {fmtDate(sale.date)}
       </div>

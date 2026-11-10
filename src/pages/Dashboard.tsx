@@ -318,7 +318,14 @@ export function DashboardPage() {
                     <td className="num" data-label="Nilai / bulan">{rp(q.monthly_value)}</td>
                     {seeCosts && (
                       <td className="num" data-label="Net margin">
-                        <span className={q.net_margin < 0.15 ? "text-err" : undefined}>{pct(q.net_margin)}</span>
+                        {/* Colour is never the only sign (WCAG 1.4.1): a low margin also says so. */}
+                        {q.net_margin < 0.15 ? (
+                          <span className="text-err" title="Di bawah batas net margin 15%">
+                            {pct(q.net_margin)} <span className="small">rendah</span>
+                          </span>
+                        ) : (
+                          pct(q.net_margin)
+                        )}
                       </td>
                     )}
                     <td className="l muted" data-label="Dibuat oleh">{q.created_by_name}</td>
