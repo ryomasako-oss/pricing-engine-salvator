@@ -9,11 +9,14 @@ for (const theme of THEMES) {
 
     test("a client's wording finds the item it was invoiced as", async ({ page, errors }) => {
       void errors;
-      // Both histories sit in the top menu (a lighter page than /quotes: the suite runs near the API rate limit).
+      // One "Riwayat" in the top menu; COGS / SI / PI are tabs on the page (a lighter page than /quotes:
+      // the suite runs near the API rate limit).
       await page.goto("/sales-history");
       const nav = page.getByRole("navigation", { name: "Navigasi utama" });
-      await expect(nav.getByRole("link", { name: "Riwayat COGS" })).toHaveAttribute("href", "/cogs-history");
-      await expect(nav.getByRole("link", { name: "Riwayat SI" })).toHaveAttribute("aria-current", "page");
+      await expect(nav.getByRole("link", { name: "Riwayat", exact: true })).toHaveAttribute("aria-current", "page");
+      const tabs = page.getByRole("navigation", { name: "Jenis riwayat" });
+      await expect(tabs.getByRole("link", { name: "COGS" })).toHaveAttribute("href", "/cogs-history");
+      await expect(tabs.getByRole("link", { name: "Penjualan (SI)" })).toHaveAttribute("aria-current", "page");
       await expectTheme(page, theme);
       await page.getByLabel("Cari riwayat penjualan").fill("oli rantai");
       await expect(page.getByText("ZQSI PELUMAS RANTAI", { exact: true }).first()).toBeVisible();
