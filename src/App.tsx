@@ -25,6 +25,7 @@ const MatchingPage = lazy(() => import("./pages/Matching").then((m) => ({ defaul
 const CogsHistoryPage = lazy(() => import("./pages/CogsHistory").then((m) => ({ default: m.CogsHistoryPage })));
 const SalesHistoryPage = lazy(() => import("./pages/SalesHistory").then((m) => ({ default: m.SalesHistoryPage })));
 const PurchaseHistoryPage = lazy(() => import("./pages/PurchaseHistory").then((m) => ({ default: m.PurchaseHistoryPage })));
+const BelowCostPage = lazy(() => import("./pages/BelowCost").then((m) => ({ default: m.BelowCostPage })));
 
 function PageLoading() {
   return (
@@ -108,6 +109,10 @@ function TopBar() {
             <NavLink to="/purchase-history" className={({ isActive }) => (isActive ? "active" : "")}>
               <Icon name="truck" size={16} />
               <span className="label">Riwayat PI</span>
+            </NavLink>
+            <NavLink to="/below-cost" className={({ isActive }) => (isActive ? "active" : "")}>
+              <Icon name="compare" size={16} />
+              <span className="label">Jual &lt; Beli</span>
             </NavLink>
           </>
         )}
@@ -226,6 +231,14 @@ export function App() {
           element={
             <RequirePermission permission="view_costs">
               <PurchaseHistoryPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/below-cost"
+          element={
+            <RequirePermission permission="view_costs">
+              <BelowCostPage />
             </RequirePermission>
           }
         />

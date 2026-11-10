@@ -17,7 +17,7 @@ import { ITEM_FIELDS, RECEIPT_LIST_FIELDS, mapPurchaseLines } from "../accurate/
 import { cogsHistory } from "../accurate/cogsHistory";
 import { purchaseHistory } from "../accurate/purchaseHistory";
 import { salesHistory } from "../accurate/salesHistory";
-import { lastSales, salesEnabled } from "../accurate/sales";
+import { lastSales, salesBelowCostBetween, salesEnabled } from "../accurate/sales";
 import { applyHeldCosts, applyPurchaseCosts } from "../accurate/purchaseCost";
 import { costKind, costLines, loadReceiptState, purchasesEnabled, receiptsEnabled, wibTimestamp } from "../accurate/receipts";
 import { sweepPending } from "./pendingItems";
@@ -359,6 +359,24 @@ accurateRouter.get("/purchase-history", requirePermission("view_costs"), async (
       page: Number.isInteger(page) && page > 0 ? page : 1,
     }),
   );
+});
+
+/**
+ * Laporan jual di bawah beli (Ryoma, 2026-11-10): SI lines whose net price is under the PI price of
+ * their date, for invoices dated from..to (default the last 30 days). Cost data, hence view_costs.
+ */
+accurateRouter.get("/below-cost", requirePermission("view_costs"), async (c) => {
+  const day = /^\d{4}-\d{2}-\d{2}$/;
+  const today = new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10); // WIB
+  const to = c.req.query("to") ?? today;
+  const valid = (d: string) => day.test(d) && !Number.isNaN(Date.parse(d));
+  const from = c.req.query("from") ?? (valid(to) ? new Date(Date.parse(to) - 30 * 86_400_000).toISOString().slice(0, 10) : "");
+  if (!valid(from) || !valid(to) || from > to) {
+    return c.json({ error: "Tanggal tidak valid (YYYY-MM-DD, dari ≤ sampai)" }, 400);
+  }
+  // shortcut: reads every SI line in the range per request; a year is ~tens of thousands of D1 rows, cache if opened often.
+  if (Date.parse(to) - Date.parse(from) > 366 * 86_400_000) return c.json({ error: "Rentang maksimal 1 tahun" }, 400);
+  return c.json({ from, to, ...(await salesBelowCostBetween(c.env.DB, catalogEntity(c.env), from, to, costLines(c.env))) });
 });
 
 /**

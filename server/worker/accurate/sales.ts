@@ -85,6 +85,25 @@ export async function salesBelowCostSince(
   cursor: string | null,
   lines: CostLines = RECEIPT_LINES,
 ): Promise<{ result: BelowCostResult; cursor: string | null }> {
+  return belowCost(db, entity, "s.synced_at > ?2", [cursor ?? ""], lines, cursor);
+}
+
+/**
+ * Laporan "Jual di bawah beli" (Ryoma, 2026-11-10): the same comparison as the recap, for invoices
+ * dated `from`..`to` (YYYY-MM-DD, inclusive), read on demand from the report tab.
+ */
+export async function salesBelowCostBetween(db: D1Database, entity: EntityKey, from: string, to: string, lines: CostLines = RECEIPT_LINES) {
+  return (await belowCost(db, entity, "s.trans_date BETWEEN ?2 AND ?3", [from, to], lines, null)).result;
+}
+
+async function belowCost(
+  db: D1Database,
+  entity: EntityKey,
+  where: string,
+  params: string[],
+  lines: CostLines,
+  cursor: string | null,
+): Promise<{ result: BelowCostResult; cursor: string | null }> {
   const rows = await all<SalesRow>(
     db,
     `SELECT s.invoice_no, s.trans_date, s.customer_name, s.item_code, s.unit, s.unit_ratio, s.quantity, s.return_qty,
@@ -93,9 +112,9 @@ export async function salesBelowCostSince(
        FROM accurate_sales_lines s
        JOIN catalog_items c ON c.code = s.item_code
        JOIN accurate_items i ON i.entity = ?1 AND i.code = s.item_code
-      WHERE s.entity = ?1 AND s.synced_at > ?2`,
+      WHERE s.entity = ?1 AND ${where}`,
     entity,
-    cursor ?? "",
+    ...params,
   );
   const codes = [...new Set(rows.map((r) => r.item_code))];
   const receipts = new Map<string, ReceiptLine[]>();

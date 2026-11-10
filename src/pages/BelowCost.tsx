@@ -1,0 +1,167 @@
+/* Jual di bawah beli (Ryoma, 2026-11-10): sales invoice (SI) lines whose net price per base unit
+   is under the purchase invoice (PI) price on the invoice date — harga beli tidak boleh lebih
+   tinggi dari harga jual. Same comparison as the morning recap (shared/salesBelowCost.ts), for a
+   chosen date range. Read-only; needs view_costs. */
+
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { api } from "../api";
+import { LoadError } from "../components/LoadError";
+import { fmtDate, grp, rp } from "@shared/format";
+
+interface Report {
+  from: string;
+  to: string;
+  checked: number;
+  unknownCost: number;
+  doubtfulCost: number;
+  below: { invoiceNo: string; transDate: string; customerName: string; code: string; name: string; net: number; cost: number; receiptNo: string; lossTotal: number }[];
+}
+
+const iso = (d: Date) => new Date(d.getTime() + 7 * 3_600_000).toISOString().slice(0, 10);
+
+export function BelowCostPage() {
+  const [to, setTo] = useState(() => iso(new Date()));
+  const [from, setFrom] = useState(() => iso(new Date(Date.now() - 30 * 86_400_000)));
+  const [data, setData] = useState<Report | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
+
+  useEffect(() => {
+    if (!from || !to) return;
+    let live = true;
+    setLoading(true);
+    setLoadError(null);
+    api
+      .get<Report>(`/accurate/below-cost?from=${from}&to=${to}`)
+      .then((r) => live && setData(r))
+      .catch((e) => live && setLoadError(e instanceof Error ? e.message : String(e)))
+      .finally(() => live && setLoading(false));
+    return () => {
+      live = false;
+    };
+  }, [from, to, retry]);
+
+  const loss = data?.below.reduce((s, r) => s + r.lossTotal, 0) ?? 0;
+
+  return (
+    <main className="hk-main page-stack">
+      <div className="hk-page-head">
+        <div>
+          <h1>Jual di bawah beli</h1>
+          <p>
+            Baris faktur penjualan (SI) yang harga bersihnya (setelah diskon, sebelum PPN, per satuan dasar) lebih rendah dari
+            harga faktur pembelian (PI) terakhir pada atau sebelum tanggal SI. Harga beli tidak boleh lebih tinggi dari harga
+            jual — setiap baris di sini perlu ditindaklanjuti.
+          </p>
+        </div>
+        <div className="row-wrap">
+          <Link className="btn ghost" to="/sales-history">
+            Riwayat SI
+          </Link>
+          <Link className="btn ghost" to="/purchase-history">
+            Riwayat PI
+          </Link>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="toolbar">
+          <label className="row">
+            <span className="muted small">Dari</span>
+            <input className="input" type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} aria-label="Tanggal SI dari" />
+          </label>
+          <label className="row">
+            <span className="muted small">Sampai</span>
+            <input className="input" type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} aria-label="Tanggal SI sampai" />
+          </label>
+        </div>
+      </div>
+
+      {loadError ? (
+        <div className="card">
+          <LoadError message={loadError} onRetry={() => setRetry((r) => r + 1)} />
+        </div>
+      ) : loading && !data ? (
+        <div className="card">
+          <div className="card-body skeleton-list" role="status" aria-label="Memuat laporan…">
+            {[0, 1, 2, 3].map((i) => <span key={i} className="skeleton" />)}
+          </div>
+        </div>
+      ) : data ? (
+        <>
+          <div className="kpi-grid">
+            <div className={`kpi${data.below.length ? " tone-warn" : ""}`}>
+              <div className="label">Baris di bawah harga beli</div>
+              <div className="value num">{grp(data.below.length)}</div>
+              <div className="foot">dari {grp(data.checked)} baris SI yang dibandingkan</div>
+            </div>
+            <div className="kpi">
+              <div className="label">Total selisih rugi</div>
+              <div className="value num">{rp(loss)}</div>
+              <div className="foot">(harga beli − harga jual) × qty terjual</div>
+            </div>
+            <div className="kpi">
+              <div className="label">Tidak dibandingkan</div>
+              <div className="value num">{grp(data.unknownCost + data.doubtfulCost)}</div>
+              <div className="foot">
+                {grp(data.unknownCost)} tanpa PI sebelum tanggal SI · {grp(data.doubtfulCost)} harga PI meragukan
+              </div>
+            </div>
+          </div>
+
+          <div className={`card${loading ? " is-stale" : ""}`}>
+            {data.below.length === 0 ? (
+              <div className="card-body empty">
+                <h3>Tidak ada penjualan di bawah harga beli</h3>
+                <p>Semua baris SI pada {fmtDate(data.from)} – {fmtDate(data.to)} dijual di atas harga PI.</p>
+              </div>
+            ) : (
+              <div className="table-wrap">
+                <table className="table stack">
+                  <thead>
+                    <tr>
+                      <th className="l">Nomor SI</th>
+                      <th className="l">Tanggal</th>
+                      <th className="l">Klien</th>
+                      <th className="l">Barang</th>
+                      <th>Harga jual</th>
+                      <th>Harga beli (PI)</th>
+                      <th>Selisih rugi</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.below.map((r, i) => (
+                      <tr key={r.invoiceNo + r.code + i}>
+                        <td className="l num nowrap stack-title">{r.invoiceNo}</td>
+                        <td className="l nowrap" data-label="Tanggal">{fmtDate(r.transDate)}</td>
+                        <td className="l" data-label="Klien">{r.customerName}</td>
+                        <td className="l" data-label="Barang">
+                          <div>
+                            {r.name}
+                            <div className="muted small">{r.code}</div>
+                          </div>
+                        </td>
+                        <td className="num nowrap" data-label="Harga jual">{rp(r.net)}</td>
+                        <td className="num nowrap" data-label="Harga beli (PI)">
+                          <div>
+                            {rp(r.cost)}
+                            <div className="muted small">{r.receiptNo}</div>
+                          </div>
+                        </td>
+                        <td className="num nowrap" data-label="Selisih rugi">
+                          <strong>{rp(r.lossTotal)}</strong>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
+      ) : null}
+    </main>
+  );
+}
