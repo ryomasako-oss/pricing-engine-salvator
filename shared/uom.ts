@@ -131,6 +131,16 @@ export function packUnitNeedsCheck(name: string, item: { uom?: string; units?: U
   return !!(r.unmatched || r.conflict || (r.uom && !sameUom(r.uom, item.uom || "Pcs")));
 }
 
+/**
+ * A unit check that may be accepted in bulk ("Terima N satuan"): the wording's unit was found in the
+ * catalog's own units with an agreeing count, so the conversion uses the catalog's ratio. A missing unit
+ * or a count conflict is never in here: those stay a per-row check.
+ */
+export function packUnitFromCatalog(name: string, item: { uom?: string; units?: UnitFactor[] }): boolean {
+  const r = readPackUnit(name, item);
+  return !!(r.uom && !sameUom(r.uom, item.uom || "Pcs"));
+}
+
 /** The unit this line's numbers are actually expressed in. */
 export const priceUnitOf = (line: QuoteItem) => line.priceUom ?? line.uom;
 
