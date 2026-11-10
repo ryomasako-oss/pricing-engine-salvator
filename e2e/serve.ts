@@ -60,13 +60,14 @@ const seed = [
      unit_price, unit_price_gross, inclusive_tax) VALUES
    ('PT', 9101, 1, 'PI.2026.10.09101', '2026-10-15', 'ZQSI-1', 'Btl', 24, 9000, 9990, 1),
    ('PT', 9102, 1, 'PI.2026.08.09102', '2026-08-01', 'ZQSI-1', 'Btl', 12, 8800, 8800, 0);`,
-  // Jual di bawah beli: bought at 10.000 on 1 Sep 2026, sold at 9.000 on 3 Sep. Only e2e/below-cost.spec.ts reads it.
+  // Jual di bawah beli: bought at 10.000 on 1 Sep 2026, sold at 9.000 on 3 Sep and 8.000 on 4 Sep (another client). Only e2e/below-cost.spec.ts reads it.
   `INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock, source) VALUES('ZQBC-1', 'ZQBC MAP PLASTIK', 'Pcs', 10000, 15000, 10, 'e2e');
    INSERT INTO accurate_items(entity, accurate_id, code, name, uom, run_id) VALUES ('PT', 99101, 'ZQBC-1', 'ZQBC MAP PLASTIK', 'Pcs', 'e2e');
    INSERT INTO accurate_purchase_lines(entity, receipt_id, line_id, receipt_no, trans_date, item_code, unit, quantity, unit_price, unit_price_gross, inclusive_tax)
      VALUES ('PT', 9201, 1, 'PI.2026.09.09201', '2026-09-01', 'ZQBC-1', 'Pcs', 50, 10000, 10000, 0);
    INSERT INTO accurate_sales_lines(entity, invoice_id, line_id, invoice_no, trans_date, customer_no, customer_name, item_code, unit, unit_ratio, quantity, sales_amount, sub_total)
-     VALUES ('PT', 9201, 1, 'SI.2026.09.09201', '2026-09-03', 'C.09001', 'PT Zqbc Klien', 'ZQBC-1', 'Pcs', 1, 10, 90000, 90000);`,
+     VALUES ('PT', 9201, 1, 'SI.2026.09.09201', '2026-09-03', 'C.09001', 'PT Zqbc Klien', 'ZQBC-1', 'Pcs', 1, 10, 90000, 90000),
+            ('PT', 9202, 1, 'SI.2026.09.09202', '2026-09-04', 'C.09002', 'CV Zqbc Lain', 'ZQBC-1', 'Pcs', 1, 5, 40000, 40000);`,
   // Colour variants that tie on a plain "zqhl highlighter": only e2e/match-accept-all.spec.ts lists them.
   `INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock, source) VALUES
    ('ZQHL-B', 'ZQHL HIGHLIGHTER BLUE', 'Pcs', 4000, 7000, 10, 'e2e'), ('ZQHL-G', 'ZQHL HIGHLIGHTER GREEN', 'Pcs', 4000, 7000, 10, 'e2e');`,

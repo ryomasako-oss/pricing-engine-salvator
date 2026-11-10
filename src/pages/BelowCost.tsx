@@ -1,9 +1,10 @@
 /* Jual di bawah beli (Ryoma, 2026-11-10): sales invoice (SI) lines whose net price per base unit
    is under the purchase invoice (PI) price on the invoice date — harga beli tidak boleh lebih
    tinggi dari harga jual. Same comparison as the morning recap (shared/salesBelowCost.ts), for a
-   chosen date range. Read-only; needs view_costs. */
+   chosen date range. The filter and the Excel export work on the loaded rows, in the browser.
+   Read-only; needs view_costs. */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { HistoryTabs } from "../components/HistoryTabs";
 import { LoadError } from "../components/LoadError";
@@ -27,6 +28,8 @@ export function BelowCostPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
+  const [q, setQ] = useState("");
+  const [client, setClient] = useState("");
 
   useEffect(() => {
     if (!from || !to) return;
@@ -43,7 +46,17 @@ export function BelowCostPage() {
     };
   }, [from, to, retry]);
 
-  const loss = data?.below.reduce((s, r) => s + r.lossTotal, 0) ?? 0;
+  const clients = useMemo(() => [...new Set(data?.below.map((r) => r.customerName))].sort(), [data]);
+  const rows = useMemo(() => {
+    const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+    return (data?.below ?? []).filter((r) => {
+      if (client && r.customerName !== client) return false;
+      const hay = `${r.invoiceNo} ${r.customerName} ${r.code} ${r.name} ${r.receiptNo}`.toLowerCase();
+      return words.every((w) => hay.includes(w));
+    });
+  }, [data, q, client]);
+  const filtered = rows.length !== (data?.below.length ?? 0);
+  const loss = rows.reduce((s, r) => s + r.lossTotal, 0);
 
   return (
     <main className="hk-main page-stack">
@@ -69,6 +82,30 @@ export function BelowCostPage() {
             <span className="muted small">Sampai</span>
             <input className="input" type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} aria-label="Tanggal SI sampai" />
           </label>
+          <input
+            className="input toolbar-search"
+            type="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Cari SI, klien, kode/nama barang, PI"
+            aria-label="Filter laporan"
+          />
+          <select className="select inline" value={client} onChange={(e) => setClient(e.target.value)} aria-label="Filter klien">
+            <option value="">Semua klien</option>
+            {clients.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+          <span className="grow" />
+          <button
+            className="btn"
+            disabled={!rows.length}
+            onClick={async () => (await import("../export/belowCost")).exportBelowCost(rows, from, to)}
+          >
+            Export Excel
+          </button>
         </div>
       </div>
 
@@ -85,10 +122,12 @@ export function BelowCostPage() {
       ) : data ? (
         <>
           <div className="kpi-grid">
-            <div className={`kpi${data.below.length ? " tone-warn" : ""}`}>
+            <div className={`kpi${rows.length ? " tone-warn" : ""}`}>
               <div className="label">Baris di bawah harga beli</div>
-              <div className="value num">{grp(data.below.length)}</div>
-              <div className="foot">dari {grp(data.checked)} baris SI yang dibandingkan</div>
+              <div className="value num">{grp(rows.length)}</div>
+              <div className="foot">
+                {filtered ? `terfilter dari ${grp(data.below.length)} · ` : ""}dari {grp(data.checked)} baris SI yang dibandingkan
+              </div>
             </div>
             <div className="kpi">
               <div className="label">Total selisih rugi</div>
@@ -105,10 +144,19 @@ export function BelowCostPage() {
           </div>
 
           <div className={`card${loading ? " is-stale" : ""}`}>
-            {data.below.length === 0 ? (
+            {rows.length === 0 ? (
               <div className="card-body empty">
-                <h3>Tidak ada penjualan di bawah harga beli</h3>
-                <p>Semua baris SI pada {fmtDate(data.from)} – {fmtDate(data.to)} dijual di atas harga PI.</p>
+                {filtered ? (
+                  <>
+                    <h3>Tidak ada baris yang cocok dengan filter</h3>
+                    <p>Ubah kata kunci atau pilih "Semua klien".</p>
+                  </>
+                ) : (
+                  <>
+                    <h3>Tidak ada penjualan di bawah harga beli</h3>
+                    <p>Semua baris SI pada {fmtDate(data.from)} – {fmtDate(data.to)} dijual di atas harga PI.</p>
+                  </>
+                )}
               </div>
             ) : (
               <div className="table-wrap">
@@ -125,7 +173,7 @@ export function BelowCostPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {data.below.map((r, i) => (
+                    {rows.map((r, i) => (
                       <tr key={r.invoiceNo + r.code + i}>
                         <td className="l num nowrap stack-title">{r.invoiceNo}</td>
                         <td className="l nowrap" data-label="Tanggal">{fmtDate(r.transDate)}</td>
