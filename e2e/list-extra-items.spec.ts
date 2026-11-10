@@ -89,8 +89,8 @@ test("numbering: 1, 1.1, 2 or 1, 2, 3, remembered", async ({ page, errors }) => 
   await page.evaluate(() => localStorage.removeItem("ltq-nomor"));
   await page.getByRole("button", { name: "Dari list klien" }).click();
   await page.locator('input[type="file"]').setInputFiles(LIST);
-  // No choice while no row has extra items.
-  await expect(page.getByRole("group", { name: "Penomoran barang lain" })).toHaveCount(0);
+  // Always shown above the table.
+  await expect(page.getByRole("group", { name: "Penomoran barang lain" })).toBeVisible();
   const box = page.getByRole("combobox", { name: "Item katalog untuk Kertas HVS Sinar Dunia A4 70gr" });
   await box.fill("lakban");
   await page.getByRole("button", { name: "Tambah LAKBAN BENING 48MM sebagai barang lain" }).click();

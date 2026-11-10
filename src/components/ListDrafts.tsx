@@ -8,12 +8,14 @@ import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { fmtDateTime } from "@shared/format";
 import type { DraftSummary } from "@shared/listDrafts";
-import { Icon } from "./Icon";
+import { ConfirmModal } from "./Modal";
 
 export function ListDrafts({ drafts, onOpen, onChanged }: { drafts: DraftSummary[]; onOpen: (id: number) => void; onChanged: () => void }) {
   const { user, can } = useAuth();
   const toast = useToast();
   const [busy, setBusy] = useState<number | null>(null);
+  // Cancelling throws away the review work: asked first, naming the draft and its rows.
+  const [asking, setAsking] = useState<DraftSummary | null>(null);
   // Cancelling is for the creator or a manager; the PIC sends it back instead (server/listDrafts.ts).
   const mayCancel = (d: DraftSummary) => d.created_by === user?.id || can("edit_all_quotes");
 
@@ -22,6 +24,7 @@ export function ListDrafts({ drafts, onOpen, onChanged }: { drafts: DraftSummary
     try {
       await api.del(`/list-drafts/${d.id}`);
       toast(`Draft "${d.title || "Tanpa judul"}" dibatalkan.`);
+      setAsking(null);
       onChanged();
     } catch (e) {
       toast(e instanceof Error ? e.message : "Draft tidak bisa dibatalkan.", "error");
@@ -70,21 +73,21 @@ export function ListDrafts({ drafts, onOpen, onChanged }: { drafts: DraftSummary
                   <td className="l">{d.assigned_to_name ?? <span className="muted">—</span>}</td>
                   <td className="l muted nowrap">{fmtDateTime(d.updated_at)}</td>
                   <td className="l nowrap" onClick={(e) => e.stopPropagation()}>
-                    <button className="btn small" onClick={() => onOpen(d.id)}>
-                      Buka
-                    </button>
-                    {mayCancel(d) && (
-                      <button
-                        className="icon-btn"
-                        style={{ marginLeft: 4 }}
-                        title="Batalkan draft"
-                        aria-label={`Batalkan draft ${d.title}`}
-                        disabled={busy === d.id}
-                        onClick={() => void cancel(d)}
-                      >
-                        <Icon name="x" size={14} />
+                    <div className="row-actions">
+                      <button className="btn small" onClick={() => onOpen(d.id)}>
+                        Buka
                       </button>
-                    )}
+                      {mayCancel(d) && (
+                        <button
+                          className="btn small ghost"
+                          aria-label={`Batalkan draft ${d.title}`}
+                          disabled={busy === d.id}
+                          onClick={() => setAsking(d)}
+                        >
+                          Batalkan
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               );
@@ -92,6 +95,16 @@ export function ListDrafts({ drafts, onOpen, onChanged }: { drafts: DraftSummary
           </tbody>
         </table>
       </div>
+      {asking && (
+        <ConfirmModal
+          title={`Batalkan draft "${asking.title || "Tanpa judul"}"?`}
+          message={`${asking.rows} baris dan semua pilihan di draft ini tidak bisa dibuka lagi. Quotation yang sudah dibuat tidak terpengaruh.`}
+          confirmLabel="Batalkan draft"
+          busy={busy === asking.id}
+          onConfirm={() => void cancel(asking)}
+          onClose={() => setAsking(null)}
+        />
+      )}
     </div>
   );
 }
