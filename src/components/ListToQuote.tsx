@@ -102,11 +102,17 @@ export function ListToQuote({
   const seeCosts = useAuth().can("view_costs");
   const skipReview = useAuth().can("skip_match_review");
   const [clientId, setClientId] = useState<number | "">(initial?.clientId ?? "");
-  const [list, setList] = useState(clients);
+  // The parent's clients as they load (the dialog can open before /clients answers, 10 Nov: the list
+  // stayed "Tanpa klien" for good), plus any made here that the parent has not passed back yet.
+  const [added, setAdded] = useState<Client[]>([]);
+  const list = useMemo(
+    () => [...clients, ...added.filter((a) => !clients.some((c) => c.id === a.id))].sort((a, b) => a.name.localeCompare(b.name)),
+    [clients, added],
+  );
   const [adding, setAdding] = useState(false);
   const chooseClient = (client: Client, isNew: boolean) => {
     if (isNew) {
-      setList((l) => [...l, client].sort((a, b) => a.name.localeCompare(b.name)));
+      setAdded((l) => [...l, client]);
       onClientAdded?.(client);
     }
     setClientId(client.id);
