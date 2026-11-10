@@ -60,10 +60,10 @@ test("tells a possible data slip from an unmarked row, and traces a row", async 
   void errors;
   await open(page);
   // 9.000 against 10.000 is the 11% of PPN; 8.000 against 10.000 carries no mark.
-  await expect(page.getByRole("row", { name: /SI\.2026\.09\.09201/ })).toContainText("Cek PPN");
-  await expect(page.getByRole("row", { name: /SI\.2026\.09\.09202/ })).toContainText("Tanpa tanda");
+  await expect(page.getByRole("row", { name: /SI\.2026\.09\.09201/ })).toContainText("Urusan PPN?");
+  await expect(page.getByRole("row", { name: /SI\.2026\.09\.09202/ })).toContainText("Belum ketemu penyebabnya");
 
-  await page.getByLabel("Filter penyebab").selectOption("ppn");
+  await page.getByLabel("Filter penyebab").selectOption("data");
   await expect(page.getByRole("row", { name: /SI\.2026\.09\.09201/ })).toBeVisible();
   await expect(page.getByRole("row", { name: /SI\.2026\.09\.09202/ })).toHaveCount(0);
   await page.getByLabel("Filter penyebab").selectOption("none");
@@ -72,7 +72,7 @@ test("tells a possible data slip from an unmarked row, and traces a row", async 
 
   await page.getByRole("button", { name: /Telusuri SI\.2026\.09\.09201/ }).click();
   const dialog = page.getByRole("dialog", { name: /Telusuri SI\.2026\.09\.09201/ });
-  await expect(dialog.getByText("Perlu cek data", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("Data perlu dibetulkan", { exact: true })).toBeVisible();
   await expect(dialog.getByText("PI.2026.09.09201").first()).toBeVisible();
   await expect(dialog).toContainText("Di nota SI");
   await expect(dialog).toContainText("Rp 10.000 / Pcs sebelum PPN · Rp 11.100 dengan PPN 11%");

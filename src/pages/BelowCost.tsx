@@ -9,7 +9,7 @@ import { api } from "../api";
 import { HistoryTabs } from "../components/HistoryTabs";
 import { LoadError } from "../components/LoadError";
 import { fmtDate, grp, rp } from "@shared/format";
-import { CAUSES, looksLikeSlip, matchesCause, type CauseKey } from "@shared/belowCostHints";
+import { GROUPS, groupOf, matchesCause, type GroupKey } from "@shared/belowCostHints";
 import type { BelowCostRow } from "@shared/salesBelowCost";
 import { LossTrace } from "../components/LossTrace";
 
@@ -33,7 +33,7 @@ export function BelowCostPage() {
   const [retry, setRetry] = useState(0);
   const [q, setQ] = useState("");
   const [client, setClient] = useState("");
-  const [cause, setCause] = useState<CauseKey | "">("");
+  const [cause, setCause] = useState<GroupKey | "">("");
   const [tracing, setTracing] = useState<BelowCostRow | null>(null);
 
   useEffect(() => {
@@ -63,8 +63,10 @@ export function BelowCostPage() {
   }, [data, q, client, cause]);
   const filtered = rows.length !== (data?.below.length ?? 0);
   const loss = rows.reduce((s, r) => s + r.lossTotal, 0);
-  const slipRows = rows.filter((r) => looksLikeSlip(r.hints));
-  const slipLoss = slipRows.reduce((s, r) => s + r.lossTotal, 0);
+  const byGroup = GROUPS.map((g) => {
+    const rs = rows.filter((r) => groupOf(r.hints).key === g.key);
+    return { ...g, rows: rs.length, loss: rs.reduce((s, r) => s + r.lossTotal, 0) };
+  });
 
   return (
     <main className="hk-main page-stack">
@@ -106,9 +108,9 @@ export function BelowCostPage() {
               </option>
             ))}
           </select>
-          <select className="select inline" value={cause} onChange={(e) => setCause(e.target.value as CauseKey | "")} aria-label="Filter penyebab">
+          <select className="select inline" value={cause} onChange={(e) => setCause(e.target.value as GroupKey | "")} aria-label="Filter penyebab">
             <option value="">Semua penyebab</option>
-            {CAUSES.map((c) => (
+            {GROUPS.map((c) => (
               <option key={c.key} value={c.key}>
                 {c.label}
               </option>
@@ -142,30 +144,41 @@ export function BelowCostPage() {
               <div className="label">Baris di bawah harga beli</div>
               <div className="value num">{grp(rows.length)}</div>
               <div className="foot">
-                {filtered ? `terfilter dari ${grp(data.below.length)} · ` : ""}dari {grp(data.checked)} baris SI yang dibandingkan
+                {filtered ? `terfilter dari ${grp(data.below.length)} · ` : ""}dari {grp(data.checked)} baris SI yang dibandingkan · total selisih{" "}
+                {rp(loss)}
               </div>
-
-            </div>
-            <div className="kpi">
-              <div className="label">Selisih tanpa tanda</div>
-              <div className="value num">{rp(loss - slipLoss)}</div>
               <div className="foot">
-                {grp(rows.length - slipRows.length)} baris · dari total selisih {rp(loss)}
+                {grp(data.unknownCost)} baris tanpa PI sebelumnya dan {grp(data.doubtfulCost)} baris dengan harga PI meragukan tidak ikut dibandingkan
               </div>
             </div>
-            <div className={`kpi${slipRows.length ? " tone-warn" : ""}`}>
-              <div className="label">Selisih yang perlu cek data</div>
-              <div className="value num">{rp(slipLoss)}</div>
-              <div className="foot">{grp(slipRows.length)} baris · cek satuan, PPN, input harga, atau kode</div>
-            </div>
-            <div className="kpi">
-              <div className="label">Tidak dibandingkan</div>
-              <div className="value num">{grp(data.unknownCost + data.doubtfulCost)}</div>
-              <div className="foot">
-                {grp(data.unknownCost)} tanpa PI sebelum tanggal SI · {grp(data.doubtfulCost)} harga PI meragukan
-              </div>
-            </div>
+            {byGroup.map((g) => (
+              <button
+                key={g.key}
+                type="button"
+                className={`kpi kpi-btn${cause === g.key ? " on" : ""}${g.key === "data" && g.rows ? " tone-warn" : ""}`}
+                onClick={() => setCause(cause === g.key ? "" : g.key)}
+                aria-pressed={cause === g.key}
+                title={g.why}
+              >
+                <div className="label">{g.label}</div>
+                <div className="value num">{rp(g.loss)}</div>
+                <div className="foot">{grp(g.rows)} baris · klik untuk menyaring</div>
+              </button>
+            ))}
           </div>
+
+          <details className="card guide">
+            <summary>Cara membaca kolom Penyebab</summary>
+            <div className="card-body guide-body">
+              {GROUPS.map((g) => (
+                <div key={g.key}>
+                  <span className={`badge ${g.tone}`}>{g.label}</span>
+                  <p>{g.why}</p>
+                  <p className="muted">Yang dilakukan: {g.todo}</p>
+                </div>
+              ))}
+            </div>
+          </details>
 
           <div className={`card${loading ? " is-stale" : ""}`}>
             {rows.length === 0 ? (
@@ -221,13 +234,11 @@ export function BelowCostPage() {
                         </td>
                         <td className="l" data-label="Penyebab">
                           <ul className="hint-list">
-                            {!looksLikeSlip(r.hints) && (
-                              <li>
-                                <span className="badge grey">Tanpa tanda</span>
-                              </li>
-                            )}
+                            <li>
+                              <span className={`badge ${groupOf(r.hints).tone}`}>{groupOf(r.hints).label}</span>
+                            </li>
                             {r.hints.map((h) => (
-                              <li key={h.kind} className={looksLikeSlip([h]) ? "small cell-warn" : "muted small"}>
+                              <li key={h.kind} className="muted small" title={h.detail}>
                                 {h.label}
                               </li>
                             ))}

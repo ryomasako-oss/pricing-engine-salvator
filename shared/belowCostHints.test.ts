@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { belowCostHints, looksLikeSlip, matchesCause } from "./belowCostHints";
+import { GROUPS, belowCostHints, groupOf, looksLikeSlip, matchesCause } from "./belowCostHints";
 
 const base = { net: 8000, cost: 10000, saleDate: "2026-10-05", receiptDate: "2026-10-01", listPrice: 15000, saleUnit: "Pcs", saleRatio: 1, baseUom: "Pcs" };
 const kinds = (r: Partial<Parameters<typeof belowCostHints>[0]>) => belowCostHints({ ...base, ...r }).map((h) => h.kind);
 
 describe("belowCostHints", () => {
   it("salah input: far from the item's other PIs or SIs", () => {
-    expect(belowCostHints({ ...base, cost: 20000, otherCosts: [10000, 10500] })[0].label).toBe("Cek input harga beli: biasanya ± Rp 10.250");
+    const [cost] = belowCostHints({ ...base, cost: 20000, otherCosts: [10000, 10500] });
+    expect(cost.label).toBe("Harga beli tidak biasa");
+    expect(cost.detail).toContain("biasanya sekitar Rp 10.250");
     expect(kinds({ cost: 20000, otherCosts: [10000] })).toEqual([]); // one other PI is no habit
     expect(kinds({ net: 3000, cost: 10000, otherPrices: [9000, 9500, 9800] })).toEqual(["input_price"]);
     expect(kinds({ net: 1000, cost: 12000, otherCosts: [5000, 5000] })).toEqual(["unit"]); // a pack slip, not input
@@ -17,7 +19,7 @@ describe("belowCostHints", () => {
   });
   it("a big invoice discount explains, it is not a slip", () => {
     const h = belowCostHints({ ...base, discount: 0.15 });
-    expect(h.map((x) => x.label)).toEqual(["Diskon faktur 15%"]);
+    expect(h.map((x) => x.label)).toEqual(["Diskon nota 15%"]);
     expect(looksLikeSlip(h)).toBe(false);
   });
   it("found in Accurate: a 0 invoice, a catch-all code, a free line to the client", () => {
@@ -27,17 +29,22 @@ describe("belowCostHints", () => {
     expect(kinds({ name: "JASA CUCI AC SPLIT 1 PK", detailName: "JASA CUCI AC SPLIT 1 PK" })).toEqual(["generic"]);
     // SI.2026.10.00299: 240 LSN paid, 12 LSN free ("beli 20 gratis 1").
     const h = belowCostHints({ ...base, net: 0, invoiceTotal: 77_916_816, lineAmount: 0, invoicePrice: 9975.4 });
-    expect(h).toEqual([{ kind: "bonus_sale", label: "Bonus ke klien (Rp 0); harga efektif barang ini di faktur Rp 9.975" }]);
+    expect(h.map((x) => [x.kind, x.label])).toEqual([["bonus_sale", "Bonus ke klien"]]);
+    expect(h[0].detail).toContain("sekitar Rp 9.975 per Pcs");
+    expect(groupOf(h).label).toBe("Bukan penjualan biasa");
     expect(matchesCause(h, "other")).toBe(true);
     expect(matchesCause(h, "none")).toBe(false);
   });
   it("causes filter the rows the owner asked to tell apart", () => {
     const unit = belowCostHints({ ...base, net: 1000, cost: 12000 });
-    expect(matchesCause(unit, "unit")).toBe(true);
+    expect(groupOf(unit).label).toBe("Data perlu dibetulkan");
     expect(matchesCause(unit, "data")).toBe(true);
     expect(matchesCause(unit, "none")).toBe(false);
     expect(matchesCause(belowCostHints({ ...base, listPrice: 0 }), "none")).toBe(true);
     expect(matchesCause(unit, "")).toBe(true);
+    // Every group says why and what to do, in plain words.
+    for (const g of GROUPS) expect(g.why.length > 40 && g.todo.length > 20).toBe(true);
+    expect(groupOf([]).label).toBe("Belum ketemu penyebabnya");
   });
 
   it("a plain loss carries no mark", () => {
@@ -45,7 +52,9 @@ describe("belowCostHints", () => {
     expect(looksLikeSlip(belowCostHints(base))).toBe(false);
   });
   it("cost a pack size times the price: unit slip (1 roll recorded, 1 lusin bought)", () => {
-    expect(belowCostHints({ ...base, net: 1000, cost: 12000 })[0].label).toBe("Cek satuan: harga beli ≈ 12× harga jual");
+    const [u] = belowCostHints({ ...base, net: 1000, cost: 12000 });
+    expect(u.label).toBe("Satuan tertukar? (≈12×)");
+    expect(u.detail).toContain("sekitar 12 kali harga jual");
     expect(kinds({ net: 1000, cost: 23500 })).toEqual(["unit"]); // 23,5 ≈ 24 within 8%
     expect(kinds({ net: 1000, cost: 7000 })).toEqual([]); // 7 is no pack size
   });
