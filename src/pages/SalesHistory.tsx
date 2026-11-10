@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { useToast } from "../context/ToastContext";
+import { LoadError } from "../components/LoadError";
 import { Icon } from "../components/Icon";
 import { fmtDate, grp, rp } from "@shared/format";
 
@@ -44,6 +45,8 @@ export function SalesHistoryPage() {
   const [page, setPage] = useState(1);
   const [data, setData] = useState<Page | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
 
   // Typing waits half a second before asking the server.
   useEffect(() => {
@@ -57,15 +60,16 @@ export function SalesHistoryPage() {
   useEffect(() => {
     let live = true;
     setLoading(true);
+    setLoadError(null);
     api
       .get<Page>(`/accurate/sales-history?q=${encodeURIComponent(search)}&page=${page}`)
       .then((r) => live && setData(r))
-      .catch((e) => live && toast(e.message, "error"))
+      .catch((e) => live && setLoadError(e instanceof Error ? e.message : String(e)))
       .finally(() => live && setLoading(false));
     return () => {
       live = false;
     };
-  }, [search, page, toast]);
+  }, [search, page, toast, retry]);
 
   const pages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
 
@@ -98,11 +102,15 @@ export function SalesHistoryPage() {
             aria-label="Cari riwayat penjualan"
           />
           <span className="grow" />
-          {data && <span className="muted small num">{grp(data.total)} barang terjual</span>}
+          {data && !loadError && <span className="muted small num">{grp(data.total)} barang terjual</span>}
         </div>
       </div>
 
-      {loading && !data ? (
+      {loadError ? (
+        <div className="card">
+          <LoadError message={loadError} onRetry={() => setRetry((r) => r + 1)} />
+        </div>
+      ) : loading && !data ? (
         <div className="card">
           <div className="card-body skeleton-list" role="status" aria-label="Memuat riwayat penjualan…">
             {[0, 1, 2, 3].map((i) => <span key={i} className="skeleton" />)}
@@ -141,7 +149,7 @@ export function SalesHistoryPage() {
                   <div className="card-section">
                     <h4 className="label-title">Faktur terbaru</h4>
                     <div className="table-wrap">
-                      <table className="table">
+                      <table className="table stack">
                         <thead>
                           <tr>
                             <th className="l">Tanggal</th>
@@ -154,16 +162,17 @@ export function SalesHistoryPage() {
                         <tbody>
                           {c.sales.map((s, i) => (
                             <tr key={s.invoiceNo + i}>
-                              <td className="l nowrap">{fmtDate(s.transDate)}</td>
-                              <td className="l num nowrap">{s.invoiceNo}</td>
-                              <td className="l">
+                              <td className="l nowrap" data-label="Tanggal">{fmtDate(s.transDate)}</td>
+                              <td className="l num nowrap" data-label="Nomor faktur">{s.invoiceNo}</td>
+                              <td className="l stack-title">
                                 {s.customerName || "—"}
                                 {s.detailName && <div className="muted small">“{s.detailName}”</div>}
                               </td>
-                              <td className="num nowrap">
-                                {grp(s.quantity)} {s.unit}
+                              <td className="num nowrap" data-label="Qty">
+                                <span>{grp(s.quantity)} {s.unit}</span>
                               </td>
-                              <td className="num nowrap">
+                              <td className="num nowrap" data-label="Harga">
+                                <div>
                                 {s.price === null ? (
                                   <span className="badge grey">Diretur semua</span>
                                 ) : (
@@ -176,6 +185,7 @@ export function SalesHistoryPage() {
                                     )}
                                   </>
                                 )}
+                                </div>
                               </td>
                             </tr>
                           ))}

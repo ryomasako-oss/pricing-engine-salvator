@@ -68,7 +68,7 @@ export function QuotationDoc({
   );
 
   return (
-    <div className="quote-doc print-area" style={{ ["--c" as string]: sc.color }}>
+    <div className="quote-doc print-area" style={{ ["--c" as string]: `var(--s${scenario + 1})` }}>
       <div className="quote-top">
         <div>
           {company.logo ? (
@@ -90,7 +90,7 @@ export function QuotationDoc({
         <div>
           <div className="quote-title">{layout.title}</div>
           {draft && (
-            <div className="small right" style={{ color: "#B42318", fontWeight: 600 }}>
+            <div className="small right" style={{ color: "var(--doc-err)", fontWeight: 600 }}>
               Draft — belum disetujui
             </div>
           )}
@@ -138,7 +138,7 @@ export function QuotationDoc({
           <thead>
             <tr>
               {layout.columns.map((c) => (
-                <th key={c.key} className={ALIGN[c.key] === "l" ? "l" : undefined}>{c.label}</th>
+                <th key={c.key} className={c.key === "name" ? "l label-col" : ALIGN[c.key] === "l" ? "l" : undefined}>{c.label}</th>
               ))}
             </tr>
           </thead>

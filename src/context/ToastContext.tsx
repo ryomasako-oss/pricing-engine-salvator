@@ -32,7 +32,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         const drop = new Set(errors.slice(0, errors.length - MAX_ERRORS).map((x) => x.id));
         return next.filter((x) => !drop.has(x.id));
       });
-      if (tone !== "error") setTimeout(() => dismiss(id), 4000);
+      if (tone !== "error") setTimeout(() => dismiss(id), 5000);
     },
     [dismiss],
   );

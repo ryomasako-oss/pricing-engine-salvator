@@ -19,7 +19,7 @@
   --color-border-strong: #8D8D8D;   /* 3.3:1, inputs and checkboxes */
   --color-text: #161616;            /* 18.1:1 */
   --color-text-2: #525252;          /* 7.8:1 */
-  --color-placeholder: #6F6F6F;     /* 5.0:1 */
+  --color-placeholder: #666666;     /* 5.7:1 on white, 4.7:1 on the hover grey */
   --color-disabled: #C6C6C6;
   --color-on-fill: #FFFFFF;
   --color-inverse: #393939;          /* toasts */
@@ -41,7 +41,7 @@
   --color-ok: #198038;      --color-ok-text: #0E6027;   --color-ok-bg: #DEFBE6;
   --color-warn: #F1C21B;    --color-warn-text: #7A5800; --color-warn-bg: #FCF4D6;
   --color-err: #DA1E28;     --color-err-text: #A2191F;  --color-err-bg: #FFF1F1;
-  --color-err-border: #FFD7D9; --color-warn-border: #FDDC69;
+  --color-warn-mark: #8E6A00;
   --color-info: #0043CE;    --color-info-bg: #EDF5FF;
   --color-neutral-text: #393939; --color-neutral-bg: #E0E0E0;
   --color-purple-text: #6929C4;  --color-purple-bg: #F6F2FF;
@@ -72,17 +72,17 @@
 
 :root[data-theme="dark"] {
   --color-bg: #161616; --color-layer: #262626; --color-layer-2: #393939; --color-hover: #333333;
-  --color-border: #393939; --color-border-strong: #6F6F6F;
+  --color-border: #393939; --color-border-strong: #8D8D8D;
   --color-text: #F4F4F4; --color-text-2: #C6C6C6; --color-inverse: #F4F4F4; --color-on-inverse: #161616; --color-placeholder: #A8A8A8; --color-disabled: #525252;
   --color-brand: #1F3A5F; --color-brand-soft: #2C4A73; --color-brand-muted: #BCC4CF;
-  --color-action: #78A9FF; --color-action-hover: #A6C8FF; --color-action-soft: #001D6C; --color-focus: #FFFFFF;
+  --color-action: #A6C8FF; --color-action-hover: #D0E2FF; --color-action-soft: #001D6C; --color-focus: #FFFFFF;
   --color-ok: #42BE65; --color-ok-text: #6FDC8C; --color-ok-bg: #044317;
   --color-warn: #F1C21B; --color-warn-text: #F1C21B; --color-warn-bg: #302400;
-  --color-err: #FA4D56; --color-err-text: #FF8389; --color-err-bg: #520408;
-  --color-err-border: #750E13; --color-warn-border: #684E00;
-  --color-info: #78A9FF; --color-info-bg: #001D6C;
+  --color-err: #FA4D56; --color-err-text: #FFB3B8; --color-err-bg: #520408;
+  --color-warn-mark: #F1C21B;
+  --color-info: #A6C8FF; --color-info-bg: #001D6C;
   --color-neutral-text: #E0E0E0; --color-neutral-bg: #393939;
-  --color-purple-text: #BE95FF; --color-purple-bg: #31135E;
+  --color-purple-text: #D4BBFF; --color-purple-bg: #31135E;
   --elevation-overlay: 0 8px 24px rgba(0, 0, 0, 0.5);
 }
 
@@ -90,16 +90,21 @@
    printable sheet, so tables inside it must not pick up dark-mode values. */
 :root, .quote-doc {
   color-scheme: light;
+  /* "Draft — belum disetujui" on the always-white quotation sheet (QuotationDoc), 7.8:1 on white. */
+  --doc-err: #A2191F;
 
   --field: var(--color-layer);
   --marker: #FFD60A;
 
-  --s1: #0071E3;
-  --s2: #0C8599;
-  --s3: #8944AB;
-  --s1-bg: #E8F1FD;
-  --s2-bg: #E3F3F5;
-  --s3-bg: #F2EAF7;
+  /* Scenario colours (Carbon cyan 70, purple 70, orange 70): 6.3:1+ on white, #F4F4F4 and #E8E8E8,
+     not the action blue or the error red, and still apart for red-green and blue-yellow colour
+     blindness (OKLab distance 8+, was 3). The S1/S2/S3 label always goes with them. */
+  --s1: #00539A;
+  --s2: #6929C4;
+  --s3: #8A3800;
+  --s1-bg: #E0EAF3;
+  --s2-bg: #EDE5F8;
+  --s3-bg: #F1E7E0;
   /* Badge text is 10.5px: it needs 4.5:1 on its own tint, which --s1 and --muted miss (4.1 and 4.4). */
 
 
@@ -122,7 +127,6 @@
   --logo-ink: var(--color-brand);
 
   --track: #E2E6EA;
-  --flag-bg: #FFF6E0;
   --bubble: #E9F0FE;
   --disabled: var(--color-disabled);
   --overlay: rgba(0, 0, 0, 0.42);
@@ -138,12 +142,12 @@
   --field: var(--color-layer);
   --marker: #FFD60A;
 
-  --s1: #409CFF;
-  --s2: #45C4D9;
-  --s3: #C57BE0;
-  --s1-bg: rgba(64, 156, 255, 0.16);
-  --s2-bg: rgba(69, 196, 217, 0.16);
-  --s3-bg: rgba(197, 123, 224, 0.16);
+  --s1: #82CFFF;
+  --s2: #BE95FF;
+  --s3: #FFB784;
+  --s1-bg: rgba(130, 207, 255, 0.16);
+  --s2-bg: rgba(190, 149, 255, 0.16);
+  --s3-bg: rgba(255, 183, 132, 0.16);
 
 
   --on-fill: #FFFFFF;
@@ -156,7 +160,6 @@
   --logo-ink: var(--color-brand);
 
   --track: #3A3A3C;
-  --flag-bg: rgba(255, 159, 10, 0.14);
   --bubble: #2C3E52;
   --disabled: var(--color-disabled);
   --overlay: rgba(0, 0, 0, 0.6);
@@ -165,57 +168,6 @@
   --shadow-lg: 0 30px 80px rgba(0, 0, 0, 0.55);
 }
 
-/* Matches the same values as above, for the moment before ThemeContext's
-   effect runs and sets [data-theme] explicitly — avoids a flash of the
-   light theme on a system set to dark. */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]):not([data-theme="dark"]) {
-    --color-bg: #161616; --color-layer: #262626; --color-layer-2: #393939; --color-hover: #333333;
-    --color-border: #393939; --color-border-strong: #6F6F6F;
-    --color-text: #F4F4F4; --color-text-2: #C6C6C6; --color-inverse: #F4F4F4; --color-on-inverse: #161616; --color-placeholder: #A8A8A8; --color-disabled: #525252;
-    --color-brand: #1F3A5F; --color-brand-soft: #2C4A73; --color-brand-muted: #BCC4CF;
-    --color-action: #78A9FF; --color-action-hover: #A6C8FF; --color-action-soft: #001D6C; --color-focus: #FFFFFF;
-    --color-ok: #42BE65; --color-ok-text: #6FDC8C; --color-ok-bg: #044317;
-    --color-warn: #F1C21B; --color-warn-text: #F1C21B; --color-warn-bg: #302400;
-    --color-err: #FA4D56; --color-err-text: #FF8389; --color-err-bg: #520408;
-    --color-err-border: #750E13; --color-warn-border: #684E00;
-    --color-info: #78A9FF; --color-info-bg: #001D6C;
-    --color-neutral-text: #E0E0E0; --color-neutral-bg: #393939;
-    --color-purple-text: #BE95FF; --color-purple-bg: #31135E;
-    --elevation-overlay: 0 8px 24px rgba(0, 0, 0, 0.5);
-  
-    color-scheme: dark;
-
-    --field: var(--color-layer);
-    --marker: #FFD60A;
-
-    --s1: #409CFF;
-    --s2: #45C4D9;
-    --s3: #C57BE0;
-    --s1-bg: rgba(64, 156, 255, 0.16);
-    --s2-bg: rgba(69, 196, 217, 0.16);
-    --s3-bg: rgba(197, 123, 224, 0.16);
-
-
-    --on-fill: #FFFFFF;
-    --brand: #1F3A5F;
-    --brand-fill: #2B4F7E;
-    --bar-ink: #FFFFFF;
-    --bar-muted: var(--color-brand-muted);
-    --bar-soft: rgba(255, 255, 255, 0.12);
-    --logo-bg: #FFFFFF;
-    --logo-ink: var(--color-brand);
-
-    --track: #3A3A3C;
-    --flag-bg: rgba(255, 159, 10, 0.14);
-    --bubble: #2C3E52;
-    --disabled: var(--color-disabled);
-    --overlay: rgba(0, 0, 0, 0.6);
-
-    --shadow: 0 0 0 1px rgba(255, 255, 255, 0.04);
-    --shadow-lg: 0 30px 80px rgba(0, 0, 0, 0.55);
-  }
-}
 
 * { box-sizing: border-box; }
 
@@ -297,6 +249,8 @@ a { color: var(--color-action); }
 .hk-nav .count {
   background: var(--color-err-fill); color: var(--color-on-fill); border-radius: var(--radius-full); font: var(--text-label);
   padding: 1px 6px; min-width: 18px; text-align: center;
+  /* Red on the navy bar is only 2.3:1 as a shape; a hairline keeps the pill apart from the bar. */
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.55);
 }
 
 .hk-main { flex: 1; padding: 20px; max-width: 1560px; width: 100%; margin: 0 auto; }
@@ -363,7 +317,7 @@ a { color: var(--color-action); }
 .btn.success { background: var(--color-ok-fill); border-color: var(--color-ok-fill); color: var(--color-on-fill); }
 .btn.success:hover:not(:disabled) { filter: brightness(.9); }
 .btn.ghost { background: transparent; border-color: transparent; color: var(--color-action); }
-.btn.ghost:hover:not(:disabled) { background: var(--color-hover); }
+.btn.ghost:hover:not(:disabled) { background: var(--color-hover); color: var(--color-action-hover); }
 .btn.small { min-height: var(--control-sm); padding: 0 12px; }
 .btn.block { width: 100%; }
 
@@ -410,7 +364,7 @@ a { color: var(--color-action); }
 .spark-col { display: flex; align-items: flex-end; justify-content: center; flex: 1 1 0; min-width: 0; height: 100%; }
 .spark-bar { display: flex; flex-direction: column; justify-content: flex-end; width: 100%; max-width: 44px; border-radius: var(--radius-sm) var(--radius-sm) 0 0; overflow: hidden; }
 .spark-bar .good, .spark-key.good { background: var(--color-ok); }
-.spark-bar .bad, .spark-key.bad { background: var(--color-warn); }
+.spark-bar .bad, .spark-key.bad { background: var(--color-warn-mark); }
 .spark-labels { display: flex; gap: 10px; margin-top: 5px; }
 .spark-labels span { flex: 1 1 0; min-width: 0; text-align: center; font-size: 10px; color: var(--color-text-2); white-space: nowrap; }
 .spark-key { flex: 0 0 auto; width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
@@ -450,6 +404,7 @@ a { color: var(--color-action); }
 .table tbody tr:hover { background: var(--color-hover); }
 .table tbody tr.flagged { background: var(--color-warn-bg); }
 .table tbody tr.flagged:hover { background: var(--color-warn-bg); }
+.table tbody tr.blocked, .table tbody tr.blocked:hover { background: var(--color-err-bg); }
 .table tr.clickable { cursor: pointer; }
 .row-link { color: inherit; font-weight: 600; text-decoration: none; }
 .row-link:hover, tr.clickable:hover .row-link { color: var(--color-action); text-decoration: underline; }
@@ -630,7 +585,9 @@ input[type=checkbox] { accent-color: var(--color-action); width: 17px; height: 1
 .status-draft, .status-lost { background: var(--color-neutral-bg); color: var(--color-neutral-text); }
 .status-submitted { background: var(--color-warn-bg); color: var(--color-warn-text); }
 .status-approved, .status-won { background: var(--color-ok-bg); color: var(--color-ok-text); }
-.status-rejected { background: var(--color-err-bg); color: var(--color-err-text); }
+/* Ditolak: a final state, not an alarm. Red stays for what blocks (below cost, negative margin), so it keeps its weight. */
+.status-rejected { background: var(--color-neutral-bg); color: var(--color-neutral-text); }
+.status-rejected::before { content: "×"; width: auto; height: auto; background: none; border-radius: 0; font-weight: 700; line-height: 1; }
 .status-sent { background: var(--color-info-bg); color: var(--color-info); }
 .status-completed { background: var(--color-purple-bg); color: var(--color-purple-text); }
 
@@ -642,7 +599,7 @@ input[type=checkbox] { accent-color: var(--color-action); width: 17px; height: 1
 .msg.user { justify-content: flex-end; }
 .bubble { background: var(--bubble); color: var(--color-text); border-radius: 16px 16px 4px 16px; padding: 9px 13px; max-width: 88%; white-space: pre-wrap; font-size: 14px; }
 .answer { width: 100%; font-size: 14px; }
-.answer.error { color: var(--color-err); }
+.answer.error { color: var(--color-err-text); }
 .rich p { margin: 0 0 8px; }
 .rich ul { margin: 0 0 8px; padding-left: 20px; }
 .rich li { margin: 3px 0; }
@@ -741,7 +698,7 @@ input[type=checkbox] { accent-color: var(--color-action); width: 17px; height: 1
 .task-row:hover { background: var(--color-hover); }
 .task-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-border-strong); }
 .task-dot.err { background: var(--color-err); }
-.task-dot.warn { background: var(--color-warn); }
+.task-dot.warn { background: var(--color-warn-mark); }
 .task-dot.info { background: var(--color-action); }
 .task-text { display: flex; flex-direction: column; min-width: 0; }
 .task-label { font: var(--text-body); font-weight: 600; }
@@ -893,7 +850,9 @@ input[type=checkbox] { accent-color: var(--color-action); width: 17px; height: 1
 .chat-dock .composer { margin-top: auto; }
 @media (max-width: 671px) {
   .chat-fab { right: 14px; bottom: 14px; }
-  .chat-dock { right: 12px; left: 12px; width: auto; bottom: 78px; height: min(72vh, calc(100vh - 100px)); }
+  /* Phones: Silvy is a full-screen sheet (docs/ui-standar.md, Silvy); its own close button replaces the round one. */
+  .chat-dock { inset: 0; width: auto; height: 100dvh; max-height: none; border-radius: 0; border: 0; z-index: 60; }
+  .chat-fab.on { display: none; }
 }
 
 /* Thumbnail barang dari Data Hub (katalog, pemilih barang, baris quotation). */
@@ -1096,6 +1055,7 @@ a.btn, a.btn:hover { text-decoration: none; }
   }
   .table.stack tbody tr:hover { background: none; }
   .table.stack tr.flagged { background: var(--color-warn-bg); }
+  .table.stack tr.blocked { background: var(--color-err-bg); }
   .table.stack td {
     grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: var(--space-4);
     height: auto; padding: var(--space-2) 0; border: 0; text-align: right;
@@ -1105,6 +1065,10 @@ a.btn, a.btn:hover { text-decoration: none; }
   .table.stack td.stack-title { grid-column: 1; grid-row: 1; order: -1; display: block; text-align: left; padding-bottom: var(--space-3); }
   .table.stack td.stack-action { grid-column: 2; grid-row: 1; order: -1; align-self: start; justify-content: flex-end; }
   .table.stack td .cell { width: 140px; max-width: 55%; }
+  .table.stack td.stack-title .cell { width: 100%; max-width: none; }
+  .table.stack td > div .cell { max-width: none; }
+  /* Cards scroll with the page; a nested scroll box would hide all but the first. */
+  .table-wrap.scroll:has(> .table.stack), .ltq-table:has(> .table.stack) { max-height: none; }
   .table.stack td.empty-row { display: block; text-align: left; }
 }
 .drop[aria-disabled] { opacity: .6; }
@@ -1115,6 +1079,20 @@ a.btn, a.btn:hover { text-decoration: none; }
 .ltq-head > .field { flex: 1 1 260px; }
 .ltq-table { max-height: 58vh; }
 .ltq-pick { min-width: 320px; }
+/* One box to pick a row's item (components/ItemCombobox.tsx): suggestions, then catalog search, [+] adds.
+   The list opens below the box, in the row, so the table's own scroll never clips it. */
+.combo { flex: 1; min-width: 0; }
+.combo-field { display: flex; align-items: center; gap: var(--space-2); }
+.combo-field > .input { flex: 1; min-width: 0; }
+.combo-flag { flex: none; }
+.combo-pop { margin-top: var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-md); background: var(--color-layer); box-shadow: var(--elevation-overlay); }
+.combo-group { padding: var(--space-2) var(--space-4) 0; }
+.combo-list { list-style: none; margin: 0; padding: var(--space-2) 0; max-height: 320px; overflow-y: auto; }
+.combo-option { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-4); cursor: pointer; }
+.combo-option.active { background: var(--color-hover); }
+.combo-option .badge { margin-left: var(--space-2); }
+.combo-name { font: var(--text-body-strong); }
+.combo-empty { padding: var(--space-2) var(--space-4); }
 .table tr.is-unused > td { opacity: .6; }
 .picker-row { display: flex; align-items: center; gap: var(--space-2); }
 .inline-search { margin-top: var(--space-2); }
@@ -1142,6 +1120,28 @@ a.btn, a.btn:hover { text-decoration: none; }
 .note.pad { margin: 0; padding: var(--space-3) var(--space-4); }
 .note.first { margin: 0 0 var(--space-3); }
 .pct-cell { min-width: 52px; text-align: right; }
+/* A text column in a table that scrolls on a phone: wrap to two lines, not one word per line. */
+.label-col { min-width: 8rem; }
 .card-body.tight-bottom { padding-bottom: var(--space-2); }
 .scroll-x { overflow-x: auto; }
 .subsection { margin-top: var(--space-5); padding-top: var(--space-4); border-top: 1px solid var(--color-border); }
+.is-dim { opacity: .5; }
+.hk-title.block { display: block; }
+.check-row { display: flex; flex-wrap: wrap; gap: var(--space-3) var(--space-6); }
+.pad-sm { padding: var(--space-2) var(--space-3); }
+.field.flex-1 { flex: 1 1 120px; }
+.field.flex-2 { flex: 2 1 160px; }
+.scroll-box { max-height: 360px; overflow: auto; }
+.picker-row.top { align-items: flex-start; }
+.skip-link {
+  position: absolute; left: var(--space-3); top: -48px; z-index: 50; padding: var(--space-3) var(--space-4);
+  background: var(--color-layer); color: var(--color-action); border-radius: var(--radius-sm); font: var(--text-body); font-weight: 600;
+}
+.skip-link:focus { top: var(--space-3); }
+main:focus { outline: none; }
+/* Phones: every dialog is a full-screen sheet (docs/ui-standar.md, Modal); the footer stays at the bottom. */
+@media (max-width: 671px) {
+  .overlay { padding: 0; place-items: stretch; }
+  .modal, .modal.wide, .modal.full { width: 100%; height: 100dvh; max-height: none; border-radius: 0; }
+  .modal-body { flex: 1; }
+}

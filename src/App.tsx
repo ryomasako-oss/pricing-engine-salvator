@@ -27,12 +27,13 @@ const SalesHistoryPage = lazy(() => import("./pages/SalesHistory").then((m) => (
 
 function PageLoading() {
   return (
-    <div className="hk-main">
-      <div className="loading" role="status">
-        <span className="dots"><i /><i /><i /></span>
-        Memuat…
+    <main className="hk-main">
+      <div className="card">
+        <div className="card-body skeleton-list" role="status" aria-label="Memuat halaman…">
+          {[0, 1, 2, 3].map((i) => <span key={i} className="skeleton" />)}
+        </div>
       </div>
-    </div>
+    </main>
   );
 }
 
@@ -46,10 +47,24 @@ function TopBar() {
 
   return (
     <header className="hk-top">
+      {/* First Tab stop: jump past the nine menu links to the page itself. */}
+      <a
+        href="#isi"
+        className="skip-link"
+        onClick={(e) => {
+          e.preventDefault();
+          const main = document.querySelector<HTMLElement>("main");
+          if (!main) return;
+          main.setAttribute("tabindex", "-1");
+          main.focus();
+        }}
+      >
+        Lewati ke isi halaman
+      </a>
       <NavLink to="/" className="hk-brand">
         <span className="hk-logo" aria-hidden="true">h</span>
         <span>
-          <span className="hk-title" style={{ display: "block" }}>Pricing Engine Salvator</span>
+          <span className="hk-title block">Pricing Engine Salvator</span>
           <span className="hk-sub">PT Salvator Inti Pratama</span>
         </span>
       </NavLink>
@@ -133,14 +148,14 @@ function RequirePermission({ permission, children }: { permission: Permission; c
   const { can } = useAuth();
   if (!can(permission)) {
     return (
-      <div className="hk-main">
+      <main className="hk-main">
         <div className="card">
           <div className="card-body empty">
             <h3>Halaman ini khusus manajer dan admin</h3>
             <p>Akun Anda tidak punya akses ke bagian ini.</p>
           </div>
         </div>
-      </div>
+      </main>
     );
   }
   return <>{children}</>;

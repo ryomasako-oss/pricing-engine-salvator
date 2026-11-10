@@ -2,9 +2,10 @@
 
 Satu bahasa tampilan untuk semua halaman. Dokumen ini adalah aturan; desain visualnya ada di berkas FigCraft
 `PRICING ENGINE DATA HUB/design/pricing-engine-ui-standar.figcraft` (di luar repo), dengan halaman:
-00 Panduan · 01 Fondasi · 02 Komponen · 03 Halaman desktop · 04 Modal & status · 05 Mobile.
+00 Panduan · 01 Fondasi · 02 Komponen · 03 Halaman desktop · 04 Modal & status · 05 Mobile · 06 Peran · 07 Modal lengkap · 08 Bagian halaman · 09 HP lengkap · 10 Tema gelap · HP · 11 Tema gelap · Dasbor · 12 Tema gelap · Desktop · 13 Tema gelap · Modal.
+Setiap tampilan aplikasi (halaman, modal, tab/bagian, layar HP) wajib ada di berkas itu dan diperbarui setiap kali tampilannya berubah; berkas dibangun dari `design/generator` (`build.py`, `peran.py`, `lengkap.py`).
 
-Status: usulan di cabang `feat/ui-standar`. Kode aplikasi belum diubah; lihat "Rencana penerapan".
+Status: diterapkan di cabang `feat/ui-standar` (sudah masuk `develop` lewat PR #118; lanjutan di cabang); lihat "Status penerapan".
 
 ## Acuan
 
@@ -45,7 +46,7 @@ Kontras dihitung dengan rumus WCAG.
 | `border-strong` | `#8D8D8D` | Tepi input, checkbox | 3,3:1 |
 | `text` | `#161616` | Teks utama | 18,1:1 |
 | `text-2` | `#525252` | Teks sekunder, label | 7,8:1 |
-| `placeholder` | `#6F6F6F` | Placeholder | 5,0:1 |
+| `placeholder` | `#666666` | Placeholder | 5,7:1; 4,7:1 di `hover` |
 | `brand` | `#1F3A5F` | Top bar, logo, avatar Silvy | putih di atasnya 11,5:1 |
 | `brand-soft` | `#2C4A73` | Menu aktif di top bar | |
 | `brand-muted` | `#BCC4CF` | Teks menu tidak aktif di top bar | 6,5:1 di atas `brand` |
@@ -54,13 +55,22 @@ Kontras dihitung dengan rumus WCAG.
 | `action-soft` | `#EDF5FF` | Baris terpilih, opsi terpilih | |
 | `ok` / `ok-text` / `ok-bg` | `#198038` / `#0E6027` / `#DEFBE6` | Sukses, Disetujui, Menang | 5,0 / 7,0:1 |
 | `warn` / `warn-text` / `warn-bg` | `#F1C21B` / `#7A5800` / `#FCF4D6` | Peringatan, Menunggu, Ditahan | teks gelap di `warn` 10,8:1; `warn-text` 5,9:1 |
-| `err` / `err-text` / `err-bg` | `#DA1E28` / `#A2191F` / `#FFF1F1` | Bahaya, Ditolak, blokir | 5,0 / 7,1:1 |
+| `err` / `err-text` / `err-bg` | `#DA1E28` / `#A2191F` / `#FFF1F1` | Bahaya dan blokir saja: di bawah HPP, margin negatif (baris `blocked`), eror | 5,0 / 7,1:1 |
 | `info` / `info-bg` | `#0043CE` / `#EDF5FF` | Info, Terkirim | 7,1:1 |
-| `neutral-text` / `neutral-bg` | `#393939` / `#E0E0E0` | Draft, Kalah, label netral | 8,8:1 |
+| `neutral-text` / `neutral-bg` | `#393939` / `#E0E0E0` | Draft, Kalah, Ditolak (dengan ×), label netral | 8,8:1 |
+| `warn-mark` | `#8E6A00` (gelap `#F1C21B`) | Tanda kuning kecil (titik tugas, batang "bad") | 5,0:1 |
+| `s1` / `s2` / `s3` | `#00539A` / `#6929C4` / `#8A3800` (gelap `#82CFFF` / `#BE95FF` / `#FFB784`) | Skenario S1/S2/S3, satu-satunya sumber (bukan heks di `shared/engine.ts`); label S1/S2/S3 selalu menyertai | 6,3:1+ terang, 4,8:1+ gelap; jarak buta warna 8+ |
+| `doc-err` | `#A2191F` | Merah di lembar quotation (selalu putih) | 7,8:1 |
 | `purple-text` / `purple-bg` | `#6929C4` / `#F6F2FF` | Selesai, peran Admin | 7,0:1 |
 
 Aturan: tombol `action` tidak boleh langsung di atas `brand` (kontrasnya rendah). Di top bar, tombol memakai gaya `on-brand` (garis `brand-muted`, teks putih).
-Mode gelap dibuat sesudah mode terang disetujui, dengan nama token yang sama (menggantikan pasangan token yang ada sekarang di `src/styles.css`).
+Mode gelap memakai nama token yang sama di satu blok `:root[data-theme="dark"]`. `public/theme.js` menyetel `data-theme` sebelum tampilan pertama (pilihan tersimpan, lalu pengaturan sistem), jadi tidak ada lagi salinan blok gelap di `@media (prefers-color-scheme: dark)`. Nilai gelap yang berbeda dari Carbon g100 (laporan riset warna, 9 Nov): `border-strong` `#8D8D8D` (3:1 di `layer-2`), teks berwarna satu langkah lebih terang untuk APCA Lc 60 (`action` `#A6C8FF`, `err-text` `#FFB3B8`, `info` `#A6C8FF`, `purple-text` `#D4BBFF`); isian tombol tetap memakai token `*-fill` tersendiri.
+
+Aturan warna (laporan "Warna terang gelap dan psikologi"):
+- Warna tidak pernah jadi satu-satunya penanda (WCAG 1.4.1): angka merah selalu disertai kata atau tanda ("rendah", "di bawah COGS baru", badge "Rugi"), angka negatif memakai minus sejati "−".
+- Merah hanya untuk yang memblokir. "Ditolak" adalah keadaan akhir, jadi netral dengan ×. Margin positif memakai tinta biasa, bukan hijau.
+- Dua tingkat baris item: `blocked` (merah: rugi, margin negatif) dan `flagged` (kuning: COGS perkiraan, perlu dicek).
+- `src/theme.contrast.test.ts` menghitung pasangan token kedua tema (teks, badge, skenario, tepi input, fokus, tanda) dan jarak warna skenario untuk buta warna; ubah token, tes itu yang menjaga.
 
 ### Tipografi (Inter)
 
@@ -102,7 +112,7 @@ Semua angka (harga, qty, persen, tanggal di tabel) memakai `tnum`. Ukuran minimu
 
 | Nama | Lebar | Perilaku |
 |---|---|---|
-| sm | < 672 | Nav jadi menu ☰, tabel jadi daftar kartu (`.table.stack`: sel `stack-title` di atas, `stack-action` di kanan atas, sel lain baris "label  nilai" dari `data-label`; dipakai di Quotation, item Quotation sales, Katalog, Klien), modal layar penuh, Silvy jadi sheet layar penuh, tombol aksi di bawah |
+| sm | < 672 | Nav jadi menu ☰, tabel jadi daftar kartu (`.table.stack`: sel `stack-title` di atas, `stack-action` di kanan atas, sel lain baris "label  nilai" dari `data-label`; dipakai di Quotation, item editor dan Quotation sales, Katalog, Klien, Riwayat COGS, Riwayat SI). Tabel perbandingan yang memang lebar menggulung di dalam `.table-wrap`-nya sendiri, dengan kolom teks `.label-col` (min 8rem) agar tidak pecah satu kata per baris; halaman tidak pernah menggulung ke samping (`e2e/phone-overflow.spec.ts`). Modal layar penuh, Silvy jadi sheet layar penuh, tombol aksi di bawah |
 | md | 672–1055 | Editor satu kolom (sidebar turun ke bawah), filter dibungkus |
 | lg | 1056–1311 | Nav dipadatkan; menu yang tidak muat masuk "Lainnya" |
 | xlg | 1312–1583 | Desktop standar (desain dibuat di 1440) |
@@ -129,7 +139,8 @@ Satu komponen per kebutuhan. Daftar di bawah menggantikan kelas yang ada sekaran
 | Komponen | Aturan | Menggantikan |
 |---|---|---|
 | **Button** | Jenis: `primary`, `secondary`, `ghost`, `danger`, `success`, `on-brand`. Ukuran `sm/md/lg`. Satu `primary` per area. Saat proses: label "Menyimpan…" dan nonaktif. Tanpa ikon kecuali tombol ikon-saja (`.icon-btn`) dan chevron menu | `.btn` dengan urutan kelas acak (`btn small ghost` / `btn ghost small`) |
-| **Field** | Label di atas, `*` bila wajib, bantuan atau eror di bawah (eror berwarna `err-text` dengan ikon ⚠), tepi `border-strong`. Varian: input, select, textarea, search, suffix (%, Rp) | `.input`, `.select`, `.textarea`, `.field`, `.cell` |
+| **Field** | Label di atas, `*` bila wajib, bantuan atau eror di bawah (eror berwarna `err-text`, tanpa ikon), tepi `border-strong`. Varian: input, select, textarea, search, suffix (%, Rp) | `.input`, `.select`, `.textarea`, `.field`, `.cell` |
+| **Kotak pilih barang** | `ItemCombobox` di Dari list klien: satu kotak per baris. Tertutup = pilihan baris (+ tanda COGS bermasalah, × = tidak dipakai). Dibuka tanpa mengetik = saran pencocokan dengan %; mengetik = cari seluruh katalog (30 per muatan, scroll, saran ejaan). Klik nama = pilih, "+ Tambah" = barang lain (baris sendiri). Tertutup setelah memilih, Escape, klik luar, atau pindah baris; ↑/↓/Enter | dropdown + kaca pembesar + "+ Barang lain" |
 | **Checkbox / Toggle** | Checkbox untuk filter dan pilihan; Toggle untuk pengaturan yang langsung berlaku (Aktif/Nonaktif) | |
 | **Badge** | SATU komponen status: titik + teks, pill, nada `neutral/info/ok/warn/err/purple`. Badge tanpa titik untuk hitungan dan alias | `.badge`, `.pill`, `.status-chip`, `.chip` |
 | **Menu** | Tombol `secondary` dengan ▾ (ikon), daftar aksi di bawahnya: ikon + label + keterangan `caption`, pemisah antarkelompok, aksi bahaya merah di paling bawah. Escape/klik di luar menutup, panah atas/bawah berpindah | `components/Menu.tsx` |
@@ -139,12 +150,12 @@ Satu komponen per kebutuhan. Daftar di bawah menggantikan kelas yang ada sekaran
 | **Card** | Latar `layer`, garis `border`, radius 8, padding 16; judul `h3` dengan sub `caption`, aksi `sm` di kanan | `.card`, `.card-head` (judul 12 px kapital dihapus) |
 | **KPI** | Satu permukaan dengan pemisah garis tipis antar angka (bukan kartu per angka). Label `label`, nilai `kpi`, catatan `caption` berwarna sesuai nada | `.kpi-grid` > `.kpi` |
 | **Banner** | Info tentang halaman atau objek; latar nada lembut saja (tanpa garis kiri, tanpa ikon); boleh satu aksi `ghost` | `.notice` |
-| **Toast** | Hasil aksi; gelap (`text`) dengan aksen nada; hilang setelah 5 dtk, eror tetap sampai ditutup dan punya "Coba lagi" | `.hk-toast` |
-| **Modal** | Judul `h2` + sub, isi padding 24, kaki abu dengan Batal (kiri) dan aksi utama (kanan). Lebar 560 (normal) / 800 (lebar) / layar penuh di HP. Fokus terkunci, Escape menutup | `.modal`; dan **`window.confirm` dihapus** (`Catalog.tsx:168`, `QuoteEditor.tsx:962`) diganti `ConfirmModal` |
+| **Toast** | Hasil aksi; gelap (`text`) tanpa garis warna; hilang setelah 5 dtk, eror tetap sampai ditutup. "Coba lagi" untuk data yang gagal dimuat ada di halaman (`LoadError`), bukan di toast | `.hk-toast` |
+| **Modal** | Judul `h2` + sub, isi padding 24, kaki abu dengan Batal (kiri) dan aksi utama (kanan). Lebar 560 (normal) / 1080 (lebar, untuk tabel seperti pemilih katalog) / 1320 (penuh); di HP semua modal layar penuh. Fokus terkunci, Escape menutup | `.modal`; dan **`window.confirm` dihapus** (`Catalog.tsx:168`, `QuoteEditor.tsx:962`) diganti `ConfirmModal` |
 | **Konfirmasi bahaya** | Modal dengan judul pertanyaan ("Hapus PT Graha Medika?"), akibatnya, dan tombol `danger` yang menyebut objek ("Hapus klien") | campuran `window.confirm` / `ConfirmModal` |
 | **Empty / Loading / Error** | Kosong: judul + penjelasan + satu aksi. Memuat: skeleton, bukan teks "Memuat…". Eror: apa yang terjadi + "Coba lagi" | teks "Memuat quotation…" |
 | **Icon** | Satu set SVG stroke 1,5 px, 16/20 px. Tidak ada glif teks (✔ ⚠ ▲ ▼ ↑ ↓) | semua glif yang tercatat sudah diganti (Katalog, Riwayat COGS, Klien) |
-| **Top bar** | Navy 48 px, logo + nama, menu sesuai izin, angka merah untuk tugas, avatar + nama + peran, tombol tema, Keluar (`on-brand`) | `.hk-top`, `.hk-nav` |
+| **Top bar** | Navy; baris merek (logo, nama aplikasi + perusahaan, nama pengguna + badge peran, ikon tema dan keluar) lalu baris menu teks dengan angka merah untuk tugas; di HP menu jadi baris ikon. Tab pertama: "Lewati ke isi halaman" | `.hk-top`, `.hk-nav` |
 | **Silvy** | Desktop: panel kanan 400 px yang tidak menutupi tabel (di editor: di sidebar). HP: sheet layar penuh. Jawaban selalu menyebut sumber angka; perubahan hanya setelah pengguna klik "Terapkan" atau "Tinjau N item". Pemicu: tombol "Tanya Silvy" di kanan bawah | `.chat-fab`, `.chat-dock`, `AssistantPanel` |
 
 ## Halaman
@@ -164,9 +175,9 @@ Struktur yang sama untuk semua halaman: **Top bar → judul halaman (h1, deskrip
 | Riwayat COGS | `/cogs-history` | `view_costs` | Kembali ke Katalog; Riwayat penjualan (SI) (`ghost`). Toolbar: cari + "Hanya yang beda" + jumlah barang. Kartu per barang: judul + kode/satuan, COGS katalog (merah "kosong"), badge RI terakhir (warn bila ditahan, info bila belum diterapkan), tabel harga beli (Nomor RI, Tanggal, Qty, Harga / satuan, badge "Terbaru" / "Dipakai" dengan ikon), daftar COGS yang pernah diganti. Paging "Halaman x dari y" di bawah. Pemasok belum ada di data, jadi kolomnya belum ditampilkan |
 | Riwayat SI | `/sales-history` | `view_costs` | Kembali ke Pencocokan; Riwayat COGS (`ghost`). Toolbar: cari (480 px) + "N barang terjual". Kartu per barang (pola sama dengan Riwayat COGS): alias faktur sebagai badge tanpa titik dengan hitungan, tabel faktur terbaru (Tanggal, Nomor faktur, Customer + tulisan di faktur, Qty, Harga + harga per satuan dasar), "Diretur semua" sebagai badge abu-abu (retur bukan galat). Paging di bawah |
 | Klien | `/clients` | semua (hapus: `delete_clients`) | "Klien baru" (utama). Toolbar: cari nama/kode/PIC + jumlah klien. Tabel nama (+alamat), kode, kontak (+email), termin, jumlah quotation, Ubah (`ghost sm`) + ikon hapus. Hapus lewat modal konfirmasi; bila klien masih dipakai quotation (server menolak, 409) yang muncul modal info "belum bisa dihapus" dengan tombol Tutup saja. Modal ubah: grid field, alamat, template dokumen (kolom dengan ikon naik/turun, bukan glif ↑↓) |
-| Pengaturan | `/settings?bagian=…` | sesuai izin | Sub-navigasi kiri 240 px (Kebijakan harga, Identitas dokumen, Password Excel, Notifikasi, Kata sandi saya, Pengguna, Permintaan reset + hitungan merah); satu bagian tampil, dipilih lewat `?bagian=` (baris admin "Permintaan reset sandi" di dasbor membuka `?bagian=reset`). < 1056 px: sub-nav jadi baris geser di atas. Bagian disembunyikan sesuai izin; sales melihat Identitas (hanya baca), Notifikasi, Kata sandi. Field dengan affix (%, Rp). Status pengguna sebagai Badge di samping toggle; peran tetap select karena bisa diubah admin. Simpan di kanan bawah kartu |
+| Pengaturan | `/settings?bagian=…` | sesuai izin | Sub-navigasi kiri 240 px (Kebijakan harga, Identitas dokumen, Password Excel, Notifikasi, Kata sandi saya, Pengguna, Permintaan reset + hitungan merah); satu bagian tampil, dipilih lewat `?bagian=` (baris admin "Permintaan reset sandi" di dasbor membuka `?bagian=reset`). < 1056 px: sub-nav jadi baris geser di atas. Bagian Notifikasi berisi dua kartu: "Notifikasi WhatsApp" dan "Silvy di Telegram" (nomor Telegram terpisah; kosong = pakai nomor WhatsApp), masing-masing dengan tombol simpan sendiri. Bagian disembunyikan sesuai izin; sales melihat Identitas (hanya baca), Notifikasi, Kata sandi. Field dengan affix (%, Rp). Status pengguna sebagai Badge di samping toggle; peran tetap select karena bisa diubah admin. Simpan di kanan bawah kartu |
 
-Modal standar (FigCraft "04 Modal & status"): Quotation baru, Ekspor quotation (daftar opsi dengan ikon), Putuskan quotation (banner pelanggaran + catatan; Tolak `danger`, Setujui `success`), Konfirmasi hapus.
+Modal standar (FigCraft "04 Modal & status"): Quotation baru, Ekspor quotation (daftar opsi: judul + keterangan, tanpa ikon), Putuskan quotation (banner pelanggaran + catatan; Tolak `danger`, Setujui `success`), Konfirmasi hapus.
 
 Mobile (FigCraft "05 Mobile"): daftar quotation sebagai kartu, login, Silvy layar penuh, item quotation sales dengan aksi Simpan/Ajukan di bawah.
 
@@ -232,7 +243,7 @@ Ditemukan di kode cabang `develop` per 8 Nov 2026; status per 9 Nov 2026 di caba
 | 1 | 20 ukuran font (10–24 px, termasuk 12,5/13,5/14,5) | Skala token 12/14/16/18/20/24/28/32. Pengecualian: dokumen penawaran cetak (`.quote-*`, ukuran tetap demi PDF) dan label grafik 10 px |
 | 2 | 14 radius | `--radius-sm` 4, `--radius-md` 8, `--radius-full`; sisanya hanya bentuk khusus (lingkaran 50%, gelembung chat, kotak legenda 2 px) |
 | 3 | 62 hex di `styles.css` | Token saja di luar dokumen cetak (`.quote-doc` sengaja memakai palet cetak sendiri) dan latar penampil gambar |
-| 4 | ±321 `style={{…}}` | 53, hampir semuanya dinamis (lebar, warna skenario dari data, tinggi chat) |
+| 4 | ±321 `style={{…}}` | Sisa statis 7 (warna dokumen cetak, dua tombol tanpa tepi, satu jarak ikon); sisanya dinamis (lebar, warna skenario dari data, tinggi chat) |
 | 5 | 4 bentuk status | Badge; `.pill` tinggal satu pemakaian di editor |
 | 6 | `window.confirm` vs `ConfirmModal` | 0 `window.confirm`; semua lewat Modal (termasuk penjaga perubahan belum disimpan dan Terapkan Accurate) |
 | 7 | "Ekspor" vs "PDF" | Editor: "Ekspor" membuka modal pilihan; sales: "Ekspor PDF" langsung |
@@ -246,7 +257,7 @@ Semua tahap dikerjakan di cabang `feat/ui-standar` (belum di-merge; push dan PR 
 
 1. Token dan Inter: selesai.
 2. Komponen dasar: selesai, ditambah Menu, ConfirmModal untuk semua konfirmasi, dan tabel kartu di HP (`.table.stack`).
-3. Halaman: ke-12 halaman plus alur "Dari list klien", dasbor per peran, dan Pengaturan dengan sub-navigasi.
+3. Halaman: ke-12 halaman plus alur "Dari list klien", dasbor per peran, Pengaturan dengan sub-navigasi, dan tabel kartu di HP (termasuk tabel item editor).
 4. Token lama: alias warna lama yang tak dipakai sudah dihapus; tampilan tanpa ornamen (prinsip 7) diterapkan menyeluruh.
 
 Setiap tahap: typecheck, vitest, build, e2e, dan tangkapan layar terang, gelap, dan HP. Dua tinjauan independen (logika/RBAC dan UI/aksesibilitas) sudah dijalankan dan temuannya diperbaiki.

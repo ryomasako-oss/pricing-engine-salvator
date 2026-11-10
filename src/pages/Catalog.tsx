@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
+import { LoadError } from "../components/LoadError";
 import { Icon } from "../components/Icon";
 import { ConfirmModal, Modal } from "../components/Modal";
 import { Menu, type MenuEntry } from "../components/Menu";
@@ -50,6 +51,7 @@ export function CatalogPage() {
   const [imageFilter, setImageFilter] = useState<"all" | "with" | "without">("all");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [modal, setModal] = useState<null | "inventory" | "master" | "full" | "confirmFull" | "fullMerge" | "images">(null);
   const [editing, setEditing] = useState<EditingItem | null>(null);
   const [uomOptions, setUomOptions] = useState<string[]>([]);
@@ -70,8 +72,12 @@ export function CatalogPage() {
     }
   };
 
+  // Only the newest load may write: an older, slower request must not overwrite it.
+  const loadSeq = useRef(0);
   const load = useCallback(() => {
+    const seq = ++loadSeq.current;
     setLoading(true);
+    setLoadError(null);
     const params = new URLSearchParams({
       q: query.trim(),
       limit: String(PAGE),
@@ -82,14 +88,15 @@ export function CatalogPage() {
     api
       .get<{ items: CatalogItem[]; total: number; stockAsOf: string | null; suggestion?: string | null; partial?: boolean }>(`/catalog?${params}`)
       .then((r) => {
+        if (seq !== loadSeq.current) return;
         setItems(r.items);
         setTotal(r.total);
         setStockAsOf(r.stockAsOf);
         setSuggestion(r.suggestion ?? null);
         setPartial(!!r.partial);
       })
-      .catch((e) => toast(e.message, "error"))
-      .finally(() => setLoading(false));
+      .catch((e) => seq === loadSeq.current && setLoadError(e instanceof Error ? e.message : String(e)))
+      .finally(() => seq === loadSeq.current && setLoading(false));
     api.get<{ stats: Stats }>("/catalog/stats").then((r) => setStats(r.stats)).catch(() => undefined);
   }, [query, page, sortBy, sortDir, imageFilter, toast]);
 
@@ -258,7 +265,7 @@ export function CatalogPage() {
             <option value="without">Belum ada gambar</option>
           </select>
           <span className="grow" />
-          <span className="muted small">
+          <span className="muted small" hidden={!!loadError}>
             {grp(total)} item cocok{stockAsOf && ` · stok Accurate per ${fmtDateTime(stockAsOf)}`}
           </span>
         </div>
@@ -280,7 +287,9 @@ export function CatalogPage() {
           </p>
         )}
 
-        {loading ? (
+        {loadError ? (
+          <LoadError message={loadError} onRetry={load} />
+        ) : loading ? (
           <div className="card-body skeleton-list" role="status" aria-label="Memuat katalog…">
             {[0, 1, 2, 3, 4].map((i) => <span key={i} className="skeleton" />)}
           </div>

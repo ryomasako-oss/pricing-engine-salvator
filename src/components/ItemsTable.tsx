@@ -160,7 +160,7 @@ export function ItemsTable({
         </div>
       ) : (
         <div className="table-wrap scroll">
-          <table className="table">
+          <table className="table stack">
             <thead>
               <tr>
                 {head("lineNo", "No", "c")}
@@ -185,12 +185,14 @@ export function ItemsTable({
             </thead>
             <tbody>
               {rows.map((r) => {
-                const flagged =
-                  r.margins[scenario] < 0 || r.estCogs || r.status[scenario] === "BELOW COST";
+                // Two levels: a loss (below cost, negative margin) blocks and is red, with its "Rugi" badge;
+                // an estimated COGS only needs a check and is yellow.
+                const blocked = r.margins[scenario] < 0 || r.status[scenario] === "BELOW COST";
+                const flagged = !blocked && r.estCogs;
                 return (
-                  <tr key={r.id} className={flagged ? "flagged" : ""}>
-                    <td className="c muted">{r.lineNo}</td>
-                    <td className="l">
+                  <tr key={r.id} className={blocked ? "blocked" : flagged ? "flagged" : ""}>
+                    <td className="c muted stack-hide">{r.lineNo}</td>
+                    <td className="l stack-title">
                       <div className="with-thumb">
                         <Thumb src={imagesByCode[r.code.trim()]} alt={r.name} />
                         <div className="grow">
@@ -217,7 +219,7 @@ export function ItemsTable({
                         )}
                       </div>
                     </td>
-                    <td>
+                    <td data-label="Qty">
                       <NumberCell
                         live
                         className="cell"
@@ -227,7 +229,7 @@ export function ItemsTable({
                         aria-label={`Qty ${r.name}`}
                       />
                     </td>
-                    <td className="l">
+                    <td className="l" data-label="Satuan">
                       <UomCell
                         value={r.uom}
                         choices={uomOptions.length ? uomChoices(uomOptions, unitsByCode[r.code.trim()], r.uom) : []}
@@ -242,7 +244,7 @@ export function ItemsTable({
                         onConfirm={readOnly ? undefined : () => onUpdate(r.id, { priceUom: undefined })}
                       />
                     </td>
-                    <td>
+                    <td data-label="COGS">
                       <NumberCell
                         live
                         className={`cell ${r.estCogs ? "est" : ""}`}
@@ -252,7 +254,7 @@ export function ItemsTable({
                         aria-label={`COGS ${r.name}`}
                       />
                     </td>
-                    <td>
+                    <td data-label="RRP">
                       <NumberCell
                         live
                         className="cell"
@@ -262,7 +264,7 @@ export function ItemsTable({
                         aria-label={`RRP ${r.name}`}
                       />
                     </td>
-                    <td>
+                    <td data-label="Role S2">
                       <select
                         className="cell"
                         value={r.role}
@@ -279,8 +281,10 @@ export function ItemsTable({
                       <td
                         key={k}
                         className={k === scenario ? "col-selected" : ""}
-                        style={k === scenario ? { ["--c" as string]: SCENARIOS[k].color } : undefined}
+                        data-label={SCENARIOS[k].key}
+                        style={k === scenario ? { ["--c" as string]: `var(--s${k + 1})` } : undefined}
                       >
+                        <div>
                         {!readOnly ? (
                           <NumberCell
                             className={`cell ${r.overridden[k] ? "manual" : ""}`}
@@ -294,18 +298,19 @@ export function ItemsTable({
                             aria-label={`Harga ${SCENARIOS[k].key} untuk ${r.name}`}
                           />
                         ) : (
-                          <div className="num" style={{ fontWeight: k === scenario ? 650 : 400 }}>
+                          <div className={`num${k === scenario ? " cell-title" : ""}`}>
                             {grp(r.prices[k])}
                           </div>
                         )}
                         <div className="small muted nowrap">
                           {pct(r.margins[k])} <LineBadge status={r.status[k]} />
                         </div>
+                        </div>
                       </td>
                     ))}
-                    <td className="num">{grp(r.qty * r.prices[scenario])}</td>
+                    <td className="num" data-label="Nilai/bln">{grp(r.qty * r.prices[scenario])}</td>
                     {!readOnly && (
-                      <td>
+                      <td className="stack-action">
                         <div className="row-actions">
                           {onPushToCatalog && r.code && (
                             <button

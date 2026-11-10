@@ -1,12 +1,18 @@
 /* Floating chat, on every page once signed in: a round button at the corner
    that opens the same conversation as the card on the quotation list. */
 
+import { useEffect, useRef } from "react";
 import { useChat } from "../context/ChatContext";
 import { ChatThread } from "./ChatThread";
 import { Icon } from "./Icon";
 
 export function ChatDock() {
   const { open, setOpen, messages, busy, reset } = useChat();
+  // Opening moves focus into the panel (on phones the round button that was clicked is hidden).
+  const closeRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (open) closeRef.current?.focus();
+  }, [open]);
   return (
     <div className="no-print">
       {open && (
@@ -17,7 +23,7 @@ export function ChatDock() {
               {messages.length > 0 && (
                 <button className="btn small ghost" onClick={reset} disabled={busy}>Baru</button>
               )}
-              <button className="icon-btn" onClick={() => setOpen(false)} aria-label="Tutup chat">
+              <button ref={closeRef} className="icon-btn" onClick={() => setOpen(false)} aria-label="Tutup chat">
                 <Icon name="x" size={16} />
               </button>
             </div>

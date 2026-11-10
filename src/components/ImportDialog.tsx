@@ -75,13 +75,13 @@ export function ImportDialog({ title, description, accept = ".xlsx,.xls,.csv", o
         />
       </div>
 
-      {error && <p className="notice error" style={{ marginTop: 12 }}>{error}</p>}
+      {error && <p className="notice error note-block">{error}</p>}
 
       {result && (
-        <div style={{ marginTop: 14 }}>
+        <div className="note-block">
           <p className="notice ok">{result.summary}</p>
           {result.report.notes.length > 0 && (
-            <ul className="breach-list" style={{ marginTop: 10 }}>
+            <ul className="breach-list note-block">
               {result.report.notes.map((n, i) => (
                 <li key={i} className="breach warn">
                   <span>{n}</span>

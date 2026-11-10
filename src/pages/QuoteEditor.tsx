@@ -115,6 +115,9 @@ export function QuoteEditorPage() {
   const [salesReview, setSalesReview] = useState<SalesReviewRecord | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
   const [dirty, setDirty] = useState(false);
+  // Read by async loads: an edit made while a load is in flight must not be overwritten by it.
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"items" | "breakdown" | "assumptions" | "delivery" | "document" | "history">("items");
@@ -132,17 +135,21 @@ export function QuoteEditorPage() {
   const [unitsFetched, setUnitsFetched] = useState<Set<string>>(new Set());
   const saved = useRef<string>("");
 
-  const load = useCallback(async () => {
+  /** keepEdits: a background (re)load that must not overwrite edits typed meanwhile. */
+  const load = useCallback(async (keepEdits = false) => {
     setLoading(true);
     try {
       const [d, sr] = await Promise.all([
         api.get<QuoteDetail>(`/quotes/${quoteId}`),
         api.get<{ review: SalesReviewRecord | null }>(`/quotes/${quoteId}/sales-review`).catch(() => ({ review: null })),
       ]);
-      setDetail(d);
+      // Edits kept: keep the version they were made on, so a save still gets the 409 if
+      // someone else changed the quote meanwhile (instead of silently overwriting it).
+      setDetail((prev) => (keepEdits && dirtyRef.current && prev ? { ...d, quote: { ...d.quote, version: prev.quote.version } } : d));
       setSalesReview(sr.review);
       // Submits and sales checks add "Perlu diperbaiki" tasks: refresh the nav count.
       window.dispatchEvent(new Event("fix-tasks-changed"));
+      if (keepEdits && dirtyRef.current) return;
       const snap: QuoteSnapshot = {
         assumptions: d.quote.assumptions,
         items: d.quote.items,
@@ -162,7 +169,7 @@ export function QuoteEditorPage() {
   }, [quoteId, navigate, toast]);
 
   useEffect(() => {
-    void load();
+    void load(true);
   }, [load]);
 
   useEffect(() => {
@@ -1004,7 +1011,6 @@ export function QuoteEditorPage() {
                 setModal(null);
               }}
             >
-              <Icon name="file" />
               <span>
                 <strong>PDF penawaran</strong>
                 <small className="muted"> Dokumen siap kirim ke klien, tanpa angka internal.</small>
@@ -1018,7 +1024,6 @@ export function QuoteEditorPage() {
                 setModal(null);
               }}
             >
-              <Icon name="table" />
               <span>
                 <strong>Excel kerja</strong>
                 <small className="muted"> Penawaran, analisis margin internal, perbandingan, dan asumsi.</small>
@@ -1037,7 +1042,6 @@ export function QuoteEditorPage() {
                   setModal(null);
                 }}
               >
-                <Icon name="table" />
                 <span>
                   <strong>Excel cek harga untuk sales</strong>
                   <small className="muted">
@@ -1061,7 +1065,6 @@ export function QuoteEditorPage() {
                 setTimeout(() => window.print(), 350);
               }}
             >
-              <Icon name="print" />
               <span>
                 <strong>Cetak</strong>
                 <small className="muted"> Membuka dialog cetak browser untuk dokumen penawaran.</small>

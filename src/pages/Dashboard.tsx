@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { ClientQuickAdd } from "../components/ClientQuickAdd";
+import { LoadError } from "../components/LoadError";
 import { Icon } from "../components/Icon";
 import { ListToQuote } from "../components/ListToQuote";
 import { ListDrafts } from "../components/ListDrafts";
@@ -58,6 +59,7 @@ export function DashboardPage() {
   const [mine, setMine] = useState(!isManager);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [fromList, setFromList] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -90,8 +92,12 @@ export function DashboardPage() {
     setSearchParams(next, { replace: true });
   };
 
+  // Only the newest load may write: an older, slower request must not overwrite it.
+  const loadSeq = useRef(0);
   const load = useCallback(() => {
+    const seq = ++loadSeq.current;
     setLoading(true);
+    setLoadError(null);
     // Every status comes back (the list is not paged), so the tabs filter and
     // count in the browser and the KPIs stay the same whichever tab is open.
     const params = new URLSearchParams();
@@ -99,9 +105,11 @@ export function DashboardPage() {
     if (userIdFilter) params.set("user_id", userIdFilter);
     api
       .get<{ quotes: QuoteRow[] }>(`/quotes?${params}`)
-      .then((r) => setQuotes(r.quotes))
-      .catch((e) => toast(e.message, "error"))
-      .finally(() => setLoading(false));
+      .then((r) => {
+        if (seq === loadSeq.current) setQuotes(r.quotes);
+      })
+      .catch((e) => seq === loadSeq.current && setLoadError(e instanceof Error ? e.message : String(e)))
+      .finally(() => seq === loadSeq.current && setLoading(false));
   }, [mine, userIdFilter, toast]);
 
   useEffect(load, [load]);
@@ -165,6 +173,7 @@ export function DashboardPage() {
         </div>
       </div>
 
+      {!loadError && (
       <div className="overview">
         <RoleTasks
           // From the whole list, not the search box: a typed search must not hide work.
@@ -212,6 +221,7 @@ export function DashboardPage() {
           </dl>
         </section>
       </div>
+      )}
 
       <div className="dash-row">
         <ListDrafts drafts={drafts} onOpen={setOpenDraft} onChanged={loadDrafts} />
@@ -232,7 +242,7 @@ export function DashboardPage() {
           {FILTERS.map((f) => (
             <button key={f.key} className={filter === f.key ? "on" : ""} aria-pressed={filter === f.key} onClick={() => setFilter(f.key)}>
               {f.label}
-              {!loading && <span className="tab-count num">{counts[f.key] ?? 0}</span>}
+              {!loading && !loadError && <span className="tab-count num">{counts[f.key] ?? 0}</span>}
             </button>
           ))}
         </div>
@@ -257,10 +267,12 @@ export function DashboardPage() {
               <span>Punya saya</span>
           </label>
           <span className="grow" />
-          {!loading && <span className="muted small num">{visible.length} quotation</span>}
+          {!loading && !loadError && <span className="muted small num">{visible.length} quotation</span>}
         </div>
 
-        {loading ? (
+        {loadError ? (
+          <LoadError message={loadError} onRetry={load} />
+        ) : loading ? (
           <div className="card-body skeleton-list" role="status" aria-label="Memuat quotation…">
             {[0, 1, 2, 3, 4].map((i) => <span key={i} className="skeleton" />)}
           </div>
@@ -306,7 +318,14 @@ export function DashboardPage() {
                     <td className="num" data-label="Nilai / bulan">{rp(q.monthly_value)}</td>
                     {seeCosts && (
                       <td className="num" data-label="Net margin">
-                        <span className={q.net_margin < 0.15 ? "text-err" : undefined}>{pct(q.net_margin)}</span>
+                        {/* Colour is never the only sign (WCAG 1.4.1): a low margin also says so. */}
+                        {q.net_margin < 0.15 ? (
+                          <span className="text-err" title="Di bawah batas net margin 15%">
+                            {pct(q.net_margin)} <span className="small">rendah</span>
+                          </span>
+                        ) : (
+                          pct(q.net_margin)
+                        )}
                       </td>
                     )}
                     <td className="l muted" data-label="Dibuat oleh">{q.created_by_name}</td>

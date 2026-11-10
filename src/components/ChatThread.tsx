@@ -134,7 +134,7 @@ export function ChatThread({ maxHeight = 320 }: { maxHeight?: number | string })
         <textarea
           rows={1}
           value={input}
-          placeholder="Tanya Silvy, mis. untuk PT Maju Jaya: pulpen 10 lusin, kertas A4 5 rim"
+          placeholder="Tanya Silvy, mis. pulpen 10 lusin"
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {

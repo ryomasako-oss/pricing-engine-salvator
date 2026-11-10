@@ -15,8 +15,8 @@
    (shared/listDrafts.ts): a draft keeps the read lines and the picks by
    code, and opening it matches the lines again so prices are today's. */
 
-import { Fragment, useEffect, useMemo, useState } from "react";
-import { useCatalogSearch } from "./useCatalogSearch";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { ItemCombobox } from "./ItemCombobox";
 import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
@@ -122,11 +122,8 @@ export function ListToQuote({
   const [drag, setDrag] = useState(false);
   // One search open at a time, in one row: the magnifier ("search": replace the pick) or "+ Barang lain"
   // ("also"). Moving to another row, ×, or Escape closes it.
-  const [panel, setPanel] = useState<{ row: number; kind: "search" | "also" } | null>(null);
-  const searchRow = panel?.kind === "search" ? panel.row : null;
-  const setSearchRow = (row: number | null) => setPanel(row == null ? null : { row, kind: "search" });
-  const alsoRow = panel?.kind === "also" ? panel.row : null;
-  const setAlsoRow = (row: number | null) => setPanel(row == null ? null : { row, kind: "also" });
+  const [panel, setPanel] = useState<{ row: number } | null>(null);
+  const closePanel = useCallback(() => setPanel(null), []);
   /** Row whose "Barang baru" form is open (catatan 24/25: a row with no match can still become an item). */
   const [newItemRow, setNewItemRow] = useState<number | null>(null);
   const [uomOptions, setUomOptions] = useState<string[]>([]);
@@ -719,35 +716,36 @@ export function ListToQuote({
                       <td className="num">{grp(row.request.qty ?? 1)}</td>
                       <td className="l ltq-pick">
                         <div className="picker-row">
-                          <select
-                            className="select"
-                            aria-label={`Item katalog untuk ${row.request.name}`}
-                            value={row.chosen ?? ""}
-                            onChange={(e) =>
-                              update(i, { chosen: e.target.value === "" ? null : Number(e.target.value), confirmed: true, unitOk: false })
-                            }
-                          >
-                            <option value="">— tidak dipakai —</option>
-                            {options.map((id) => {
+                          <ItemCombobox
+                            label={`Item katalog untuk ${row.request.name}`}
+                            value={chosenItem}
+                            suggestions={options.flatMap((id) => {
                               const it = items.get(id);
-                              if (!it) return null;
-                              const score = scoreOf.get(id);
-                              return (
-                                <option key={id} value={id}>
-                                  {it.name}{shownCode(it.code) ? ` (${shownCode(it.code)})` : ""}{score != null && score < 1 ? ` · ${Math.round(score * 100)}%` : ""}
-                                  {it.cogs_problem ? " · COGS bermasalah" : ""}
-                                </option>
-                              );
+                              return it ? [{ item: it, score: scoreOf.get(id) }] : [];
                             })}
-                          </select>
-                          <button
-                            className="icon-btn"
-                            title="Cari di katalog"
-                            aria-label={`Cari di katalog untuk ${row.request.name}`}
-                            onClick={() => setSearchRow(searchRow === i ? null : i)}
-                          >
-                            <Icon name="search" size={15} />
-                          </button>
+                            seeCosts={seeCosts}
+                            added={row.also ?? []}
+                            open={panel?.row === i}
+                            onOpen={() => setPanel({ row: i })}
+                            onClose={closePanel}
+                            onChoose={(it) => {
+                              if (it) setItems((m) => new Map(m).set(it.id, it));
+                              update(i, {
+                                chosen: it ? it.id : null,
+                                confirmed: true,
+                                unitOk: false,
+                                // A pick from the catalog search stays among the row's options.
+                                ...(it && !options.includes(it.id) ? { extra: [...row.extra, it.id] } : {}),
+                                // An extra item made the row's own pick is no longer an extra.
+                                also: (row.also ?? []).filter((x) => x !== it?.id),
+                              });
+                            }}
+                            onAdd={(it) => {
+                              if (it.id === row.chosen || (row.also ?? []).includes(it.id)) return;
+                              setItems((m) => new Map(m).set(it.id, it));
+                              setAlso(i, [...(row.also ?? []), it.id].slice(0, 20));
+                            }}
+                          />
                           <button
                             className="icon-btn"
                             title="Barang baru: belum ada di katalog"
@@ -757,38 +755,6 @@ export function ListToQuote({
                             <Icon name="plus" size={15} />
                           </button>
                         </div>
-                        {searchRow === i && (
-                          <CatalogSearch
-                            initial={row.request.name}
-                            seeCosts={seeCosts}
-                            onClose={() => setPanel(null)}
-                            onPick={(it) => {
-                              setItems((m) => new Map(m).set(it.id, it));
-                              update(i, { chosen: it.id, confirmed: true, unitOk: false, extra: [...row.extra, it.id] });
-                              setSearchRow(null);
-                            }}
-                          />
-                        )}
-                        <button
-                          type="button"
-                          className="link-btn"
-                          onClick={() => setAlsoRow(alsoRow === i ? null : i)}
-                          aria-label={`Tambah barang lain untuk ${row.request.name}`}
-                        >
-                          {alsoRow === i ? "Selesai menambah" : "+ Barang lain"}
-                        </button>
-                        {alsoRow === i && (
-                          <CatalogSearch
-                            initial={row.request.name}
-                            seeCosts={seeCosts}
-                            onClose={() => setPanel(null)}
-                            onPick={(it) => {
-                              if (it.id === row.chosen || (row.also ?? []).includes(it.id)) return;
-                              setItems((m) => new Map(m).set(it.id, it));
-                              setAlso(i, [...(row.also ?? []), it.id].slice(0, 20));
-                            }}
-                          />
-                        )}
                         {row.result.via === "alias" && (
                           <div className="muted small">Dari pilihan sebelumnya untuk istilah ini</div>
                         )}
@@ -883,78 +849,6 @@ export function ListToQuote({
         </div>
       )}
     </Modal>
-  );
-}
-
-/** Small inline catalog search for a row the matcher could not resolve. */
-function CatalogSearch({
-  initial,
-  seeCosts,
-  onPick,
-  onClose,
-}: {
-  initial: string;
-  /** PE-1: the server strips cogs for a rep, so the chip must not print it either. */
-  seeCosts: boolean;
-  onPick: (item: CatalogItem) => void;
-  /** × and Escape: put the search away. */
-  onClose: () => void;
-}) {
-  const [q, setQ] = useState(initial);
-  // As you type, a page at a time; the list scrolls and loads more near its end (useCatalogSearch).
-  const { items: found, total, suggestion, busy, loadMore } = useCatalogSearch(q);
-
-  return (
-    <div className="cell-stack inline-search">
-      <div className="picker-row">
-        <input
-          className="input"
-          autoFocus
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === "Escape" && (e.stopPropagation(), onClose())}
-          aria-label="Kata kunci katalog"
-        />
-        {busy && <span className="muted small">Mencari…</span>}
-        <button type="button" className="icon-btn" onClick={onClose} aria-label="Tutup pencarian" title="Tutup pencarian">
-          <Icon name="x" size={15} />
-        </button>
-      </div>
-      {suggestion && (
-        <span className="muted small">
-          Mungkin maksud Anda:{" "}
-          <button type="button" className="link-btn" onClick={() => setQ(suggestion)}>
-            {suggestion}
-          </button>
-        </span>
-      )}
-      {found && found.length === 0 && <span className="muted small">Tidak ada. Coba kata kunci lebih pendek, misal merek saja.</span>}
-      {found && found.length > 0 && (
-        <div
-          className="pick-scroll"
-          onScroll={(e) => {
-            const el = e.currentTarget;
-            if (el.scrollTop + el.clientHeight > el.scrollHeight - 80) loadMore();
-          }}
-        >
-          {found.map((it) => (
-            <button key={it.id} className="chip" type="button" onClick={() => onPick(it)}>
-              {it.name}{" "}
-              <span className="muted">
-                {/* A rep gets no cogs from the server; grp(undefined) printed "COGS 0" on items that
-                    have one. The unit is what they need to pick the right row anyway. */}
-                · {it.code} · {seeCosts ? `COGS ${grp(it.cogs)}` : it.uom || "Pcs"}
-              </span>
-            </button>
-          ))}
-          {found.length < total && (
-            <button type="button" className="btn small ghost" onClick={loadMore} disabled={busy}>
-              Muat lagi ({found.length} dari {total})
-            </button>
-          )}
-        </div>
-      )}
-    </div>
   );
 }
 

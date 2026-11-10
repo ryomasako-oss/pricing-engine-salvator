@@ -70,7 +70,7 @@ export function ScenarioCards({
             key={sc.key}
             type={onSelect ? "button" : undefined}
             className={`scen-card ${onSelect ? "selectable" : ""} ${selected === i ? "on" : ""}`}
-            style={{ ["--c" as string]: `var(--s${i + 1})`, ["--t" as string]: `var(--s${i + 1}-bg)` }}
+            style={{ ["--c" as string]: `var(--s${i + 1})` }}
             onClick={onSelect ? () => onSelect(i as ScenarioIndex) : undefined}
             aria-pressed={onSelect ? selected === i : undefined}
             title={sc.rule}
@@ -116,7 +116,7 @@ export function CompareTable({ engine }: { engine: EngineResult }) {
       <table className="table">
         <thead>
           <tr>
-            <th className="l">Metrik</th>
+            <th className="l label-col">Metrik</th>
             {SCENARIOS.map((s, i) => (
               <th key={s.key} style={{ color: `var(--s${i + 1})` }}>
                 {s.key} {s.name}
@@ -173,10 +173,10 @@ export interface LeverDef {
 export const LEVERS: LeverDef[] = [
   { key: "opex", label: "Opex", hint: "Handling, gudang, admin dari COGS", min: 0, max: 0.3, step: 0.005 },
   { key: "targetMargin", label: "Target margin", hint: "Dipakai S1 dan item core", min: 0, max: 0.5, step: 0.005 },
-  { key: "leaderMargin", label: "Margin item leader", hint: "S2: item yang dibandingkan klien", min: 0, max: 0.4, step: 0.005, color: SCENARIOS[1].color },
-  { key: "profitDiscount", label: "Diskon item profit", hint: "S2: 0% berarti di harga plafon", min: 0, max: 0.3, step: 0.005, color: SCENARIOS[1].color },
-  { key: "rrpDiscount", label: "Diskon dari RRP", hint: "S3: berlaku ke semua item", min: 0, max: 0.4, step: 0.005, color: SCENARIOS[2].color },
-  { key: "marginFloor", label: "Margin minimum", hint: "S3: harga tidak boleh di bawah ini", min: 0, max: 0.3, step: 0.005, color: SCENARIOS[2].color },
+  { key: "leaderMargin", label: "Margin item leader", hint: "S2: item yang dibandingkan klien", min: 0, max: 0.4, step: 0.005, color: "var(--s2)" },
+  { key: "profitDiscount", label: "Diskon item profit", hint: "S2: 0% berarti di harga plafon", min: 0, max: 0.3, step: 0.005, color: "var(--s2)" },
+  { key: "rrpDiscount", label: "Diskon dari RRP", hint: "S3: berlaku ke semua item", min: 0, max: 0.4, step: 0.005, color: "var(--s3)" },
+  { key: "marginFloor", label: "Margin minimum", hint: "S3: harga tidak boleh di bawah ini", min: 0, max: 0.3, step: 0.005, color: "var(--s3)" },
 ];
 
 export function Lever({
@@ -205,7 +205,7 @@ export function Lever({
         disabled={disabled}
         style={{
           ["--fill" as string]: `${((value - lever.min) / (lever.max - lever.min)) * 100}%`,
-          ["--c" as string]: lever.color || "var(--brand)",
+          ["--c" as string]: lever.color || "var(--color-action)",
         }}
         onChange={(e) => onChange(Number(e.target.value))}
       />
