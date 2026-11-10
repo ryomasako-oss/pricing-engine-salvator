@@ -14,6 +14,7 @@
 
 import type { UnitFactor } from "./types.js";
 import { LIST_HOLD_RATIO, lastPurchaseCost, type ReceiptLine } from "./lastPurchaseCost.js";
+import { belowCostHints, type Hint } from "./belowCostHints.js";
 
 export interface SalesLine {
   invoiceNo: string;
@@ -68,6 +69,8 @@ export interface BelowCostRow {
   receiptNo: string;
   /** (cost - net) x base units sold, net of returns. */
   lossTotal: number;
+  /** Signs the loss may be a recording slip (PPN, unit, stale PI); empty when none (belowCostHints.ts). */
+  hints: Hint[];
 }
 
 export interface BelowCostResult {
@@ -116,6 +119,10 @@ export function findBelowCost(
         cost: c.cost,
         receiptNo: c.receiptNo,
         lossTotal: Math.round((c.cost - net) * sold),
+        hints: belowCostHints({
+          net, cost: c.cost, saleDate: l.transDate, receiptDate: c.transDate, listPrice: item.listPrice,
+          saleUnit: l.unit, saleRatio: l.unitRatio, baseUom: item.baseUom,
+        }),
       });
     }
   }
