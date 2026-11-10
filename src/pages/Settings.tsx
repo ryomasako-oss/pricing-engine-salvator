@@ -5,6 +5,7 @@ import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { Modal } from "../components/Modal";
 import { PasswordInput } from "../components/PasswordInput";
+import { SearchPrioritySettings } from "../components/SearchPrioritySettings";
 import { fmtDateTime, grp, rp } from "@shared/format";
 import type { PasswordResetRequest, PricingPolicy, Role, User } from "@shared/types";
 import type { CompanyInfo } from "../components/QuotationDoc";
@@ -148,6 +149,7 @@ export function SettingsPage() {
     { key: "identitas", label: "Identitas dokumen", show: true },
     { key: "excel", label: "Password Excel", show: can("manage_company") },
     { key: "notifikasi", label: "Notifikasi", show: true },
+    { key: "pencarian", label: "Pencarian", show: can("edit_catalog") },
     { key: "sandi", label: "Kata sandi saya", show: true },
     { key: "pengguna", label: "Pengguna", show: can("manage_users") },
     { key: "reset", label: "Permintaan reset", show: can("manage_users"), count: resetRequests.length },
@@ -394,6 +396,8 @@ export function SettingsPage() {
             </div>
           </section>
         )}
+
+        {current === "pencarian" && <SearchPrioritySettings canEdit={can("edit_catalog")} />}
 
         {current === "notifikasi" && (
           <div className="page-stack">

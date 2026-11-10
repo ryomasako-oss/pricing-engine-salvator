@@ -235,6 +235,34 @@ Pengujian importer berjalan terhadap berkas Accurate asli bila ada di folder
 
 ---
 
+## Pencarian barang
+
+Semua pencarian barang (Pilih dari katalog di quotation, halaman Katalog, Silvy) memakai satu mesin, `shared/catalogSearch.ts`:
+
+- **Lapis 1, kata** (selalu aktif, di memori Worker, ±5–40 ms untuk 7 ribu barang):
+  - kata bebas urutan, termasuk kode dan kategori;
+  - awalan kata untuk kata yang sedang diketik;
+  - padanan kata (`shared/searchSynonyms.ts`: pulpen = pen, merah = red, …);
+  - salah ketik 1–2 huruf, dengan saran "Mungkin maksud Anda";
+  - ejaan merek ("vitek", "art line").
+  - Angka dan ukuran tidak pernah dianggap salah ketik.
+  - Kategori prioritas (**Pengaturan → Pencarian**, bawaan ARTLINE, V-TEC, GM Stationery) tampil paling atas di antara hasil yang sama baiknya.
+  - Daftar hasil dimuat 50 per halaman saat di-scroll.
+  - **Belajar dari kebiasaan** (hanya mengubah urutan di antara barang yang cocok, tidak pernah menambah barang yang tidak cocok):
+    - barang yang dipilih setelah mengetik kata yang sama naik paling atas (tabel `search_picks`, migrasi 0034; memudar setengahnya tiap 90 hari tanpa dipilih);
+    - barang yang sering muncul di faktur penjualan (SI) dan faktur pembelian (PI) setahun terakhir serta di quotation naik di antara hasil yang sama baiknya;
+    - tulisan klien yang pernah dicocokkan di Pencocokan (`catalog_aliases`) ikut dicari.
+- **Lapis 2, makna (AI, opsional)** di `server/worker/catalogSemantic.ts`:
+  - Menambah barang yang maknanya dekat walau katanya beda ("perekat" → GLUE STICK).
+  - Hanya dipanggil bila kata menemukan kurang dari 20 barang atau tidak semua kata cocok.
+  - Bila AI gagal, pencarian tetap jalan dengan lapis 1.
+
+Lapis 2 terpasang sejak 9 Nov 2026 (`wrangler.toml`: `[ai]`, `[[vectorize]]` `catalog-search`, `CATALOG_SEMANTIC_SEARCH = "true"`; indeks dibuat dengan `npx wrangler vectorize create catalog-search --dimensions=1024 --metric=cosine`).
+- Cron 5 menit (`vectorTick`) mengisi indeks 1.500 barang per putaran sampai penuh (±25 menit), lalu mengisi ulang hanya bila barang ditambah, dihapus, atau diganti nama/kategori. Progres ada di pengaturan `catalog_vectors_state`; `npx wrangler vectorize info catalog-search` menampilkan jumlah vektor.
+- Admin juga bisa mengisi manual: `POST /api/catalog/search-index?offset=0&limit=500` → `{ indexed, next }`.
+- Mematikan: `CATALOG_SEMANTIC_SEARCH = "false"` lalu deploy. Pencarian kata tetap jalan.
+- Tes e2e dan `e2e/serve.ts` membuang binding AI/Vectorize dari salinan konfigurasinya, jadi tes tidak pernah memakai akun Cloudflare.
+
 ## Silvy (asisten AI)
 
 Silvy hanya menjawab dari angka quotation yang sedang dibuka: rincian item,

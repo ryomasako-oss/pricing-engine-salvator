@@ -55,6 +55,9 @@ const seed = [
      detail_name, unit, unit_ratio, quantity, sales_amount, sub_total) VALUES
    ('PT', 9001, 1, 'SI.2026.10.09001', '2026-10-20', 'C.09001', 'PT Zqsi Klien', 'ZQSI-1', 'zqsi oli rantai 800ml', 'BOX', 12, 2, 288000, 288000),
    ('PT', 9002, 1, 'SI.2026.09.09002', '2026-09-02', 'C.09001', 'PT Zqsi Klien', 'ZQSI-1', 'ZQSI PELUMAS RANTAI', 'Btl', 1, 5, 62500, 62500);`,
+  // Colour variants that tie on a plain "zqhl highlighter": only e2e/match-accept-all.spec.ts lists them.
+  `INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock, source) VALUES
+   ('ZQHL-B', 'ZQHL HIGHLIGHTER BLUE', 'Pcs', 4000, 7000, 10, 'e2e'), ('ZQHL-G', 'ZQHL HIGHLIGHTER GREEN', 'Pcs', 4000, 7000, 10, 'e2e');`,
   // As if a completed Accurate run had refreshed the stock (server/worker/accurate/stock.ts).
   `INSERT INTO settings(key, value) VALUES('accurate_stock_as_of', '2026-10-30T01:00:00.000Z');`,
 ].join("\n");
@@ -69,7 +72,13 @@ const e2eConfig = path.resolve("wrangler.e2e.toml");
 const toml = fs.readFileSync(path.resolve("wrangler.toml"), "utf8");
 const raised = toml.replace(/(name = "API_LIMITER"[\s\S]*?simple = \{ limit = )600/, (_, head: string) => `${head}6000`);
 if (raised === toml) throw new Error("e2e/serve.ts: API_LIMITER limit = 600 not found in wrangler.toml");
-fs.writeFileSync(e2eConfig, raised);
+// No AI or Vectorize in tests: those bindings always reach the real Cloudflare account.
+const offline = raised
+  .replace(/\n\[ai\]\nbinding = "AI"\n/, "\n")
+  .replace(/\n\[\[vectorize\]\]\nbinding = "CATALOG_VECTORS"\nindex_name = "catalog-search"\n/, "\n")
+  .replace('CATALOG_SEMANTIC_SEARCH = "true"', 'CATALOG_SEMANTIC_SEARCH = "false"');
+if (/\[ai\]|\[\[vectorize\]\]/.test(offline)) throw new Error("e2e/serve.ts: AI/Vectorize binding still in the e2e config");
+fs.writeFileSync(e2eConfig, offline);
 
 const dev = spawn(
   "npx",

@@ -63,6 +63,8 @@ export function fakeAccurate(opts: {
   stock: Record<number, Record<string, unknown>[]>;
   moveHost?: boolean;
   receipts?: FakeReceipt[];
+  /** Purchase invoices, served like receipts under purchase-invoice/. */
+  purchaseInvoices?: (FakeReceipt & { inclusiveTax?: boolean })[];
   /** Sales invoices; left out, the sales-invoice endpoints answer like a token without that scope. */
   salesInvoices?: (FakeReceipt & { customer: Record<string, unknown>; [k: string]: unknown })[];
 }) {
@@ -91,19 +93,20 @@ export function fakeAccurate(opts: {
     }
     if (url.pathname.endsWith("/item/list.do")) return page(opts.items, url);
     if (url.pathname.endsWith("/warehouse/list.do")) return page([{ id: 1, name: "Gudang Utama" }, { id: 2, name: "Bogor" }], url);
-    if (url.pathname.endsWith("/receive-item/list.do")) {
+    const docs = url.pathname.includes("/purchase-invoice/") ? (opts.purchaseInvoices ?? []) : (opts.receipts ?? []);
+    if (/\/(receive-item|purchase-invoice)\/list\.do$/.test(url.pathname)) {
       const q = url.searchParams;
       const since = (k: string) => q.get(`filter.${k}.val`);
-      const rows = (opts.receipts ?? [])
+      const rows = (docs as FakeReceipt[])
         .filter((r) => !since("lastUpdate") || sortKey(r.lastUpdate) >= sortKey(since("lastUpdate")!))
         .filter((r) => !since("transDate") || sortKey(r.transDate) >= sortKey(since("transDate")!))
         .sort((a, b) => a.id - b.id)
         .map(({ detailItem: _, ...head }) => head);
       return page(rows, url);
     }
-    if (url.pathname.endsWith("/receive-item/detail.do")) {
+    if (/\/(receive-item|purchase-invoice)\/detail\.do$/.test(url.pathname)) {
       const id = Number(url.searchParams.get("id"));
-      const r = (opts.receipts ?? []).find((x) => x.id === id || x.number === url.searchParams.get("number"));
+      const r = (docs as FakeReceipt[]).find((x) => x.id === id || x.number === url.searchParams.get("number"));
       return r ? json({ s: true, d: r }) : json({ s: false, d: ["Data tidak ditemukan"] }, 404);
     }
     if (url.pathname.includes("/sales-invoice/")) {

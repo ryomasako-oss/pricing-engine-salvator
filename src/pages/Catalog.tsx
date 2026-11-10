@@ -44,7 +44,10 @@ export function CatalogPage() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(0);
-  const [sortBy, setSortBy] = useState<"name" | "stock" | "cogs" | "list_price">("name");
+  // "" = by relevance while searching (shared/catalogSearch.ts), by name otherwise; a column header sorts.
+  const [sortBy, setSortBy] = useState<"" | "name" | "stock" | "cogs" | "list_price">("");
+  const [suggestion, setSuggestion] = useState<string | null>(null);
+  const [partial, setPartial] = useState(false);
   const [imageFilter, setImageFilter] = useState<"all" | "with" | "without">("all");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [loading, setLoading] = useState(true);
@@ -79,17 +82,18 @@ export function CatalogPage() {
       q: query.trim(),
       limit: String(PAGE),
       offset: String(page * PAGE),
-      sortBy,
-      sortDir,
+      ...(sortBy ? { sortBy, sortDir } : {}),
       ...(imageFilter === "all" ? {} : { image: imageFilter }),
     });
     api
-      .get<{ items: CatalogItem[]; total: number; stockAsOf: string | null }>(`/catalog?${params}`)
+      .get<{ items: CatalogItem[]; total: number; stockAsOf: string | null; suggestion?: string | null; partial?: boolean }>(`/catalog?${params}`)
       .then((r) => {
         if (seq !== loadSeq.current) return;
         setItems(r.items);
         setTotal(r.total);
         setStockAsOf(r.stockAsOf);
+        setSuggestion(r.suggestion ?? null);
+        setPartial(!!r.partial);
       })
       .catch((e) => seq === loadSeq.current && setLoadError(e instanceof Error ? e.message : String(e)))
       .finally(() => seq === loadSeq.current && setLoading(false));
@@ -170,7 +174,7 @@ export function CatalogPage() {
         <div>
           <h1>Katalog barang</h1>
           <p>
-            Harga pokok = harga pembelian terakhir di Accurate (penerimaan barang); barang yang belum
+            Harga pokok = harga pembelian terakhir di Accurate (faktur pembelian); barang yang belum
             pernah dibeli memakai laporan Nilai Persediaan. Harga jual acuan dari Daftar Barang dan Jasa.
           </p>
         </div>
@@ -228,7 +232,7 @@ export function CatalogPage() {
       {stats && stats.total > 0 && stats.priced / stats.total < 0.6 && (
         <p className="notice warn">
           Hanya {Math.round((stats.priced / stats.total) * 100)}%
-          item punya harga pokok. Barang yang belum pernah dibeli (tanpa penerimaan barang di Accurate)
+          item punya harga pokok. Barang yang belum pernah dibeli (tanpa faktur pembelian di Accurate)
           tidak punya harga pembelian terakhir — isi manual atau lewat impor Nilai Persediaan untuk item
           yang benar-benar dijual.
         </p>
@@ -265,6 +269,23 @@ export function CatalogPage() {
             {grp(total)} item cocok{stockAsOf && ` · stok Accurate per ${fmtDateTime(stockAsOf)}`}
           </span>
         </div>
+        {partial && items.length > 0 && (
+          <p className="note pad">Tidak ada barang yang cocok dengan semua kata. Ini yang paling mendekati.</p>
+        )}
+        {suggestion && (
+          <p className="note pad">
+            Mungkin maksud Anda:{" "}
+            <button
+              className="link-btn"
+              onClick={() => {
+                setQuery(suggestion);
+                setPage(0);
+              }}
+            >
+              {suggestion}
+            </button>
+          </p>
+        )}
 
         {loadError ? (
           <LoadError message={loadError} onRetry={load} />

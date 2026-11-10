@@ -102,7 +102,7 @@ for (const theme of THEMES) {
       const sidu = wb.getByRole("row", { name: /Kertas sidu/ });
       await sidu.getByRole("button", { name: "Cari di katalog untuk Kertas sidu" }).click();
       await sidu.getByLabel("Kata kunci katalog").fill("sinar dunia");
-      await sidu.getByRole("button", { name: "Cari", exact: true }).click();
+
       await sidu.getByRole("button", { name: /KERTAS HVS SINAR DUNIA A4 70GR/ }).click();
       await expect(adjustment).toHaveText("3 adjustment");
       expect(calls.resolve.at(-1)).toMatchObject({ action: "verify_item", item_id: await itemId(page, "K-SD70") });

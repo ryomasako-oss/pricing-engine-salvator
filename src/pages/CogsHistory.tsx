@@ -74,7 +74,7 @@ export function CogsHistoryPage() {
           </Link>
           <h1>Riwayat COGS</h1>
           <p>
-            Harga beli terbaru dari penerimaan barang (RI) Accurate dan COGS lama tiap barang. Halaman ini hanya
+            Harga beli terbaru dari faktur pembelian (PI) Accurate, sebelum PPN, dan COGS lama tiap barang. Halaman ini hanya
             menampilkan; untuk mengubah COGS pakai "COGS dari harga pembelian terakhir" di Katalog.
           </p>
         </div>
@@ -102,7 +102,7 @@ export function CogsHistoryPage() {
                 setPage(1);
               }}
             />
-            <span>Hanya yang COGS-nya beda dari RI terakhir</span>
+            <span>Hanya yang COGS-nya beda dari PI terakhir</span>
           </label>
           <span className="grow" />
           {data && !loadError && <span className="muted small num">{grp(data.total)} barang</span>}
@@ -143,21 +143,21 @@ export function CogsHistoryPage() {
                     {c.cogs > 0 ? <strong className="num">{rp(c.cogs)}</strong> : <strong className="text-err">kosong</strong>}
                     {c.pending && (
                       <span className={`badge ${c.pending.held ? "amber" : "blue"}`} title={c.pending.held ?? undefined}>
-                        RI terakhir {rp(c.pending.to)} · {c.pending.held ? "ditahan, perlu dicek" : "belum diterapkan"}
+                        PI terakhir {rp(c.pending.to)} · {c.pending.held ? "ditahan, perlu dicek" : "belum diterapkan"}
                       </span>
                     )}
                   </div>
 
                   <div className="card-section">
-                    <h4 className="label-title">Harga beli (RI)</h4>
+                    <h4 className="label-title">Harga beli (PI)</h4>
                     {c.receipts.length === 0 ? (
-                      <p className="muted">Belum ada RI dalam riwayat yang tersimpan.</p>
+                      <p className="muted">Belum ada PI dalam riwayat yang tersimpan.</p>
                     ) : (
                       <div className="table-wrap">
                         <table className="table stack">
                           <thead>
                             <tr>
-                              <th className="l">Nomor RI</th>
+                              <th className="l">Nomor PI</th>
                               <th className="l">Tanggal</th>
                               <th>Qty</th>
                               <th>Harga / satuan</th>
@@ -190,7 +190,7 @@ export function CogsHistoryPage() {
                       </div>
                     )}
                     {c.cogs > 0 && c.receipts.length > 0 && !c.receipts.some((r) => r.used) && (
-                      <p className="muted small">COGS tidak cocok dengan RI mana pun di atas (mungkin manual atau dari Excel).</p>
+                      <p className="muted small">COGS tidak cocok dengan PI mana pun di atas (mungkin manual atau dari Excel).</p>
                     )}
                   </div>
 

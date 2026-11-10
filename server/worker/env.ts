@@ -2,6 +2,11 @@
 
 export interface Bindings {
   DB: D1Database;
+  /* Pencarian AI (server/worker/catalogSemantic.ts): Workers AI + a Vectorize index of catalog
+     embeddings, used only when CATALOG_SEMANTIC_SEARCH = "true". Both optional. */
+  AI?: Ai;
+  CATALOG_VECTORS?: VectorizeIndex;
+  CATALOG_SEMANTIC_SEARCH?: string;
   ASSETS: Fetcher;
   JWT_SECRET: string;
   NODE_ENV?: string;
@@ -46,6 +51,10 @@ export interface Bindings {
   ACCURATE_RECEIPTS_ENABLED?: string;
   /** Sales invoices → accurate_sales_lines (accurate/sales.ts). Off unless "true". */
   ACCURATE_SALES_ENABLED?: string;
+  /** "true": sync purchase invoices (accurate_purchase_lines). */
+  ACCURATE_PURCHASES_ENABLED?: string;
+  /** "PI": modal from purchase invoices; anything else: goods receipts. */
+  ACCURATE_COGS_SOURCE?: string;
   /** Secret: recap recipients, comma-separated (accurateRecap.ts recapRecipients). Unset: managers and admins. */
   ACCURATE_RECAP_TO?: string;
   /** First pass only: receipts dated on or after this day, YYYY-MM-DD (default: one year back). */

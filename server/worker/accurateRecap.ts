@@ -12,7 +12,7 @@ import { STOCK_TOP, buildRecap, negativeFollowUp, recapEmail, recapIsEmpty } fro
 import { STOCK_AS_OF_KEY } from "./accurate/stock";
 import { forwardToSilvy, silvyConfigFrom } from "../silvy";
 import { applyPurchaseCosts } from "./accurate/purchaseCost";
-import { loadReceiptState, receiptsEnabled } from "./accurate/receipts";
+import { costKind, costLines, loadReceiptState, receiptsEnabled } from "./accurate/receipts";
 import { reconcileCounts } from "./accurate/reconcile";
 import { salesBelowCostSince, salesEnabled } from "./accurate/sales";
 import { catalogEntity } from "./accurate/sync";
@@ -61,9 +61,9 @@ export async function runAccurateRecap(
   if ((await getSetting(db, LAST_KEY, "")) === today) return { skipped: "already-sent-today" };
 
   const entity = catalogEntity(env);
-  const st = await loadReceiptState(db, entity);
+  const st = await loadReceiptState(db, entity, costKind(env));
   // The preview reads every stored receipt line once: here, once a day, never per tick.
-  const preview = st.last_pass_at ? await applyPurchaseCosts(db, entity, { dryRun: true }) : null;
+  const preview = st.last_pass_at ? await applyPurchaseCosts(db, entity, { dryRun: true, lines: costLines(env) }) : null;
   const staged = await get<{ n: number }>(db, "SELECT COUNT(*) AS n FROM accurate_items WHERE entity = ?", entity);
   const counts = staged?.n ? await reconcileCounts(db, entity) : null;
   // Items the cron added on their own since yesterday's recap (accurate/newItems.ts).
@@ -115,7 +115,7 @@ export async function runAccurateRecap(
       }
     : null;
   // Invoice lines since the last recap, not the last day: the first backfill spans several days.
-  const below = salesEnabled(env) ? await salesBelowCostSince(db, entity, (await getSetting(db, BELOW_COST_KEY, "")) || null) : null;
+  const below = salesEnabled(env) ? await salesBelowCostSince(db, entity, (await getSetting(db, BELOW_COST_KEY, "")) || null, costLines(env)) : null;
   const recap = buildRecap({
     now: opts.now,
     entity,
