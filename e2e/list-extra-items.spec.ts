@@ -137,3 +137,19 @@ test("the client's ceiling (plafon) binds the extra items too", async ({ page, e
   await expect(page.locator(".ltq-table tbody tr").first().locator("td.num").last()).toHaveText("45.000");
   await expect(page.locator("tr.also-row").locator("td.num").last()).toHaveText("45.000");
 });
+
+test("keyboard: Shift+Enter adds the highlighted item as an extra, Enter picks it", async ({ page, errors }) => {
+  void errors;
+  const LIST = csvFile("kbd.csv", [["Nama Barang", "Qty", "Satuan"], ["Kertas HVS Sinar Dunia A4 70gr", "5", "Rim"]]);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Dari list klien" }).click();
+  await page.locator('input[type="file"]').setInputFiles(LIST);
+  const box = page.getByRole("combobox", { name: "Item katalog untuk Kertas HVS Sinar Dunia A4 70gr" });
+  await box.fill("lakban bening");
+  await expect(page.getByRole("option").first()).toContainText("LAKBAN BENING 48MM");
+  await box.press("Shift+Enter");
+  await expect(page.locator("tr.also-row", { hasText: "LAKBAN BENING 48MM" })).toBeVisible();
+  // The row's own pick did not change.
+  await box.press("Escape");
+  await expect(box).toHaveValue(/SINAR DUNIA/);
+});

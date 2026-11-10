@@ -8,7 +8,8 @@ test.use({ theme: "light" });
 test("an item's PIs, invoice price and modal apart", async ({ page, errors }) => {
   void errors;
   await page.goto("/");
-  await page.getByRole("link", { name: "Riwayat PI" }).click();
+  await page.getByRole("navigation", { name: "Navigasi utama" }).getByRole("link", { name: "Riwayat", exact: true }).click();
+  await page.getByRole("navigation", { name: "Jenis riwayat" }).getByRole("link", { name: "Pembelian (PI)" }).click();
   await expect(page.getByRole("heading", { name: "Riwayat pembelian (PI)" })).toBeVisible();
   await page.getByLabel("Cari riwayat pembelian").fill("zqsi");
   const card = page.getByRole("region", { name: "ZQSI PELUMAS RANTAI" });
@@ -21,9 +22,9 @@ test("an item's PIs, invoice price and modal apart", async ({ page, errors }) =>
 
 test.describe("sales", () => {
   test.use({ storageState: "e2e/.auth/rep.json" });
-  test("has no Riwayat PI", async ({ page, errors }) => {
+  test("has no Riwayat", async ({ page, errors }) => {
     void errors;
     await page.goto("/");
-    await expect(page.getByRole("link", { name: "Riwayat PI" })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "Riwayat", exact: true })).toHaveCount(0);
   });
 });
