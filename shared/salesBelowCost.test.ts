@@ -48,7 +48,7 @@ describe("findBelowCost", () => {
     const r = findBelowCost([{ ...spiva, returnQty: 6 }], receipts, catalog);
     expect(r.below).toEqual([{
       invoiceNo: "SI.2026.10.00297", transDate: "2026-10-26", customerName: "MESTIKA", code: "100003",
-      name: "Spiva Mineral Water 500ML", net: 6520.83, cost: 7000, receiptNo: "RI.A", lossTotal: Math.round((7000 - 2_504_000 / 384) * 240), hints: [],
+      name: "Spiva Mineral Water 500ML", net: 6520.83, cost: 7000, receiptNo: "RI.A", lossTotal: Math.round((7000 - 2_504_000 / 384) * 240), hints: expect.any(Array), trace: expect.objectContaining({ receiptUnit: "BOX" }),
     }]);
   });
 

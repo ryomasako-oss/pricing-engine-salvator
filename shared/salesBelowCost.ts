@@ -35,12 +35,16 @@ export interface SalesLine {
   /** Invoice-level discount and the sub-total it is spread over. */
   cashDiscount: number;
   subTotal: number;
+  /** How the line was worded on the invoice (for the "salah kode" mark); optional. */
+  detailName?: string;
 }
 
 /**
  * What the client paid per base unit, after every discount and before PPN; null when the line
  * sold nothing (no quantity, or all of it returned).
  */
+const discountShare = (l: SalesLine) => (l.subTotal > 0 ? Math.min(1, Math.max(0, l.cashDiscount / l.subTotal)) : 0);
+
 export function netPerBaseUnit(l: SalesLine): number | null {
   const qty = l.quantity * (l.unitRatio > 0 ? l.unitRatio : 1);
   if (!(qty > 0) || l.returnQty >= l.quantity) return null;
@@ -69,8 +73,21 @@ export interface BelowCostRow {
   receiptNo: string;
   /** (cost - net) x base units sold, net of returns. */
   lossTotal: number;
-  /** Signs the loss may be a recording slip (PPN, unit, stale PI); empty when none (belowCostHints.ts). */
+  /** Signs the loss may be a recording slip (PPN, unit, input, code); empty when none (belowCostHints.ts). */
   hints: Hint[];
+  /** The two invoices as recorded, for the "Telusuri" view. */
+  trace: {
+    unit: string;
+    quantity: number;
+    returnQty: number;
+    unitRatio: number;
+    baseUom: string;
+    detailName: string;
+    /** Invoice discount share, 0-1. */
+    discount: number;
+    receiptDate: string;
+    receiptUnit: string;
+  };
 }
 
 export interface BelowCostResult {
@@ -92,6 +109,25 @@ export function findBelowCost(
   catalog: Map<string, CatalogFacts>,
 ): BelowCostResult {
   const out: BelowCostResult = { checked: 0, below: [], unknownCost: 0, doubtfulCost: 0 };
+  // The item's other prices, for "salah input": every SI net in this batch, every PI cost per base unit.
+  const nets = new Map<SalesLine, number>();
+  const netsByItem = new Map<string, SalesLine[]>();
+  for (const l of sales) {
+    const n = netPerBaseUnit(l);
+    if (n === null) continue;
+    nets.set(l, n);
+    const list = netsByItem.get(l.itemCode);
+    if (list) list.push(l);
+    else netsByItem.set(l.itemCode, [l]);
+  }
+  const costsByReceipt = new Map<ReceiptLine, number>();
+  const costOf = (r: ReceiptLine, item: CatalogFacts) => {
+    if (!costsByReceipt.has(r)) {
+      const c = lastPurchaseCost([r], { baseUom: item.baseUom, units: item.units }, item.uom);
+      costsByReceipt.set(r, c.ok ? c.cost : 0);
+    }
+    return costsByReceipt.get(r)!;
+  };
   for (const l of sales) {
     const net = netPerBaseUnit(l);
     const item = catalog.get(l.itemCode);
@@ -122,7 +158,14 @@ export function findBelowCost(
         hints: belowCostHints({
           net, cost: c.cost, saleDate: l.transDate, receiptDate: c.transDate, listPrice: item.listPrice,
           saleUnit: l.unit, saleRatio: l.unitRatio, baseUom: item.baseUom,
+          otherCosts: (receiptsByItem.get(l.itemCode) ?? []).filter((r) => r.receiptNo !== c.receiptNo).map((r) => costOf(r, item)),
+          otherPrices: (netsByItem.get(l.itemCode) ?? []).filter((o) => o !== l).map((o) => nets.get(o)!),
+          detailName: l.detailName, name: item.name, discount: discountShare(l),
         }),
+        trace: {
+          unit: l.unit, quantity: l.quantity, returnQty: l.returnQty, unitRatio: l.unitRatio, baseUom: item.baseUom,
+          detailName: l.detailName ?? "", discount: discountShare(l), receiptDate: c.transDate, receiptUnit: c.unit,
+        },
       });
     }
   }

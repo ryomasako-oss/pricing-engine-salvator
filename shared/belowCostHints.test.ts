@@ -1,10 +1,34 @@
 import { describe, expect, it } from "vitest";
-import { belowCostHints, looksLikeSlip } from "./belowCostHints";
+import { belowCostHints, looksLikeSlip, matchesCause } from "./belowCostHints";
 
 const base = { net: 8000, cost: 10000, saleDate: "2026-10-05", receiptDate: "2026-10-01", listPrice: 15000, saleUnit: "Pcs", saleRatio: 1, baseUom: "Pcs" };
-const kinds = (r: Partial<typeof base>) => belowCostHints({ ...base, ...r }).map((h) => h.kind);
+const kinds = (r: Partial<Parameters<typeof belowCostHints>[0]>) => belowCostHints({ ...base, ...r }).map((h) => h.kind);
 
 describe("belowCostHints", () => {
+  it("salah input: far from the item's other PIs or SIs", () => {
+    expect(belowCostHints({ ...base, cost: 20000, otherCosts: [10000, 10500] })[0].label).toBe("Cek input harga beli: biasanya ± Rp 10.250");
+    expect(kinds({ cost: 20000, otherCosts: [10000] })).toEqual([]); // one other PI is no habit
+    expect(kinds({ net: 3000, cost: 10000, otherPrices: [9000, 9500, 9800] })).toEqual(["input_price"]);
+    expect(kinds({ net: 1000, cost: 12000, otherCosts: [5000, 5000] })).toEqual(["unit"]); // a pack slip, not input
+  });
+  it("salah kode: the invoice wording shares no word with the catalog name", () => {
+    expect(kinds({ name: "Lakban bening 2 inch", detailName: "LAKBAN BENING 48MM" })).toEqual([]);
+    expect(belowCostHints({ ...base, name: "Lakban bening", detailName: "Spidol whiteboard" })[0].kind).toBe("code");
+  });
+  it("a big invoice discount explains, it is not a slip", () => {
+    const h = belowCostHints({ ...base, discount: 0.15 });
+    expect(h.map((x) => x.label)).toEqual(["Diskon faktur 15%"]);
+    expect(looksLikeSlip(h)).toBe(false);
+  });
+  it("causes filter the rows the owner asked to tell apart", () => {
+    const unit = belowCostHints({ ...base, net: 1000, cost: 12000 });
+    expect(matchesCause(unit, "unit")).toBe(true);
+    expect(matchesCause(unit, "data")).toBe(true);
+    expect(matchesCause(unit, "real")).toBe(false);
+    expect(matchesCause(belowCostHints({ ...base, listPrice: 0 }), "real")).toBe(true);
+    expect(matchesCause(unit, "")).toBe(true);
+  });
+
   it("a plain loss carries no mark", () => {
     expect(kinds({})).toEqual([]);
     expect(looksLikeSlip(belowCostHints(base))).toBe(false);

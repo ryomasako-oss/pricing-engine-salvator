@@ -56,20 +56,29 @@ test("filters by client and text, and exports only the filtered rows", async ({ 
   await expect(page.getByRole("button", { name: "Export Excel" })).toBeDisabled();
 });
 
-test("marks rows that look like a PPN or unit slip, and filters them", async ({ page, errors }) => {
+test("tells a data slip from a real loss, and traces a row", async ({ page, errors }) => {
   void errors;
   await open(page);
-  // 9.000 against 10.000 is the 11% of PPN; 8.000 against 10.000 is no slip.
+  // 9.000 against 10.000 is the 11% of PPN; 8.000 against 10.000 is a real loss.
   await expect(page.getByRole("row", { name: /SI\.2026\.09\.09201/ })).toContainText("Cek PPN");
-  await expect(page.getByRole("row", { name: /SI\.2026\.09\.09202/ })).not.toContainText("Cek PPN");
-  await expect(page.getByText("1 di antaranya mungkin salah data")).toBeVisible();
+  await expect(page.getByRole("row", { name: /SI\.2026\.09\.09202/ })).toContainText("Rugi sungguhan");
 
-  await page.getByLabel("Filter cek data").selectOption("slip");
+  await page.getByLabel("Filter penyebab").selectOption("ppn");
   await expect(page.getByRole("row", { name: /SI\.2026\.09\.09201/ })).toBeVisible();
   await expect(page.getByRole("row", { name: /SI\.2026\.09\.09202/ })).toHaveCount(0);
-  await page.getByLabel("Filter cek data").selectOption("clean");
+  await page.getByLabel("Filter penyebab").selectOption("real");
   await expect(page.getByRole("row", { name: /SI\.2026\.09\.09201/ })).toHaveCount(0);
-  await expect(page.getByRole("row", { name: /SI\.2026\.09\.09202/ })).toBeVisible();
+  await page.getByLabel("Filter penyebab").selectOption("");
+
+  await page.getByRole("button", { name: /Telusuri SI\.2026\.09\.09201/ }).click();
+  const dialog = page.getByRole("dialog", { name: /Telusuri SI\.2026\.09\.09201/ });
+  await expect(dialog.getByText("Kemungkinan salah data")).toBeVisible();
+  await expect(dialog.getByText("PI.2026.09.09201").first()).toBeVisible();
+  await expect(dialog.getByRole("region", { name: "Riwayat beli barang ini" })).toContainText("PI.2026.09.09201");
+  await expect(dialog.getByRole("region", { name: "Riwayat jual barang ini" })).toContainText("CV Zqbc Lain");
+  await page.screenshot({ path: "test-results/below-cost-trace.png" });
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
 });
 
 test.describe("sales", () => {
