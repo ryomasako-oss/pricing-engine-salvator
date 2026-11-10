@@ -75,6 +75,8 @@ interface Row {
   also?: number[];
 }
 
+const NUMBERING_KEY = "ltq-nomor";
+
 export function ListToQuote({
   clients,
   onClose,
@@ -185,14 +187,16 @@ export function ListToQuote({
       if (d.status !== "open") throw new Error("Draft ini sudah dibatalkan.");
       const res = await api.post<MatchResponse>("/catalog/match", { client_id: d.client_id, lines: d.lines });
       // Items picked by hand aren't in the match: fetch them by code, through the same viewer filter.
-      const found = await Promise.all(
-        codesToFetch(d.choices, res.items).map((code) =>
-          api
-            .get<{ items: CatalogItem[] }>(`/catalog?${new URLSearchParams({ q: code, limit: "5" })}`)
-            .then((r) => r.items.find((i) => i.code.toLowerCase() === code.toLowerCase()))
-            .catch(() => undefined),
-        ),
-      );
+      // By exact code, 90 at a time (GET /catalog?codes=): a search could rank another item above it.
+      const want = codesToFetch(d.choices, res.items);
+      const found: (CatalogItem | undefined)[] = [];
+      for (let i = 0; i < want.length; i += 90) {
+        const chunk = want.slice(i, i + 90);
+        const r = await api
+          .get<{ items: CatalogItem[] }>(`/catalog?${new URLSearchParams({ codes: chunk.join(","), limit: "90" })}`)
+          .catch(() => ({ items: [] as CatalogItem[] }));
+        found.push(...r.items);
+      }
       const known = new Map([...res.items, ...found.filter((i): i is CatalogItem => !!i)].map((i) => [i.id, i]));
       const restored = restoreRows(d.lines, res.results, d.choices, known);
       for (const p of restored.extraItems) known.set(p.id, p);
@@ -288,6 +292,8 @@ export function ListToQuote({
     if (!rows) return [];
     return rows.map((r) => {
       const item = r.chosen != null ? items.get(r.chosen) : undefined;
+      // Nothing chosen but extra items added ("binder clip" served by 5 clips): the request is served.
+      if (!item && (r.also ?? []).length > 0) return null;
       // Nothing chosen: the client's own line stays on the quote, held, so all of their list shows.
       if (!item) {
         return {
@@ -332,6 +338,7 @@ export function ListToQuote({
 
   // "Tambah barang lain": each extra item of a row is its own quote line, same qty and unit as the
   // request (editable in the editor). Held like any pick when its COGS needs a check.
+  // Same reading of the client's unit as the row's own line ("isi 12/Lusin" in the name), keyed by item id.
   const alsoLines = useMemo(
     () =>
       (rows ?? []).map((r) =>
@@ -339,8 +346,12 @@ export function ListToQuote({
           .map((id) => items.get(id))
           .filter((item): item is CatalogItem => !!item && item.source !== "pending")
           .map((item) => {
-            const line = lineFromCatalog(item, r.request.qty ?? 1, { uom: r.request.uom, toBase: true });
-            return item.cogs_problem ? { ...line, held: true } : line;
+            const line = lineFromCatalog(item, r.request.qty ?? 1, {
+              uom: r.request.uom,
+              requestName: r.request.noQty ? undefined : r.request.name,
+              toBase: true,
+            });
+            return { id: item.id, item, line: item.cogs_problem ? { ...line, held: true } : line };
           }),
       ),
     [rows, items],
@@ -348,14 +359,15 @@ export function ListToQuote({
 
   // Prices for staff: the same lines the quote will be built from, priced by
   // the server without saving anything. Index i -> unit price.
-  // Keyed "r{i}" for a row's own line and "a{i}_{k}" for its extra items ("+ Barang lain").
+  // Keyed "r{i}" for a row's own line and "a{i}_{item id}" for its extra items ("+ Barang lain"),
+  // so removing one extra never shows another's price.
   const [prices, setPrices] = useState<Record<string, number>>({});
-  const previewKey = JSON.stringify([lines.map((l) => l && [l.code, l.qty, l.uom, l.rrp]), alsoLines.map((ls) => ls.map((l) => [l.code, l.qty, l.uom]))]);
+  const previewKey = JSON.stringify([lines.map((l) => l && [l.code, l.qty, l.uom, l.rrp]), alsoLines.map((ls) => ls.map((a) => [a.id, a.line.qty, a.line.uom]))]);
   useEffect(() => {
     if (seeCosts || !rows) return;
     const send = [
       ...lines.map((l, i) => l && l.holdReason !== "unmatched" && { id: `r${i}`, code: l.code, name: l.name, qty: l.qty, uom: l.uom, rrp: l.rrp }),
-      ...alsoLines.flatMap((ls, i) => ls.map((l, k) => ({ id: `a${i}_${k}`, code: l.code, name: l.name, qty: l.qty, uom: l.uom, rrp: l.rrp }))),
+      ...alsoLines.flatMap((ls, i) => ls.map(({ id, line: l }) => ({ id: `a${i}_${id}`, code: l.code, name: l.name, qty: l.qty, uom: l.uom, rrp: l.rrp }))),
     ].filter(Boolean);
     if (!send.length) return setPrices({});
     let live = true;
@@ -397,10 +409,12 @@ export function ListToQuote({
     !!r.result.tie && !r.confirmed && r.chosen != null && r.chosen === r.result.candidates[0]?.id && !isPending(r) && !blockedOf(r);
   const bulkCount = rows?.filter(bulkable).length ?? 0;
   const acceptAll = () => setRows((rs) => rs && rs.map((r) => (bulkable(r) ? { ...r, confirmed: true, bulk: true } : r)));
-  const heldCount = rows?.filter((r) => blockedOf(r) || isPending(r)).length ?? 0;
+  const heldCount =
+    (rows?.filter((r) => blockedOf(r) || isPending(r)).length ?? 0) + alsoLines.flat().filter((a) => a.line.held).length;
   const usedRows = lines.filter((l) => l && l.holdReason !== "unmatched").length;
-  // Rows with no item and no price: they stay on the quote as "menyusul" (held) and in Perlu diperbaiki.
-  const skipped = (rows?.length ?? 0) - usedRows;
+  // Rows with no item, no extra item and no price: they stay on the quote as "menyusul" (held) and in Perlu diperbaiki.
+  const unserved = (r: Row) => r.chosen == null && !(r.also ?? []).length;
+  const skipped = rows?.filter(unserved).length ?? 0;
   // Items going on the quote: each row's own pick plus its extra items ("+ Barang lain").
   const used = usedRows + alsoLines.flat().length;
 
@@ -410,7 +424,7 @@ export function ListToQuote({
     setBusy(true);
     try {
       // A row's extra items ("Tambah barang lain") follow its own line.
-      const quoteItems = (lines.flatMap((l, i) => [l, ...(alsoLines[i] ?? [])]).filter(Boolean) as QuoteItem[]).map((l, i) => ({
+      const quoteItems = (lines.flatMap((l, i) => [l, ...(alsoLines[i] ?? []).map((a) => a.line)]).filter(Boolean) as QuoteItem[]).map((l, i) => ({
         ...l,
         lineNo: i + 1,
       }));
@@ -418,7 +432,7 @@ export function ListToQuote({
       // with the quote, in the same request), so nothing the client asked for
       // is silently dropped.
       const unmatched = rows
-        .filter((row) => row.chosen == null)
+        .filter(unserved)
         .map((row) => ({
           name: row.request.name.slice(0, 300),
           qty: Math.max(0, Number(row.request.qty) || 0),
@@ -484,6 +498,24 @@ export function ListToQuote({
     held: !!blockedOf(row),
   });
   const summary = rows && reviewSummary(rows.map(rowState));
+
+  // Penomoran (Ryoma, 10 Nov: boss may want 1.1 as 2): "nested" = 1, 1.1, 1.2, 2 (extra items under
+  // their request); "flat" = 1, 2, 3, 4, the order the quote itself uses. Remembered on this browser.
+  const [numbering, setNumbering] = useState<"nested" | "flat">(() =>
+    localStorage.getItem(NUMBERING_KEY) === "flat" ? "flat" : "nested",
+  );
+  const chooseNumbering = (n: "nested" | "flat") => {
+    setNumbering(n);
+    localStorage.setItem(NUMBERING_KEY, n);
+  };
+  const numbers = useMemo(() => {
+    let n = 0;
+    return (rows ?? []).map((r, i) => {
+      const own = numbering === "flat" ? String(++n) : String(i + 1);
+      const extra = (r.also ?? []).map((_, k) => (numbering === "flat" ? String(++n) : `${i + 1}.${k + 1}`));
+      return { own, extra };
+    });
+  }, [rows, numbering]);
 
   return (
     <Modal
@@ -609,6 +641,17 @@ export function ListToQuote({
               )}
               {summary!.none > 0 && <span className="badge blue">{summary!.none} adjustment</span>}
               {heldCount > 0 && <span className="badge amber">{heldCount} ditahan</span>}
+              {rows.some((r) => (r.also ?? []).length > 0) && (
+                <span className="row-wrap" role="group" aria-label="Penomoran barang lain">
+                  <span className="muted small">Nomor:</span>
+                  <button type="button" className={`chip${numbering === "nested" ? " on" : ""}`} aria-pressed={numbering === "nested"} onClick={() => chooseNumbering("nested")}>
+                    1, 1.1, 2
+                  </button>
+                  <button type="button" className={`chip${numbering === "flat" ? " on" : ""}`} aria-pressed={numbering === "flat"} onClick={() => chooseNumbering("flat")}>
+                    1, 2, 3
+                  </button>
+                </span>
+              )}
             </div>
           </div>
           {draft?.assigned_to != null && (
@@ -680,7 +723,7 @@ export function ListToQuote({
                       onMouseDownCapture={() => panel && panel.row !== i && setPanel(null)}
                       onFocusCapture={() => panel && panel.row !== i && setPanel(null)}
                     >
-                      <td className="l muted">{i + 1}</td>
+                      <td className="l muted">{numbers[i]?.own}</td>
                       <td className="l">
                         <div className="cell-title">{row.request.name}</div>
                         <div className="muted small">
@@ -735,13 +778,15 @@ export function ListToQuote({
                                 confirmed: true,
                                 unitOk: false,
                                 // A pick from the catalog search stays among the row's options.
-                                ...(it && !options.includes(it.id) ? { extra: [...row.extra, it.id] } : {}),
+                                ...(it && !options.includes(it.id) ? { extra: [...row.extra, it.id].slice(-20) } : {}),
                                 // An extra item made the row's own pick is no longer an extra.
                                 also: (row.also ?? []).filter((x) => x !== it?.id),
                               });
                             }}
                             onAdd={(it) => {
-                              if (it.id === row.chosen || (row.also ?? []).includes(it.id)) return;
+                              // A barang baru is not in the catalog yet: it can be the row's pick, not an extra line.
+                              if (it.source === "pending" || it.id === row.chosen || (row.also ?? []).includes(it.id)) return;
+                              if ((row.also ?? []).length >= 20) return toast("Maksimal 20 barang lain per permintaan.", "error");
                               setItems((m) => new Map(m).set(it.id, it));
                               setAlso(i, [...(row.also ?? []), it.id].slice(0, 20));
                             }}
@@ -801,11 +846,12 @@ export function ListToQuote({
                     {/* "+ Barang lain": each extra item is its own quote line, with its own cost and ceiling. */}
                     {(row.also ?? []).map((id, k) => {
                       const it = items.get(id);
-                      const al = alsoLines[i]?.find((l) => l.code === it?.code);
+                      const al = alsoLines[i]?.find((a) => a.id === id)?.line;
                       if (!it || !al) return null;
+                      const unitWarn = uomWarning(al);
                       return (
                         <tr key={`a${id}`} className="also-row">
-                          <td className="l muted">{i + 1}.{k + 1}</td>
+                          <td className="l muted">{numbers[i]?.extra[k]}</td>
                           <td className="l muted small">Barang lain untuk "{row.request.name}"</td>
                           <td className="num">{grp(al.qty)}</td>
                           <td className="l">
@@ -814,6 +860,11 @@ export function ListToQuote({
                             {it.cogs_problem && (
                               <div className="cell-warn">{it.cogs_problem}. Masuk sebagai baris ditahan sampai dicek manajer.</div>
                             )}
+                            {/* The client's unit applies to every item of the request: say when it was assumed. */}
+                            {row.request.uom && unitAssumed(row.request.uom, it) && (
+                              <div className="cell-warn">Rasio {row.request.uom} belum ada di katalog untuk barang ini: dianggap 1 {row.request.uom} = 1 {it.uom || "Pcs"}. Periksa qty di quotation.</div>
+                            )}
+                            {unitWarn && <div className="cell-warn">{unitWarn}</div>}
                           </td>
                           <td className="l">
                             <button
@@ -830,8 +881,8 @@ export function ListToQuote({
                               <span className="muted">ditahan</span>
                             ) : seeCosts ? (
                               grp(al.cogs)
-                            ) : prices[`a${i}_${k}`] != null ? (
-                              <strong>{grp(prices[`a${i}_${k}`])}</strong>
+                            ) : prices[`a${i}_${id}`] != null ? (
+                              <strong>{grp(prices[`a${i}_${id}`])}</strong>
                             ) : (
                               <span className="muted">…</span>
                             )}
