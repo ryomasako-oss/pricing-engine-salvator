@@ -17,10 +17,15 @@ for (const theme of THEMES) {
         ["Kertas HVS Sinar Dunia A4 70gr", "5", "Rim"], // Cocok
         [paper, "5", "Rim"], // "paperone" is in no item: review, never bulk
       ]);
+      // A client of its own per run: aliases are saved per client, so a repeat (--repeat-each, a retry,
+      // the other theme) never finds this run's wording already settled.
+      const clientName = `PT Uji Terima ${theme} ${Date.now().toString(36)}`;
+      const madeClient = await page.request.post("/api/clients", { data: { name: clientName } });
+      expect(madeClient.ok()).toBe(true);
       await page.goto("/");
       await expectTheme(page, theme);
       await page.getByRole("button", { name: "Dari list klien" }).click();
-      await page.getByRole("combobox", { name: "Klien", exact: true }).selectOption({ label: "PT Agrinesia" });
+      await page.getByRole("combobox", { name: "Klien", exact: true }).selectOption({ label: clientName });
       await page.locator('input[type="file"]').setInputFiles(LIST);
 
       const review = page.locator(".badge", { hasText: /^\d+ perlu dicek$/ });

@@ -7,6 +7,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { useToast } from "../context/ToastContext";
 import { LoadError } from "../components/LoadError";
+import { HistoryTabs } from "../components/HistoryTabs";
 import { Icon } from "../components/Icon";
 import { fmtDate, fmtDateTime, grp, rp } from "@shared/format";
 
@@ -67,6 +68,7 @@ export function CogsHistoryPage() {
 
   return (
     <main className="hk-main page-stack">
+      <HistoryTabs />
       <div className="hk-page-head">
         <div>
           <Link to="/catalog" className="link-btn">
@@ -78,9 +80,6 @@ export function CogsHistoryPage() {
             menampilkan; untuk mengubah COGS pakai "COGS dari harga pembelian terakhir" di Katalog.
           </p>
         </div>
-        <Link className="btn ghost" to="/sales-history">
-          Riwayat penjualan (SI)
-        </Link>
       </div>
 
       <div className="card">

@@ -8,7 +8,8 @@ for (const theme of ["light", "dark"] as const) {
     test(`an SI under its PI price, with the loss (${theme})`, async ({ page, errors }) => {
       void errors;
       await page.goto("/");
-      await page.getByRole("link", { name: "Jual < Beli" }).click();
+      await page.getByRole("navigation", { name: "Navigasi utama" }).getByRole("link", { name: "Riwayat", exact: true }).click();
+      await page.getByRole("navigation", { name: "Jenis riwayat" }).getByRole("link", { name: "Jual < Beli" }).click();
       await expect(page.getByRole("heading", { name: "Jual di bawah beli" })).toBeVisible();
       await page.getByLabel("Tanggal SI dari").fill("2026-09-01");
       await page.getByLabel("Tanggal SI sampai").fill("2026-09-30");
@@ -24,9 +25,9 @@ for (const theme of ["light", "dark"] as const) {
 
 test.describe("sales", () => {
   test.use({ storageState: "e2e/.auth/rep.json" });
-  test("has no Jual < Beli", async ({ page, errors }) => {
+  test("cannot open Jual < Beli", async ({ page, errors }) => {
     void errors;
-    await page.goto("/");
-    await expect(page.getByRole("link", { name: "Jual < Beli" })).toHaveCount(0);
+    await page.goto("/below-cost");
+    await expect(page.getByRole("heading", { name: "Jual di bawah beli" })).toHaveCount(0);
   });
 });

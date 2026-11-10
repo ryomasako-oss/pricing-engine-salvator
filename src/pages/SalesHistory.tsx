@@ -8,6 +8,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { useToast } from "../context/ToastContext";
 import { LoadError } from "../components/LoadError";
+import { HistoryTabs } from "../components/HistoryTabs";
 import { Icon } from "../components/Icon";
 import { fmtDate, grp, rp } from "@shared/format";
 
@@ -75,6 +76,7 @@ export function SalesHistoryPage() {
 
   return (
     <main className="hk-main page-stack">
+      <HistoryTabs />
       <div className="hk-page-head">
         <div>
           <Link to="/pencocokan" className="link-btn">
@@ -85,14 +87,6 @@ export function SalesHistoryPage() {
             Faktur penjualan (SI) Accurate terbaru tiap barang: ke siapa, ditulis sebagai apa, dan harganya. Cari pakai kode,
             nama katalog, tulisan klien, atau nama customer untuk mengecek pencocokan. Harga setelah diskon, sebelum PPN.
           </p>
-        </div>
-        <div className="row-wrap">
-          <Link className="btn ghost" to="/cogs-history">
-            Riwayat COGS
-          </Link>
-          <Link className="btn ghost" to="/purchase-history">
-            Riwayat PI
-          </Link>
         </div>
       </div>
 

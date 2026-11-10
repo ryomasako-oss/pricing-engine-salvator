@@ -4,8 +4,8 @@
    chosen date range. Read-only; needs view_costs. */
 
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import { api } from "../api";
+import { HistoryTabs } from "../components/HistoryTabs";
 import { LoadError } from "../components/LoadError";
 import { fmtDate, grp, rp } from "@shared/format";
 
@@ -47,6 +47,7 @@ export function BelowCostPage() {
 
   return (
     <main className="hk-main page-stack">
+      <HistoryTabs />
       <div className="hk-page-head">
         <div>
           <h1>Jual di bawah beli</h1>
@@ -55,14 +56,6 @@ export function BelowCostPage() {
             harga faktur pembelian (PI) terakhir pada atau sebelum tanggal SI. Harga beli tidak boleh lebih tinggi dari harga
             jual — setiap baris di sini perlu ditindaklanjuti.
           </p>
-        </div>
-        <div className="row-wrap">
-          <Link className="btn ghost" to="/sales-history">
-            Riwayat SI
-          </Link>
-          <Link className="btn ghost" to="/purchase-history">
-            Riwayat PI
-          </Link>
         </div>
       </div>
 
