@@ -1,5 +1,6 @@
 import { lazy, Suspense } from "react";
-import { NavLink, Navigate, Route, Routes, useLocation, useParams } from "react-router-dom";
+import { isHistoryPath } from "./components/HistoryTabs";
+import { Link, NavLink, Navigate, Route, Routes, useLocation, useParams } from "react-router-dom";
 import { useAuth } from "./context/AuthContext";
 import { useTheme } from "./context/ThemeContext";
 import { useConfirmLeave } from "./context/UnsavedGuardContext";
@@ -43,6 +44,7 @@ function TopBar() {
   const { theme, toggleTheme } = useTheme();
   const { pending, toFix } = useNavCounts();
   const confirmLeave = useConfirmLeave();
+  const { pathname } = useLocation();
 
   // Route changes are guarded by the router blocker (UnsavedGuardContext); logout is not one.
 
@@ -97,18 +99,15 @@ function TopBar() {
         </NavLink>
         {can("view_costs") && (
           <>
-            <NavLink to="/cogs-history" className={({ isActive }) => (isActive ? "active" : "")}>
+            {/* One "Riwayat" item for COGS, SI and PI; the pages switch with HistoryTabs. */}
+            <Link
+              to="/cogs-history"
+              className={isHistoryPath(pathname) ? "active" : ""}
+              aria-current={isHistoryPath(pathname) ? "page" : undefined}
+            >
               <Icon name="history" size={16} />
-              <span className="label">Riwayat COGS</span>
-            </NavLink>
-            <NavLink to="/sales-history" className={({ isActive }) => (isActive ? "active" : "")}>
-              <Icon name="doc" size={16} />
-              <span className="label">Riwayat SI</span>
-            </NavLink>
-            <NavLink to="/purchase-history" className={({ isActive }) => (isActive ? "active" : "")}>
-              <Icon name="truck" size={16} />
-              <span className="label">Riwayat PI</span>
-            </NavLink>
+              <span className="label">Riwayat</span>
+            </Link>
           </>
         )}
         <NavLink to="/clients" className={({ isActive }) => (isActive ? "active" : "")}>

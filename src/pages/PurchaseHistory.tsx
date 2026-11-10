@@ -8,6 +8,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { useToast } from "../context/ToastContext";
 import { LoadError } from "../components/LoadError";
+import { HistoryTabs } from "../components/HistoryTabs";
 import { fmtDate, grp, rp } from "@shared/format";
 
 interface Card {
@@ -71,6 +72,7 @@ export function PurchaseHistoryPage() {
 
   return (
     <main className="hk-main page-stack">
+      <HistoryTabs />
       <div className="hk-page-head">
         <div>
           <h1>Riwayat pembelian (PI)</h1>
@@ -79,14 +81,6 @@ export function PurchaseHistoryPage() {
             setelah diskon dan sebelum PPN. Faktur yang dicentang "Total termasuk pajak" ditandai. Cari pakai kode, nama
             barang, atau nomor PI.
           </p>
-        </div>
-        <div className="row-wrap">
-          <Link className="btn ghost" to="/cogs-history">
-            Riwayat COGS
-          </Link>
-          <Link className="btn ghost" to="/sales-history">
-            Riwayat SI
-          </Link>
         </div>
       </div>
 
