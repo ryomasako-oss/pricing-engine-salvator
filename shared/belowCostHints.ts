@@ -21,7 +21,10 @@ export type HintKind =
 
 export interface Hint {
   kind: HintKind;
+  /** Short, for the table: "Satuan tertukar? (≈12×)". */
   label: string;
+  /** What it means and what to check, in plain words (pemilik, 11 Nov: "orang awam pun paham"). */
+  detail: string;
 }
 
 /** Pack sizes common in the catalog (lusin, gross, rim, box): cost ≈ k × price smells of a unit slip. */
@@ -71,68 +74,116 @@ export function belowCostHints(r: {
   invoicePrice?: number;
 }): Hint[] {
   const out: Hint[] = [];
+  const h = (kind: HintKind, label: string, detail: string) => out.push({ kind, label, detail });
   // Found in Accurate on 10 Nov (laporan "Telusur selisih jual di bawah beli"): these are no sale at a price.
   if (r.invoiceTotal === 0 && r.lineAmount === 0) {
-    return [{ kind: "no_value", label: "Faktur tanpa nilai (tukar retur, nota ganda tidak ditagih, atau sejenisnya): cek keterangan faktur" }];
+    h("no_value", "Nota jual Rp 0",
+      "Seluruh nota jual ini bernilai Rp 0. Biasanya ini nota tukar barang retur, atau nota ganda yang sengaja tidak ditagih. Jadi barangnya bukan dijual murah. Cek keterangan nota di Accurate.");
+    return out;
   }
-  if (r.name && GENERIC.test(r.name)) out.push({ kind: "generic", label: "Kode umum/jasa: barang berbeda di bawah satu kode, harga beli dan jual tidak sebanding" });
+  if (r.name && GENERIC.test(r.name)) {
+    h("generic", "Kode umum/jasa",
+      "Kode ini dipakai untuk banyak barang atau jasa yang berbeda (misalnya suku cadang). Harga beli satu barang dibandingkan dengan harga jual barang lain, jadi selisihnya tidak bermakna.");
+  }
   if (r.lineAmount === 0 && (r.invoiceTotal ?? 0) > 0) {
-    out.push({
-      kind: "bonus_sale",
-      label: r.invoicePrice && r.invoicePrice > 0 ? `Bonus ke klien (Rp 0); harga efektif barang ini di faktur Rp ${rupiah(r.invoicePrice)}` : "Bonus ke klien (Rp 0) tanpa baris berbayar di faktur ini",
-    });
+    if (r.invoicePrice && r.invoicePrice > 0) {
+      h("bonus_sale", "Bonus ke klien",
+        `Barang ini diberikan gratis ke klien sebagai bonus (misalnya "beli 20 gratis 1"). Kalau dihitung bersama barang yang dibayar di nota yang sama, harga jualnya sekitar Rp ${rupiah(r.invoicePrice)} per ${r.baseUom || "satuan"}.`);
+    } else {
+      h("bonus_sale", "Barang gratis ke klien",
+        "Barang ini diberikan gratis ke klien, dan tidak ada barang yang sama yang dibayar di nota ini. Cek apakah ini bonus, sampel, atau pengganti barang.");
+    }
     return out;
   }
   const ratio = r.net > 0 ? r.cost / r.net : 0;
   const pack = PACKS.find((k) => Math.abs(ratio / k - 1) <= 0.08);
-  if (pack) out.push({ kind: "unit", label: `Cek satuan: harga beli ≈ ${pack}× harga jual` });
-  else if (ratio >= 1.08 && ratio <= 1.14) out.push({ kind: "ppn", label: "Cek PPN: selisih ≈ 11%, cek centang \"termasuk pajak\" di nota" });
+  if (pack) {
+    h("unit", `Satuan tertukar? (≈${pack}×)`,
+      `Harga beli sekitar ${pack} kali harga jual. Selisih sebesar ini biasanya karena satuan tertukar, misalnya harga per lusin atau per dus tercatat sebagai harga per buah. Cek satuan di nota beli dan nota jual.`);
+  } else if (ratio >= 1.08 && ratio <= 1.14) {
+    h("ppn", "Urusan PPN?",
+      'Selisihnya sekitar 11%, sama dengan PPN. Kemungkinan salah satu nota keliru mencentang (atau tidak mencentang) "termasuk pajak". Cek centang pajak di nota beli dan nota jual.');
+  }
   if (r.saleUnit && !same(r.saleUnit, r.baseUom) && !(r.saleRatio > 1)) {
-    out.push({ kind: "sale_unit", label: `Cek satuan: isi 1 ${r.saleUnit} di faktur jual belum diisi` });
+    h("sale_unit", "Isi satuan belum diisi",
+      `Nota jual memakai satuan ${r.saleUnit}, tapi isi per ${r.saleUnit} belum diisi di Accurate, jadi sistem menganggap 1 ${r.saleUnit} = 1 ${r.baseUom}. Lengkapi isi satuannya di data barang Accurate.`);
   }
   // Two others at least, so one odd invoice doesn't make the usual price.
   const usualCost = (r.otherCosts?.length ?? 0) >= 2 ? median(r.otherCosts!) : null;
   if (!pack && usualCost && r.cost > COST_OUTLIER * usualCost) {
-    out.push({ kind: "input_cost", label: `Cek input harga beli: biasanya ± Rp ${rupiah(usualCost)}` });
+    h("input_cost", "Harga beli tidak biasa",
+      `Harga beli di nota ini jauh di atas biasanya (biasanya sekitar Rp ${rupiah(usualCost)}). Mungkin salah ketik angka, atau pembelian mendadak dalam jumlah kecil dengan harga eceran. Cek nota belinya.`);
   }
   const usualPrice = (r.otherPrices?.length ?? 0) >= 2 ? median(r.otherPrices!) : null;
   if (!pack && usualPrice && r.net < PRICE_OUTLIER * usualPrice) {
-    out.push({ kind: "input_price", label: `Cek input harga jual: biasanya ± Rp ${rupiah(usualPrice)}` });
+    h("input_price", "Harga jual tidak biasa",
+      `Harga jual di nota ini jauh di bawah biasanya (biasanya sekitar Rp ${rupiah(usualPrice)}). Mungkin salah ketik angka di nota jual. Cek nota jualnya.`);
   }
   if (r.detailName && r.name) {
     const catalog = words(r.name);
     if (catalog.size && ![...words(r.detailName)].some((w) => catalog.has(w))) {
-      out.push({ kind: "code", label: `Cek kode barang: di faktur tertulis "${r.detailName.trim()}"` });
+      h("code", "Nama barang beda",
+        `Di nota tertulis "${r.detailName.trim()}", yang tidak mirip dengan nama barang di katalog. Mungkin kode barang yang dipilih di nota keliru.`);
     }
   }
   const age = days(r.receiptDate, r.saleDate);
-  if (age > OLD_PI_DAYS) out.push({ kind: "old_pi", label: `PI lama: ${age} hari sebelum SI` });
-  if ((r.discount ?? 0) >= BIG_DISCOUNT) out.push({ kind: "discount", label: `Diskon faktur ${Math.round(r.discount! * 100)}%` });
-  if (!(r.listPrice > 0)) out.push({ kind: "no_list", label: "Harga list kosong: cek satuan otomatis tidak jalan" });
+  if (age > OLD_PI_DAYS) {
+    h("old_pi", "Pembelian sudah lama",
+      `Harga beli diambil dari pembelian ${age} hari sebelum penjualan. Harga beli saat barang dijual bisa sudah berbeda.`);
+  }
+  if ((r.discount ?? 0) >= BIG_DISCOUNT) {
+    const pct = Math.round(r.discount! * 100);
+    h("discount", `Diskon nota ${pct}%`, `Nota jual ini memberi diskon ${pct}% untuk seluruh nota, yang ikut menurunkan harga jual barang ini.`);
+  }
+  if (!(r.listPrice > 0)) {
+    h("no_list", "Harga list kosong",
+      "Harga jual standar barang ini belum diisi di katalog, jadi pemeriksaan satuan otomatis tidak bisa jalan sepenuhnya.");
+  }
   return out;
 }
 
-const INFO: HintKind[] = ["old_pi", "discount", "no_list"];
+/* Three groups, each with what it means and what to do (pemilik, 11 Nov: the dozen causes were
+   confusing; "Tanpa tanda" said nothing). The detailed reasons stay under each row. */
+export const GROUPS = [
+  {
+    key: "data",
+    label: "Data perlu dibetulkan",
+    tone: "amber",
+    kinds: ["unit", "sale_unit", "ppn", "input_cost", "input_price", "code"],
+    why: "Selisih ini kemungkinan besar bukan rugi, tapi karena ada yang tercatat keliru di Accurate: satuan, centang pajak, angka harga, atau kode barang.",
+    todo: "Betulkan nota atau data barangnya di Accurate. Setelah sinkron, selisihnya akan hilang sendiri dari laporan ini.",
+  },
+  {
+    key: "other",
+    label: "Bukan penjualan biasa",
+    tone: "blue",
+    kinds: ["no_value", "generic", "bonus_sale"],
+    why: "Barang ini keluar bukan sebagai penjualan dengan harga normal: bonus ke klien, tukar barang retur, nota ganda yang tidak ditagih, atau kode yang dipakai untuk banyak barang.",
+    todo: "Tidak perlu dibetulkan. Cukup diketahui bahwa ini bukan karena harga jual yang terlalu murah.",
+  },
+  {
+    key: "none",
+    label: "Belum ketemu penyebabnya",
+    tone: "grey",
+    kinds: [],
+    why: "Sistem sudah memeriksa satuan, PPN, salah ketik harga, kode barang, bonus, dan nota bernilai nol, dan semuanya tampak wajar. Yang tersisa hanya fakta bahwa harga jual di nota lebih rendah dari harga beli terakhir. Penyebabnya bisa: harga beli sudah naik tapi harga jual ke klien belum disesuaikan, ada harga khusus hasil negosiasi, atau barang dijual dari stok lama yang dulu dibeli lebih murah.",
+    todo: "Buka Telusuri untuk melihat riwayat harga beli dan jual, lalu tanyakan ke tim penjualan apakah harga ke klien ini perlu dinaikkan.",
+  },
+] as const satisfies readonly { key: string; label: string; tone: string; kinds: readonly HintKind[]; why: string; todo: string }[];
 
-/** A mark that points at a slip; the info marks only explain or say a check could not run. */
-export const looksLikeSlip = (hints: Hint[]) => hints.some((h) => !INFO.includes(h.kind));
+export type GroupKey = (typeof GROUPS)[number]["key"];
+/** Old name, kept for the filter. */
+export type CauseKey = GroupKey;
 
-/** Filter groups for the report: what the owner asked to tell apart. */
-export const CAUSES = [
-  { key: "data", label: "Perlu cek data (semua)", kinds: ["unit", "sale_unit", "ppn", "input_cost", "input_price", "code", "no_value", "generic", "bonus_sale"] },
-  { key: "unit", label: "Cek satuan", kinds: ["unit", "sale_unit"] },
-  { key: "ppn", label: "Cek PPN", kinds: ["ppn"] },
-  { key: "input", label: "Cek input harga", kinds: ["input_cost", "input_price"] },
-  { key: "code", label: "Cek kode barang", kinds: ["code"] },
-  { key: "other", label: "Bukan penjualan biasa / bonus", kinds: ["no_value", "generic", "bonus_sale"] },
-  { key: "none", label: "Tanpa tanda", kinds: [] },
-] as const satisfies readonly { key: string; label: string; kinds: readonly HintKind[] }[];
+/** The row's group: a bonus/no-value mark first (it explains the gap), then a data slip, else none. */
+export function groupOf(hints: Hint[]): (typeof GROUPS)[number] {
+  const has = (g: (typeof GROUPS)[number]) => hints.some((x) => (g.kinds as readonly HintKind[]).includes(x.kind));
+  return GROUPS.find((g) => g.key === "other" && has(g)) ?? GROUPS.find((g) => g.key === "data" && has(g)) ?? GROUPS[2];
+}
 
-export type CauseKey = (typeof CAUSES)[number]["key"];
+/** A mark that explains the gap; the info marks (old PI, discount, no list price) alone don't. */
+export const looksLikeSlip = (hints: Hint[]) => groupOf(hints).key !== "none";
 
-export function matchesCause(hints: Hint[], key: CauseKey | ""): boolean {
-  if (!key) return true;
-  if (key === "none") return !looksLikeSlip(hints);
-  const kinds: readonly HintKind[] = CAUSES.find((c) => c.key === key)!.kinds;
-  return hints.some((h) => kinds.includes(h.kind));
+export function matchesCause(hints: Hint[], key: GroupKey | ""): boolean {
+  return !key || groupOf(hints).key === key;
 }

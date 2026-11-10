@@ -6,7 +6,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { fmtDate, grp, rp } from "@shared/format";
-import { looksLikeSlip } from "@shared/belowCostHints";
+import { groupOf } from "@shared/belowCostHints";
 import type { BelowCostRow } from "@shared/salesBelowCost";
 import { Modal } from "./Modal";
 import { LoadError } from "./LoadError";
@@ -39,7 +39,7 @@ export function LossTrace({ row, onClose }: { row: BelowCostRow; onClose: () => 
     };
   }, [row.code, retry]);
 
-  const slip = looksLikeSlip(row.hints);
+  const group = groupOf(row.hints);
   const ppn = 1 + (t.taxRate > 0 ? t.taxRate : 11) / 100;
   // shortcut: an SI with no tax rate is shown at the usual 11% for comparison, and says so.
   const ppnPct = `PPN ${Math.round((ppn - 1) * 100)}%`;
@@ -52,21 +52,21 @@ export function LossTrace({ row, onClose }: { row: BelowCostRow; onClose: () => 
   return (
     <Modal title={`Telusuri ${row.invoiceNo}`} sub={`${row.name} · ${row.code}`} onClose={onClose} size="wide">
       <div className="trace">
-        <div className={`notice ${slip ? "warn" : "info"}`} role="status">
-          <strong>{slip ? "Perlu cek data" : "Tanpa tanda"}</strong>
-          {slip ? (
-            <ul className="hint-list">
+        <div className={`notice ${group.key === "data" ? "warn" : "info"}`} role="status">
+          <strong>{group.label}</strong>
+          <p>{group.why}</p>
+          {row.hints.length > 0 && (
+            <ul className="hint-list trace-reasons">
               {row.hints.map((h) => (
-                <li key={h.kind}>{h.label}</li>
+                <li key={h.kind}>
+                  <strong>{/[?.)]$/.test(h.label) ? h.label : `${h.label}.`}</strong> {h.detail}
+                </li>
               ))}
             </ul>
-          ) : (
-            <p>
-              Cek otomatis satuan, PPN, input harga, dan kode barang tidak menemukan tanda. Harga jual tercatat di bawah harga beli;
-              cocokkan tetap dengan nota asli
-              {row.hints.length ? ` (${row.hints.map((h) => h.label).join("; ")})` : ""}.
-            </p>
           )}
+          <p>
+            <strong>Yang dilakukan:</strong> {group.todo}
+          </p>
         </div>
 
         <dl className="trace-grid">
