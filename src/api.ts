@@ -21,7 +21,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
       ...init,
     });
   } catch {
-    throw new ApiError("Tidak bisa menghubungi server. Periksa koneksi Anda.", 0);
+    throw new ApiError("Tidak bisa terhubung ke server. Cek koneksi internet.", 0);
   }
   const text = await response.text();
   const data = text ? safeParse(text) : {};
