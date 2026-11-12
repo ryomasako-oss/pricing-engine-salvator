@@ -572,7 +572,12 @@ catalogRouter.put("/:id", requirePermission("edit_catalog"), async (c) => {
     .safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
   const d = parsed.data;
-  const code = (await get<{ code: string }>(c.env.DB, "SELECT code FROM catalog_items WHERE id = ?", id))?.code;
+  const old = await get<{ code: string; name: string; uom: string; cogs: number; list_price: number; category: string }>(
+    c.env.DB,
+    "SELECT code, name, uom, cogs, list_price, category FROM catalog_items WHERE id = ?",
+    id,
+  );
+  const code = old?.code;
   await batch(c.env.DB, [
     stmt(
       c.env.DB,
@@ -582,7 +587,13 @@ catalogRouter.put("/:id", requirePermission("edit_catalog"), async (c) => {
     ),
     ...(code && d.units ? replaceUnitsStmts(c.env.DB, code, d.uom, d.units) : []),
   ]);
-  await audit(c.env.DB, user.id, "catalog", id, "updated", d);
+  // Old → new of each field that changed, so "who moved this COGS from X to Y" has an answer.
+  const before: Record<string, unknown> = {};
+  const after: Record<string, unknown> = {};
+  for (const k of ["name", "uom", "cogs", "list_price", "category"] as const) {
+    if (old && old[k] !== d[k]) [before[k], after[k]] = [old[k], d[k]];
+  }
+  await audit(c.env.DB, user.id, "catalog", id, "updated", { code, before, after, ...(d.units && { units: d.units }) });
   const item = await get<CatalogItem>(c.env.DB, "SELECT * FROM catalog_items WHERE id = ?", id);
   const units = item ? (await unitsByCode(c.env.DB, [item.code])).get(item.code) ?? [] : [];
   return c.json({ item: item && { ...item, units } });

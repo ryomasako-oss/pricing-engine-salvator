@@ -31,6 +31,8 @@ authRouter.post("/login", async (c) => {
     : (await verifyDummyPassword(parsed.data.password), null);
   // Same message either way, so the form cannot be used to enumerate accounts.
   if (!row || !row.active || !verified?.ok) {
+    // Logged on every failing path alike, so the log write doesn't tell an unknown email from a wrong password.
+    await audit(c.env.DB, null, "user", row?.id ?? 0, "login_failed", { email: parsed.data.email.toLowerCase(), ip: clientIp(c) });
     return c.json({ error: "Email atau kata sandi salah." }, 401);
   }
   if (verified.rehash) {
