@@ -18,7 +18,7 @@ import { cleanUnits, sameUom } from "@shared/uom";
 
 /** COGS = harga pembelian terakhir: an import leaves the COGS of purchased items alone (server/worker/routes/catalog.ts). */
 const keptNote = (n = 0) =>
-  n > 0 ? ` COGS ${grp(n)} barang tidak diubah karena memakai harga pembelian terakhir dari Accurate.` : "";
+  n > 0 ? `  COGS ${grp(n)} barang tidak diubah karena sudah memakai harga beli terakhir dari Accurate.` : "";
 
 interface Stats {
   total: number;
@@ -174,8 +174,7 @@ export function CatalogPage() {
         <div>
           <h1>Katalog barang</h1>
           <p>
-            Harga pokok = harga pembelian terakhir di Accurate (faktur pembelian); barang yang belum
-            pernah dibeli memakai laporan Nilai Persediaan. Harga jual acuan dari Daftar Barang dan Jasa.
+            Harga pokok diambil dari harga beli terakhir di Accurate. Barang yang belum pernah dibeli memakai laporan Nilai Persediaan. Harga jual acuan diambil dari Daftar Barang dan Jasa.
           </p>
         </div>
         {can("import_catalog") && (
@@ -196,7 +195,7 @@ export function CatalogPage() {
       {stats && (
         <div className="kpi-grid">
           <div className="kpi">
-            <div className="label">Item di katalog</div>
+            <div className="label">Barang di katalog</div>
             <div className="value num">{grp(stats.total)}</div>
           </div>
           <div className="kpi">
@@ -231,10 +230,8 @@ export function CatalogPage() {
 
       {stats && stats.total > 0 && stats.priced / stats.total < 0.6 && (
         <p className="notice warn">
-          Hanya {Math.round((stats.priced / stats.total) * 100)}%
-          item punya harga pokok. Barang yang belum pernah dibeli (tanpa faktur pembelian di Accurate)
-          tidak punya harga pembelian terakhir — isi manual atau lewat impor Nilai Persediaan untuk item
-          yang benar-benar dijual.
+          Baru {Math.round((stats.priced / stats.total) * 100)}%
+          barang yang punya harga pokok. Barang yang belum pernah dibeli di Accurate belum punya harga beli. Isi manual atau impor Nilai Persediaan untuk barang yang memang dijual.
         </p>
       )}
 
@@ -324,7 +321,7 @@ export function CatalogPage() {
                     <th className="l">Nama barang</th>
                     <th className="l">Kategori</th>
                     <th className="l">Satuan</th>
-                    <th className="l">Konversi</th>
+                    <th className="l">Rasio</th>
                     {seeCosts && sortHead("cogs", "COGS")}
                     {sortHead("list_price", "Harga jual")}
                     {sortHead("stock", "Stok")}
@@ -342,7 +339,7 @@ export function CatalogPage() {
                         </div>
                         {item.cogs_problem && (!seeCosts || item.cogs > 0) && (
                           <div className="cell-problem">
-                            <span>{item.cogs_problem}. Tidak bisa dipakai di penawaran.</span>
+                            <span>{item.cogs_problem}. Belum bisa dipakai di quotation.</span>
                             {can("edit_catalog") && /COGS acuan/.test(item.cogs_problem) && (
                               <button className="btn small" onClick={() => void verifyCogs(item.id)}>
                                 COGS ini benar
@@ -353,7 +350,7 @@ export function CatalogPage() {
                       </td>
                       <td className="l muted small" data-label="Kategori">{item.category || "—"}</td>
                       <td className="l muted" data-label="Satuan">{item.uom}</td>
-                      <td className="l" data-label="Konversi">
+                      <td className="l" data-label="Rasio">
                         {item.units?.length ? (
                           <div className="badge-row">
                             {item.units.map((u) => (
@@ -420,7 +417,7 @@ export function CatalogPage() {
       {modal === "inventory" && (
         <ImportDialog
           title="Impor laporan Nilai Persediaan"
-          description='Export Accurate "Nilai Persediaan". COGS per unit dihitung dari nilai barang masuk dibagi kuantitasnya. Barang yang punya harga pembelian terakhir dari Accurate tidak diubah COGS-nya.'
+          description='File export "Nilai Persediaan" dari Accurate. COGS per unit = nilai barang masuk dibagi jumlahnya. Barang yang sudah punya harga beli terakhir dari Accurate tidak diubah.'
           onClose={() => {
             setModal(null);
             load();
@@ -447,8 +444,7 @@ export function CatalogPage() {
           message={
             <>
               Barang yang tidak ada di file akan dihapus dari katalog
-              {stats ? ` (sekarang ${grp(stats.total)} barang)` : ""}; barang yang ada di file diperbarui.
-              Tindakan ini tidak bisa dibatalkan.
+              {stats ? ` (sekarang ${grp(stats.total)} barang)` : ""}. Barang yang ada di file diperbarui. Ini tidak bisa dibatalkan.
             </>
           }
           confirmLabel="Ya, pilih file"
@@ -466,7 +462,7 @@ export function CatalogPage() {
                 Ini menghapus seluruh isi katalog lalu menggantinya dengan isi file ini.
               </strong>{" "}
               Pakai template "Unduh template katalog". Kolom Kode Barang dan Nama Barang wajib diisi.
-              Barang baru dari Accurate berhenti masuk otomatis sampai "Terapkan ke katalog" dijawab OK.
+              Setelah itu, barang baru dari Accurate tidak masuk otomatis sampai "Terapkan ke katalog" dikonfirmasi.
             </>
           }
           onClose={() => {
@@ -492,7 +488,7 @@ export function CatalogPage() {
       {modal === "fullMerge" && (
         <ImportDialog
           title="Impor katalog lengkap (gabung)"
-          description='Sama seperti template katalog lengkap (Kode Barang, Nama Barang, COGS, Harga Jual sekaligus), tapi digabung ke katalog yang ada — barang lama tidak dihapus. Kode yang sudah ada diperbarui, kode baru ditambahkan.'
+          description='Pakai template katalog lengkap (Kode Barang, Nama Barang, COGS, Harga Jual). Isinya digabung ke katalog: kode lama diperbarui, kode baru ditambahkan, tidak ada barang yang dihapus.'
           onClose={() => {
             setModal(null);
             load();
@@ -516,7 +512,7 @@ export function CatalogPage() {
       {modal === "master" && (
         <ImportDialog
           title="Impor Daftar Barang dan Jasa"
-          description='Export Accurate "Daftar Barang dan Jasa". Harga jual default dipakai sebagai plafon awal saat item ditambahkan ke quotation.'
+          description='File export "Daftar Barang dan Jasa" dari Accurate. Harga jualnya dipakai sebagai harga maksimal awal saat barang masuk quotation.'
           onClose={() => {
             setModal(null);
             load();
@@ -702,8 +698,7 @@ export function CatalogPage() {
             </div>
             {!!editing.id && editing.units.length > 0 && !sameUom(editing.uom, baseAtOpen) && (
               <p className="notice warn">
-                Satuan dasar diganti dari {baseAtOpen} ke {editing.uom}. Isi konversi di bawah sekarang
-                dihitung dalam {editing.uom}, cek ulang angkanya sebelum simpan.
+                Satuan dasar diganti dari {baseAtOpen} ke {editing.uom}. Rasio di bawah sekarang dihitung dalam {editing.uom}. Cek lagi angkanya sebelum simpan.
               </p>
             )}
             <UnitsEditor
@@ -743,7 +738,7 @@ function UnitsEditor({
   const base = baseUom || "satuan dasar";
   return (
     <div className="field">
-      <span>Konversi satuan</span>
+      <span>Rasio satuan</span>
       <div className="table-wrap">
         <table className="table">
           <thead>
@@ -757,7 +752,7 @@ function UnitsEditor({
             {units.length === 0 ? (
               <tr>
                 <td className="l muted small" colSpan={3}>
-                  Belum ada. Tanpa konversi, mengganti satuan di quotation tidak mengubah COGS/RRP.
+                  Belum ada. Tanpa rasio, COGS dan RRP tidak ikut berubah saat satuan di quotation diganti.
                 </td>
               </tr>
             ) : (
@@ -768,7 +763,7 @@ function UnitsEditor({
                       className="cell"
                       value={u.uom}
                       onChange={(e) => set(i, { uom: e.target.value })}
-                      aria-label={`Satuan konversi ${i + 1}`}
+                      aria-label={`Rasio satuan ${i + 1}`}
                     >
                       {!options.some((o) => sameUom(o, u.uom)) && <option value={u.uom}>{u.uom}</option>}
                       {free(u.uom).map((o) => (

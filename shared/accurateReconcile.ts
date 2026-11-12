@@ -28,7 +28,7 @@ export interface CheckDef {
 export const CHECKS: Record<CheckKey, CheckDef> = {
   price_below_cogs: {
     label: "Harga jual Accurate di bawah COGS katalog",
-    todo: "Salah satunya keliru: harga jual di Accurate atau COGS di katalog. Cek sebelum harga ini dipakai untuk penawaran.",
+    todo: "Salah satunya keliru: harga jual di Accurate atau COGS di katalog. Cek sebelum harga ini dipakai di quotation.",
     notify: true,
   },
   price_diff: {
@@ -43,7 +43,7 @@ export const CHECKS: Record<CheckKey, CheckDef> = {
   },
   suspended_in_accurate: {
     label: "Barang dinonaktifkan di Accurate, masih ada di katalog",
-    todo: "Cek apakah barang ini masih dijual. Kalau tidak, hentikan penawarannya.",
+    todo: "Cek apakah barang ini masih dijual. Kalau tidak, jangan ditawarkan lagi.",
     notify: true,
   },
   negative_stock: {
@@ -53,7 +53,7 @@ export const CHECKS: Record<CheckKey, CheckDef> = {
   },
   missing_in_accurate: {
     label: "Ada di katalog, tidak ada di Accurate",
-    todo: "Bisa salah kode, atau barang non-Accurate (jasa, barang lama). Hanya informasi, tidak ada pemberitahuan.",
+    todo: "Mungkin salah kode, atau memang bukan barang Accurate (jasa, barang lama). Hanya informasi, tidak dikirim pengingat.",
     notify: false,
   },
   no_price_in_accurate: {

@@ -166,7 +166,7 @@ export function SettingsPage() {
       <div className="hk-page-head">
         <div>
           <h1>Pengaturan</h1>
-          <p>Kebijakan harga, identitas dokumen, notifikasi, dan akun. Bagian yang tampil mengikuti izin Anda.</p>
+          <p>Kebijakan harga, identitas dokumen, notifikasi, dan akun. Bagian yang muncul tergantung peran Anda.</p>
         </div>
       </div>
 
@@ -218,7 +218,7 @@ export function SettingsPage() {
                   </div>
                 </label>
                 <label className="field">
-                  <span>Margin minimum per item</span>
+                  <span>Margin minimum per barang</span>
                   <div className="input-affix">
                     <input
                       className="input" type="number" min="-50" max="90" step="0.5" disabled={readOnlyPolicy}
@@ -259,7 +259,7 @@ export function SettingsPage() {
                   checked={policy.allowBelowCost}
                   onChange={(e) => setPolicy({ ...policy, allowBelowCost: e.target.checked })}
                 />
-                <span>Izinkan item dijual di bawah landed cost</span>
+                <span>Izinkan barang dijual di bawah landed cost</span>
               </label>
               {!readOnlyPolicy && (
                 <div className="form-actions">
@@ -274,9 +274,9 @@ export function SettingsPage() {
           <section className="card">
             <div className="card-head">
               <div className="card-title">
-                <h2>Identitas di dokumen penawaran</h2>
+                <h2>Identitas di dokumen quotation</h2>
                 <span className="muted small">
-                  Muncul di kop PDF, pratinjau, dan Excel penawaran.{readOnlyCompany ? " Hanya admin yang bisa mengubah." : ""}
+                  Muncul di kop PDF, pratinjau, dan Excel quotation.{readOnlyCompany ? " Hanya admin yang bisa mengubah." : ""}
                 </span>
               </div>
             </div>
@@ -287,7 +287,7 @@ export function SettingsPage() {
                   {company.logo ? (
                     <img className="logo-preview" src={company.logo} alt="Logo" />
                   ) : (
-                    <span className="muted small">Belum ada logo; dokumen memakai nama merek dagang sebagai teks.</span>
+                    <span className="muted small">Belum ada logo. Dokumen memakai nama merek dagang sebagai teks.</span>
                   )}
                   {!readOnlyCompany && (
                     <>
@@ -367,8 +367,7 @@ export function SettingsPage() {
             </div>
             <div className="card-body form-stack">
               <p className="field-help">
-                Sales hanya bisa mengisi ACC/Tolak. Manajer dan admin bisa melihat password ini; sales tidak. Kunci Excel mudah
-                dibongkar, jadi angka di file tidak pernah dibaca balik oleh aplikasi; yang dibaca hanya ACC/Tolak dan alasannya.
+                Sales hanya bisa mengisi ACC/Tolak. Hanya manajer dan admin yang bisa melihat password ini. Kunci Excel mudah dibongkar, jadi aplikasi hanya membaca ACC/Tolak dan alasannya, bukan angka di file.
                 {!excelPasswordSet && " Selama belum diatur, file cek harga belum bisa dibuat."}
               </p>
               <div className="inline-form">
@@ -684,7 +683,7 @@ function ResetPasswordModal({
 
   return (
     <Modal
-      title={`Reset kata sandi — ${targetUser.name}`}
+      title={`Reset kata sandi: ${targetUser.name}`}
       sub="Sampaikan kata sandi baru ke pengguna, lalu minta mereka menggantinya di menu Pengaturan."
       onClose={onClose}
       footer={
@@ -767,9 +766,9 @@ function NewUserModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
             value={form.role}
             onChange={(e) => setForm({ ...form, role: e.target.value as Role })}
           >
-            <option value="rep">Sales — membuat dan mengajukan quotation sendiri</option>
-            <option value="manager">Manajer — menyetujui dan melihat semua quotation</option>
-            <option value="admin">Admin — mengatur kebijakan dan pengguna</option>
+            <option value="rep">Sales: membuat dan mengajukan quotation sendiri</option>
+            <option value="manager">Manajer: menyetujui dan melihat semua quotation</option>
+            <option value="admin">Admin: mengatur kebijakan dan pengguna</option>
           </select>
         </label>
       </div>

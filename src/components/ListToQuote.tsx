@@ -39,11 +39,11 @@ const MAX_LINES = 500;
 const WAITING: Record<"file" | "ai" | "match", string[]> = {
   file: ["Membaca file Excel…", "Mencari kolom nama barang dan qty…"],
   ai: [
-    "Mengirim dokumen ke AI pembaca…",
-    "AI membaca tabel baris demi baris…",
+    "Mengirim dokumen ke AI untuk dibaca…",
+    "AI membaca tabel baris per baris…",
     "Menyalin nama barang, qty, dan satuan…",
-    "AI hanya membaca isi dokumen. Harga tidak dikarang, hanya plafon yang tertulis di dokumen.",
-    "File scan atau besar bisa sampai 1 menit. Mohon tunggu…",
+    "AI hanya menyalin isi dokumen. Tidak ada harga yang dikarang, kecuali plafon yang memang tertulis.",
+    "File scan atau file besar bisa sampai 1 menit. Tunggu sebentar…",
   ],
   match: [
     "Mencocokkan tiap baris ke katalog…",
@@ -151,7 +151,7 @@ export function ListToQuote({
   /** Match request rows against the catalog and open the review. */
   const match = async (lines: RequestLine[], extraNotes: string[], label: string) => {
     if (lines.length > MAX_LINES) {
-      throw new Error(`Daftar berisi ${lines.length} baris; maksimal ${MAX_LINES} per quotation. Pecah dulu.`);
+      throw new Error(`Daftar berisi ${lines.length} baris. Maksimal ${MAX_LINES} baris per quotation, jadi pecah dulu.`);
     }
     const res = await api.post<MatchResponse>("/catalog/match", {
       client_id: clientId === "" ? null : clientId,
@@ -256,7 +256,7 @@ export function ListToQuote({
     try {
       await api.post(`/list-drafts/${saved.id}/send`, { assigned_to: assignedTo, note });
       onDraftChanged?.();
-      toast(`Dikirim ke ${name}. Ia mendapat email dengan tautan ke list ini.`);
+      toast(`Dikirim ke ${name}. Link ke list ini sudah dikirim lewat email.`);
       onClose();
     } catch (e) {
       toast(e instanceof Error ? e.message : "Draft gagal dikirim.", "error");
@@ -495,7 +495,7 @@ export function ListToQuote({
       if (pairs.length || feedback.length) {
         await api
           .post("/catalog/aliases", { client_id: clientId === "" ? null : clientId, pairs, feedback })
-          .catch(() => toast("Quotation dibuat, tetapi pasangan nama-katalog gagal disimpan untuk lain kali.", "error"));
+          .catch(() => toast("Quotation dibuat, tapi pasangan nama dan barang katalog gagal disimpan untuk lain kali.", "error"));
       }
       if (draft) onDraftChanged?.();
       onCreated(r.quote.id);
@@ -537,14 +537,14 @@ export function ListToQuote({
   return (
     <Modal
       title="Quotation dari list klien"
-      sub={draftId ? "Draft tersimpan. Setiap baris dicocokkan ulang ke katalog hari ini; pilihan Anda sebelumnya dipulihkan." : initial ? "Daftar dari chat. Setiap baris dicocokkan ke katalog; harga diambil dari database." : "Upload daftar kebutuhan klien. Setiap baris dicocokkan ke katalog; harga dan COGS diambil dari database."}
+      sub={draftId ? "Draft tersimpan. Tiap baris dicocokkan ulang ke katalog hari ini, dan pilihan sebelumnya dipakai lagi." : initial ? "Daftar dari chat. Tiap baris dicocokkan ke katalog, harganya dari database." : "Upload daftar kebutuhan klien. Tiap baris dicocokkan ke katalog, harga dan COGS-nya dari database."}
       size={rows ? "full" : "normal"}
       onClose={onClose}
       footer={
         rows ? (
           <>
             <span className="grow muted small">
-              {used} item masuk{skipped ? ` · ${skipped} menyusul (belum ada di katalog; tetap tampil di quotation, dicatat di Perlu diperbaiki)` : ""}
+              {used} barang masuk{skipped ? ` · ${skipped} menyusul (belum ada di katalog, tetap tampil di quotation dan dicatat di Perlu diperbaiki)` : ""}
               {pending ? (skipReview ? ` · ${pending} belum dicek (bisa diedit di quotation)` : ` · ${pending} perlu dicek dulu`) : ""}
               {heldCount ? ` · ${heldCount} ditahan (COGS dicek manajer)` : ""}
             </span>
@@ -560,7 +560,7 @@ export function ListToQuote({
               Kirim ke PIC…
             </button>
             <button className="btn primary" onClick={create} disabled={busy || saving || !rows?.length || (pending > 0 && !skipReview) || !title.trim()}>
-              {busy ? "Membuat…" : `Buat quotation (${used} item${skipped ? ` + ${skipped} menyusul` : ""})`}
+              {busy ? "Membuat…" : `Buat quotation (${used} barang${skipped ? ` + ${skipped} menyusul` : ""})`}
             </button>
           </>
         ) : (
@@ -600,8 +600,8 @@ export function ListToQuote({
           )}
           <p className="field-help">
             {clientId === ""
-              ? "Tanpa klien, pilihan Anda tidak diingat. Pilih klien supaya istilah yang Anda cek otomatis cocok di list berikutnya."
-              : "Istilah yang Anda cek atau ganti akan diingat untuk klien ini, jadi list berikutnya lebih cepat."}
+              ? "Tanpa klien, pilihan tidak diingat. Pilih klien supaya istilah yang sudah dicek langsung cocok di list berikutnya."
+              : "Istilah yang dicek atau diganti diingat untuk klien ini, jadi list berikutnya lebih cepat."}
           </p>
           <div
             className={`drop ${drag ? "drag" : ""}`}
@@ -619,7 +619,7 @@ export function ListToQuote({
             <div>
               <strong>Tarik file daftar klien ke sini</strong>
               <div className="muted small">
-                Excel, PDF, atau foto. Cukup nama barang dan qty; kode, satuan, dan harga maksimal dipakai kalau ada.
+                Excel, PDF, atau foto. Cukup nama barang dan qty. Kode, satuan, dan harga maksimal ikut dipakai kalau ada.
               </div>
             </div>
             <label className="btn" aria-disabled={busy}>
@@ -651,7 +651,7 @@ export function ListToQuote({
                 <button
                   className="btn small"
                   onClick={acceptAll}
-                  title="Untuk baris yang saran pertamanya sudah cocok semua kata, hanya ada varian lain yang mirip. Baris yang diterima di sini tidak disimpan sebagai istilah klien."
+                  title="Untuk baris yang saran pertamanya sudah cocok semua kata, tapi masih ada varian lain yang mirip. Baris yang diterima dari sini tidak disimpan sebagai istilah klien."
                 >
                   Terima {bulkCount} saran
                 </button>
@@ -702,7 +702,7 @@ export function ListToQuote({
                 // "— tidak dipakai —" over a row that does have an item.
                 update(at, { chosen: item.id, confirmed: true, unitOk: false, extra: [...rows[at].extra, item.id] });
                 setNewItemRow(null);
-                toast(`"${item.name}" diminta ke Accurate. Kalau harga jual diisi, baris langsung masuk dokumen; kalau tidak, ditahan sampai barangnya dibuat.`);
+                toast(`"${item.name}" diminta ke Accurate. Kalau harga jual diisi, baris langsung masuk dokumen. Kalau tidak, baris ditahan sampai barangnya dibuat.`);
               }}
             />
           )}
@@ -725,7 +725,7 @@ export function ListToQuote({
                   <th className="l">#</th>
                   <th className="l">Permintaan klien</th>
                   <th>Qty</th>
-                  <th className="l">Item katalog</th>
+                  <th className="l">Barang katalog</th>
                   <th className="l">Status</th>
                   <th>{seeCosts ? "COGS" : "Harga satuan"}</th>
                   <th>Plafon (RRP)</th>
@@ -774,7 +774,7 @@ export function ListToQuote({
                           </div>
                         )}
                         {pack.conflict && chosenItem && (
-                          <div className="cell-warn">Teks menyebut isi {pack.conflict.text} per {pack.conflict.word}, katalog mencatat 1 {pack.conflict.word} = {pack.conflict.catalog}. Satuan tidak diubah: COGS dihitung per {chosenItem.uom || "Pcs"}. Periksa satuan dan rasio.
+                          <div className="cell-warn">Teks menyebut isi {pack.conflict.text} per {pack.conflict.word}, katalog mencatat 1 {pack.conflict.word} = {pack.conflict.catalog}. Satuan tidak diubah: COGS dihitung per {chosenItem.uom || "Pcs"}. Cek satuan dan rasionya.
                           </div>
                         )}
                         {pack.unmatched && chosenItem && (
@@ -837,7 +837,7 @@ export function ListToQuote({
                         )}
                         {warn && <div className="cell-warn">{warn}</div>}
                         {blockedOf(row) && (
-                          <div className="cell-warn">{blockedOf(row)}. Masuk sebagai baris ditahan: tidak ikut total dan dokumen sampai dicek manajer.
+                          <div className="cell-warn">{blockedOf(row)}. Barisnya ditahan dan tidak ikut total maupun dokumen sampai dicek manajer.
                           </div>
                         )}
                       </td>
@@ -884,11 +884,11 @@ export function ListToQuote({
                             <div className="cell-title">{it.name}</div>
                             <div className="muted small">{[shownCode(it.code), al.uom].filter(Boolean).join(" · ")}</div>
                             {it.cogs_problem && (
-                              <div className="cell-warn">{it.cogs_problem}. Masuk sebagai baris ditahan sampai dicek manajer.</div>
+                              <div className="cell-warn">{it.cogs_problem}. Kalau dipilih, barisnya ditahan sampai dicek manajer.</div>
                             )}
                             {/* The client's unit applies to every item of the request: say when it was assumed. */}
                             {row.request.uom && unitAssumed(row.request.uom, it) && (
-                              <div className="cell-warn">Rasio {row.request.uom} belum ada di katalog untuk barang ini: dianggap 1 {row.request.uom} = 1 {it.uom || "Pcs"}. Periksa qty di quotation.</div>
+                              <div className="cell-warn">Rasio {row.request.uom} belum ada di katalog untuk barang ini: dianggap 1 {row.request.uom} = 1 {it.uom || "Pcs"}. Cek qty-nya di quotation.</div>
                             )}
                             {unitWarn && <div className="cell-warn">{unitWarn}</div>}
                           </td>
@@ -976,7 +976,7 @@ function SendToPic({
         </div>
       </div>
       <p className="field-help">
-        List disimpan dulu, lalu PIC mendapat email berisi tautan. Ia membuka list ini persis seperti sekarang dan bisa langsung membuat quotation.
+        List disimpan dulu, lalu PIC dapat email berisi link. PIC akan melihat list ini persis seperti sekarang dan bisa langsung membuat quotation.
       </p>
     </div>
   );

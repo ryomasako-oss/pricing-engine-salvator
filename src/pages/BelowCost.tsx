@@ -75,9 +75,7 @@ export function BelowCostPage() {
         <div>
           <h1>Jual di bawah beli</h1>
           <p>
-            Baris faktur penjualan (SI) yang harga bersihnya (setelah diskon, sebelum PPN, per satuan dasar) lebih rendah dari
-            harga faktur pembelian (PI) terakhir pada atau sebelum tanggal SI. Harga beli tidak boleh lebih tinggi dari harga
-            jual — setiap baris di sini perlu ditindaklanjuti.
+            Penjualan (SI) yang harganya lebih murah dari harga beli (PI) terakhir sebelum tanggal SI. Harga dihitung setelah diskon, sebelum PPN, per satuan dasar. Tiap baris di sini perlu dicek.
           </p>
         </div>
       </div>

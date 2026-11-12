@@ -28,7 +28,7 @@ test("a row with two extra items makes three quote lines, each with its own COGS
   await box.press("Escape");
   await expect(box).toHaveValue(/SINAR DUNIA/);
 
-  await expect(page.getByText(/^3 item masuk/)).toBeVisible();
+  await expect(page.getByText(/^3 barang masuk/)).toBeVisible();
   await page.getByLabel("Judul quotation").fill("Barang lain e2e");
   await page.getByRole("button", { name: /Buat quotation/ }).click();
   await expect(page.getByRole("button", { name: /Buat quotation/ })).toHaveCount(0);
@@ -113,7 +113,7 @@ test("a request served only by extra items is not a held 'menyusul' line", async
   await page.getByRole("button", { name: "Tambah KERTAS HVS BOLA DUNIA A4 70GR sebagai barang lain" }).click();
   await box.press("Escape");
   await page.getByRole("button", { name: "Kosongkan pilihan untuk Kertas HVS Sinar Dunia A4 70gr" }).click();
-  await expect(page.getByText(/^1 item masuk$/)).toBeVisible();
+  await expect(page.getByText(/^1 barang masuk$/)).toBeVisible();
   await expect(page.getByText(/menyusul/)).toHaveCount(0);
   await page.getByLabel("Judul quotation").fill("Dilayani barang lain");
   await page.getByRole("button", { name: /Buat quotation/ }).click();

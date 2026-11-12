@@ -172,7 +172,7 @@ describe("client request list import", () => {
 
   it("refuses a file with no usable rows", async () => {
     const csv = ["Nama Barang,Satuan,Qty,RRP", "TOTAL,,,"].join("\n");
-    await expect(parseClientList(new File([csv], "empty.csv"))).rejects.toThrow(/Tidak ada baris item/);
+    await expect(parseClientList(new File([csv], "empty.csv"))).rejects.toThrow(/Tidak ada baris barang/);
   });
 });
 
@@ -214,12 +214,12 @@ describe("request list (no prices needed)", () => {
     const csv = ["Nama Barang,Satuan,Harga Maks", "Pulpen,Box,\"30.000\""].join("\n");
     const { lines, report } = await parseRequestList(new File([csv], "noqty.csv"));
     expect(lines).toEqual([{ name: "Pulpen", code: undefined, uom: undefined, qty: 1, rrp: undefined, noQty: true }]);
-    expect(report.notes[0]).toBe("Kolom qty tidak ditemukan: semua item dihitung 1 per satuan terkecil.");
+    expect(report.notes[0]).toBe("Kolom qty tidak ditemukan, jadi semua barang dihitung 1 per satuan terkecil.");
   });
 
   it("still requires a name column", async () => {
     const csv = ["Qty,Harga", "1,2"].join("\n");
-    await expect(parseRequestList(new File([csv], "x.csv"))).rejects.toThrow(/nama item/);
+    await expect(parseRequestList(new File([csv], "x.csv"))).rejects.toThrow(/nama barang/);
   });
 
   it("reads the item from DES, not ITEM CODE, on every sheet that has a header (CGV list, 2026-10-17)", async () => {

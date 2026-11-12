@@ -60,7 +60,7 @@ describe("runFixDigest", () => {
     // recipient could pass the Free plan's 10 ms CPU limit (review of #9).
     expect(sent).toHaveLength(2); // today and tomorrow
     expect(sent[0].split("|")[0].split(", ").sort()).toEqual(["a@test.local", "m@test.local"]);
-    expect(sent[0].split("|")[1]).toBe("Perlu diperbaiki: 1 item terbuka (tertua 1 hari)");
+    expect(sent[0].split("|")[1]).toBe("Perlu diperbaiki: 1 barang belum beres (tertua 1 hari)");
   });
 
   it("sends nothing when nothing is open, and ignores done tasks", async () => {

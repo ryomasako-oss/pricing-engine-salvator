@@ -16,8 +16,7 @@ export function MatchingPage() {
         <div>
           <h1>Pencocokan barang</h1>
           <p>
-            Cocokkan daftar barang klien ke katalog tanpa membuat quotation. Setiap baris yang Anda bereskan diingat, jadi list
-            berikutnya dari klien itu, termasuk lewat Quotation → Dari list klien, langsung cocok.
+            Cocokkan daftar barang klien ke katalog tanpa membuat quotation. Tiap baris yang dibereskan diingat. List berikutnya dari klien itu langsung cocok, termasuk lewat Quotation → Dari list klien.
           </p>
         </div>
         {can("view_costs") && (

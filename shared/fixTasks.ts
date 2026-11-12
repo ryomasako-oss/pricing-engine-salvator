@@ -23,22 +23,22 @@ export type FixKind = "not_in_catalog" | "cogs_held" | "unit_unknown" | "sales_r
 export const FIX_KINDS: Record<FixKind, { label: string; todo: string; permission: Permission }> = {
   not_in_catalog: {
     label: "Tidak ada di katalog",
-    todo: "Tambahkan item ini ke katalog (atau Accurate), lalu tawarkan susulan ke klien.",
+    todo: "Tambahkan barang ini ke katalog atau Accurate, lalu tawarkan susulan ke klien.",
     permission: "edit_catalog",
   },
   cogs_held: {
     label: "COGS perlu dicek",
-    todo: "Cek dan verifikasi COGS item ini di katalog, lalu tawarkan susulan ke klien.",
+    todo: "Cek COGS barang ini di katalog, lalu tawarkan susulan ke klien.",
     permission: "edit_catalog",
   },
   unit_unknown: {
-    label: "Satuan belum ada rasionya",
-    todo: "Isi rasio satuan item ini di katalog, lalu cek ulang harga baris itu.",
+    label: "Rasio satuan belum ada",
+    todo: "Isi rasio satuan barang ini di katalog, lalu cek lagi harganya.",
     permission: "edit_catalog",
   },
   sales_rejected: {
     label: "Harga ditolak sales",
-    todo: "Tinjau harga baris ini sesuai alasan sales, lalu tawarkan susulan ke klien.",
+    todo: "Cek lagi harganya sesuai alasan sales, lalu tawarkan susulan ke klien.",
     permission: "decide_quotes",
   },
   // Not tied to a quote: one task per kind of mismatch with Accurate, written
@@ -46,14 +46,14 @@ export const FIX_KINDS: Record<FixKind, { label: string; todo: string; permissio
   // hand only mutes it until the next check finds it again.
   accurate_check: {
     label: "Cek silang Accurate",
-    todo: "Buka Katalog → Sinkron Accurate → Cek silang, periksa selisihnya.",
+    todo: "Buka Katalog → Sinkron Accurate → Cek silang, lalu lihat bedanya.",
     permission: "import_catalog",
   },
   // A "barang baru" a manager handed over (shared/pendingItems.ts). Closed by
   // the system once the catalog has the code, or when the request is cancelled.
   new_item: {
     label: "Barang baru ke Accurate",
-    todo: "Buat barang ini di Accurate dengan kode yang tertera, lalu sinkron dan Terapkan ke katalog.",
+    todo: "Buat barang ini di Accurate dengan kode yang sama, lalu sinkron dan klik Terapkan.",
     permission: "edit_catalog",
   },
 };
@@ -120,7 +120,7 @@ export function tasksFromUnmatched(quoteId: number, rows: UnmatchedRow[]): NewFi
       detail:
         r.reason === "none"
           ? "Diminta klien, tidak ditemukan di katalog."
-          : "Diminta klien, tidak dipakai saat membuat quotation (kecocokan katalog tidak tepat).",
+          : "Diminta klien, tapi pasangannya di katalog salah, jadi tidak masuk quotation.",
     }));
 }
 
@@ -178,7 +178,7 @@ export function digestEmail(tasks: OpenTaskRow[], now: Date, link: string): { su
   if (!tasks.length) return null;
   const sorted = [...tasks].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id - b.id);
   const oldest = ageDays(sorted[0].created_at, now);
-  const subject = `Perlu diperbaiki: ${tasks.length} item terbuka` + (oldest ? ` (tertua ${oldest} hari)` : "");
+  const subject = `Perlu diperbaiki: ${tasks.length} barang belum beres` + (oldest ? ` (tertua ${oldest} hari)` : "");
   const sections = (Object.keys(FIX_KINDS) as FixKind[])
     .map((kind) => {
       const rows = sorted.filter((t) => t.kind === kind);
@@ -187,8 +187,8 @@ export function digestEmail(tasks: OpenTaskRow[], now: Date, link: string): { su
         .map((t) => {
           const where = [t.quote_number, t.client_name].filter(Boolean).join(" · ");
           const qty = t.qty ? ` (${t.qty} ${t.uom})`.replace(/ \)$/, ")") : "";
-          return `<li><strong>${esc(t.item_name)}</strong>${esc(qty)}${where ? ` — ${esc(where)}` : ""}` +
-            ` — ${ageDays(t.created_at, now)} hari<br><small>${esc(t.detail)}</small></li>`;
+          return `<li><strong>${esc(t.item_name)}</strong>${esc(qty)}${where ? ` · ${esc(where)}` : ""}` +
+            ` · ${ageDays(t.created_at, now)} hari<br><small>${esc(t.detail)}</small></li>`;
         })
         .join("");
       return `<h3>${esc(FIX_KINDS[kind].label)} (${rows.length})</h3><p><small>${esc(FIX_KINDS[kind].todo)}</small></p><ul>${lis}</ul>`;
@@ -197,10 +197,10 @@ export function digestEmail(tasks: OpenTaskRow[], now: Date, link: string): { su
   // The "offer goes ahead without it" line is about quote lines; a catalog
   // cross-check (no quote) is not missing from any offer.
   const offers = tasks.some((t) => t.quote_number)
-    ? " Penawaran ke klien tetap jalan tanpa item ini; item ini perlu dibereskan supaya bisa ditawarkan susulan."
+    ? " Quotation ke klien tetap jalan tanpa barang ini. Bereskan supaya bisa ditawarkan susulan."
     : "";
   const html =
-    `<p>Ada ${tasks.length} item yang belum diperbaiki.${offers}</p>${sections}` +
+    `<p>Ada ${tasks.length} barang yang belum diperbaiki.${offers}</p>${sections}` +
     `<p><a href="${esc(link)}">Buka daftar Perlu diperbaiki</a></p>`;
   return { subject, html };
 }

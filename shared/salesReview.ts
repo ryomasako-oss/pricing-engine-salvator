@@ -41,13 +41,13 @@ const list = (ls: { lineNo: number }[]) => ls.map((l) => l.lineNo).join(", ");
 
 export function checkSalesReview(quote: ReviewableQuote, p: SalesReviewPayload): SalesReviewCheck {
   if (quote.status !== "approved") {
-    return { ok: false, status: 409, error: "Hasil cek sales hanya bisa di-import ke quotation yang sudah disetujui dan belum dikirim." };
+    return { ok: false, status: 409, error: "Hasil cek sales hanya bisa diimpor ke quotation yang sudah disetujui dan belum dikirim." };
   }
   if (p.rev_no !== quote.rev_no || p.version !== quote.version) {
     return {
       ok: false,
       status: 409,
-      error: `File ini dibuat dari versi lama quotation (revisi ${p.rev_no}). Quotation sudah berubah; unduh ulang file cek harga dan kirim lagi ke sales.`,
+      error: `File ini dibuat dari versi lama quotation (revisi ${p.rev_no}). Quotation sudah berubah. Unduh lagi file cek harga dan kirim ulang ke sales.`,
     };
   }
   const offered = quote.items.filter((it) => !it.held);
@@ -132,4 +132,4 @@ export const SALES_REVIEW_GUARD_SQL = `SELECT CASE WHEN EXISTS (
   SELECT 1 FROM quotes WHERE id = ? AND version = ? AND status = ?) THEN 1 ELSE json('quote changed') END AS ok`;
 
 export const SALES_REVIEW_STALE =
-  "Quotation ini berubah sejak file cek harga dibaca (sudah diimpor, diubah, atau dikirim). Muat ulang halaman, lalu impor lagi bila perlu.";
+  "Quotation ini sudah berubah sejak file cek harga dibaca. Muat ulang halaman, lalu impor lagi kalau perlu.";

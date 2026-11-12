@@ -39,7 +39,7 @@ function DocTemplateFields({ value, onChange }: { value: DocTemplate | null; onC
         <span>Template dokumen khusus klien ini (format tender)</span>
       </label>
       {!value ? (
-        <p className="field-help">Tanpa template, penawaran dicetak dengan format standar.</p>
+        <p className="field-help">Tanpa template, quotation dicetak dengan format standar.</p>
       ) : (
         <div className="form-stack">
           <p className="field-help">
@@ -117,7 +117,7 @@ const FIELDS: [keyof typeof EMPTY, string][] = [
   ["contact_phone", "No. HP"],
   ["contact_email", "Email"],
   ["code", "Kode klien"],
-  ["accurate_customer_no", "No. customer Accurate (C.xxxxx)"],
+  ["accurate_customer_no", "No. klien di Accurate (C.xxxxx)"],
   ["payment_terms", "Termin pembayaran"],
   ["delivery_terms", "Ketentuan pengiriman"],
 ];

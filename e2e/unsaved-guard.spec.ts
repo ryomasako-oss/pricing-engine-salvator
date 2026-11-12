@@ -9,7 +9,7 @@ test("guard: in-app back, nav link, back link", async ({ page }) => {
   await page.goto("/quotes");
   await page.getByRole("link", { name: quote.number }).click();
   await page.getByRole("button", { name: "Dokumen", exact: true }).click();
-  await page.getByLabel("Catatan tambahan di penawaran").fill("ubah");
+  await page.getByLabel("Catatan tambahan di quotation").fill("ubah");
   await expect(page.getByText("Belum disimpan")).toBeVisible();
   await page.getByRole("navigation", { name: "Navigasi utama" }).getByRole("link", { name: "Klien" }).click();
   await expect(page.getByRole("heading", { name: "Tinggalkan halaman?" })).toBeVisible();
@@ -19,7 +19,7 @@ test("guard: in-app back, nav link, back link", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Tinggalkan halaman?" })).toBeVisible();
   await page.locator(".modal").getByRole("button", { name: "Batal" }).click();
   await expect(page).toHaveURL(new RegExp("/quotes/" + quote.id));
-  await expect(page.getByLabel("Catatan tambahan di penawaran")).toHaveValue("ubah");
+  await expect(page.getByLabel("Catatan tambahan di quotation")).toHaveValue("ubah");
   await page.getByRole("button", { name: "Semua quotation" }).click();
   await page.locator(".modal").getByRole("button", { name: "Tinggalkan" }).click();
   await expect(page).toHaveURL(/\/quotes$/);
@@ -30,7 +30,7 @@ test.describe("rep", () => {
     const { quote } = await (await page.request.post("/api/quotes", { data: { title: "Guard rep" } })).json();
     await page.goto("/quotes");
     await page.getByRole("link", { name: quote.number }).click();
-    await page.getByLabel("Catatan tambahan di penawaran").fill("ubah");
+    await page.getByLabel("Catatan tambahan di quotation").fill("ubah");
     await expect(page.getByText("Belum disimpan")).toBeVisible();
     await page.goBack();
     await expect(page.getByRole("heading", { name: "Tinggalkan halaman?" })).toBeVisible();

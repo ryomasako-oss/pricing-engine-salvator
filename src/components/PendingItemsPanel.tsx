@@ -47,7 +47,7 @@ export function PendingItemsPanel() {
       <div className="card-head">
         <h3>Barang baru menunggu Accurate</h3>
         <span className="muted small">
-          {live.length ? `${grp(live.length)} permintaan aktif` : "Tidak ada yang aktif"}. Quotation yang memakainya tetap jalan; barisnya ditahan sampai barangnya masuk katalog.
+          {live.length ? `${grp(live.length)} permintaan aktif` : "Tidak ada yang aktif"}. Quotation yang memakainya tetap jalan. Barisnya ditahan sampai barangnya masuk katalog.
         </span>
       </div>
       <div className="card-body">
@@ -56,7 +56,7 @@ export function PendingItemsPanel() {
             <button className="btn small ghost" onClick={async () => (await import("../export/pendingItems")).exportPendingItems(live, new Date().toISOString().slice(0, 10))}>
               Unduh Excel untuk admin Accurate
             </button>
-            <span className="muted small">Buat di Accurate dengan kode persis seperti di daftar, lalu sinkron dan Terapkan (pilih tambahkan barang baru).</span>
+            <span className="muted small">Buat di Accurate dengan kode yang sama persis, lalu sinkron dan klik Terapkan (pilih tambahkan barang baru).</span>
           </div>
         )}
         <ul className="list-stack">

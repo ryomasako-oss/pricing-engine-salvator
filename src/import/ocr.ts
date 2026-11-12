@@ -54,7 +54,7 @@ async function shrinkImage(file: File, mime: string): Promise<{ bytes: Uint8Arra
 export async function ocrRequestList(file: File, mime: string): Promise<{ lines: RequestLine[]; notes: string[] }> {
   const { bytes, mime: sent } = mime === "application/pdf" ? { bytes: new Uint8Array(await file.arrayBuffer()), mime } : await shrinkImage(file, mime);
   if (bytes.length > MAX_BYTES) {
-    throw new Error(`File ${(bytes.length / 1024 / 1024).toFixed(1)} MB; maksimal 4 MB. Kecilkan atau pecah filenya dulu.`);
+    throw new Error(`File ${(bytes.length / 1024 / 1024).toFixed(1)} MB, maksimal 4 MB. Kecilkan atau pecah filenya dulu.`);
   }
   let res: Response;
   try {
@@ -65,7 +65,7 @@ export async function ocrRequestList(file: File, mime: string): Promise<{ lines:
       body: toBase64(bytes),
     });
   } catch {
-    throw new ApiError("Tidak bisa menghubungi server. Periksa koneksi Anda.", 0);
+    throw new ApiError("Tidak bisa terhubung ke server. Cek koneksi internet.", 0);
   }
   const data = (await res.json().catch(() => ({}))) as { lines?: RequestLine[]; truncated?: boolean; error?: string };
   if (!res.ok || !data.lines) {
@@ -80,7 +80,7 @@ export async function ocrRequestList(file: File, mime: string): Promise<{ lines:
     lines: data.lines,
     notes: [
       `${data.lines.length} baris dibaca otomatis dari file. Cocokkan jumlahnya dengan file asli dan periksa nama serta qty tiap baris.`,
-      ...(data.truncated ? ["File berisi lebih dari 500 baris; hanya 500 pertama yang dibaca."] : []),
+      ...(data.truncated ? ["File berisi lebih dari 500 baris. Hanya 500 baris pertama yang dibaca."] : []),
     ],
   };
 }

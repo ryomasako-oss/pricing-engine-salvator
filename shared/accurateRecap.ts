@@ -388,7 +388,7 @@ export function recapEmail(
   parts.push(
     narrative
       ? `<div><p><small>Ringkasan singkat dari Silvy</small></p>${narrativeHtml(narrative)}</div>`
-      : `<p><small>Silvy tidak bisa dihubungi pagi ini; angka di bawah tetap lengkap.</small></p>`,
+      : `<p><small>Silvy tidak bisa dihubungi pagi ini. Angka di bawah tetap lengkap.</small></p>`,
   );
   if (r.sync?.stuck) {
     parts.push(
@@ -422,8 +422,8 @@ export function recapEmail(
     parts.push(
       `<div style="border:1px solid ${b.count ? "#c0392b" : "#ccc"};border-radius:6px;padding:8px 12px;margin:12px 0">` +
         `<h3 style="margin:4px 0">Dijual di bawah modal (${grp(b.count)})</h3>` +
-        `<p><small>Baris faktur penjualan (SI) yang masuk sejak rekap sebelumnya. Harga jual setelah diskon dan sebelum PPN, ` +
-        `dibandingkan dengan harga beli dari faktur pembelian (PI) terakhir sebelum tanggal faktur, sebelum PPN. ${grp(b.checked)} baris dicek` +
+        `<p><small>SI yang masuk sejak rekap sebelumnya, dibandingkan dengan harga beli (PI) terakhir sebelum tanggal faktur. ` +
+        `Semua harga setelah diskon, sebelum PPN. ${grp(b.checked)} baris dicek` +
         (b.count
           ? `, total rugi <strong style="color:#c0392b">${esc(rp(b.lossTotal))}</strong>`
           : b.checked || b.unknownCost || b.doubtfulCost
@@ -443,7 +443,7 @@ export function recapEmail(
           : "") +
         (b.unknownCost || b.doubtfulCost
           ? `<p><small>Tidak dihitung: ${grp(b.unknownCost)} tanpa PI sebelum tanggal faktur (modal tidak diketahui)` +
-            (b.doubtfulCost ? `, ${grp(b.doubtfulCost)} dengan modal meragukan (harga PI 3x harga jual atau lebih; cek PI-nya)` : "") +
+            (b.doubtfulCost ? `, ${grp(b.doubtfulCost)} dengan modal meragukan (harga PI 3x harga jual atau lebih, cek PI-nya)` : "") +
             `.</small></p>`
           : "") +
         `</div>`,
@@ -454,7 +454,7 @@ export function recapEmail(
   }
   parts.push(
     `<h3>COGS dari harga pembelian terakhir</h3><ul>` +
-      `<li>${grp(r.cogs.changed)} akan berubah jika diterapkan (naik ${grp(r.cogs.up)}, turun ${grp(r.cogs.down)}; ${grp(r.cogs.bigJumps)} berubah lebih dari 50%)</li>` +
+      `<li>${grp(r.cogs.changed)} akan berubah jika diterapkan (naik ${grp(r.cogs.up)}, turun ${grp(r.cogs.down)}, ${grp(r.cogs.bigJumps)} berubah lebih dari 50%)</li>` +
       `<li>${grp(r.cogs.unchanged)} sudah sama</li>` +
       (r.cogs.held ? `<li>${grp(r.cogs.held)} ditahan, tidak ikut diterapkan (lihat di bawah)</li>` : "") +
       `<li>${grp(r.cogs.skipped)} dilewati karena satuan</li>` +
@@ -497,7 +497,7 @@ export function recapEmail(
       `<h3>Barang baru dari Accurate (${grp(n.added)})</h3>` +
         `<p><small>Masuk katalog otomatis dalam 24 jam terakhir dengan COGS kosong, jadi masih ditahan di quotation. ` +
         `${grp(n.withReceipt)} punya faktur pembelian: COGS-nya ikut saat Terapkan COGS. ` +
-        (n.held ? `${grp(n.held)} ditahan karena harga di PI-nya tidak sepakat: cek lalu centang di tabel Ditahan. ` : "") +
+        (n.held ? `${grp(n.held)} ditahan karena harga di PI-nya saling beda: cek lalu centang di tabel Ditahan. ` : "") +
         `${grp(manual)} belum punya: isi COGS manual di Katalog.</small></p>` +
         `<table style="border-collapse:collapse;font-size:13px">` +
         `<tr>${th("Kode")}${th("Nama")}${th("Pembelian terakhir", true)}</tr>` +

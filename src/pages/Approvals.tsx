@@ -95,7 +95,7 @@ export function ApprovalsPage() {
       <div className="hk-page-head">
         <div>
           <h1>Persetujuan harga</h1>
-          <p>Quotation yang melanggar kebijakan tertahan di sini sampai manajer memutuskan.</p>
+          <p>Quotation yang melanggar kebijakan menunggu di sini sampai manajer memutuskan.</p>
         </div>
         <button className="btn ghost" onClick={load} disabled={loading}>
           Muat ulang
@@ -108,7 +108,7 @@ export function ApprovalsPage() {
             <div className="label">Nilai tertahan / bulan</div>
             <div className="value num">{rp(heldValue)}</div>
             <div className="foot">
-              {capped("pending") ? `${grp(CAP)}+ quotation menunggu; nilai dari ${grp(CAP)} terbaru` : `${grp(pending.length)} quotation menunggu`}
+              {capped("pending") ? `${grp(CAP)}+ quotation menunggu, nilai dari ${grp(CAP)} terbaru` : `${grp(pending.length)} quotation menunggu`}
             </div>
           </div>
           <div className="kpi">
@@ -150,7 +150,7 @@ export function ApprovalsPage() {
             {filter === "pending" ? (
               <>
                 <h3>Tidak ada yang menunggu</h3>
-                <p>Semua quotation sudah diputuskan. Antrean bersih.</p>
+                <p>Semua quotation sudah diputuskan.</p>
               </>
             ) : (
               <>

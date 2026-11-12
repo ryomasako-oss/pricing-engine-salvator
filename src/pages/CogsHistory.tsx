@@ -76,8 +76,7 @@ export function CogsHistoryPage() {
           </Link>
           <h1>Riwayat COGS</h1>
           <p>
-            Harga beli terbaru dari faktur pembelian (PI) Accurate, sebelum PPN, dan COGS lama tiap barang. Halaman ini hanya
-            menampilkan; untuk mengubah COGS pakai "COGS dari harga pembelian terakhir" di Katalog.
+            Harga beli terbaru dari PI Accurate (sebelum PPN) dan COGS lama tiap barang. Untuk mengubah COGS, pakai "COGS dari harga pembelian terakhir" di Katalog.
           </p>
         </div>
       </div>
@@ -122,7 +121,7 @@ export function CogsHistoryPage() {
         <div className="card">
           <div className="card-body empty">
             <h3>Tidak ada barang</h3>
-            <p>{search || onlyPending ? "Ubah kata pencarian atau matikan saringan." : "Belum ada riwayat harga beli dari Accurate."}</p>
+            <p>{search || onlyPending ? "Ubah kata pencarian atau matikan filter." : "Belum ada riwayat harga beli dari Accurate."}</p>
           </div>
         </div>
       ) : (
@@ -189,7 +188,7 @@ export function CogsHistoryPage() {
                       </div>
                     )}
                     {c.cogs > 0 && c.receipts.length > 0 && !c.receipts.some((r) => r.used) && (
-                      <p className="muted small">COGS tidak cocok dengan PI mana pun di atas (mungkin manual atau dari Excel).</p>
+                      <p className="muted small">COGS ini tidak sama dengan PI mana pun di atas. Mungkin diisi manual atau dari Excel.</p>
                     )}
                   </div>
 

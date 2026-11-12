@@ -121,7 +121,7 @@ export function BulkImageUpload({ onClose, onDone }: { onClose: () => void; onDo
           <button className="btn" disabled={sending || checking} onClick={() => folderInput.current?.click()}>
             Pilih folder
           </button>
-          <span className="muted small">JPG, PNG, atau WebP; diperkecil otomatis. Maksimum {MAX_FILES} berkas sekali pilih.</span>
+          <span className="muted small">JPG, PNG, atau WebP. Ukurannya diperkecil otomatis. Maksimum {MAX_FILES} berkas sekali pilih.</span>
         </div>
 
         {checking && <p className="muted">Memeriksa kode barang…</p>}

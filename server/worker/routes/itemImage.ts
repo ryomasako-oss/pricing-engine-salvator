@@ -75,7 +75,7 @@ itemImageRouter.post("/_check", requirePermission("edit_catalog"), async (c) => 
 
 itemImageRouter.post("/:code", requirePermission("edit_catalog"), async (c) => {
   const item = await catalogItemFor(c.env.DB, c.req.param("code") ?? "");
-  if (!item) return c.json({ error: "Kode barang tidak ditemukan atau memakai karakter yang belum didukung untuk gambar." }, 404);
+  if (!item) return c.json({ error: "Kode barang tidak ditemukan, atau ada karakter yang tidak bisa dipakai untuk gambar." }, 404);
   if (!c.env.IMAGES) return c.json({ error: "Penyimpanan gambar belum aktif di server ini." }, 503);
   if (Number(c.req.header("content-length") ?? 0) > MAX_FULL_BYTES + MAX_THUMB_BYTES + 10_000)
     return c.json({ error: "Gambar terlalu besar." }, 413);
@@ -84,7 +84,7 @@ itemImageRouter.post("/:code", requirePermission("edit_catalog"), async (c) => {
   const full = form?.get("full");
   const thumb = form?.get("thumb");
   if (!full || !thumb || typeof full === "string" || typeof thumb === "string")
-    return c.json({ error: "Kirim dua berkas: gambar penuh dan thumbnail." }, 400);
+    return c.json({ error: "Kirim dua file: gambar penuh dan thumbnail." }, 400);
   const fullBytes = new Uint8Array(await full.arrayBuffer());
   const thumbBytes = new Uint8Array(await thumb.arrayBuffer());
   if (!isWebp(fullBytes) || !isWebp(thumbBytes)) return c.json({ error: "Gambar harus berformat WebP." }, 400);

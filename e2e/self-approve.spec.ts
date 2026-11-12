@@ -26,7 +26,7 @@ test("the author of a blocked quote sees Setujui disabled, Tolak still available
   await page.getByRole("button", { name: "Putuskan" }).click();
   const modal = page.locator(".modal");
   await expect(modal.getByRole("button", { name: "Setujui" })).toBeDisabled();
-  await expect(modal.getByText("harus disetujui manajer/admin lain")).toBeVisible();
+  await expect(modal.getByText("harus disetujui manajer atau admin lain")).toBeVisible();
   await modal.getByRole("textbox").fill("Naikkan harga");
   await expect(modal.getByRole("button", { name: "Tolak" })).toBeEnabled();
   await page.screenshot({ path: test.info().outputPath("self-approve.png") });

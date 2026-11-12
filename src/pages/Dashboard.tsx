@@ -160,7 +160,7 @@ export function DashboardPage() {
           <h1>Quotation</h1>
           <p>
             Selamat datang, {user?.name.split(" ")[0]}.{" "}
-            {mine ? "Quotation yang Anda buat atau ditugaskan ke Anda." : "Ringkasan quotation seluruh tim."}
+            {mine ? "Quotation buatan Anda atau yang ditugaskan ke Anda." : "Ringkasan quotation seluruh tim."}
           </p>
         </div>
         <div className="row">
@@ -238,7 +238,7 @@ export function DashboardPage() {
       )}
 
       <div className="card" id="quote-list">
-        <div className="tabs card-tabs" role="group" aria-label="Filter status penawaran">
+        <div className="tabs card-tabs" role="group" aria-label="Filter status quotation">
           {FILTERS.map((f) => (
             <button key={f.key} className={filter === f.key ? "on" : ""} aria-pressed={filter === f.key} onClick={() => setFilter(f.key)}>
               {f.label}
@@ -279,7 +279,7 @@ export function DashboardPage() {
         ) : visible.length === 0 ? (
           <div className="card-body empty">
             <h3>Belum ada quotation di sini</h3>
-            <p>Buat quotation baru, lalu isi itemnya dari katalog atau file Excel klien.</p>
+            <p>Buat quotation baru, lalu isi barangnya dari katalog atau file Excel klien.</p>
             <button className="btn primary" onClick={() => setCreating(true)}>
               Quotation baru
             </button>

@@ -8,7 +8,7 @@ import { Icon } from "./Icon";
 import { WaitingLine } from "./WaitingLine";
 
 const SUGGESTIONS = [
-  "Buatkan penawaran untuk PT … : pulpen 10 lusin, kertas A4 5 rim",
+  "Buatkan quotation untuk PT …: pulpen 10 lusin, kertas A4 5 rim",
   "Klien butuh 20 box klip, 5 lem stik, dan 10 map",
   "Cek stok kertas A4 di katalog",
 ];
@@ -34,7 +34,7 @@ function Bubble({ m, onReview }: { m: ChatMessage; onReview: (m: ChatMessage) =>
             {m.lines.slice(0, 8).map((l, i) => (
               <li key={i}>
                 {l.name}
-                {l.noQty ? "" : ` — ${l.qty}${l.uom ? ` ${l.uom}` : ""}`}
+                {l.noQty ? "" : `  · ${l.qty}${l.uom ? ` ${l.uom}` : ""}`}
               </li>
             ))}
             {m.lines.length > 8 && <li className="muted">dan {m.lines.length - 8} lainnya</li>}
@@ -104,8 +104,7 @@ export function ChatThread({ maxHeight = 320 }: { maxHeight?: number | string })
       {messages.length === 0 && (
         <div className="card-body tight-bottom">
           <p className="note first">
-            Halo, saya Silvy. Ceritakan kebutuhan klien dengan kata-kata sendiri. Daftar yang tersusun bisa Anda tinjau sebelum jadi quotation;
-            harga selalu diambil dari katalog.
+            Halo, saya Silvy. Ceritakan kebutuhan klien dengan bahasa sehari-hari. Daftarnya bisa dicek dulu sebelum jadi quotation. Harga selalu diambil dari katalog.
           </p>
           <div className="chips">
             {SUGGESTIONS.map((q) => (

@@ -341,7 +341,7 @@ quotesRouter.put("/:id", async (c) => {
   if (!canEdit(user, existing.created_by, existing.assigned_to)) return c.json({ error: "Quotation ini milik pengguna lain." }, 403);
   if (!EDITABLE_STATUSES.includes(existing.status)) {
     return c.json(
-      { error: `Quotation berstatus ${existing.status} terkunci. Buka kembali sebagai revisi baru untuk mengubahnya.` },
+      { error: `Quotation berstatus ${existing.status} terkunci. Buka ulang sebagai revisi baru kalau mau mengubahnya.` },
       409,
     );
   }
@@ -421,7 +421,7 @@ quotesRouter.post("/:id/revisions", async (c) => {
   }
   if (!EDITABLE_STATUSES.includes(quote.status)) {
     return c.json(
-      { error: `Quotation berstatus ${quote.status} terkunci. Buka kembali sebagai revisi baru untuk mengubahnya.` },
+      { error: `Quotation berstatus ${quote.status} terkunci. Buka ulang sebagai revisi baru kalau mau mengubahnya.` },
       409,
     );
   }
@@ -464,7 +464,7 @@ quotesRouter.post("/:id/revisions", async (c) => {
       return c.json({ error: "Quotation ini milik pengguna lain." }, 403);
     }
     return c.json(
-      { error: `Quotation berstatus ${fresh.status} terkunci. Buka kembali sebagai revisi baru untuk mengubahnya.` },
+      { error: `Quotation berstatus ${fresh.status} terkunci. Buka ulang sebagai revisi baru kalau mau mengubahnya.` },
       409,
     );
   }
@@ -479,7 +479,7 @@ quotesRouter.post("/:id/restore/:revisionId", async (c) => {
   const quote = await findQuote(c.env.DB, id);
   if (!quote) return c.json({ error: "Quotation tidak ditemukan." }, 404);
   if (!canEdit(user, quote.created_by, quote.assigned_to) || !EDITABLE_STATUSES.includes(quote.status)) {
-    return c.json({ error: "Quotation harus berstatus draft untuk dipulihkan." }, 409);
+    return c.json({ error: "Hanya quotation draft yang bisa dipulihkan." }, 409);
   }
   const rev = await get<{ snapshot: string; rev_no: number }>(
     c.env.DB,
@@ -1024,7 +1024,7 @@ quotesRouter.delete("/:id", async (c) => {
   // reopened won/approved quote isn't "own draft" and its history needs admin.
   const isOwnDraft = quote.created_by === user.id && quote.status === "draft" && quote.rev_no === 1;
   if (!isOwnDraft && !hasPermission(user.role, "delete_quotes")) {
-    return c.json({ error: "Hanya draft milik sendiri yang bisa dihapus. Selain itu perlu admin." }, 403);
+    return c.json({ error: "Hanya draft milik sendiri yang bisa dihapus. Untuk yang lain, minta admin." }, 403);
   }
   await run(c.env.DB, "DELETE FROM quotes WHERE id = ?", id);
   await audit(c.env.DB, user.id, "quote", id, "deleted", { number: quote.number });

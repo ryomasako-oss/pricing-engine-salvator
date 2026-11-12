@@ -107,9 +107,7 @@ export function FixTasksPage() {
         <div>
           <h1>Perlu diperbaiki</h1>
           <p>
-            Item yang tidak ikut penawaran: tidak ada di katalog, COGS perlu dicek, satuan belum ada rasionya, atau
-            harganya ditolak sales. Penawaran ke klien tetap jalan tanpa item ini; bereskan di sini supaya bisa ditawarkan
-            susulan. Pengingat dikirim ke manajer dan admin setiap pagi.
+            Barang yang belum bisa masuk quotation. Quotation ke klien tetap jalan tanpa barang ini. Setelah dibereskan di sini, barangnya bisa ditawarkan susulan. Manajer dan admin dapat pengingat tiap pagi.
           </p>
         </div>
         <button className="btn ghost" onClick={load} disabled={loading}>
@@ -170,12 +168,12 @@ export function FixTasksPage() {
             ) : status === "open" ? (
               <>
                 <h3>Tidak ada yang perlu diperbaiki</h3>
-                <p>Semua item dari list klien sudah bisa ditawarkan.</p>
+                <p>Semua barang dari daftar klien sudah masuk quotation.</p>
               </>
             ) : (
               <>
                 <h3>Belum ada yang diselesaikan</h3>
-                <p>Tugas yang ditandai selesai akan muncul di sini beserta catatannya.</p>
+                <p>Yang sudah ditandai selesai muncul di sini, lengkap dengan catatannya.</p>
               </>
             )}
           </div>
@@ -259,7 +257,7 @@ export function FixTasksPage() {
               className="textarea"
               rows={3}
               autoFocus
-              placeholder="mis. Ditambahkan ke katalog sebagai KRS-01; susulan dikirim di Q-2610/014"
+              placeholder="mis. Ditambahkan ke katalog sebagai KRS-01, susulan dikirim di Q-2610/014"
               value={note}
               onChange={(e) => setNote(e.target.value)}
             />
