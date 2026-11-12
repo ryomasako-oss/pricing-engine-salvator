@@ -57,6 +57,24 @@ const ACTIONS: Record<string, string> = {
   resolved: "Diselesaikan",
   ask: "Pertanyaan",
   document: "Dokumen",
+  ask_completed: "Silvy menjawab",
+  ask_failed: "Silvy gagal menjawab",
+  document_completed: "Silvy membaca dokumen",
+  document_failed: "Silvy gagal membaca dokumen",
+  accurate_new_items: "Barang baru dari Accurate",
+  cogs_held_applied: "COGS yang ditahan diterapkan",
+  cogs_reset_suspect: "COGS janggal dikosongkan",
+  cancelled: "Dibatalkan",
+  draft_saved: "Draf disimpan",
+  draft_sent: "Draf dikirim ke PIC",
+  draft_done: "Draf jadi quotation",
+  draft_cancelled: "Draf dibatalkan",
+  feed: "Daftar klien dimasukkan",
+  resolve: "Dicocokkan",
+  search_index_page: "Indeks pencarian AI diperbarui",
+  cleanup_junk_rows: "Baris sampah dibersihkan",
+  uom_synced_from_bos: "Satuan disalin dari BOS",
+  seeded: "Data awal",
 };
 
 export const auditEntityLabel = (e: string): string => AUDIT_ENTITIES[e] ?? e;
@@ -73,6 +91,7 @@ const FIELDS: Record<string, string> = {
   name: "Nama",
   uom: "Satuan",
   category: "Kategori",
+  code: "Kode",
 };
 
 const show = (v: unknown): string =>
