@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { all } from "../../db.d1";
-import { auditRecent } from "../audit";
+import { auditSearch } from "../audit";
+import { wibRangeUtc } from "../../../shared/auditLog";
 import { requireAuth, requirePermission } from "../auth";
 import type { Env } from "../env";
 
@@ -29,6 +30,27 @@ approvalsRouter.get("/", requirePermission("decide_quotes"), async (c) => {
   return c.json({ approvals });
 });
 
-approvalsRouter.get("/audit", requirePermission("view_audit"), async (c) => {
-  return c.json({ audit: await auditRecent(c.env.DB, 200) });
+const AUDIT_PAGE_SIZE = 100;
+
+/* Riwayat Audit. Details carry COGS (catalog edits), so view_costs too, should the two ever part. */
+approvalsRouter.get("/audit", requirePermission("view_audit"), requirePermission("view_costs"), async (c) => {
+  const day = /^\d{4}-\d{2}-\d{2}$/;
+  const from = c.req.query("from") ?? "";
+  const to = c.req.query("to") ?? "";
+  const valid = (d: string) => day.test(d) && !Number.isNaN(Date.parse(d));
+  if (!valid(from) || !valid(to) || from > to) return c.json({ error: "Rentang tanggal tidak valid." }, 400);
+  const [start, end] = wibRangeUtc(from, to);
+  // shortcut: export takes at most 5000 rows in one response; page it if a range ever holds more.
+  const exportAll = c.req.query("all") === "1";
+  const pageSize = exportAll ? 5000 : AUDIT_PAGE_SIZE;
+  const page = Math.max(1, Math.floor(Number(c.req.query("page")) || 1));
+  const result = await auditSearch(c.env.DB, {
+    start,
+    end,
+    entity: (c.req.query("entity") ?? "").slice(0, 40),
+    q: (c.req.query("q") ?? "").trim().slice(0, 100),
+    limit: pageSize,
+    offset: exportAll ? 0 : (page - 1) * pageSize,
+  });
+  return c.json({ ...result, page: exportAll ? 1 : page, pageSize });
 });
