@@ -3,6 +3,17 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { auditActionLabel, auditDetailText, wibRangeUtc } from "./auditLog";
 
+// Every top-level detail key in production audit_log on 2026-11-13 (json_each over detail), plus keys audit() calls write that prod has not seen yet.
+const PROD_KEYS = (
+  "code name cogs uom list_price category units entity number changed title targets restart rows silvy recipients date " +
+  "status reservationId phase question codes added unchanged skipped receiptsThrough noReceipt source version updated to " +
+  "held from_status client_id note newItems mode inserted feedback count reason net_margin monthly_value breaches transDate " +
+  "receiptNo from role email created open counts closed unitRows unitMismatch stockApplied insertNew quote_id minNetMargin " +
+  "minLineMargin maxBasketDiscount draft_id approvalValueThreshold allowBelowCost rev_no kind active via password error " +
+  "cogsFromPurchases by telegram_phone skipped_for_manual_check reset_to_zero priority phone from_rev excluded deleted backup " +
+  "ip offset indexed next removed tag row_id action"
+).split(" ");
+
 describe("wibRangeUtc", () => {
   it("turns WIB days into UTC bounds, end exclusive", () => {
     expect(wibRangeUtc("2026-11-01", "2026-11-12")).toEqual(["2026-10-31 17:00:00", "2026-11-12 17:00:00"]);
@@ -13,6 +24,14 @@ describe("auditDetailText", () => {
   it("reads before/after as old → new", () => {
     const d = JSON.stringify({ code: "A1", before: { cogs: 10000 }, after: { cogs: 12500 } });
     expect(auditDetailText(d)).toBe("COGS: 10.000 → 12.500 · Kode: A1");
+  });
+  it("labels import counts and shows booleans as Ya/Tidak", () => {
+    const d = JSON.stringify({ source: "x.xlsx", mode: "merge", rows: 27, inserted: 1, updated: 26, cogsFromPurchases: 1 });
+    expect(auditDetailText(d)).toBe("Sumber: x.xlsx · Mode: merge · Baris: 27 · Baru: 1 · Diperbarui: 26 · COGS dari pembelian: 1");
+    expect(auditDetailText(JSON.stringify({ allowBelowCost: false, restart: true }))).toBe("Boleh di bawah COGS: Tidak · Ulang dari awal: Ya");
+  });
+  it.each(PROD_KEYS)("labels detail key %s", (k) => {
+    expect(auditDetailText(JSON.stringify({ [k]: 1 }))).not.toMatch(new RegExp(`^${k}:`));
   });
   it("falls back to raw text and clips", () => {
     expect(auditDetailText("not json")).toBe("not json");
