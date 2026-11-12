@@ -103,7 +103,7 @@ const hoursSince = (iso: string | null) =>
  */
 function lastPage(res: { rows: unknown[]; pageCount: number }, page: number, what: string): boolean {
   if (page >= res.pageCount) return true;
-  if (!res.rows.length) throw new AccurateError(`Halaman ${page} dari ${res.pageCount} (${what}) kosong; dicoba lagi tick berikutnya`, 502);
+  if (!res.rows.length) throw new AccurateError(`Halaman ${page} dari ${res.pageCount} (${what}) kosong. Dicoba lagi di putaran berikutnya`, 502);
   return false;
 }
 

@@ -309,7 +309,7 @@ catalogRouter.post("/:id/verify-cogs", requirePermission("edit_catalog"), async 
   const id = Number(c.req.param("id"));
   const item = await get<CatalogItem>(c.env.DB, "SELECT * FROM catalog_items WHERE id = ?", id);
   if (!item) return c.json({ error: "Item tidak ditemukan." }, 404);
-  if (!(item.cogs > 0)) return c.json({ error: "COGS item ini kosong; isi dulu sebelum ditandai sudah dicek." }, 400);
+  if (!(item.cogs > 0)) return c.json({ error: "COGS barang ini masih kosong. Isi dulu sebelum ditandai sudah dicek." }, 400);
   await run(c.env.DB, VERIFY_COGS_SQL, item.code, item.cogs);
   await audit(c.env.DB, user.id, "catalog", id, "cogs_verified", { code: item.code, cogs: item.cogs });
   const problems = await cogsProblemsFor(c.env.DB, [item.code]);

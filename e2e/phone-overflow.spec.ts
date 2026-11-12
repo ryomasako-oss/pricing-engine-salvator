@@ -43,9 +43,9 @@ test("phone: quote editor tabs fit the screen", async ({ page, errors }) => {
   await page.goto(`/quotes/${quote.id}`);
   // One item row, so the items table is on screen too.
   await page.getByRole("button", { name: "Baris kosong" }).first().click();
-  await expect(page.getByLabel("Nama item baris 1")).toBeVisible();
+  await expect(page.getByLabel("Nama barang baris 1")).toBeVisible();
   await expectNoSideScroll(page, "editor");
-  const tabs = page.getByRole("group", { name: "Bagian penawaran" }).getByRole("button");
+  const tabs = page.getByRole("group", { name: "Bagian quotation" }).getByRole("button");
   expect(await tabs.count()).toBeGreaterThan(3);
   for (const tab of await tabs.all()) {
     const name = await tab.innerText();
@@ -67,7 +67,7 @@ test.describe("sales", () => {
     void errors;
     const { quote } = await (await page.request.post("/api/quotes", { data: { title: "E2E HP sales" } })).json();
     await page.goto(`/quotes/${quote.id}`);
-    await expect(page.getByLabel("Catatan tambahan di penawaran")).toBeVisible();
+    await expect(page.getByLabel("Catatan tambahan di quotation")).toBeVisible();
     await expectNoSideScroll(page, "sales quote");
   });
 });

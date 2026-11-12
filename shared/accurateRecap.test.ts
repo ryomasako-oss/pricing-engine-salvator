@@ -133,7 +133,7 @@ describe("barang baru dari Accurate (2026-10-23)", () => {
     expect(r.newItems).toMatchObject({ added: 2, withReceipt: 1, held: 1 });
     expect(r.newItems!.top.map((i) => [i.code, i.held])).toEqual([["103300", true], ["103279", false]]);
     const mail = recapEmail(r, null, "https://x");
-    expect(mail.html).toContain("1 ditahan karena harga di PI-nya tidak sepakat");
+    expect(mail.html).toContain("1 ditahan karena harga di PI-nya saling beda");
     expect(mail.html).toContain("Rp 90.000 <small>(ditahan)</small>");
     expect(recapPrompt(r)).toContain("ditahan (PI tidak sepakat): 1; tanpa PI (isi COGS manual): 0");
   });

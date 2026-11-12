@@ -32,7 +32,7 @@ export function assertAccurateUrl(url: string): void {
   const host = u.hostname.toLowerCase();
   if (u.protocol !== "https:" || !(host === "accurate.id" || host.endsWith(".accurate.id"))) {
     throw new AccurateError(
-      `Alamat ${u.protocol}//${u.host} di luar accurate.id; permintaan dihentikan supaya token tidak terkirim ke sana`,
+      `Alamat ${u.protocol}//${u.host} di luar accurate.id. Permintaan dihentikan supaya token tidak terkirim ke sana`,
       502,
     );
   }

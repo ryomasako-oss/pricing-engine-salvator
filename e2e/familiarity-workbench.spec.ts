@@ -190,8 +190,8 @@ test("a manager's rule for every client is opt-in: unticked it stays in the sess
   const calls = familiarityCalls(page);
   await page.goto("/pencocokan");
   const wb = await openWorkbench(page);
-  await expect(wb.getByText(/kecuali Anda mencentang "semua klien"/)).toBeVisible();
-  await expectReadable(wb.getByText(/kecuali Anda mencentang/));
+  await expect(wb.getByText(/kecuali "semua klien" dicentang/)).toBeVisible();
+  await expectReadable(wb.getByText(/kecuali "semua klien" dicentang/));
   const anotherClientSees = async () => {
     await wb.getByRole("button", { name: "Feed baru" }).click();
     await wb.getByRole("combobox", { name: "Klien" }).selectOption(String(others.shift()));
@@ -368,7 +368,7 @@ test.describe("sales", () => {
     const wb = await openWorkbench(page);
 
     // Without a client: told up front, and again on the session.
-    await expect(wb.getByText(/Pilih klien supaya sistem belajar/)).toBeVisible();
+    await expect(wb.getByText(/Pilih klien supaya pilihannya diingat/)).toBeVisible();
     await wb.getByLabel("Tempel daftar barang").fill("Gunting kecil biru");
     await wb.getByRole("button", { name: "Cocokkan" }).click();
     await expect(wb.getByText(/Latihan tanpa klien/)).toBeVisible();

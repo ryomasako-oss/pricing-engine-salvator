@@ -17,7 +17,7 @@ export const assumptionsSchema = z.object({
   months: z.number().int().min(1).max(120),
   includeLogistics: z.boolean(),
 }).refine((a) => a.leaderMargin <= a.targetMargin, {
-  message: "leaderMargin tidak boleh melebihi targetMargin.",
+  message: "Margin item leader tidak boleh lebih besar dari target margin.",
   path: ["leaderMargin"],
 });
 

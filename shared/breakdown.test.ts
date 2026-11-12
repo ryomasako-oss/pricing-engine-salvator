@@ -90,13 +90,13 @@ describe("explainLine wording", () => {
 
   it("S1 capped at RRP says so", () => {
     const ex = explain(line({ rrp: 12000 }), 0);
-    expect(ex.steps.join(" ")).toContain("melebihi plafon RRP Rp 12.000");
+    expect(ex.steps.join(" ")).toContain("di atas plafon RRP Rp 12.000");
     expect(ex.price).toBe(12000);
   });
 
   it("S3 floor hit says the discount was held back", () => {
     const ex = explain(line({ rrp: 11500 }), 2);
-    expect(ex.steps.join(" ")).toContain("menembus margin minimum");
+    expect(ex.steps.join(" ")).toContain("di bawah margin minimum");
     expect(ex.price).toBeGreaterThan(Math.floor(11500 * 0.9));
   });
 
@@ -105,7 +105,7 @@ describe("explainLine wording", () => {
   it("S3 floor above the RRP ceiling says the price stops at RRP, below the minimum margin", () => {
     const e = explain(line({ cogs: 47000, rrp: 52000 }), 2);
     expect(e.price).toBe(52000);
-    expect(e.steps.join(" ")).toMatch(/di atas plafon RRP Rp 52\.000, jadi harga berhenti di RRP dan marginnya di bawah minimum/);
+    expect(e.steps.join(" ")).toMatch(/di atas plafon RRP Rp 52\.000, jadi harga berhenti di RRP dan marginnya tetap di bawah minimum/);
     expect(e.steps.join(" ")).not.toMatch(/ditahan di Rp 52\.000/);
   });
 
@@ -139,15 +139,15 @@ describe("explainQuote", () => {
     ]);
     expect(b.headline).toMatch(/^S1 Full Margin: nilai Rp /);
     expect(b.lines).toHaveLength(3);
-    expect(b.points.join(" ")).toContain("1 item dijual di bawah modal");
-    expect(b.points.join(" ")).toContain("1 item mentok di plafon RRP");
-    expect(b.points.join(" ")).toContain("DIBLOKIR — 1 item di bawah modal");
+    expect(b.points.join(" ")).toContain("1 barang dijual di bawah modal");
+    expect(b.points.join(" ")).toContain("1 barang mentok di plafon RRP");
+    expect(b.points.join(" ")).toContain("DIBLOKIR: 1 item di bawah modal");
   });
 
   it("S2 with only CORE items says there is no cross-subsidy, instead of Rp 0 figures", () => {
     const engine = computeEngine(DEFAULT_ASSUMPTIONS, [line({})], DEFAULT_REGIONS);
     const text = explainQuote(engine, 1, DEFAULT_ASSUMPTIONS, POLICY, []).points.join(" ");
-    expect(text).toContain("Semua item berperan CORE");
+    expect(text).toContain("Semua barang berperan CORE");
     expect(text).not.toContain("Subsidi:");
     const mixed = computeEngine(DEFAULT_ASSUMPTIONS, [line({ role: "LEADER" }), line({ lineNo: 2, role: "PROFIT" })], DEFAULT_REGIONS);
     expect(explainQuote(mixed, 1, DEFAULT_ASSUMPTIONS, POLICY, []).points.join(" ")).toContain("Subsidi: item LEADER memberi");

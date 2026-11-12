@@ -559,14 +559,13 @@ export function QuoteEditorPage() {
       {quote.status === "rejected" && quote.decision_note && (
         <p className="notice error">
           <strong>Ditolak{quote.approved_by_name ? ` oleh ${quote.approved_by_name}` : ""}:</strong>{" "}
-          {quote.decision_note} — buka kembali sebagai revisi baru untuk memperbaikinya.
+          {quote.decision_note} . Buka sebagai revisi baru untuk memperbaikinya.
         </p>
       )}
       {readOnly && quote.status !== "rejected" && (
         <p className="notice info">
           Quotation berstatus{" "}
-          <strong>{quote.status}</strong> terkunci agar angka yang sudah disetujui tidak berubah
-          diam-diam. Gunakan <strong>Buka revisi baru</strong> untuk mengubahnya.
+          <strong>{quote.status}</strong> dikunci supaya angka yang sudah disetujui tidak berubah. Pakai <strong>Buka revisi baru</strong> untuk mengubahnya.
         </p>
       )}
 
@@ -574,7 +573,7 @@ export function QuoteEditorPage() {
         <div className="editor-main">
           <div className="card">
             <div className="card-head tab-head">
-              <div className="tabs" role="group" aria-label="Bagian penawaran">
+              <div className="tabs" role="group" aria-label="Bagian quotation">
                 {([
                   ["items", "Item"],
                   ["breakdown", "Penjelasan"],
@@ -617,7 +616,7 @@ export function QuoteEditorPage() {
                     toast(
                       `${label}: ${r.changed} baris` +
                         (r.capped ? `, ${r.capped} mentok di plafon klien` : "") +
-                        (r.skipped ? `, ${r.skipped} dilewati (ditahan / tanpa COGS / tanpa plafon)` : "") +
+                        (r.skipped ? `, ${r.skipped} dilewati (ditahan, tanpa COGS, atau tanpa plafon)` : "") +
                         ".",
                       "success",
                     );
@@ -807,7 +806,7 @@ export function QuoteEditorPage() {
                     onTargetMargin={(v) => update({ assumptions: { ...snapshot.assumptions, targetMargin: v } })}
                   />
                   <label className="field no-print">
-                    <span>Catatan tambahan di penawaran</span>
+                    <span>Catatan tambahan di quotation</span>
                     <textarea
                       className="textarea" rows={2} disabled={readOnly}
                       value={snapshot.meta.notes}
@@ -944,7 +943,7 @@ export function QuoteEditorPage() {
               const items = renumber(mergeDuplicates([...snapshot.items, ...incoming], keys));
               update({ items });
               setModal(null);
-              toast(`${before - items.length} item digabungkan ke baris yang sudah ada.`, "success");
+              toast(`${before - items.length} barang digabung ke baris yang sudah ada.`, "success");
             }}
           />
         );
@@ -952,12 +951,11 @@ export function QuoteEditorPage() {
 
       {modal?.kind === "import-confirm" && (
         <ConfirmModal
-          title="Ganti semua item?"
+          title="Ganti semua barang?"
           confirmLabel="Ya, pilih file"
           message={
             <p>
-              Impor akan mengganti semua {snapshot.items.length} item di quotation ini, termasuk COGS/RRP
-              yang sudah diisi manual, dengan isi file yang baru.
+              Semua {snapshot.items.length} barang di quotation ini akan diganti dengan isi file baru. COGS/RRP yang diisi manual ikut terganti.
             </p>
           }
           onConfirm={() => setModal({ kind: "import" })}
@@ -967,8 +965,8 @@ export function QuoteEditorPage() {
 
       {modal?.kind === "import" && (
         <ImportDialog
-          title="Impor daftar item klien"
-          description="Excel atau CSV berisi nama item, qty, dan plafon harga. Kalau plafon ditulis per kota, yang dipakai harga terendah."
+          title="Impor daftar barang klien"
+          description="File Excel atau CSV berisi nama barang, qty, dan plafon harga. Kalau plafon ditulis per kota, dipakai yang paling rendah."
           onClose={() => setModal(null)}
           onFile={async (file) => {
             // Loaded on demand: the spreadsheet parser is a large dependency.
@@ -977,7 +975,7 @@ export function QuoteEditorPage() {
             update({ items: renumber(items) });
             return {
               report,
-              summary: `${report.count} item terbaca dari sheet "${report.sheetName}". Jangan lupa simpan.`,
+              summary: `${report.count} barang terbaca dari sheet "${report.sheetName}". Jangan lupa simpan.`,
             };
           }}
         />
@@ -1052,7 +1050,7 @@ export function QuoteEditorPage() {
                         ? "Simpan perubahan dulu."
                         : !excelPassword
                           ? "Admin belum mengatur password Excel di Pengaturan."
-                          : "Rincian cara harga keluar per baris (termasuk COGS), terkunci password kantor. Sales hanya mengisi ACC/Tolak."}
+                          : "Rincian harga tiap baris, termasuk COGS. File dikunci password kantor. Sales cukup mengisi ACC atau Tolak."}
                   </small>
                 </span>
               </button>
@@ -1067,7 +1065,7 @@ export function QuoteEditorPage() {
             >
               <span>
                 <strong>Cetak</strong>
-                <small className="muted"> Membuka dialog cetak browser untuk dokumen penawaran.</small>
+                <small className="muted"> Cetak dokumen penawaran lewat browser.</small>
               </span>
             </button>
           </div>
@@ -1114,8 +1112,8 @@ export function QuoteEditorPage() {
             <div className={`notice ${cogsBlocked.length === snapshot.items.length ? "error" : "warn"} gap-below`}>
               <strong>
                 {cogsBlocked.length === snapshot.items.length
-                  ? "Semua item ditahan, jadi belum ada yang bisa diajukan:"
-                  : `${cogsBlocked.length} item ditahan dan tidak ikut penawaran sampai COGS-nya dicek:`}
+                  ? "Semua barang ditahan, jadi belum ada yang bisa diajukan:"
+                  : `${cogsBlocked.length} barang ditahan dan tidak ikut quotation sampai COGS-nya dicek:`}
               </strong>
               <ul className="notice-list">
                 {cogsBlocked.map((l) => (
@@ -1124,16 +1122,16 @@ export function QuoteEditorPage() {
                   </li>
                 ))}
               </ul>
-              Di dokumen ke customer, item ini ditulis sebagai "item menyusul".
+              Di dokumen untuk klien, barang ini ditulis "menyusul".
             </div>
           )}
           <BreachList breaches={breaches} />
           <p className="note">
             {blocked.length
-              ? "Karena ada pelanggaran kebijakan, quotation ini wajib disetujui manajer sebelum bisa dikirim."
+              ? "Ada yang melanggar kebijakan, jadi quotation ini harus disetujui manajer sebelum dikirim."
               : can("decide_quotes")
-                ? "Semua angka di dalam kebijakan, jadi quotation langsung disetujui atas nama Anda."
-                : "Semua angka di dalam kebijakan. Quotation tetap masuk antrean manajer untuk dicek."}
+                ? "Semua angka sesuai kebijakan, jadi quotation langsung disetujui atas nama Anda."
+                : "Semua angka sesuai kebijakan. Quotation tetap masuk antrean manajer untuk dicek."}
           </p>
         </Modal>
       )}
@@ -1163,9 +1161,9 @@ export function QuoteEditorPage() {
             <>
               <p>
                 {quote.status === "submitted"
-                  ? "Quotation ini masih menunggu persetujuan — membuka revisi baru akan membatalkan permintaan persetujuan itu."
+                  ? "Quotation ini masih menunggu persetujuan. Kalau dibuka sebagai revisi baru, permintaan persetujuannya dibatalkan."
                   : `Versi ${quote.rev_no} yang sudah diputuskan tetap tersimpan di riwayat.`}{" "}
-                Quotation kembali ke status draft dan harus diajukan ulang setelah diubah.
+                Quotation kembali jadi draft dan perlu diajukan lagi setelah diubah.
               </p>
             </>
           }
@@ -1263,7 +1261,7 @@ export function WorkflowButtons({
 
 /* ---------------- decision modal ---------------- */
 
-const SELF_APPROVE_HINT = "Quotation buatan Anda dengan pelanggaran blokir harus disetujui manajer/admin lain. Anda tetap bisa menolaknya.";
+const SELF_APPROVE_HINT = "Quotation buatan sendiri yang diblokir kebijakan harus disetujui manajer atau admin lain. Anda tetap bisa menolaknya.";
 
 function DecideModal({
   quote, breaches, engine, selfBlocked, onClose, onDecide,
@@ -1332,7 +1330,7 @@ function DecideModal({
           rows={3}
           value={note}
           onChange={(e) => setNote(e.target.value)}
-          placeholder="Misal: margin tipis tapi volume kontrak sepadan, atau minta naikkan harga item leader."
+          placeholder="Misal: margin tipis tapi volume kontraknya sepadan, atau minta harga barang leader dinaikkan."
         />
       </label>
     </Modal>

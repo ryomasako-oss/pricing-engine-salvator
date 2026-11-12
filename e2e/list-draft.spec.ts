@@ -63,7 +63,7 @@ for (const theme of THEMES) {
       await expect(rep.getByRole("columnheader", { name: "COGS" })).toHaveCount(0);
       await rep.screenshot({ path: info.outputPath(`reopened-${theme}.png`), fullPage: true });
 
-      await rep.getByRole("button", { name: /Buat quotation \(2 item\)/ }).click();
+      await rep.getByRole("button", { name: /Buat quotation \(2 barang\)/ }).click();
       await expect(rep).toHaveURL(/\/quotes\/\d+$/);
       await rep.goto("/");
       await expect(rep.getByRole("row", { name: new RegExp(title) })).toHaveCount(0);

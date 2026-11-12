@@ -114,10 +114,10 @@ export function ItemsTable({
       <div className="search-bar">
         <input
           className="input"
-          placeholder="Cari item atau kode"
+          placeholder="Cari barang atau kode"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          aria-label="Cari item"
+          aria-label="Cari barang"
         />
         <label className="toggle">
           <input
@@ -125,7 +125,7 @@ export function ItemsTable({
             checked={onlyFlagged}
             onChange={(e) => setOnlyFlagged(e.target.checked)}
           />
-          <span>Hanya item bermasalah</span>
+          <span>Hanya barang bermasalah</span>
         </label>
         <span className="grow" />
         <span className="muted small">
@@ -145,7 +145,7 @@ export function ItemsTable({
 
       {engine.rows.length === 0 ? (
         <div className="empty">
-          <h3>Belum ada item</h3>
+          <h3>Belum ada barang</h3>
           <p>Tambahkan dari katalog, impor file Excel klien, atau buat baris kosong.</p>
           {!readOnly && (
             <div className="row-center">
@@ -203,7 +203,7 @@ export function ItemsTable({
                               className="cell l"
                               value={r.name}
                               onChange={(e) => onUpdate(r.id, { name: e.target.value })}
-                              aria-label={`Nama item baris ${r.lineNo}`}
+                              aria-label={`Nama barang baris ${r.lineNo}`}
                             />
                           )}
                           {(shownCode(r.code) || r.estCogs) && (
@@ -289,7 +289,7 @@ export function ItemsTable({
                           <NumberCell
                             className={`cell ${r.overridden[k] ? "manual" : ""}`}
                             value={Math.round(r.prices[k])}
-                            title="Ubah untuk mengunci harga manual pada skenario ini. Kosongkan atau 0 untuk kembali ke harga hitungan."
+                            title="Ketik harga untuk menguncinya di skenario ini. Kosongkan atau isi 0 untuk kembali ke harga hitungan."
                             onCommit={(v) => {
                               const next = [...(r.manualPrice ?? [null, null, null])];
                               next[k] = v > 0 ? v : null;
@@ -342,8 +342,7 @@ export function ItemsTable({
       )}
       {!readOnly && engine.rows.length > 0 && (
         <p className="note">
-          Kolom skenario terpilih bisa diketik langsung untuk mengunci harga manual. Kosongkan
-          (isi 0) untuk kembali ke harga hitungan engine. Harga manual tetap dibatasi RRP.
+          Ketik harga di kolom skenario yang dipilih untuk menguncinya. Kosongkan atau isi 0 untuk kembali ke harga hitungan. Harga manual tetap tidak boleh melebihi RRP.
         </p>
       )}
     </div>

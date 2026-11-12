@@ -118,12 +118,11 @@ export function SalesReviewImport({
               <strong>{rejected.length} Tolak</strong>
               {blanks.length > 0 && <>, {blanks.length} belum diisi</>}.
               <br />
-              Hanya kolom ACC/Tolak dan Alasan yang dibaca. Angka harga di file tidak dipakai.
+              Yang dibaca hanya kolom ACC/Tolak dan Alasan. Angka harga di file tidak dipakai.
             </p>
             {stale && (
               <p className="notice error">
-                File ini dibuat dari versi lama (revisi {read.revNo}). Quotation sudah berubah sejak itu. Unduh ulang
-                file cek harga dan kirim lagi ke sales.
+                File ini dibuat dari versi lama (revisi {read.revNo}). Quotation sudah berubah sejak itu. Unduh lagi file cek harga dan kirim ulang ke sales.
               </p>
             )}
             {blanks.length > 0 && <p className="notice error">Baris {nums(blanks)} belum diisi ACC atau Tolak.</p>}
@@ -145,8 +144,8 @@ export function SalesReviewImport({
                 </ul>
                 <p className="note">
                   {allRejected
-                    ? "Semua baris ditolak: quotation kembali jadi draft (revisi baru) untuk manajer."
-                    : "Baris yang ACC tetap disetujui dan bisa langsung dikirim ke klien. Baris yang ditolak keluar dari dokumen sebagai item menyusul dan masuk Perlu diperbaiki. Kalau sisanya jadi melanggar kebijakan, manajer diminta menyetujui ulang."}
+                    ? "Semua baris ditolak. Quotation kembali jadi draft (revisi baru) untuk manajer."
+                    : "Baris yang ACC tetap disetujui dan bisa langsung dikirim ke klien. Baris yang ditolak ditandai menyusul di dokumen dan masuk Perlu diperbaiki. Kalau sisanya jadi melanggar kebijakan, manajer perlu menyetujui ulang."}
                 </p>
               </div>
             )}
@@ -193,8 +192,8 @@ export function SalesReviewBanner({ quote, review }: { quote: Quote; review: Sal
           ))}
         </ul>
         {quote.status === "submitted"
-          ? "Tanpa baris itu penawaran melanggar kebijakan, jadi menunggu persetujuan ulang manajer."
-          : "Penawaran tetap jalan tanpa baris itu. Baris yang menyusul ada di Perlu diperbaiki."}
+          ? "Tanpa baris itu, quotation melanggar kebijakan. Sekarang menunggu persetujuan ulang manajer."
+          : "Quotation tetap jalan tanpa baris itu. Baris yang menyusul ada di Perlu diperbaiki."}
       </div>
     );
   }
@@ -212,6 +211,6 @@ export function SalesReviewBanner({ quote, review }: { quote: Quote; review: Sal
 export function salesImportMessage(rejected: number, status: string): string {
   if (!rejected) return "Semua baris ACC. Hasil cek tersimpan.";
   if (status === "draft") return "Semua baris ditolak. Quotation kembali ke draft untuk manajer.";
-  if (status === "submitted") return `${rejected} baris menyusul. Sisa penawaran menunggu persetujuan ulang manajer.`;
-  return `${rejected} baris menyusul dan dicatat di Perlu diperbaiki. Sisa penawaran tetap disetujui.`;
+  if (status === "submitted") return `${rejected} baris menyusul. Sisa quotation menunggu persetujuan ulang manajer.`;
+  return `${rejected} baris menyusul dan dicatat di Perlu diperbaiki. Sisa quotation tetap disetujui.`;
 }

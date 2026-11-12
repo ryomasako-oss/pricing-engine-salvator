@@ -26,8 +26,7 @@ function GroupRow({ group, fresh }: { group: DuplicateGroup; fresh?: Set<string>
       {" — "}{lineList(group, fresh)}
       {group.nameOnly && (
         <div className="small">
-          Nama sama, tapi ada baris tanpa kode barang. Cek apakah ini produk yang sama; kalau iya,
-          hapus salah satu baris dan sesuaikan qty. Tidak digabung otomatis.
+          Namanya sama, tapi ada baris tanpa kode barang. Cek apakah ini barang yang sama. Kalau iya, hapus salah satu baris dan sesuaikan qty. Baris ini tidak digabung otomatis.
         </div>
       )}
       {!group.nameOnly && group.mixedUom && <div className="small">Satuan berbeda: baris dengan satuan lain tidak digabung, cek manual.</div>}
@@ -83,7 +82,7 @@ export function DuplicateAddModal({
   return (
     <Modal
       title="Produk sudah ada di quotation"
-      sub={`Dari item yang kamu pilih, ${headline(groups, "sudah ada")} sebagai baris di quotation ini.`}
+      sub={`Dari barang yang dipilih, ${headline(groups, "sudah ada")} sebagai baris di quotation ini.`}
       onClose={onClose}
       footer={
         <>
@@ -102,9 +101,9 @@ export function DuplicateAddModal({
       </ul>
       <p className="note">
         {mergeable
-          ? "Gabungkan menjumlahkan qty ke baris yang sudah ada; COGS, plafon, peran, dan harga manual baris itu tidak berubah. "
+          ? "Gabungkan menambahkan qty ke baris yang sudah ada. COGS, plafon, peran, dan harga manual baris itu tidak berubah. "
           : ""}
-        Item lain yang kamu pilih tetap ditambahkan seperti biasa.
+        Barang lain yang dipilih tetap ditambahkan seperti biasa.
       </p>
     </Modal>
   );

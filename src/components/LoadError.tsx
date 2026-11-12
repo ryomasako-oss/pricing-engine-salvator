@@ -5,7 +5,7 @@ export function LoadError({ message, onRetry }: { message?: string; onRetry: () 
   return (
     <div className="card-body empty" role="alert">
       <h3>Gagal memuat data</h3>
-      <p>{message || "Server tidak menjawab."} Data Anda aman; coba lagi sebentar.</p>
+      <p>{message || "Server tidak menjawab."} Data Anda aman. Coba lagi sebentar.</p>
       <button className="btn primary" onClick={onRetry}>Coba lagi</button>
     </div>
   );

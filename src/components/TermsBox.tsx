@@ -37,7 +37,7 @@ export function TermsBox({
 
   return (
     <fieldset className="terms-box no-print" disabled={readOnly}>
-      <legend>Syarat penawaran</legend>
+      <legend>Syarat quotation</legend>
       <div className="field-grid">
         {targetMargin != null && onTargetMargin && (
         <label className="field">
@@ -51,7 +51,7 @@ export function TermsBox({
             value={Math.round(targetMargin * 1000) / 10}
             onChange={(e) => onTargetMargin(Math.min(0.9, Math.max(0, Number(e.target.value) / 100)))}
           />
-          <small className="muted">Tidak tampil di penawaran customer.</small>
+          <small className="muted">Tidak tampil di dokumen untuk klien.</small>
         </label>
         )}
         <label className="field">
@@ -121,7 +121,7 @@ export function TermsBox({
             checked={!meta.hideQty}
             onChange={(e) => onMeta({ hideQty: e.target.checked ? undefined : true })}
           />
-          <span>Tampilkan Qty di penawaran</span>
+          <span>Tampilkan Qty di dokumen</span>
         </label>
         <label className={`check${meta.hideQty ? " is-dim" : ""}`}>
           <input
@@ -152,7 +152,7 @@ export function TermsBox({
       </div>
       {meta.hideQty && (
         <p className="note">
-          Tanpa Qty, penawaran menjadi daftar harga: total per baris, subtotal, PPN, dan nilai kontrak ikut disembunyikan.
+          Tanpa Qty, dokumennya jadi daftar harga. Total per baris, subtotal, PPN, dan nilai kontrak ikut disembunyikan.
         </p>
       )}
       {missing.length > 0 && !readOnly && (

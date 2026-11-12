@@ -158,8 +158,8 @@ export function CatalogPicker({
 
   return (
     <Modal
-      title="Tambah item dari katalog"
-      sub={`${total} item cocok. ${seeCosts ? "COGS berasal dari inventory, plafon" : "Plafon"} awal dari harga jual master.${stockAsOf ? ` Stok Accurate per ${fmtDateTime(stockAsOf)}.` : ""}`}
+      title="Tambah barang dari katalog"
+      sub={`${total} barang cocok. ${seeCosts ? "COGS dari inventory, plafon" : "Plafon"} awal dari harga jual master.${stockAsOf ? ` Stok Accurate per ${fmtDateTime(stockAsOf)}.` : ""}`}
       size="wide"
       onClose={onClose}
       footer={
@@ -202,7 +202,7 @@ export function CatalogPicker({
         <p className="note first">Tidak ada barang yang cocok dengan semua kata. Ini yang paling mendekati.</p>
       )}
       {byMeaning > 0 && items.length > 0 && (
-        <p className="note first">{byMeaning} barang ditemukan dari kemiripan makna (AI), bukan dari kata yang sama persis.</p>
+        <p className="note first">{byMeaning} barang ditemukan karena artinya mirip (Pencarian AI), katanya tidak sama persis.</p>
       )}
       {loading && items.length === 0 ? (
         <div className="loading"><span className="dots"><i /><i /><i /></span> Mencari…</div>
@@ -210,8 +210,7 @@ export function CatalogPicker({
         <div className="empty">
           <h3>Tidak ada yang cocok</h3>
           <p>
-            Barangnya belum ada? Buat sebagai <strong>Barang baru</strong>: barisnya ditahan sampai barangnya dibuat di
-            Accurate, quotation lainnya tetap jalan.
+            Barangnya belum ada? Buat sebagai <strong>Barang baru</strong>. Barisnya ditahan sampai barangnya dibuat di Accurate. Baris lain di quotation tetap jalan.
           </p>
           <button className="btn small" onClick={() => setCreating(true)}>
             Barang baru{query.trim() ? `: ${query.trim()}` : ""}
@@ -228,7 +227,7 @@ export function CatalogPicker({
           <table className="table">
             <thead>
               <tr>
-                <th className="l">Item</th>
+                <th className="l">Barang</th>
                 {seeCosts && <th>COGS</th>}
                 <th>Harga jual</th>
                 <th>Stok</th>
@@ -255,7 +254,7 @@ export function CatalogPicker({
                           )}
                         </div>
                         {item.cogs_problem && (
-                          <div className="cell-warn">{item.cogs_problem}. Masuk sebagai baris ditahan sampai dicek manajer.</div>
+                          <div className="cell-warn">{item.cogs_problem}. Kalau dipilih, barisnya ditahan sampai dicek manajer.</div>
                         )}
                       </div>
                     </div>

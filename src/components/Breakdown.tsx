@@ -28,7 +28,7 @@ export function Breakdown({
   const lines = onlyFlagged ? b.lines.filter((l) => l.flags.length) : b.lines;
 
   if (!engine.rows.length) {
-    return <p className="muted">Belum ada item. Tambahkan item dulu, penjelasannya muncul di sini.</p>;
+    return <p className="muted">Belum ada barang. Tambahkan barang dulu, penjelasannya muncul di sini.</p>;
   }
 
   return (
@@ -46,7 +46,7 @@ export function Breakdown({
       </div>
 
       <div className="row-between">
-        <strong>Per item</strong>
+        <strong>Per barang</strong>
         {flagged > 0 && (
           <label className="toggle">
             <input type="checkbox" checked={onlyFlagged} onChange={(e) => setOnlyFlagged(e.target.checked)} />

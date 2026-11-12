@@ -214,7 +214,7 @@ accurateRouter.post("/apply", requirePermission("import_catalog"), async (c) => 
   const target = catalogEntity(c.env);
   if (entity !== target) {
     return c.json(
-      { error: `Katalog memakai data Accurate ${target}. Data ${entity} hanya untuk pengecekan, tidak diterapkan ke katalog.` },
+      { error: `Katalog memakai data Accurate ${target}. Data ${entity} hanya untuk dicek, tidak masuk ke katalog.` },
       400,
     );
   }
@@ -372,7 +372,7 @@ accurateRouter.get("/below-cost", requirePermission("view_costs"), async (c) => 
   const valid = (d: string) => day.test(d) && !Number.isNaN(Date.parse(d));
   const from = c.req.query("from") ?? (valid(to) ? new Date(Date.parse(to) - 30 * 86_400_000).toISOString().slice(0, 10) : "");
   if (!valid(from) || !valid(to) || from > to) {
-    return c.json({ error: "Tanggal tidak valid (YYYY-MM-DD, dari ≤ sampai)" }, 400);
+    return c.json({ error: "Tanggal tidak valid. Tanggal awal tidak boleh setelah tanggal akhir." }, 400);
   }
   // shortcut: reads every SI line in the range per request; a year is ~tens of thousands of D1 rows, cache if opened often.
   if (Date.parse(to) - Date.parse(from) > 366 * 86_400_000) return c.json({ error: "Rentang maksimal 1 tahun" }, 400);
@@ -395,7 +395,7 @@ accurateRouter.post("/apply-cogs", requirePermission("import_catalog"), requireP
   const entity = catalogEntity(c.env);
   const st = await loadReceiptState(c.env.DB, entity, costKind(c.env));
   if (!st.last_pass_at) {
-    return c.json({ error: `Riwayat faktur pembelian Accurate ${entity} belum lengkap. Tunggu satu putaran sinkron faktur pembelian selesai.` }, 409);
+    return c.json({ error: `Data PI Accurate ${entity} belum lengkap. Tunggu sinkron PI berikutnya selesai.` }, 409);
   }
   const result = await applyPurchaseCosts(c.env.DB, entity, { dryRun: parsed.data.dryRun, lines: costLines(c.env) });
   if (!result.dryRun) {
@@ -440,7 +440,7 @@ accurateRouter.post(
     const entity = catalogEntity(c.env);
     const st = await loadReceiptState(c.env.DB, entity, costKind(c.env));
     if (!st.last_pass_at) {
-      return c.json({ error: `Riwayat faktur pembelian Accurate ${entity} belum lengkap. Tunggu satu putaran sinkron faktur pembelian selesai.` }, 409);
+      return c.json({ error: `Data PI Accurate ${entity} belum lengkap. Tunggu sinkron PI berikutnya selesai.` }, 409);
     }
     return c.json(await applyHeldCosts(c.env.DB, entity, c.get("user")!.id, parsed.data.items, costLines(c.env)));
   },

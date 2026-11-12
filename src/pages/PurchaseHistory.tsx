@@ -77,9 +77,7 @@ export function PurchaseHistoryPage() {
         <div>
           <h1>Riwayat pembelian (PI)</h1>
           <p>
-            Faktur pembelian (PI) Accurate terbaru tiap barang: harga seperti tertulis di faktur, dan modal yang dihasilkan
-            setelah diskon dan sebelum PPN. Faktur yang dicentang "Total termasuk pajak" ditandai. Cari pakai kode, nama
-            barang, atau nomor PI.
+            PI terbaru tiap barang dari Accurate: harga di faktur dan modalnya (setelah diskon, sebelum PPN). PI yang harganya sudah termasuk pajak diberi tanda.
           </p>
         </div>
       </div>

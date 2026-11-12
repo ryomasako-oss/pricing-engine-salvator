@@ -230,7 +230,7 @@ export function StaffQuotePage() {
       // Edited while the request was in flight: keep those edits (and dirty) instead of
       // overwriting them with what the server just stored; the next save sends them.
       if (editSeq.current !== seq) {
-        toast("Tersimpan. Perubahan terakhir Anda belum disimpan.", "success");
+        toast("Sebagian tersimpan. Perubahan terakhir belum disimpan.", "success");
         return;
       }
       setLines(r.quote.items);
@@ -395,7 +395,7 @@ export function StaffQuotePage() {
           <div className="card-body policy-banner">
             <p className={`notice ${outcome.cls === "amber" ? "warn" : "info"}`}>
               <strong>{outcome.label}.</strong>{" "}
-              {outcome.cls === "amber" ? "Anda tetap bisa mengajukan; manajer yang memutuskan." : detail.policy.breaches[0]?.message}
+              {outcome.cls === "amber" ? "Tetap bisa diajukan. Manajer yang memutuskan." : detail.policy.breaches[0]?.message}
             </p>
           </div>
         )}
@@ -432,7 +432,7 @@ export function StaffQuotePage() {
                       choices={uomChoices(uomOptions, units[l.code], l.uom)}
                       label={`Satuan ${l.name}`}
                       readOnly={readOnly}
-                      warning={l.priceUom ? "Rasio satuan belum ada; harga masih per " + l.priceUom : null}
+                      warning={l.priceUom ? "Rasio satuan belum ada. Harga masih per  " + l.priceUom : null}
                       // The ceiling is converted here and valuesUom tells the server which unit it is
                       // in (still the old one when there's no ratio). A price typed in the old unit is
                       // dropped; the server converts a stored one.
@@ -468,7 +468,7 @@ export function StaffQuotePage() {
                       <NumberCell
                         className={`cell ${l.manual || l.setPrice ? "manual" : ""}`}
                         aria-label={`Harga satuan ${l.name}`}
-                        title="Ubah untuk mengisi harga sendiri. Kosongkan atau 0 untuk kembali ke harga hitungan."
+                        title="Ketik harga sendiri di sini. Kosongkan atau isi 0 untuk kembali ke harga hitungan."
                         value={Math.round(l.price)}
                         onCommit={(v) => edit(l.id, { setPrice: v })}
                       />
@@ -491,7 +491,7 @@ export function StaffQuotePage() {
                 </tr>
               ))}
               {lines.length === 0 && (
-                <tr><td colSpan={8} className="l muted empty-row">Belum ada item. Tambahkan dari katalog.</td></tr>
+                <tr><td colSpan={8} className="l muted empty-row">Belum ada barang. Tambahkan dari katalog.</td></tr>
               )}
             </tbody>
           </table>
@@ -561,7 +561,7 @@ export function StaffQuotePage() {
             onMeta={(patch) => { setMeta({ ...meta, ...patch }); setDirty(true); }}
           />
           <label className="field">
-            <span>Catatan tambahan di penawaran</span>
+            <span>Catatan tambahan di quotation</span>
             <textarea
               className="textarea" rows={2} disabled={readOnly} value={meta.notes}
               onChange={(e) => { setMeta({ ...meta, notes: e.target.value }); setDirty(true); }}
@@ -624,13 +624,13 @@ export function StaffQuotePage() {
             <div className={`notice ${cogsBlocked.length === lines.length ? "error" : "warn"}`}>
               <strong>
                 {cogsBlocked.length === lines.length
-                  ? "Semua item sedang dicek manajer, jadi belum ada yang bisa diajukan:"
-                  : `${cogsBlocked.length} item ditahan (harganya sedang dicek manajer) dan tidak ikut penawaran:`}
+                  ? "Semua barang sedang dicek manajer, jadi belum ada yang bisa diajukan:"
+                  : `${cogsBlocked.length} barang ditahan karena harganya sedang dicek manajer. Barang ini tidak ikut quotation:`}
               </strong>
               <ul className="notice-list">
                 {cogsBlocked.map((b) => <li key={b}>{b}</li>)}
               </ul>
-              Di dokumen ke customer, item ini ditulis sebagai "item menyusul".
+              Di dokumen untuk klien, barang ini ditulis "menyusul".
             </div>
           )}
           <p className="muted small">
@@ -654,7 +654,7 @@ export function StaffQuotePage() {
             </>
           }
         >
-          <p>Quotation kembali menjadi draft supaya bisa diubah, lalu diajukan lagi.</p>
+          <p>Quotation kembali jadi draft. Ubah, lalu ajukan lagi.</p>
         </Modal>
       )}
     </main>

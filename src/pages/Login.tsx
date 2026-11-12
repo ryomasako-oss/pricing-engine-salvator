@@ -114,7 +114,7 @@ function ForgotPasswordModal({ onClose }: { onClose: () => void }) {
       sub={
         sent
           ? undefined
-          : "Permintaan akan diteruskan ke admin untuk mereset kata sandi Anda secara manual."
+          : "Permintaan ini dikirim ke admin. Admin akan mereset kata sandi Anda."
       }
       onClose={onClose}
       footer={

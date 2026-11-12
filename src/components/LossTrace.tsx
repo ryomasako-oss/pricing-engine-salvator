@@ -181,8 +181,7 @@ export function LossTrace({ row, onClose }: { row: BelowCostRow; onClose: () => 
           </>
         )}
         <p className="muted small">
-          Baris yang ditandai adalah faktur yang sedang ditelusuri. Angka "di nota" bisa dicocokkan langsung dengan nota SI/PI di Accurate; bila
-          berbeda, data di Accurate yang dibetulkan, dan laporan ini ikut berubah setelah sinkron.
+          Baris yang ditandai adalah faktur yang sedang ditelusuri. Angka "di nota" bisa dicocokkan langsung dengan nota SI/PI di Accurate. Kalau beda, betulkan datanya di Accurate. Laporan ini ikut berubah setelah sinkron.
         </p>
       </div>
     </Modal>

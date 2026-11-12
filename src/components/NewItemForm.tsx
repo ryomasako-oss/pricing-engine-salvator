@@ -66,7 +66,7 @@ export function NewItemForm({
   return (
     <Modal
       title="Barang baru"
-      sub="Belum ada di Accurate. Barisnya ditahan di quotation sampai barangnya dibuat di Accurate; quotation lainnya tetap jalan."
+      sub="Belum ada di Accurate. Barisnya ditahan di quotation sampai barangnya dibuat di Accurate. Isi quotation lainnya tetap jalan."
       onClose={onClose}
       footer={
         <>
@@ -105,7 +105,7 @@ export function NewItemForm({
         </div>
         <label className="field">
           <span className="small">Kode di Accurate (opsional)</span>
-          <input className="input" value={code} onChange={(e) => setCode(e.target.value)} placeholder="Kosongkan kalau belum tahu; kode sementara BARU-0001 akan dibuat" />
+          <input className="input" value={code} onChange={(e) => setCode(e.target.value)} placeholder="Kosongkan kalau belum tahu, nanti diberi kode sementara (BARU-0001)" />
         </label>
         <label className="field">
           <span className="small">Catatan untuk yang membuat di Accurate (opsional)</span>

@@ -220,8 +220,7 @@ export function AccuratePanel({ onApplied }: { onApplied: () => void }) {
           }
         >
           <p>
-            Harga jual dan stok dari Accurate {applying} ditulis ke katalog. "Perbarui saja" hanya mengubah barang yang sudah
-            ada; "Perbarui + tambah baru" juga menambahkan barang yang belum ada di katalog.
+            Harga jual dan stok dari Accurate {applying} ditulis ke katalog. "Perbarui saja" hanya mengubah barang yang sudah ada. "Perbarui + tambah baru" juga menambahkan barang yang belum ada di katalog.
           </p>
         </Modal>
       )}

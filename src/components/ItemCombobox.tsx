@@ -219,7 +219,7 @@ export function ItemCombobox({
                     aria-label={`Tambah ${s.item.name} sebagai barang lain`}
                     title={
                       s.item.source === "pending"
-                        ? "Barang baru belum ada di katalog: pilih sebagai barang baris ini"
+                        ? "Barang baru, belum ada di katalog. Pilih untuk baris ini"
                         : isAdded
                           ? "Sudah ditambahkan"
                           : "Tambah sebagai barang lain (baris sendiri)"

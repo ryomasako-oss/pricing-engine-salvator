@@ -74,16 +74,16 @@ familiarityRouter.post("/feed", async (c) => {
 familiarityRouter.get("/sessions/:sessionId", async (c) => {
   const user = c.get("user")!;
   const id = Number(c.req.param("sessionId"));
-  if (!Number.isInteger(id) || id <= 0) return c.json({ error: "Sesi familiarity tidak ditemukan." }, 404);
+  if (!Number.isInteger(id) || id <= 0) return c.json({ error: "Sesi latihan pencocokan tidak ditemukan." }, 404);
   const view = await readFamiliaritySession(storeOf(c.env.DB), id, user);
-  if (!view) return c.json({ error: "Sesi familiarity tidak ditemukan." }, 404);
+  if (!view) return c.json({ error: "Sesi latihan pencocokan tidak ditemukan." }, 404);
   return c.json({ session_id: view.session_id, summary: view.summary, rows: view.rows });
 });
 
 familiarityRouter.patch("/sessions/:sessionId/resolve", async (c) => {
   const user = c.get("user")!;
   const id = Number(c.req.param("sessionId"));
-  if (!Number.isInteger(id) || id <= 0) return c.json({ error: "Sesi familiarity tidak ditemukan." }, 404);
+  if (!Number.isInteger(id) || id <= 0) return c.json({ error: "Sesi latihan pencocokan tidak ditemukan." }, 404);
   const parsed = resolveInputSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
   try {

@@ -82,7 +82,7 @@ export function explainLine(
     );
     steps.push(
       s1Target > row.rrp
-        ? `Itu melebihi plafon RRP ${rp(row.rrp)}, jadi harga ditahan di RRP.`
+        ? `Itu di atas plafon RRP ${rp(row.rrp)}, jadi harganya berhenti di RRP.`
         : `Masih di bawah plafon RRP ${rp(row.rrp)}, jadi harga ${rp(s1Target)}.`,
     );
     return cap(s1Target);
@@ -119,9 +119,9 @@ export function explainLine(
       discounted >= floor
         ? `Masih di atas batas margin minimum ${pct(marginFloor)} (${rp(floor)}), jadi harga ${rp(cap(discounted))}.`
         : floor > row.rrp
-          ? `Itu menembus margin minimum ${pct(marginFloor)} (batas ${rp(floor)}), tapi batas itu di atas plafon RRP ${rp(row.rrp)}, ` +
-            `jadi harga berhenti di RRP dan marginnya di bawah minimum.`
-          : `Itu menembus margin minimum ${pct(marginFloor)} (batas ${rp(floor)}), jadi harga ditahan di ${rp(floor)}.`,
+          ? `Itu di bawah margin minimum ${pct(marginFloor)} (batas ${rp(floor)}), tapi batas itu di atas plafon RRP ${rp(row.rrp)}, ` +
+            `jadi harga berhenti di RRP dan marginnya tetap di bawah minimum.`
+          : `Itu di bawah margin minimum ${pct(marginFloor)} (batas ${rp(floor)}), jadi harga ditahan di ${rp(floor)}.`,
     );
     computed = Math.min(row.rrp, Math.max(discounted, floor));
   }
@@ -140,8 +140,8 @@ export function explainLine(
   const margin = row.margins[k];
   const saving = (row.rrp - price) * row.qty;
   steps.push(
-    `Harga akhir ${rp(price)} × ${grp(row.qty)} = ${rp(price * row.qty)}; margin ${pct(margin)}` +
-      (saving > 0 ? `; klien hemat ${rp(saving)} dibanding RRP.` : "; sama dengan RRP."),
+    `Harga akhir ${rp(price)} × ${grp(row.qty)} = ${rp(price * row.qty)}, margin ${pct(margin)}` +
+      (saving > 0 ? `. Klien hemat ${rp(saving)} dibanding RRP.` : ". Sama dengan RRP."),
   );
 
   if (row.held) {
@@ -172,25 +172,25 @@ export function explainQuote(
 
   const points: string[] = [`Cara hitung skenario ini: ${sc.rule}`];
   points.push(
-    `Total modal (landed) ${rp(s.landed)}/bulan untuk ${engine.rows.length} item; ` +
+    `Total modal (landed) ${rp(s.landed)}/bulan untuk ${engine.rows.length} barang, ` +
       `kontrak ${a.months} bulan bernilai ${rp(s.annual)}.`,
   );
-  if (k === 0 && engine.capped) points.push(`${engine.capped} item mentok di plafon RRP, margin item itu lebih tipis dari target.`);
+  if (k === 0 && engine.capped) points.push(`${engine.capped} barang mentok di plafon RRP, jadi marginnya lebih tipis dari target.`);
   if (k === 1 && !engine.rows.some((r) => r.role !== "CORE")) {
-    points.push("Semua item berperan CORE, jadi harga di skenario ini sama dengan Full Margin. Tandai item LEADER/PROFIT di tab Item untuk subsidi silang.");
+    points.push("Semua barang berperan CORE, jadi harga di skenario ini sama dengan Full Margin. Untuk subsidi silang, tandai barang LEADER/PROFIT di tab Item.");
   } else if (k === 1) {
     points.push(
       `Subsidi: item LEADER memberi ${rp(engine.subsidy.given)}/bulan, item PROFIT menutup ${rp(engine.subsidy.recovered)}/bulan ` +
         `(tertutup ${pct(engine.subsidy.coverage)}).`,
     );
   }
-  if (k === 2 && engine.floorHits) points.push(`${engine.floorHits} item ditahan di margin minimum, diskonnya tidak penuh.`);
-  if (s.belowCost) points.push(`${s.belowCost} item dijual di bawah modal.`);
-  if (s.lowestMargin < (policy?.minLineMargin ?? 0)) points.push(`Margin item terendah ${pct(s.lowestMargin)}.`);
+  if (k === 2 && engine.floorHits) points.push(`${engine.floorHits} barang ditahan di margin minimum, jadi diskonnya tidak penuh.`);
+  if (s.belowCost) points.push(`${s.belowCost} barang dijual di bawah modal.`);
+  if (s.lowestMargin < (policy?.minLineMargin ?? 0)) points.push(`Margin barang terendah ${pct(s.lowestMargin)}.`);
   if (policy) {
     points.push(
       breaches.length
-        ? `Kebijakan: ${breaches.map((b) => `${b.severity === "block" ? "DIBLOKIR" : "perlu perhatian"} — ${b.message}`).join("; ")}.`
+        ? `Kebijakan: ${breaches.map((b) => `${b.severity === "block" ? "DIBLOKIR" : "perlu perhatian"}: ${b.message}`).join(". ")}.`
         : `Kebijakan: semua batas terpenuhi (net margin minimum ${pct(policy.minNetMargin)}).`,
     );
   }

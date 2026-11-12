@@ -436,7 +436,7 @@ function readClientColumns(wb: XLSX.WorkBook, sheetName: string, minHeaderCells:
     30,
   );
   if (hi < 0) {
-    return { error: `Sheet "${sheetName}" tidak punya baris judul dengan kolom nama item.` };
+    return { error: `Sheet "${sheetName}" tidak punya baris judul dengan kolom nama barang.` };
   }
 
   const header = rows[hi].map(lower);
@@ -454,7 +454,7 @@ function readClientColumns(wb: XLSX.WorkBook, sheetName: string, minHeaderCells:
   };
   if (col.name < 0) col.name = header.findIndex((h) => /^(item|nama)/.test(h) && !CODE_HEADER.test(h));
   if (col.name < 0) col.name = header.findIndex((h) => /item|nama|barang/.test(h) && !CODE_HEADER.test(h));
-  if (col.name < 0) return { error: "Kolom nama item tidak ditemukan di baris judul." };
+  if (col.name < 0) return { error: "Kolom nama barang tidak ditemukan di baris judul." };
 
   const cityCols = header.map((h, i) => (CITY.test(h) ? i : -1)).filter((i) => i >= 0);
   return { sheetName, rows, hi, col, cityCols };
@@ -485,11 +485,11 @@ export async function parseRequestList(file: File): Promise<{ lines: RequestLine
     fromRegion += read.fromRegion;
     noQty += read.noQty;
   }
-  if (!lines.length) throw new Error("Tidak ada baris item yang terbaca. Pastikan ada kolom nama item.");
+  if (!lines.length) throw new Error("Tidak ada baris barang yang terbaca. Cek apakah ada kolom nama barang.");
   const notes = [
     sheets.length > 1 ? `Dibaca ${sheets.length} sheet: ${sheets.map((s) => s.sheetName).join(", ")}.` : "",
     sheets.every((s) => s.col.qty < 0)
-      ? "Kolom qty tidak ditemukan: semua item dihitung 1 per satuan terkecil."
+      ? "Kolom qty tidak ditemukan, jadi semua barang dihitung 1 per satuan terkecil."
       : noQty
         ? `${noQty} baris tanpa qty: dihitung 1 per satuan terkecil.`
         : "",
@@ -589,14 +589,14 @@ export async function parseClientList(file: File): Promise<ParsedItems> {
   }
 
   if (!items.length) {
-    throw new Error("Tidak ada baris item yang terbaca. Pastikan ada kolom nama item dan harga.");
+    throw new Error("Tidak ada baris barang yang terbaca. Cek apakah ada kolom nama barang dan harga.");
   }
 
   const notes = [
     fromRegion ? `${fromRegion} item memakai plafon terendah dari kolom kota.` : "",
     estCogs ? `${estCogs} item belum punya COGS; cocokkan dengan katalog atau isi manual.` : "",
     col.qty < 0 ? "Kolom qty tidak ditemukan, semua qty diisi 1." : "",
-    col.role < 0 ? "Kolom role tidak ada, semua item dianggap CORE." : "",
+    col.role < 0 ? "Kolom role tidak ada, jadi semua barang dianggap CORE." : "",
     skipped ? `${skipped} baris dilewati karena tidak punya harga sama sekali.` : "",
   ].filter(Boolean);
 

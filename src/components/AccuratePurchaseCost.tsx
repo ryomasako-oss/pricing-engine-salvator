@@ -159,7 +159,7 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
       const r = await api.post<HeldApplied>("/accurate/apply-held-cogs", { items: items.map((h) => ({ code: h.code, to: h.to })) });
       toast(
         `COGS ${grp(r.applied.length)} barang yang ditahan diterapkan.` +
-          (r.stale.length ? ` ${grp(r.stale.length)} dilewati karena harganya sudah berubah; pratinjau dimuat ulang.` : ""),
+          (r.stale.length ? ` ${grp(r.stale.length)}  dilewati karena harganya sudah berubah. Pratinjau dimuat ulang.` : ""),
         r.stale.length ? "error" : undefined,
       );
       onApplied();
@@ -240,9 +240,7 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
           {showHeld && preview.held.length > 0 && (
             <>
               <div className="muted note-block">
-                Tidak ikut diterapkan: harga beli 3x harga jual atau lebih, atau jauh (lebih dari dua kali / kurang dari separuh) dari COGS sekarang
-                dan dari harga beli di PI sebelumnya. Biasanya satu pak/box tercatat 1 PCS di PI. Betulkan PI di Accurate, isi COGS manual di
-                katalog, atau kalau harganya memang benar, centang lalu terapkan.
+                Tidak ikut diterapkan karena harganya janggal: harga beli 3x harga jual atau lebih, atau jauh beda (lebih dari 2x atau kurang dari separuh) dari COGS sekarang dan PI sebelumnya. Biasanya karena satu pak/box tercatat 1 PCS di PI. Betulkan PI di Accurate, atau isi COGS manual di katalog. Kalau harganya memang benar, centang lalu terapkan.
               </div>
               <div className="row-wrap note-block">
                 <button className="btn small" disabled={!!busy || picked.size === 0} onClick={() => setAsking("held")}>
@@ -383,8 +381,7 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
               COGS diganti ke harga pembelian terakhir.
               {preview.changed.filter((c) => Math.abs(jump(c)) > BIG_JUMP).length > 0 &&
                 ` ${grp(preview.changed.filter((c) => Math.abs(jump(c)) > BIG_JUMP).length)} barang berubah lebih dari 50%: barisnya di quotation ditahan sampai manajer menekan "COGS ini benar".`}
-              {preview.held.length > 0 && ` ${grp(preview.held.length)} barang ditahan dan tidak ikut diubah.`} COGS acuan tidak
-              berubah; barang yang dilewati tetap memakai COGS lamanya.
+              {preview.held.length > 0 && ` ${grp(preview.held.length)} barang ditahan dan tidak ikut diubah.`} COGS acuan tidak berubah. Barang yang dilewati tetap memakai COGS lama.
             </>
           }
           confirmLabel="Ubah COGS"
@@ -397,7 +394,7 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
         <ConfirmModal
           title={`Terapkan harga untuk ${grp(picked.size)} barang yang ditahan?`}
           tone="primary"
-          message='COGS dan COGS acuannya ikut diubah, sama seperti menekan "COGS ini benar". Pastikan PI-nya sudah dicek.'
+          message='COGS dan COGS acuannya ikut diubah, sama seperti menekan "COGS ini benar". Cek PI-nya dulu.'
           confirmLabel="Terapkan"
           busy={busy === "held"}
           onConfirm={() => void applyHeld()}

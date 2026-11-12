@@ -107,9 +107,9 @@ export function CompareTable({ engine }: { engine: EngineResult }) {
     ["Nilai kontrak", (s) => rp(s.annual), "annual"],
     ["Hemat klien vs RRP", (s) => pct(s.savingsPct), "savingsPct"],
     ["Hemat item headline", (s) => pct(s.leaderSavingsPct), "leaderSavingsPct"],
-    ["Item di harga plafon", (s) => `${s.atCeiling} dari ${engine.rows.length}`, null],
-    ["Margin item terendah", (s) => pct(s.lowestMargin), null],
-    ["Item di bawah modal", (s) => String(s.belowCost), null],
+    ["Barang di harga plafon", (s) => `${s.atCeiling} dari ${engine.rows.length}`, null],
+    ["Margin barang terendah", (s) => pct(s.lowestMargin), null],
+    ["Barang di bawah modal", (s) => String(s.belowCost), null],
   ];
   return (
     <div className="table-wrap">
@@ -150,7 +150,7 @@ export function CompareTable({ engine }: { engine: EngineResult }) {
         </tbody>
       </table>
       <p className="note pad">
-        Sorotan kuning menandai skenario terbaik untuk metrik itu. Subsidi S2 diberikan{" "}
+        Warna kuning = skenario terbaik untuk angka itu. Subsidi S2 diberikan{" "}
         {rp(engine.subsidy.given)} dan ditutup {rp(engine.subsidy.recovered)} per bulan (
         {pct(engine.subsidy.coverage)}).
       </p>
@@ -175,7 +175,7 @@ export const LEVERS: LeverDef[] = [
   { key: "targetMargin", label: "Target margin", hint: "Dipakai S1 dan item core", min: 0, max: 0.5, step: 0.005 },
   { key: "leaderMargin", label: "Margin item leader", hint: "S2: item yang dibandingkan klien", min: 0, max: 0.4, step: 0.005, color: "var(--s2)" },
   { key: "profitDiscount", label: "Diskon item profit", hint: "S2: 0% berarti di harga plafon", min: 0, max: 0.3, step: 0.005, color: "var(--s2)" },
-  { key: "rrpDiscount", label: "Diskon dari RRP", hint: "S3: berlaku ke semua item", min: 0, max: 0.4, step: 0.005, color: "var(--s3)" },
+  { key: "rrpDiscount", label: "Diskon dari RRP", hint: "S3: berlaku untuk semua barang", min: 0, max: 0.4, step: 0.005, color: "var(--s3)" },
   { key: "marginFloor", label: "Margin minimum", hint: "S3: harga tidak boleh di bawah ini", min: 0, max: 0.3, step: 0.005, color: "var(--s3)" },
 ];
 
@@ -220,7 +220,7 @@ export function BreachList({ breaches }: { breaches: PolicyBreach[] }) {
   if (!breaches.length) {
     return (
       <p className="notice ok">
-        Semua angka di dalam batas kebijakan harga.
+        Semua angka sesuai kebijakan harga.
       </p>
     );
   }
@@ -347,7 +347,7 @@ export function DeliveryTable({
       )}
       {Math.abs(shareTotal - 1) > 0.0001 && (
         <p className="notice warn note-block">
-          Total share order {pct(shareTotal, 0)}. Ubah sampai 100% supaya modifier akurat.
+          Total share order {pct(shareTotal, 0)}. Ubah sampai totalnya 100% supaya modifier akurat.
         </p>
       )}
       <p className="note">

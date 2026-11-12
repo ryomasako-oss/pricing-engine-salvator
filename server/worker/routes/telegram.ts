@@ -67,7 +67,7 @@ export function formatFound(found: Exclude<ChatFound, { denied: true }>): string
   const rows = found.items.map(
     (r) => `• ${r.code} ${r.name} (${r.uom}) stok ${r.stock}${r.cogs !== undefined ? ` · COGS ${rupiah(r.cogs)}` : ""}${r.problem ? ` ⚠ ${r.problem}` : ""}`,
   );
-  const more = found.total > found.items.length ? `\n…dan ${found.total - found.items.length} lainnya; lihat di app.` : "";
+  const more = found.total > found.items.length ? `\n…dan ${found.total - found.items.length} lainnya. Lihat di app.` : "";
   return `\n\n${rows.join("\n")}${more}`;
 }
 
@@ -87,8 +87,8 @@ async function send(env: Bindings, chatId: number, text: string, askContact = fa
 }
 
 const ASK_CONTACT =
-  "Halo, saya Silvy, asisten penawaran Salvator. Supaya saya tahu Anda siapa, tekan tombol \"Bagikan nomor saya\" di bawah. " +
-  "Nomornya harus sama dengan nomor Telegram (atau WhatsApp, bila nomor Telegram dikosongkan) di Pengaturan akun Anda di app.";
+  "Halo, saya Silvy, asisten quotation Salvator. Tekan tombol \"Bagikan nomor saya\" di bawah supaya saya tahu Anda siapa. " +
+  "Nomornya harus sama dengan nomor Telegram di Pengaturan akun Anda di app. Kalau nomor Telegram kosong, pakai nomor WhatsApp.";
 const HELP =
   "Ketik kebutuhan klien, misalnya \"untuk PT X: pulpen 10 lusin, kertas A4 5 rim\", atau minta cari barang di katalog.\n" +
   "/simpan simpan daftar sebagai draft di app\n/baru mulai daftar baru";
@@ -178,7 +178,7 @@ export async function handleUpdate(env: Bindings, update: TgUpdate): Promise<voi
     return await send(env, msg.chat.id, reply + extra);
   } catch (err) {
     console.error("[telegram] update failed:", err);
-    await send(env, msg.chat.id, "Maaf, terjadi kesalahan. Coba lagi sebentar lagi.");
+    await send(env, msg.chat.id, "Maaf, ada gangguan. Coba lagi sebentar.");
   }
 }
 

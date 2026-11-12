@@ -81,7 +81,7 @@ export function AccurateReconcile() {
           <strong>Cek silang dengan Accurate {report.entity}</strong>{" "}
           <span className={`badge ${problems ? "amber" : "green"}`}>{problems ? `${problems} jenis perlu dicek` : "tidak ada selisih"}</span>
           <div className="muted small">
-            Accurate dipakai sebagai acuan awal, tapi bisa salah; selisih di bawah perlu dinilai manajer.
+            Accurate jadi acuan awal, tapi bisa salah. Manajer perlu mengecek selisih di bawah.
             {report.checkedAt ? ` Terakhir dicek ${fmtDateTime(report.checkedAt)}.` : " Belum pernah dicek."}
             {!report.complete && " Sinkron sedang berjalan, angka bisa berubah."}
           </div>

@@ -84,8 +84,7 @@ export function SalesHistoryPage() {
           </Link>
           <h1>Riwayat penjualan (SI)</h1>
           <p>
-            Faktur penjualan (SI) Accurate terbaru tiap barang: ke siapa, ditulis sebagai apa, dan harganya. Cari pakai kode,
-            nama katalog, tulisan klien, atau nama customer untuk mengecek pencocokan. Harga setelah diskon, sebelum PPN.
+            SI terbaru tiap barang dari Accurate: dijual ke klien mana, ditulis sebagai apa, dan berapa harganya (setelah diskon, sebelum PPN). Pakai halaman ini untuk mengecek pencocokan.
           </p>
         </div>
       </div>
@@ -97,7 +96,7 @@ export function SalesHistoryPage() {
             type="search"
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Cari kode, nama barang, tulisan di faktur, atau customer"
+            placeholder="Cari kode, nama barang, tulisan di faktur, atau klien"
             aria-label="Cari riwayat penjualan"
           />
           <span className="grow" />
@@ -119,7 +118,7 @@ export function SalesHistoryPage() {
         <div className="card">
           <div className="card-body empty">
             <h3>Tidak ada penjualan yang cocok</h3>
-            <p>{search ? "Coba kode barang, sebagian nama, atau nama customer." : "Belum ada faktur penjualan dari Accurate."}</p>
+            <p>{search ? "Coba kode barang, sebagian nama, atau nama klien." : "Belum ada faktur penjualan dari Accurate."}</p>
           </div>
         </div>
       ) : (
@@ -153,7 +152,7 @@ export function SalesHistoryPage() {
                           <tr>
                             <th className="l">Tanggal</th>
                             <th className="l">Nomor faktur</th>
-                            <th className="l">Customer</th>
+                            <th className="l">Klien</th>
                             <th>Qty</th>
                             <th>Harga</th>
                           </tr>

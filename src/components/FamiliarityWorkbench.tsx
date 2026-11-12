@@ -221,8 +221,8 @@ export function FamiliarityWorkbench() {
                   // Not .notice.info: that one is 4.4:1 in both themes (styles.css defines it twice).
                   <small className="field-help">
                     {mayGoGlobal
-                      ? "Pilih klien supaya sistem belajar. Tanpa klien, pilihan hanya berlaku di latihan ini, kecuali Anda mencentang \"semua klien\" setelah Cocokkan."
-                      : "Pilih klien supaya sistem belajar. Tanpa klien, pilihan Anda hanya berlaku di latihan ini dan tidak diingat."}
+                      ? "Pilih klien supaya pilihannya diingat. Tanpa klien, pilihan hanya berlaku di latihan ini, kecuali \"semua klien\" dicentang setelah Cocokkan."
+                      : "Pilih klien supaya pilihannya diingat. Tanpa klien, pilihan hanya berlaku di latihan ini."}
                   </small>
                 )}
               </label>
@@ -248,7 +248,7 @@ export function FamiliarityWorkbench() {
             }}
           >
             {reading ? (
-              <span className="muted small" role="status">Membaca file… (PDF dan foto dibaca AI, bisa sampai satu menit)</span>
+              <span className="muted small" role="status">Membaca file… PDF dan foto dibaca AI, bisa sampai satu menit.</span>
             ) : file ? (
               <>
                 <strong>{file.name}</strong>
@@ -336,8 +336,7 @@ export function FamiliarityWorkbench() {
               )}
               {sessionOnly && (
                 <p className="notice warn">
-                  Latihan tanpa klien: pilihan di sini hanya berlaku di sesi ini dan tidak diingat untuk daftar berikutnya. Mulai feed baru
-                  dengan klien supaya sistem belajar.
+                  Latihan tanpa klien: pilihan di sini tidak diingat untuk daftar berikutnya. Mulai feed baru dengan klien supaya pilihannya diingat.
                 </p>
               )}
             </div>
@@ -390,7 +389,7 @@ export function FamiliarityWorkbench() {
                 ))}
                 {!shown.length && (
                   <tr>
-                    <td className="l muted empty-row" colSpan={3}>Tidak ada baris di saringan ini.</td>
+                    <td className="l muted empty-row" colSpan={3}>Tidak ada baris untuk filter ini.</td>
                   </tr>
                 )}
               </tbody>

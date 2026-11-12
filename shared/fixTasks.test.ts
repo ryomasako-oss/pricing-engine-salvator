@@ -30,7 +30,7 @@ describe("tasksFromUnmatched / tasksFromSalesRejection", () => {
     ]);
     expect(t.map((x) => [x.kind, x.item_name, x.line_id])).toEqual([["not_in_catalog", "Galon air", null], ["not_in_catalog", "Map plastik", null]]);
     expect(t[0].detail).toMatch(/tidak ditemukan/);
-    expect(t[1].detail).toMatch(/tidak dipakai/);
+    expect(t[1].detail).toMatch(/tidak masuk quotation/);
   });
   it("makes one task per rejected line with the reviewer and reason", () => {
     const t = tasksFromSalesRejection(9, [{ id: "a", reason: "mahal" }, { id: "zz", reason: "x" }], [item({})], "Sales Satu");
@@ -61,7 +61,7 @@ describe("digestEmail", () => {
   });
   it("counts, names the oldest age, groups by kind and escapes text", () => {
     const d = digestEmail([row({}), row({ id: 2, kind: "not_in_catalog", item_name: "<b>Galon</b>", created_at: "2026-10-07 23:00:00" })], now, "https://x/perbaikan")!;
-    expect(d.subject).toBe("Perlu diperbaiki: 2 item terbuka (tertua 1 hari)");
+    expect(d.subject).toBe("Perlu diperbaiki: 2 barang belum beres (tertua 1 hari)");
     expect(d.html).toContain("Tidak ada di katalog (1)");
     expect(d.html).toContain("COGS perlu dicek (1)");
     expect(d.html).toContain("&lt;b&gt;Galon&lt;/b&gt;");
