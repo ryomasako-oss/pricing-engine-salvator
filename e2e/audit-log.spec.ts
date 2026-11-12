@@ -40,14 +40,22 @@ async function open(page: import("@playwright/test").Page) {
   await expect(page.getByLabel("Tanggal sampai")).toHaveValue(today);
 }
 
+/** Search for the code. The page waits half a second after typing, so first see the import row
+    (whose detail has no code) in the unfiltered list, then wait until the filtered list drops it. */
+async function searchCode(page: import("@playwright/test").Page) {
+  const importRow = page.getByRole("row").filter({ hasText: "Impor" });
+  await expect(importRow.first()).toBeVisible();
+  await page.getByLabel("Cari di riwayat audit").fill(CODE);
+  await expect(importRow).toHaveCount(0);
+}
+
 for (const theme of ["light", "dark"] as const) {
   test.describe(theme, () => {
     test.use({ theme });
     test(`a catalog edit reads old → new (${theme})`, async ({ page, errors }) => {
       void errors;
       await open(page);
-      await page.getByLabel("Cari di riwayat audit").fill(CODE);
-      await expect(page.getByRole("row").filter({ hasText: "Impor" })).toHaveCount(0);
+      await searchCode(page);
       const row = page.getByRole("row", { name: /COGS: 10\.000 → 12\.500/ });
       await expect(row).toContainText("Katalog");
       await expect(row).toContainText("Diubah");
@@ -71,9 +79,7 @@ test("a failed login is recorded with the email, never the password", async ({ p
 test("filters narrow the list, and Export Excel takes the filtered rows", async ({ page, errors }) => {
   void errors;
   await open(page);
-  await page.getByLabel("Cari di riwayat audit").fill(CODE);
-  // The search waits half a second after typing: wait until the import row (no code in it) is gone.
-  await expect(page.getByRole("row").filter({ hasText: "Impor" })).toHaveCount(0);
+  await searchCode(page);
   await expect(page.getByRole("row", { name: /COGS: 10\.000 → 12\.500/ })).toBeVisible();
 
   const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Export Excel" }).click()]);
