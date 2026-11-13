@@ -42,7 +42,8 @@ Kontras dihitung dengan rumus WCAG.
 | `bg` | `#F4F4F4` | Latar halaman | |
 | `layer` | `#FFFFFF` | Kartu, tabel, modal, input | |
 | `hover` | `#E8E8E8` | Hover baris, skeleton | |
-| `border` | `#E0E0E0` | Garis pemisah, tepi kartu | dekoratif |
+| `border` | `#E0E0E0` | Garis pemisah | dekoratif |
+| `border-card` | `#C6C6C6` | Tepi kartu (terang; gelap = `border`). Kartu putih di latar `#F4F4F4` hanya 1,1:1, jadi tepinya yang memisahkan; latar tidak bisa digelapkan karena teks `action` di `bg` harus tetap 4,5:1 | dekoratif |
 | `border-strong` | `#8D8D8D` | Tepi input, checkbox | 3,3:1 |
 | `text` | `#161616` | Teks utama | 18,1:1 |
 | `text-2` | `#525252` | Teks sekunder, label | 7,8:1 |
@@ -147,7 +148,7 @@ Satu komponen per kebutuhan. Daftar di bawah menggantikan kelas yang ada sekaran
 | **Tabs** | Garis bawah 2 px `action` untuk tab aktif, hitungan di badge netral | `.tabs` |
 | **Chip filter** | Pill, terpilih = isi `text` dengan teks putih; bisa lebih dari satu | `.chip` |
 | **Table** | Header `layer-2` 40 px lengket; angka rata kanan + `tnum`; aksi baris di kolom kanan (tombol `ghost sm`); baris terpilih `action-soft`; baris bermasalah memakai latar `err-bg`/`warn-bg`; paging di kaki tabel "Menampilkan 1–50 dari N"; sorting dengan ikon di header (bukan ▲/▼ literal) | `.table`, `.table-wrap` |
-| **Card** | Latar `layer`, garis `border`, radius 8, padding 16; judul `h3` dengan sub `caption`, aksi `sm` di kanan | `.card`, `.card-head` (judul 12 px kapital dihapus) |
+| **Card** | Latar `layer`, garis `border-card` + bayangan tipis `elevation-card` (terang saja), radius 8, padding 16; judul `h3` dengan sub `caption`, aksi `sm` di kanan | `.card`, `.card-head` (judul 12 px kapital dihapus) |
 | **KPI** | Satu permukaan dengan pemisah garis tipis antar angka (bukan kartu per angka). Label `label`, nilai `kpi`, catatan `caption` berwarna sesuai nada | `.kpi-grid` > `.kpi` |
 | **Banner** | Info tentang halaman atau objek; latar nada lembut saja (tanpa garis kiri, tanpa ikon); boleh satu aksi `ghost` | `.notice` |
 | **Toast** | Hasil aksi; gelap (`text`) tanpa garis warna; hilang setelah 5 dtk, eror tetap sampai ditutup. "Coba lagi" untuk data yang gagal dimuat ada di halaman (`LoadError`), bukan di toast | `.hk-toast` |
