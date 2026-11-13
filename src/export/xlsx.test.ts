@@ -76,3 +76,22 @@ describe("quote workbook with a client document template", () => {
     expect(Math.max(...rows.map((r) => r?.length ?? 0))).toBe(5);
   });
 });
+
+describe("quote workbook with a held (menyusul) line", () => {
+  it("leaves the held line out of the Penawaran rows and totals and names it as item menyusul", () => {
+    const withHeld: QuoteItem[] = [
+      ...items,
+      { id: "b", lineNo: 2, code: "B", name: "Kertas ditolak", uom: "Rim", qty: 5, cogs: 40000, rrp: 60000, role: "CORE", held: true, holdReason: "sales" },
+    ];
+    const engine = computeEngine(DEFAULT_ASSUMPTIONS, withHeld, DEFAULT_REGIONS);
+    const wb = quoteWorkbook({
+      engine, meta, assumptions: DEFAULT_ASSUMPTIONS, scenario: 0, number: "Q-1", title: "T", clientName: "PT Klien",
+    });
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets["Penawaran"]) as Record<string, unknown>[];
+    expect(rows.filter((r) => r["Item"] === "Kertas ditolak")).toEqual([]);
+    expect(rows.filter((r) => r["Item"] === "Pulpen")).toHaveLength(1);
+    const note = rows.find((r) => r["Item"] === "Item menyusul");
+    expect(String(note?.["Satuan"])).toContain("Kertas ditolak");
+    expect(engine.scen[0].revenue).toBe(engine.rows[0].prices[0] * 10);
+  });
+});

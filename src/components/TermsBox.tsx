@@ -136,7 +136,7 @@ export function TermsBox({
       <div className={`check-row note-block${meta.hideQty ? " is-dim" : ""}`}>
         <span className="muted small">Baris total:</span>
         {TOTAL_ROWS.map(([key, label]) => (
-          <label key={key} className="row" style={{ gap: 6 }}>
+          <label key={key} className="row gap-6">
             <input
               type="checkbox"
               checked={!meta.hideQty && !hiddenRows.includes(key)}

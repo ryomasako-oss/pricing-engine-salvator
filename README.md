@@ -159,8 +159,10 @@ npm run import:images -- /path/ke/folder/gambar
   tetap dipakai dan errornya dicatat di pengaturan `item_images_status`.
 - Klik thumbnail membuka gambar penuh di halaman yang sama (zoom, seret, Esc).
 
-`npm run import:images` hanya mengisi folder lokal. Bucket R2 belum punya
-pengirim massal; sampai itu ada, isi R2 dari mesin yang memang punya gambarnya.
+`npm run import:images` hanya mengisi folder lokal. Untuk bucket R2 (Workers),
+unggah lewat aplikasi: Katalog > **Unggah gambar massal** (peran dengan izin
+`edit_catalog`; nama berkas = kode barang, mis. `101885.jpg`, maks. 1.000 berkas
+sekali kirim). Gambar satuan bisa diganti atau dihapus dari baris katalognya.
 
 ---
 

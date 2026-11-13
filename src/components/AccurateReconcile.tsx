@@ -94,8 +94,7 @@ export function AccurateReconcile() {
         {report.checks.map((c) => (
           <li key={c.key}>
             <button
-              className="btn small ghost"
-              style={{ width: "100%", justifyContent: "space-between", gap: 8, height: "auto", minHeight: 30, whiteSpace: "normal", textAlign: "left" }}
+              className="btn small ghost check-item"
               disabled={c.count === 0}
               onClick={() => toggle(c.key)}
               aria-expanded={open === c.key}
