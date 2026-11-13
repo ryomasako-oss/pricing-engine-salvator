@@ -71,3 +71,14 @@ test.describe("sales", () => {
     await expectNoSideScroll(page, "sales quote");
   });
 });
+
+test("phone: the Silvy button never covers the last card at the end of a page", async ({ page, errors }) => {
+  void errors;
+  await page.goto("/catalog");
+  await page.locator("main").waitFor();
+  await page.waitForLoadState("networkidle");
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  const fab = await page.locator(".chat-fab").boundingBox();
+  const last = await page.locator("main .card").last().boundingBox();
+  expect(last!.y + last!.height).toBeLessThanOrEqual(fab!.y);
+});
