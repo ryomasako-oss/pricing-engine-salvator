@@ -1159,6 +1159,12 @@ a.btn, a.btn:hover { text-decoration: none; }
 .pre-wrap { white-space: pre-wrap; }
 .pre-line { white-space: pre-line; }
 .gap-below { margin-bottom: var(--space-4); }
+/* A badge that is also a button (toggles a list under it). */
+.badge-btn { border: 0; cursor: pointer; }
+.badge-btn:disabled { cursor: default; }
+/* Full-width list button with wrapping text (Accurate reconcile checks); after .btn.small so it wins. */
+.btn.check-item { width: 100%; justify-content: space-between; gap: 8px; height: auto; min-height: 30px; white-space: normal; text-align: left; }
+.row.gap-6 { gap: 6px; }
 .subhead { margin: 0 0 var(--space-3); font: var(--text-body); font-weight: 600; }
 .list-row.static { cursor: default; }
 .list-row.top { align-items: flex-start; }

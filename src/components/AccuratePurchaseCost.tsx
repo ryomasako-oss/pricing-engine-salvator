@@ -217,8 +217,7 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
             <span className="badge green">{grp(preview.unchanged)} sudah sama</span>
             {preview.held.length > 0 && (
               <button
-                className="badge red"
-                style={{ border: 0, cursor: "pointer" }}
+                className="badge red badge-btn"
                 onClick={() => setShowHeld((v) => !v)}
                 aria-expanded={showHeld}
               >
@@ -226,8 +225,7 @@ export function AccuratePurchaseCost({ onApplied }: { onApplied: () => void }) {
               </button>
             )}
             <button
-              className="badge grey"
-              style={{ border: 0, cursor: preview.skipped.length ? "pointer" : "default" }}
+              className="badge grey badge-btn"
               disabled={!preview.skipped.length}
               onClick={() => setShowSkipped((v) => !v)}
               aria-expanded={showSkipped}
