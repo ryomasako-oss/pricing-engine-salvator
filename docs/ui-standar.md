@@ -42,7 +42,7 @@ Kontras dihitung dengan rumus WCAG.
 | `bg` | `#F4F4F4` | Latar halaman | |
 | `layer` | `#FFFFFF` | Kartu, tabel, modal, input | |
 | `hover` | `#E8E8E8` | Hover baris, skeleton | |
-| `border` | `#E0E0E0` | Garis pemisah | dekoratif |
+| `border` | `#D0D0D0` | Garis pemisah, baris tabel (`#E0E0E0` terlalu pudar di putih) | dekoratif |
 | `border-card` | `#C6C6C6` | Tepi kartu (terang; gelap = `border`). Kartu putih di latar `#F4F4F4` hanya 1,1:1, jadi tepinya yang memisahkan; latar tidak bisa digelapkan karena teks `action` di `bg` harus tetap 4,5:1 | dekoratif |
 | `border-strong` | `#8D8D8D` | Tepi input, checkbox | 3,3:1 |
 | `text` | `#161616` | Teks utama | 18,1:1 |
