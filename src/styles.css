@@ -852,6 +852,8 @@ input[type=checkbox] { accent-color: var(--color-action); width: 17px; height: 1
   box-shadow: var(--shadow-lg); cursor: pointer;
 }
 .chat-fab:hover { background: var(--color-action-fill-hover); }
+/* Room under the last row so the Silvy button never covers it at the end of a page (52px + 20px + gap). */
+body:has(.chat-fab) .hk-main { padding-bottom: 88px; }
 .chat-fab-dot { position: absolute; top: 12px; right: 12px; width: 9px; height: 9px; border-radius: 50%; background: var(--marker); border: 2px solid var(--color-action); }
 .chat-dock {
   position: fixed; right: 20px; bottom: 84px; z-index: 50;
