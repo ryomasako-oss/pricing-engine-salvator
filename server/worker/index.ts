@@ -25,9 +25,8 @@ import { pendingItemsRouter } from "./routes/pendingItems";
 import { familiarityRouter } from "./routes/familiarity";
 import { listDraftsRouter } from "./routes/listDrafts";
 import { salesOrdersRouter } from "./routes/salesOrders";
-import { fmsWebhookRouter } from "./routes/fmsWebhook";
-import { fmsExportRouter } from "./routes/fmsExport";
-import { dispatchSoOutbox } from "./soDispatcher";
+import { fmsIntegrationRouter } from "./routes/fmsIntegration";
+import { dispatchSoOutbox } from "./fms/dispatch";
 import { DIGEST_CRON, runFixDigest } from "./fixDigest";
 import { appLink, notifyEmail } from "./notify";
 import { runAccurateRecap } from "./accurateRecap";
@@ -84,8 +83,8 @@ app.route("/api/list-drafts", listDraftsRouter);
 app.route("/api/settings", settingsRouter);
 app.route("/api/accurate", accurateRouter);
 app.route("/api/sales-orders", salesOrdersRouter);
-app.route("/api/webhooks/fms", fmsWebhookRouter);
-app.route("/api", fmsExportRouter);
+// Signed by FMS (x-fms-*), no login session.
+app.route("/api/integrations/fms", fmsIntegrationRouter);
 
 // Non-API paths reach here because run_worker_first now covers every
 // request (not just /api/*) — see wrangler.toml. Hand those to the static
@@ -161,11 +160,11 @@ async function scheduled(controller: ScheduledController, env: Bindings, ctx: Ex
       (err) => console.error("[search] vectors failed:", err),
     ),
   );
-  // Integrasi FMS: kirim Sales Order baru dan pembatalan ke webhook FMS Salvator.
+  // FMS Salvator: Sales Order and cancel events left in so_outbox (server/worker/fms/dispatch.ts).
   ctx.waitUntil(
     dispatchSoOutbox(env).then(
-      (r) => r.processed > 0 && console.log("[so-dispatcher] tick", JSON.stringify(r)),
-      (err) => console.error("[so-dispatcher] tick failed:", err),
+      (r) => r.processed > 0 && console.log("[fms] dispatch", JSON.stringify(r)),
+      (err) => console.error("[fms] dispatch failed:", err),
     ),
   );
 }

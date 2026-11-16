@@ -1,0 +1,8 @@
+{
+  "v": 1,
+  "eventId": "9d2e4c1a-7b6f-4a38-b0d5-1e8f3a6c5b02",
+  "sequence": 44,
+  "type": "sales_order.cancel_requested",
+  "occurredAt": "2026-11-16T16:00:00Z",
+  "payload": { "soNumber": "HK/SIP/SO/2611/001", "reason": "Klien membatalkan PO" }
+}

@@ -1,0 +1,17 @@
+{
+  "v": 1,
+  "eventId": "d4b2c3e5-6f70-4b8c-9dae-1f2a3b4c5d6e",
+  "sequence": 9,
+  "type": "outbound.state_changed",
+  "occurredAt": "2026-11-16T18:00:00Z",
+  "payload": {
+    "soNumber": "HK/SIP/SO/2611/001",
+    "outboundRef": "DO-20261116-0001",
+    "prevState": "HANDING_OVER",
+    "state": "HANDED_OVER",
+    "reason": null,
+    "courier": "JNE",
+    "tracking": "JNE123456",
+    "manifestNo": "MF-20261116-001"
+  }
+}

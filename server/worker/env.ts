@@ -25,9 +25,12 @@ export interface Bindings {
   ASSISTANT_LIMITER: RateLimit;
   API_LIMITER: RateLimit;
   APP_URL?: string;
-  /* FMS Salvator Webhook Integration */
-  FMS_URL?: string;
-  FMS_WEBHOOK_SECRET?: string;
+  /* FMS Salvator (docs/integrasi-pe-fms.md). Secrets via `wrangler secret put`, each >= 32 chars;
+     a missing or short one stops that direction (no fallback). PE_FMS_SECRET signs what PE sends
+     to FMS_SO_URL; FMS_PE_SECRET checks what FMS sends here (events, catalog/client pulls). */
+  PE_FMS_SECRET?: string;
+  FMS_PE_SECRET?: string;
+  FMS_SO_URL?: string;
   GOOGLE_SERVICE_ACCOUNT_EMAIL?: string;
   GOOGLE_PRIVATE_KEY?: string;
   GOOGLE_SEND_AS_EMAIL?: string;

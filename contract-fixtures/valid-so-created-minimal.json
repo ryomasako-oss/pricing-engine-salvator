@@ -1,0 +1,21 @@
+{
+  "v": 1,
+  "eventId": "0b7c1f0e-5a3d-4f6a-8a52-3c1d9e4b7a20",
+  "sequence": 43,
+  "type": "sales_order.created",
+  "occurredAt": "2026-11-16T15:41:00Z",
+  "payload": {
+    "soNumber": "HK/SIP/SO/2611/002",
+    "quoteNumber": "HK/SIP/Q/2611/015",
+    "quoteRevNo": 0,
+    "entity": "PT",
+    "customerPoNumber": null,
+    "client": { "code": "C001", "name": "PT Contoh" },
+    "shipTo": { "name": "Bu Rina", "phone": "", "address": "Jl. Melati No. 5, Bandung" },
+    "requestedDate": null,
+    "note": null,
+    "lines": [
+      { "lineNo": 1, "sku": "ATK-001", "name": "Kertas A4 80gsm", "uom": "Rim", "qty": 1, "baseUom": null, "baseQty": null }
+    ]
+  }
+}

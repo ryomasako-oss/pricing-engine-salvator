@@ -1,0 +1,11 @@
+{
+  "v": 1, "eventId": "6f1c2a52-8d57-4c0e-9b1f-2f6f6f0a7c13", "sequence": 3,
+  "type": "sales_order.created", "occurredAt": "2026-11-16T15:40:00Z",
+  "payload": {
+    "soNumber": "HK/SIP/SO/2611/003", "quoteNumber": "HK/SIP/Q/2611/016", "quoteRevNo": 1, "entity": "PT",
+    "customerPoNumber": null, "client": { "code": "C001", "name": "PT Contoh" },
+    "shipTo": { "name": "Bu Rina", "phone": "", "address": "Jl. Melati" },
+    "requestedDate": null, "note": null,
+    "lines": [ { "lineNo": 1, "sku": "", "name": "Kertas", "uom": "Rim", "qty": 1, "baseUom": null, "baseQty": null } ]
+  }
+}

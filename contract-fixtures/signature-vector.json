@@ -1,0 +1,7 @@
+{
+  "_catatan": "Secret ini hanya untuk tes. signature = hex HMAC-SHA256 atas `${timestamp}.${rawBody}`.",
+  "secret": "pe-fms-test-secret-0123456789abcdef0123456789",
+  "timestamp": "1790000000",
+  "rawBody": "{\"v\":1,\"eventId\":\"6f1c2a52-8d57-4c0e-9b1f-2f6f6f0a7c11\",\"sequence\":42,\"type\":\"sales_order.cancel_requested\",\"occurredAt\":\"2026-11-16T15:40:00Z\",\"payload\":{\"soNumber\":\"HK/SIP/SO/2611/001\",\"reason\":\"Klien membatalkan PO\"}}",
+  "signature": "17591b25f9ab68f787945fea7387e721950c97b4c7c930683227c99786ae288e"
+}

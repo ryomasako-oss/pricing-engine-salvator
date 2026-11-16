@@ -47,8 +47,8 @@ clientsRouter.post("/", async (c) => {
   const info = await run(
     c.env.DB,
     `INSERT INTO clients(name, code, address, contact_name, contact_email, contact_phone,
-                         payment_terms, delivery_terms, accurate_customer_no, doc_template)
-     VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                         payment_terms, delivery_terms, accurate_customer_no, doc_template, updated_at)
+     VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
     d.name, d.code, d.address, d.contact_name, d.contact_email, d.contact_phone,
     d.payment_terms, d.delivery_terms, d.accurate_customer_no,
     d.doc_template ? JSON.stringify(d.doc_template) : null,
@@ -75,7 +75,8 @@ clientsRouter.put("/:id", async (c) => {
   await run(
     c.env.DB,
     `UPDATE clients SET name = ?, code = ?, address = ?, contact_name = ?, contact_email = ?,
-            contact_phone = ?, payment_terms = ?, delivery_terms = ?, accurate_customer_no = ?, doc_template = ? WHERE id = ?`,
+            contact_phone = ?, payment_terms = ?, delivery_terms = ?, accurate_customer_no = ?, doc_template = ?,
+            updated_at = datetime('now') WHERE id = ?`,
     d.name, d.code, d.address, d.contact_name, d.contact_email, d.contact_phone,
     d.payment_terms, d.delivery_terms, d.accurate_customer_no, template, id,
   );

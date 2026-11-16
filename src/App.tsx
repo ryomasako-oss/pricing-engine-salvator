@@ -1,4 +1,5 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { api } from "./api";
 import { isHistoryPath } from "./components/HistoryTabs";
 import { Link, NavLink, Navigate, Route, Routes, useLocation, useParams } from "react-router-dom";
 import { useAuth } from "./context/AuthContext";
@@ -29,6 +30,7 @@ const PurchaseHistoryPage = lazy(() => import("./pages/PurchaseHistory").then((m
 const BelowCostPage = lazy(() => import("./pages/BelowCost").then((m) => ({ default: m.BelowCostPage })));
 const AuditLogPage = lazy(() => import("./pages/AuditLog").then((m) => ({ default: m.AuditLogPage })));
 const SalesOrdersPage = lazy(() => import("./pages/SalesOrders").then((m) => ({ default: m.SalesOrdersPage })));
+const SalesOrderDetailPage = lazy(() => import("./pages/SalesOrderDetail").then((m) => ({ default: m.SalesOrderDetailPage })));
 
 function PageLoading() {
   return (
@@ -48,6 +50,11 @@ function TopBar() {
   const { pending, toFix } = useNavCounts();
   const confirmLeave = useConfirmLeave();
   const { pathname } = useLocation();
+  // Sales Order shows in the menu only once the sales_order_enabled switch is on.
+  const [soEnabled, setSoEnabled] = useState(false);
+  useEffect(() => {
+    api.get<{ enabled: boolean }>("/sales-orders/enabled").then((r) => setSoEnabled(r.enabled)).catch(() => undefined);
+  }, []);
 
   // Route changes are guarded by the router blocker (UnsavedGuardContext); logout is not one.
 
@@ -80,10 +87,12 @@ function TopBar() {
           <Icon name="quote" size={16} />
           <span className="label">Quotation</span>
         </NavLink>
-        <NavLink to="/sales-orders" className={({ isActive }) => (isActive ? "active" : "")}>
-          <Icon name="truck" size={16} />
-          <span className="label">Sales Order</span>
-        </NavLink>
+        {soEnabled && (
+          <NavLink to="/sales-orders" className={({ isActive }) => (isActive ? "active" : "")}>
+            <Icon name="truck" size={16} />
+            <span className="label">Sales Order</span>
+          </NavLink>
+        )}
         <NavLink to="/pencocokan" className={({ isActive }) => (isActive ? "active" : "")}>
           <Icon name="search" size={16} />
           <span className="label">Pencocokan</span>
@@ -199,6 +208,7 @@ export function App() {
         <Route path="/" element={<Navigate to="/quotes" replace />} />
         <Route path="/quotes" element={<DashboardPage />} />
         <Route path="/sales-orders" element={<SalesOrdersPage />} />
+        <Route path="/sales-orders/:id" element={<SalesOrderDetailPage />} />
         {/* Staff get a screen without cost data; the server sends them none (PE-1). */}
         <Route path="/quotes/:id" element={<QuotePage />} />
         <Route

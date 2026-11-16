@@ -22,6 +22,7 @@ import type {
 } from "@shared/types";
 import { Icon } from "../components/Icon";
 import { Modal, ConfirmModal } from "../components/Modal";
+import { SalesOrderAction } from "../components/SalesOrderAction";
 import { Rich } from "../components/Rich";
 import { ItemsTable } from "../components/ItemsTable";
 import { QuickPriceBar } from "../components/QuickPriceBar";
@@ -542,6 +543,7 @@ export function QuoteEditorPage() {
               Alihkan
             </button>
           )}
+          <SalesOrderAction quoteId={quoteId} status={quote.status} version={quote.version} onCreated={() => void load()} />
           <WorkflowButtons
             quote={quote}
             canManage={can("decide_quotes")}
@@ -551,15 +553,6 @@ export function QuoteEditorPage() {
             onDecide={() => setModal({ kind: "decide" })}
             onReopen={() => setModal({ kind: "reopen" })}
             onStatus={(s) => void act(() => api.post(`/quotes/${quoteId}/status`, { status: s }), "Status diperbarui.")}
-            onMakeSo={async () => {
-              if (!confirm("Terbitkan quotation ini menjadi Sales Order untuk diproses gudang FMS Salvator?")) return;
-              try {
-                const res = await api.post<{ ok: boolean; salesOrder: { orderNo: string } }>(`/quotes/${quoteId}/sales-order`);
-                toast(`Sales Order ${res.salesOrder.orderNo} berhasil diterbitkan ke FMS.`, "success");
-              } catch (e) {
-                toast(e instanceof Error ? e.message : "Gagal membuat Sales Order.", "error");
-              }
-            }}
           />
         </div>
       </div>
@@ -1201,7 +1194,7 @@ export function QuoteEditorPage() {
 /* ---------------- workflow buttons ---------------- */
 
 export function WorkflowButtons({
-  quote, canManage, isResponsible, blocked, onSubmit, onDecide, onReopen, onStatus, onMakeSo,
+  quote, canManage, isResponsible, blocked, onSubmit, onDecide, onReopen, onStatus,
 }: {
   quote: Quote;
   canManage: boolean;
@@ -1211,7 +1204,6 @@ export function WorkflowButtons({
   onDecide: () => void;
   onReopen: () => void;
   onStatus: (s: string) => void;
-  onMakeSo?: () => void;
 }) {
   const mine = isResponsible || canManage;
   switch (quote.status) {
@@ -1239,11 +1231,6 @@ export function WorkflowButtons({
     case "approved":
       return mine ? (
         <>
-          {onMakeSo && (
-            <button className="btn primary" onClick={onMakeSo} title="Terbitkan ke Sales Order & kirim ke FMS">
-              <Icon name="truck" size={14} /> Jadikan SO
-            </button>
-          )}
           <button className="btn" onClick={() => onStatus("sent")}>
             Tandai terkirim
           </button>
@@ -1253,11 +1240,6 @@ export function WorkflowButtons({
     case "sent":
       return mine ? (
         <>
-          {onMakeSo && (
-            <button className="btn primary" onClick={onMakeSo} title="Terbitkan ke Sales Order & kirim ke FMS">
-              <Icon name="truck" size={14} /> Jadikan SO
-            </button>
-          )}
           <button className="btn success" onClick={() => onStatus("won")}>Menang</button>
           <button className="btn" onClick={() => onStatus("lost")}>Kalah</button>
           <button className="btn ghost" onClick={onReopen}>Buka revisi baru</button>
@@ -1266,11 +1248,6 @@ export function WorkflowButtons({
     case "won":
       return mine ? (
         <>
-          {onMakeSo && (
-            <button className="btn primary" onClick={onMakeSo} title="Terbitkan ke Sales Order & kirim ke FMS">
-              <Icon name="truck" size={14} /> Jadikan SO
-            </button>
-          )}
           <button className="btn" onClick={() => onStatus("completed")}>
             Tandai selesai
           </button>

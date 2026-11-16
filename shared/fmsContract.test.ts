@@ -1,70 +1,64 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import {
-  SalesOrderCreatedEventSchema,
-  SalesOrderCancelledEventSchema,
-  OutboundStateChangedEventSchema,
-  CatalogExportResponseSchema,
-  ClientExportResponseSchema,
-} from "./fmsContract";
+import { readFileSync, readdirSync } from "node:fs";
+import path from "node:path";
+import { ackSchema, anyEventSchema, FMS_STATES } from "./fmsContract";
+import { FULFILLMENT_LABEL, fulfillmentFromFms } from "./fmsState";
+import { signHex, verifySignature } from "../server/worker/fms/signing";
 
-function loadFixture(filename: string) {
-  const path = join(process.cwd(), "contract-fixtures", filename);
-  return JSON.parse(readFileSync(path, "utf-8"));
-}
+/* contract-fixtures/ is shared verbatim with the FMS repo: valid-* must pass,
+   invalid-* must fail; *-ack-* files are acks, the rest are events. */
+const dir = path.resolve(import.meta.dirname, "../contract-fixtures");
+const fixtures = readdirSync(dir).filter((f) => /^(valid|invalid)-.*\.json$/.test(f));
+const load = (f: string) => JSON.parse(readFileSync(path.join(dir, f), "utf8"));
 
-describe("Integrasi PE ↔ FMS Contract Fixtures Validation (Pricing Engine)", () => {
-  it("validates so-created-minimal.json against SalesOrderCreatedEventSchema", () => {
-    const data = loadFixture("so-created-minimal.json");
-    const result = SalesOrderCreatedEventSchema.safeParse(data);
-    expect(result.success).toBe(true);
-  });
-
-  it("validates so-created-full.json against SalesOrderCreatedEventSchema", () => {
-    const data = loadFixture("so-created-full.json");
-    const result = SalesOrderCreatedEventSchema.safeParse(data);
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.payload.items.length).toBe(2);
-      expect(result.data.payload.shipping.courierCode).toBe("SPX");
+describe("contract fixtures", () => {
+  it("has valid and invalid examples of every kind", () => {
+    for (const p of ["valid-so-created", "invalid-so-created", "valid-so-cancel", "invalid-so-cancel", "valid-outbound", "invalid-outbound", "valid-ack", "invalid-ack"]) {
+      expect(fixtures.some((f) => f.startsWith(p)), p).toBe(true);
     }
   });
 
-  it("validates so-cancelled.json against SalesOrderCancelledEventSchema", () => {
-    const data = loadFixture("so-cancelled.json");
-    const result = SalesOrderCancelledEventSchema.safeParse(data);
-    expect(result.success).toBe(true);
-  });
+  for (const f of fixtures) {
+    it(`${f} is ${f.startsWith("valid") ? "accepted" : "rejected"}`, () => {
+      const schema = f.includes("-ack-") ? ackSchema : anyEventSchema;
+      expect(schema.safeParse(load(f)).success).toBe(f.startsWith("valid"));
+    });
+  }
 
-  it("validates fms-state-changed-packing.json against OutboundStateChangedEventSchema", () => {
-    const data = loadFixture("fms-state-changed-packing.json");
-    const result = OutboundStateChangedEventSchema.safeParse(data);
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.payload.newState).toBe("PACKING");
-    }
+  it("signature vector: PE signs and verifies the shared example exactly", async () => {
+    const v = load("signature-vector.json");
+    expect(await signHex(v.secret, `${v.timestamp}.${v.rawBody}`)).toBe(v.signature);
+    const at = Number(v.timestamp) * 1000;
+    expect(await verifySignature(v.secret, v.timestamp, v.signature, (ts) => `${ts}.${v.rawBody}`, at)).toBe(true);
+    expect(await verifySignature(v.secret, v.timestamp, v.signature, (ts) => `${ts}.${v.rawBody} `, at)).toBe(false);
+    expect(await verifySignature(v.secret, v.timestamp, v.signature, (ts) => `${ts}.${v.rawBody}`, at + 301_000)).toBe(false);
+    expect(await verifySignature(v.secret, undefined, v.signature, (ts) => `${ts}.${v.rawBody}`, at)).toBe(false);
+    expect(await verifySignature(v.secret, v.timestamp, "zz", (ts) => `${ts}.${v.rawBody}`, at)).toBe(false);
   });
+});
 
-  it("validates fms-state-changed-handed-over.json against OutboundStateChangedEventSchema", () => {
-    const data = loadFixture("fms-state-changed-handed-over.json");
-    const result = OutboundStateChangedEventSchema.safeParse(data);
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.payload.newState).toBe("HANDED_OVER");
-      expect(result.data.payload.handoverBatchId).toBe("HO-20261117-001");
-    }
+describe("FMS status -> PE fulfillment_state (docs/integrasi-pe-fms.md bagian 5)", () => {
+  const table: [string, string, string][] = [
+    ["AWAITING_PAYMENT", "queued", "Antre di gudang"],
+    ["IMPORTED", "queued", "Antre di gudang"],
+    ["READY_TO_PACK", "queued", "Antre di gudang"],
+    ["PACKING", "packing", "Sedang dipacking"],
+    ["RECHECK", "packing", "Sedang dipacking"],
+    ["TUNDA", "on_hold", "Tertahan"],
+    ["WAITING_SPV", "on_hold", "Tertahan"],
+    ["ACTION_REQUIRED", "on_hold", "Tertahan"],
+    ["FULFILLMENT_SPLIT", "on_hold", "Tertahan"],
+    ["AWAITING_HANDOVER", "packed", "Siap kirim"],
+    ["HANDING_OVER", "packed", "Siap kirim"],
+    ["HANDED_OVER", "shipped", "Sudah diserahkan"],
+    ["CANCELLED", "cancelled", "Dibatalkan gudang"],
+  ];
+  it.each(table)("%s -> %s (%s)", (fms, pe, label) => {
+    const state = fulfillmentFromFms(fms as (typeof FMS_STATES)[number]);
+    expect(state).toBe(pe);
+    expect(FULFILLMENT_LABEL[state]).toBe(label);
   });
-
-  it("validates catalog-export-sample.json against CatalogExportResponseSchema", () => {
-    const data = loadFixture("catalog-export-sample.json");
-    const result = CatalogExportResponseSchema.safeParse(data);
-    expect(result.success).toBe(true);
-  });
-
-  it("validates client-export-sample.json against ClientExportResponseSchema", () => {
-    const data = loadFixture("client-export-sample.json");
-    const result = ClientExportResponseSchema.safeParse(data);
-    expect(result.success).toBe(true);
+  it("covers every FMS state", () => {
+    expect(table.map((r) => r[0]).sort()).toEqual([...FMS_STATES].sort());
   });
 });

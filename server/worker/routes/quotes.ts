@@ -26,6 +26,7 @@ import {
   findQuote,
   listQuoteRows,
   nextQuoteNumber,
+  nextSeriesNumber,
   quoteMetrics,
   saveRevision,
 } from "../quoteService";
@@ -46,7 +47,19 @@ import {
   staffSnapshotSchema,
 } from "../../staffView";
 import { DEFAULT_ASSUMPTIONS, DEFAULT_REGIONS } from "../../../shared/engine";
-import { createSalesOrderFromQuote } from "../salesOrderService";
+import {
+  SO_DISABLED,
+  activeSalesOrderFor,
+  auditStmt,
+  contractLine,
+  envelope,
+  outboxStmts,
+  salesOrderEnabled,
+  soLinesFor,
+  timelineStmt,
+} from "../salesOrderService";
+import { dispatchSoOutbox } from "../fms/dispatch";
+import { salesOrderCreatedSchema } from "../../../shared/fmsContract";
 import {
   notifyQuoteDecided,
   notifyQuoteReassigned,
@@ -67,7 +80,7 @@ const taskStmts = (db: D1Database, tasks: NewFixTask[], userId: number) =>
   insertTasksParams(tasks, userId).map((params) => stmt(db, INSERT_TASKS_SQL, ...params));
 
 /** Reps may only change their own quotes or one reassigned to them; managers/admins may change any. */
-function canEdit(user: User, createdBy: number, assignedTo: number | null): boolean {
+export function canEdit(user: User, createdBy: number, assignedTo: number | null): boolean {
   return user.id === createdBy || user.id === assignedTo || hasPermission(user.role, "edit_all_quotes");
 }
 
@@ -849,6 +862,8 @@ quotesRouter.post("/:id/reopen", async (c) => {
   if (!quote) return c.json({ error: "Quotation tidak ditemukan." }, 404);
   if (!canEdit(user, quote.created_by, quote.assigned_to)) return c.json({ error: "Quotation ini milik pengguna lain." }, 403);
   if (quote.status === "draft") return c.json({ error: "Quotation sudah berstatus draft." }, 409);
+  const so = await activeSalesOrderFor(c.env.DB, id);
+  if (so) return c.json({ error: `Quotation ini sudah punya Sales Order ${so.number}. Batalkan SO dulu.` }, 409);
 
   const nextRev = quote.rev_no + 1;
   const statements = [
@@ -1015,20 +1030,144 @@ quotesRouter.post("/:id/sales-review", async (c) => {
   return c.json({ quote: view(user.role, await findQuote(c.env.DB, id)), review: await latestSalesReview(c.env.DB, id) });
 });
 
-quotesRouter.post("/:id/sales-order", async (c) => {
+/* ---------------- Sales Order (F3.2): "Jadikan SO" ---------------- */
+
+const SO_FROM: QuoteStatus[] = ["approved", "sent", "won"];
+/** Today in Jakarta (WIB), as YYYY-MM-DD. */
+const wibToday = () => new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10);
+
+const soInputSchema = z.object({
+  customerPoNumber: z.string().trim().max(100).optional(),
+  shipToName: z.string().trim().max(200).optional(),
+  shipToPhone: z.string().trim().max(50).optional(),
+  shipToAddress: z.string().trim().max(1000).optional(),
+  requestedDate: z.union([z.literal(""), z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Tanggal diminta harus YYYY-MM-DD")]).optional(),
+  note: z.string().trim().max(1000).optional(),
+});
+
+const quoteClient = (db: D1Database, quote: Quote) =>
+  quote.client_id ? get<Client>(db, "SELECT * FROM clients WHERE id = ?", quote.client_id) : Promise.resolve(undefined);
+
+/** What "Jadikan SO" would send: the dialog's lines, left-out lines, total and ship-to defaults. */
+quotesRouter.get("/:id/sales-order", async (c) => {
   const user = c.get("user")!;
   const id = Number(c.req.param("id"));
-  let body = {};
-  try {
-    body = await c.req.json();
-  } catch {}
-  try {
-    const result = await createSalesOrderFromQuote(c.env.DB, id, user, body);
-    return c.json({ ok: true, salesOrder: result.salesOrder, eventId: result.eventId }, 201);
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    return c.json({ error: message }, 400);
+  if (!(await salesOrderEnabled(c.env.DB))) return c.json({ enabled: false });
+  const quote = await findQuote(c.env.DB, id);
+  if (!quote) return c.json({ error: "Quotation tidak ditemukan." }, 404);
+  const salesOrder = (await activeSalesOrderFor(c.env.DB, id)) ?? null;
+  if (salesOrder) return c.json({ enabled: true, salesOrder });
+  const client = await quoteClient(c.env.DB, quote);
+  const { lines, excluded, total } = await soLinesFor(c.env.DB, quote);
+  return c.json({
+    enabled: true,
+    salesOrder: null,
+    canCreate: SO_FROM.includes(quote.status) && canEdit(user, quote.created_by, quote.assigned_to),
+    client: client ? { code: client.code, name: client.name } : null,
+    defaults: {
+      shipToName: client?.contact_name ?? "",
+      shipToPhone: client?.contact_phone ?? "",
+      shipToAddress: client?.address ?? "",
+    },
+    lines,
+    excluded,
+    total,
+  });
+});
+
+quotesRouter.post("/:id/sales-order", async (c) => {
+  const user = c.get("user")!;
+  const db = c.env.DB;
+  const id = Number(c.req.param("id"));
+  if (!(await salesOrderEnabled(db))) return c.json({ error: SO_DISABLED }, 403);
+  const quote = await findQuote(db, id);
+  if (!quote) return c.json({ error: "Quotation tidak ditemukan." }, 404);
+  if (!canEdit(user, quote.created_by, quote.assigned_to)) return c.json({ error: "Quotation ini milik pengguna lain." }, 403);
+  if (!SO_FROM.includes(quote.status)) {
+    return c.json({ error: "Sales Order hanya bisa dibuat dari quotation yang disetujui, terkirim, atau menang." }, 409);
   }
+  const existing = await activeSalesOrderFor(db, id);
+  if (existing) return c.json({ error: `Quotation ini sudah punya Sales Order ${existing.number}.`, salesOrder: existing }, 409);
+
+  const parsed = soInputSchema.safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 422);
+  const d = parsed.data;
+  const client = await quoteClient(db, quote);
+  if (!client) return c.json({ error: "Quotation ini belum punya klien. Pilih klien dulu." }, 422);
+  if (!client.code.trim()) return c.json({ error: `Klien ${client.name} belum punya kode. Isi kodenya dulu di menu Klien.` }, 422);
+  const shipToName = d.shipToName || client.contact_name.trim();
+  const shipToPhone = d.shipToPhone ?? client.contact_phone.trim();
+  const shipToAddress = d.shipToAddress || client.address.trim();
+  if (!shipToName) return c.json({ error: "Isi nama penerima." }, 422);
+  if (!shipToAddress) return c.json({ error: "Isi alamat kirim." }, 422);
+  const requestedDate = d.requestedDate || null;
+  if (requestedDate && requestedDate < wibToday()) return c.json({ error: "Tanggal diminta tidak boleh sebelum hari ini." }, 422);
+
+  const { lines, excluded, total } = await soLinesFor(db, quote);
+  if (!lines.length) {
+    return c.json({ error: "Tidak ada baris yang bisa dikirim ke gudang: semua baris tertahan atau belum cocok.", excluded }, 422);
+  }
+
+  // The number is read then written with an await between, like quote numbers:
+  // a clash on sales_orders.number retries with a fresh one.
+  let number = "";
+  for (let attempt = 0; attempt < 3; attempt++) {
+    number = await nextSeriesNumber(db, "sales_orders", "SO");
+    const payload = {
+      soNumber: number,
+      quoteNumber: quote.number,
+      quoteRevNo: quote.rev_no,
+      // shortcut: quotes carry no Data Usaha; every SO is PT (HK/SIP series). Add a quote field when CV quotes exist.
+      entity: "PT",
+      customerPoNumber: d.customerPoNumber || null,
+      client: { code: client.code.trim(), name: client.name.trim() },
+      shipTo: { name: shipToName, phone: shipToPhone, address: shipToAddress },
+      requestedDate,
+      note: d.note || null,
+      lines: lines.map(contractLine),
+    };
+    const valid = salesOrderCreatedSchema.safeParse(payload);
+    if (!valid.success) {
+      const issue = valid.error.issues[0];
+      return c.json({ error: `Sales Order tidak sesuai kontrak FMS: ${issue.path.join(".")} ${issue.message}` }, 422);
+    }
+    const event = envelope("sales_order.created", valid.data);
+    const statements = [
+      stmt(
+        db,
+        `INSERT INTO sales_orders(number, quote_id, quote_rev_no, client_id, customer_po_number, ship_to_name, ship_to_phone,
+                                  ship_to_address, requested_date, note, lines, total_value, created_by)
+         VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        number, id, quote.rev_no, client.id, payload.customerPoNumber, shipToName, shipToPhone || null,
+        shipToAddress, requestedDate, payload.note, JSON.stringify(lines), total, user.id,
+      ),
+      ...outboxStmts(db, number, event),
+      timelineStmt(db, number, "created", { by: user.name, lines: lines.length, excluded: excluded.length }),
+      auditStmt(db, user.id, number, "created", { quote: quote.number, rev_no: quote.rev_no, lines: lines.length, excluded: excluded.length, total }),
+    ];
+    if (quote.status !== "won") {
+      statements.push(
+        stmt(db, "UPDATE quotes SET status = 'won', version = version + 1, updated_at = datetime('now') WHERE id = ?", id),
+        stmt(
+          db,
+          "INSERT INTO audit_log(actor_id, entity, entity_id, action, detail) VALUES(?, 'quote', ?, 'status_won', ?)",
+          user.id, id, JSON.stringify({ salesOrder: number }),
+        ),
+      );
+    }
+    try {
+      if (!(await guardedBatch(db, quote, statements))) return c.json({ error: QUOTE_MOVED }, 409);
+      break;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const active = await activeSalesOrderFor(db, id);
+      if (active) return c.json({ error: `Quotation ini sudah punya Sales Order ${active.number}.`, salesOrder: active }, 409);
+      if (attempt === 2 || !message.includes("sales_orders.number")) throw err;
+    }
+  }
+  c.executionCtx.waitUntil(dispatchSoOutbox(c.env).catch((err) => console.error("[fms] dispatch failed:", err)));
+  const created = await activeSalesOrderFor(db, id);
+  return c.json({ salesOrder: created, lines: lines.length, excluded, total }, 201);
 });
 
 quotesRouter.delete("/:id", async (c) => {

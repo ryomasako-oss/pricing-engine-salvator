@@ -28,6 +28,17 @@ GEMINI_MODEL=
 # The first local admin is not set here: pass ADMIN_EMAIL / ADMIN_PASSWORD /
 # ADMIN_NAME to `npm run d1:seed:local` (a password is generated if omitted).
 
+# FMS Salvator (docs/integrasi-pe-fms.md). Two different secrets, each at least
+# 32 characters (openssl rand -hex 32), the same values as in FMS's .env.local.
+# Missing or shorter = that direction stays off. PE_FMS_SECRET signs Sales Orders
+# sent to FMS_SO_URL; FMS_PE_SECRET checks what FMS sends to
+# /api/integrations/fms/*. Local FMS: FMS_SO_URL=http://127.0.0.1:3000/api/webhooks/pricing-engine
+# The feature also needs the database switch, off by default:
+#   npx wrangler d1 execute DB --local --command "UPDATE settings SET value = '1' WHERE key = 'sales_order_enabled'"
+PE_FMS_SECRET=
+FMS_PE_SECRET=
+FMS_SO_URL=
+
 # Base URL the notification emails/WhatsApp messages link back to.
 APP_URL=http://localhost:5173
 

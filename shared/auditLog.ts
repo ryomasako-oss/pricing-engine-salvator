@@ -16,6 +16,7 @@ export const AUDIT_ENTITIES: Record<string, string> = {
   familiarity: "Pencocokan",
   accurate: "Accurate",
   assistant: "Silvy",
+  sales_order: "Sales Order",
 };
 
 const ACTIONS: Record<string, string> = {
@@ -58,6 +59,11 @@ const ACTIONS: Record<string, string> = {
   ask: "Pertanyaan",
   document: "Dokumen",
   ask_completed: "Silvy menjawab",
+  cancel_requested: "Minta batal",
+  cancel_rejected: "Batal ditolak gudang",
+  fms_state: "Status gudang",
+  fms_auth_rejected: "FMS menolak tanda tangan",
+  resend: "Kirim ulang",
   ask_failed: "Silvy gagal menjawab",
   document_completed: "Silvy membaca dokumen",
   document_failed: "Silvy gagal membaca dokumen",

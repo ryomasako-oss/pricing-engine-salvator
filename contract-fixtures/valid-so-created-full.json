@@ -1,0 +1,22 @@
+{
+  "v": 1,
+  "eventId": "6f1c2a52-8d57-4c0e-9b1f-2f6f6f0a7c11",
+  "sequence": 42,
+  "type": "sales_order.created",
+  "occurredAt": "2026-11-16T15:40:00Z",
+  "payload": {
+    "soNumber": "HK/SIP/SO/2611/001",
+    "quoteNumber": "HK/SIP/Q/2611/014",
+    "quoteRevNo": 2,
+    "entity": "PT",
+    "customerPoNumber": "PO-123/XI/2026",
+    "client": { "code": "C001", "name": "PT Contoh" },
+    "shipTo": { "name": "Bu Rina", "phone": "08123456789", "address": "Jl. Melati No. 5, Bandung" },
+    "requestedDate": "2026-11-20",
+    "note": "Kirim pagi",
+    "lines": [
+      { "lineNo": 1, "sku": "ATK-001", "name": "Kertas A4 80gsm", "uom": "Rim", "qty": 10, "baseUom": "Pcs", "baseQty": null },
+      { "lineNo": 2, "sku": "ATK-002", "name": "Pulpen Hitam", "uom": "Box", "qty": 2, "baseUom": "Pcs", "baseQty": 48 }
+    ]
+  }
+}

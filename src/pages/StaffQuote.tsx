@@ -15,6 +15,7 @@ import { useUnsavedGuard } from "../context/UnsavedGuardContext";
 import { CatalogPicker } from "../components/CatalogPicker";
 import { Icon } from "../components/Icon";
 import { Modal, ConfirmModal } from "../components/Modal";
+import { SalesOrderAction } from "../components/SalesOrderAction";
 import { type CompanyInfo, QuotationDoc } from "../components/QuotationDoc";
 import { StatusChip } from "../components/pricing";
 import { TermsBox } from "../components/TermsBox";
@@ -344,6 +345,7 @@ export function StaffQuotePage() {
           <button className="btn" onClick={exportPdf} disabled={!company || dirty}>
             Ekspor PDF
           </button>
+          <SalesOrderAction quoteId={quoteId} status={quote.status} version={quote.version} onCreated={() => void load()} />
           <WorkflowButtons
             quote={quote as unknown as Quote}
             canManage={false}
@@ -353,15 +355,6 @@ export function StaffQuotePage() {
             onDecide={() => undefined}
             onReopen={() => setModal("reopen")}
             onStatus={(s) => void act(() => api.post(`/quotes/${quoteId}/status`, { status: s }), "Status diperbarui.")}
-            onMakeSo={async () => {
-              if (!confirm("Terbitkan quotation ini menjadi Sales Order untuk diproses gudang FMS Salvator?")) return;
-              try {
-                const res = await api.post<{ ok: boolean; salesOrder: { orderNo: string } }>(`/quotes/${quoteId}/sales-order`);
-                toast(`Sales Order ${res.salesOrder.orderNo} berhasil diterbitkan ke FMS.`, "success");
-              } catch (e) {
-                toast(e instanceof Error ? e.message : "Gagal membuat Sales Order.", "error");
-              }
-            }}
           />
         </div>
       </div>

@@ -62,14 +62,17 @@ export const currentPolicy = (d1: D1Database): Promise<PricingPolicy> =>
   getSetting<PricingPolicy>(d1, "policy", DEFAULT_POLICY);
 
 /** Next quote number in the HK/SIP/Q/YYMM/NNN series; past 999 the counter just grows a digit. */
-export async function nextQuoteNumber(d1: D1Database, date = new Date()): Promise<string> {
+export const nextQuoteNumber = (d1: D1Database, date = new Date()): Promise<string> => nextSeriesNumber(d1, "quotes", "Q", date);
+
+/** Next number in the HK/SIP/<kind>/YYMM/NNN series of `table` (quotes: Q, sales_orders: SO). */
+export async function nextSeriesNumber(d1: D1Database, table: "quotes" | "sales_orders", kind: "Q" | "SO", date = new Date()): Promise<string> {
   const yy = String(date.getFullYear()).slice(-2);
   const mm = String(date.getMonth() + 1).padStart(2, "0");
-  const prefix = `HK/SIP/Q/${yy}${mm}/`;
+  const prefix = `HK/SIP/${kind}/${yy}${mm}/`;
   const rows = await all<{ number: string }>(
     d1,
     // Same prefix, so the longer number is the higher one: as text "999" sorts after "1000".
-    "SELECT number FROM quotes WHERE number LIKE ? ORDER BY length(number) DESC, number DESC LIMIT 1",
+    `SELECT number FROM ${table} WHERE number LIKE ? ORDER BY length(number) DESC, number DESC LIMIT 1`,
     `${prefix}%`,
   );
   const last = rows[0] ? Number(rows[0].number.slice(prefix.length)) : 0;
