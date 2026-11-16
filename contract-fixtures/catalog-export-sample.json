@@ -1,0 +1,22 @@
+{
+  "ok": true,
+  "timestamp": "2026-11-17T00:00:00.000Z",
+  "products": [
+    {
+      "sku": "SLV-001-BLK",
+      "name": "Salvator Oxford Black 42",
+      "category": "Formal Shoes",
+      "brand": "Salvator",
+      "uom": "Pcs",
+      "active": true
+    },
+    {
+      "sku": "SLV-002-BRN",
+      "name": "Salvator Derby Brown 41",
+      "category": "Casual Shoes",
+      "brand": "Salvator",
+      "uom": "Pcs",
+      "active": true
+    }
+  ]
+}

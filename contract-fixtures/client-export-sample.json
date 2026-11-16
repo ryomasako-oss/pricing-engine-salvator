@@ -1,0 +1,22 @@
+{
+  "ok": true,
+  "timestamp": "2026-11-17T00:00:00.000Z",
+  "clients": [
+    {
+      "clientCode": "CLI-MEGA",
+      "name": "PT Mega Pratama Logistik",
+      "phone": "081234567890",
+      "address": "Kawasan Industri Sentul Kav 12 Blok B",
+      "city": "Bogor",
+      "active": true
+    },
+    {
+      "clientCode": "CLI-BASIC",
+      "name": "Toko Berkah Mandiri",
+      "phone": "081122334455",
+      "address": "Jl. Merdeka No. 10",
+      "city": "Jakarta Pusat",
+      "active": true
+    }
+  ]
+}

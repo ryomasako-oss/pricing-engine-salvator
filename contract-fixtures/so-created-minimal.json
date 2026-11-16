@@ -1,0 +1,26 @@
+{
+  "eventId": "evt_so_create_min_001",
+  "eventType": "sales_order.created",
+  "occurredAt": "2026-11-17T01:00:00.000Z",
+  "payload": {
+    "orderNo": "SO-2026-0001",
+    "quoteId": "Q-2026-11-001",
+    "clientCode": "CLI-BASIC",
+    "clientName": "Toko Berkah Mandiri",
+    "orderedAt": "2026-11-17T01:00:00.000Z",
+    "items": [
+      {
+        "sku": "SLV-001",
+        "name": "Salvator Loafer Brown 41",
+        "qty": 10,
+        "uom": "Pcs"
+      }
+    ],
+    "shipping": {
+      "recipientName": "Ahmad",
+      "phone": "081122334455",
+      "address": "Jl. Merdeka No. 10",
+      "city": "Jakarta Pusat"
+    }
+  }
+}
