@@ -96,7 +96,7 @@ FMS menjalankan pembatalan outbound bila status masih mengizinkan (sampai `HANDI
 }
 ```
 
-Dikirim hanya untuk shipment ber-`source = 'PRICING_ENGINE'`. `prevState` dan `state` salah satu status FMS di tabel berikut. `reason`, `courier`, `tracking`, `manifestNo` boleh `null`.
+Dikirim hanya untuk shipment ber-`source = 'PRICING_ENGINE'`. `prevState` dan `state` salah satu status FMS di tabel berikut. `reason`, `courier`, `tracking`, `manifestNo` boleh `null`. Untuk status tertahan (`on_hold`), `reason` berisi label alasan Tunda, ditambah catatan petugas bila ada (mis. `Stok kosong di rak: Tunggu supplier`). Untuk `CANCELLED`, `reason` berisi catatan batal, atau label alasan batal bila catatannya kosong. Status lain mengirim `reason` `null`.
 
 | FMS (`SHIPMENT_STATES`) | PE `fulfillment_state` | Label di PE |
 |---|---|---|
