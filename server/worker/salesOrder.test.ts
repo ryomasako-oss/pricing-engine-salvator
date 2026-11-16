@@ -11,7 +11,7 @@ import { fmsIntegrationRouter } from "./routes/fmsIntegration";
 import { backoffSeconds, dispatchSoOutbox } from "./fms/dispatch";
 import { signHex, verifySignature } from "./fms/signing";
 import { computeEngine, DEFAULT_ASSUMPTIONS, DEFAULT_REGIONS } from "../../shared/engine";
-import { peEventSchema } from "../../shared/fmsContract";
+import { catalogPageSchema, clientsPageSchema, peEventSchema } from "../../shared/fmsContract";
 import type { Bindings, Env } from "./env";
 import type { QuoteItem, Role } from "../../shared/types";
 
@@ -691,6 +691,7 @@ describe("GET /api/integrations/fms/catalog and /clients", () => {
     expect(r.json.uoms).toEqual([{ code: "ATK-001", uom: "Box", factor: 24 }]);
     expect(r.json.nextCursor).toBeNull();
     expect(JSON.stringify(r.json)).not.toMatch(/cogs|list_price|stock/);
+    expect(catalogPageSchema.safeParse(r.json).success).toBe(true);
   });
 
   it("catalog pages by cursor and filters by since", async () => {
@@ -716,6 +717,7 @@ describe("GET /api/integrations/fms/catalog and /clients", () => {
     expect(r.json.clients).toHaveLength(1);
     expect(Object.keys(r.json.clients[0]).sort()).toEqual(["address", "code", "contact_name", "contact_phone", "name", "updated_at"]);
     expect(r.json.clients[0].name).toBe("PT Contoh Baru");
+    expect(clientsPageSchema.safeParse(r.json).success).toBe(true);
   });
 
   it("refuses a wrong secret, a signature over another query, and no secret configured", async () => {

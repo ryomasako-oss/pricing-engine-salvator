@@ -104,5 +104,20 @@ export const ackSchema = z.object({
 });
 export type Ack = z.infer<typeof ackSchema>;
 
+/** F4b: halaman GET /api/integrations/fms/catalog dan /clients (docs bagian 7). */
+const isoUtc = z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/, "updated_at harus ISO UTC");
+export const catalogPageSchema = z.object({
+  items: z.array(z.object({ code: text, name: text, uom: text, category: z.string().nullable(), updated_at: isoUtc }).strict()),
+  uoms: z.array(z.object({ code: text, uom: text, factor: z.number().positive() }).strict()),
+  nextCursor: z.string().nullable(),
+}).strict();
+export const clientsPageSchema = z.object({
+  clients: z.array(z.object({
+    code: z.string().nullable(), name: text, address: z.string().nullable(),
+    contact_name: z.string().nullable(), contact_phone: z.string().nullable(), updated_at: isoUtc,
+  }).strict()),
+  nextCursor: z.string().nullable(),
+}).strict();
+
 /** ISO-8601 UTC tanpa milidetik, bentuk `occurredAt` di contoh kontrak. */
 export const isoSeconds = (d: Date): string => d.toISOString().replace(/\.\d{3}Z$/, "Z");

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { ackSchema, anyEventSchema, FMS_STATES } from "./fmsContract";
+import { ackSchema, anyEventSchema, catalogPageSchema, clientsPageSchema, FMS_STATES } from "./fmsContract";
 import { FULFILLMENT_LABEL, fulfillmentFromFms } from "./fmsState";
 import { signHex, verifySignature } from "../server/worker/fms/signing";
 
@@ -20,7 +20,7 @@ describe("contract fixtures", () => {
 
   for (const f of fixtures) {
     it(`${f} is ${f.startsWith("valid") ? "accepted" : "rejected"}`, () => {
-      const schema = f.includes("-ack-") ? ackSchema : anyEventSchema;
+      const schema = f.includes("-ack-") ? ackSchema : f.includes("catalog-page") ? catalogPageSchema : f.includes("clients-page") ? clientsPageSchema : anyEventSchema;
       expect(schema.safeParse(load(f)).success).toBe(f.startsWith("valid"));
     });
   }

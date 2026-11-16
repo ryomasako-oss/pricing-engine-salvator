@@ -1,0 +1,7 @@
+{
+  "clients": [
+    { "code": "C001", "name": "PT Contoh", "address": "Jl. Melati 5, Jakarta", "contact_name": "Bu Rina", "contact_phone": "0812xxxxxxx", "updated_at": "2026-11-16T08:30:00Z" },
+    { "code": "C002", "name": "CV Sample", "address": "", "contact_name": "", "contact_phone": "", "updated_at": "2026-11-16T10:00:00Z" }
+  ],
+  "nextCursor": "2"
+}

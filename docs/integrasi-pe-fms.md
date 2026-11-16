@@ -1,6 +1,6 @@
 # Kontrak integrasi Pricing Engine (PE) dan FMS Salvator
 
-Dokumen ini harus **sama persis** di repo Pricing Engine dan repo FMS Salvator, begitu pula folder `contract-fixtures/`. Tes kontrak di kedua sisi membaca fixture itu. Mengubah kontrak berarti mengubah kedua repo dalam PR berpasangan. Sumber: RENCANA-SO-FMS-2026-11-16, bagian F2.
+Dokumen ini harus **sama persis** di repo Pricing Engine dan repo FMS Salvator, begitu pula folder `contract-fixtures/`. Tes kontrak di kedua sisi membaca fixture itu. Mengubah kontrak berarti mengubah kedua repo dalam PR berpasangan. Sumber: RENCANA-SO-FMS-2026-11-16, bagian F2 dan F4b.
 
 ## 1. Transport
 
@@ -113,6 +113,61 @@ Pemetaan ini satu fungsi di PE (`shared/fmsState.ts`) dengan tes tabel.
 
 `contract-fixtures/valid-*.json` wajib lolos, `invalid-*.json` wajib ditolak oleh validator penerima. `valid-ack-*` dan `invalid-ack-*` berlaku untuk balasan (bagian 3). Pengirim memakai `type` di berkas untuk memilih skema.
 
-## 7. Belum termasuk
+## 7. Master data dari PE ke FMS (F4b)
 
-Sinkron master barang dan klien (F4b) belum didefinisikan di dokumen ini. Ditambahkan saat F4b dikerjakan, di kedua repo.
+PE adalah satu-satunya sumber master barang dan klien. FMS menarik keduanya dengan dua `GET` bertanda tangan, tanpa mengirim apa pun ke PE. Tanpa harga, COGS, margin, atau stok: PE tidak boleh mengirimnya, dan FMS membuang kunci yang tidak dikenal.
+
+### 7.1 Tanda tangan GET
+
+- Header sama dengan arah FMS ke PE (bagian 1): `x-fms-timestamp`, `x-fms-signature`, secret `FMS_PE_SECRET`.
+- HMAC-SHA256 hex huruf kecil atas `${epochDetik}.GET ${path}?${query}`. `path` adalah path URL (mis. `/api/integrations/fms/catalog`), `query` adalah query string persis seperti dikirim, tanpa `?` di depan dan tanpa disusun ulang. Tidak ada body.
+- Selisih waktu, panjang secret, dan perilaku gagal tertutup sama seperti bagian 1. Saklar Sales Order PE mati: 503 (FMS mencoba lagi pada giliran cron berikut).
+- Parameter yang tidak sah (`since` bukan tanggal ISO, `cursor` atau `limit` bukan bilangan bulat): 400.
+
+### 7.2 `GET /api/integrations/fms/catalog?since=<ISO>&cursor=<id>&limit=500`
+
+- `since` (opsional): hanya `catalog_items` dengan `updated_at > since` (perbandingan `>`, bukan `>=`). Tanpa `since`: seluruh katalog.
+- `cursor` (opsional): id baris terakhir halaman sebelumnya sebagai string; halaman berikut berisi id yang lebih besar, urut menurut id.
+- `limit` (opsional): 1 sampai 500, bawaan 500.
+- PE tidak punya penanda aktif: barang yang dihapus hilang dari katalog dan FMS tidak menghapusnya.
+
+```json
+{
+  "items": [
+    { "code": "ATK-001", "name": "Kertas A4 80gsm", "uom": "Pcs", "category": "ATK", "updated_at": "2026-11-16T08:30:00Z" }
+  ],
+  "uoms": [
+    { "code": "ATK-001", "uom": "Box", "factor": 24 }
+  ],
+  "nextCursor": null
+}
+```
+
+- `items[].code` kode barang (SKU), `name`, `uom` satuan dasar, `category` boleh kosong, `updated_at` ISO-8601 UTC.
+- `uoms` memuat **seluruh** satuan alternatif untuk kode-kode di halaman itu: `1 <uom> = <factor> satuan dasar` (`factor` lebih dari 0). FMS mengganti seluruh satuan sebuah kode setiap kali kodenya muncul.
+- `nextCursor`: string id terakhir bila masih ada halaman berikut, `null` pada halaman terakhir.
+
+### 7.3 `GET /api/integrations/fms/clients?since=<ISO>&cursor=<id>&limit=500`
+
+Parameter dan aturan halaman sama dengan 7.2.
+
+```json
+{
+  "clients": [
+    { "code": "C001", "name": "PT Contoh", "address": "Jl. Melati 5", "contact_name": "Bu Rina", "contact_phone": "0812", "updated_at": "2026-11-16T08:30:00Z" }
+  ],
+  "nextCursor": null
+}
+```
+
+- `code` dan `name` wajib tidak kosong; `address`, `contact_name`, `contact_phone` boleh string kosong.
+- `updated_at` ISO-8601 UTC (PE memakai `created_at` untuk klien yang belum pernah diubah).
+
+### 7.4 Perilaku FMS
+
+- Alamat dasar PE diturunkan dari asal (`scheme://host`) `PE_FMS_EVENTS_URL`; tidak ada variabel baru. Aturan HTTPS dan localhost sama seperti bagian 1.
+- Cron `/api/cron/integrasi` (tiap 5 menit) menarik katalog lalu klien, dan intake `sales_order.created` menarik katalog sekali bila ada SKU yang belum dikenal. Penanda `since` tersimpan di `app_setting` (`pe_catalog_since`, `pe_clients_since`) dan hanya maju sesudah semua halaman terbaca. Nilainya `updated_at` terbaru dikurangi satu detik, supaya baris yang diubah di detik yang sama tidak terlewat; mengulang baris itu tidak berakibat apa pun.
+- Kode, nama, satuan dasar, dan kategori barang dikunci di layar Master Barang FMS (label "Diatur dari Pricing Engine"). Gudang hanya mengubah barcode, lokasi rak, dan data fisik lain.
+- Klien menjadi master pihak penerima di Buat Outbound manual (tabel `pe_client`).
+
+Fixture: `contract-fixtures/valid-catalog-page.json` dan `contract-fixtures/valid-clients-page.json`.

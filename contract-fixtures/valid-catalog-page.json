@@ -1,0 +1,11 @@
+{
+  "items": [
+    { "code": "ATK-001", "name": "Kertas A4 80gsm", "uom": "Pcs", "category": "ATK", "updated_at": "2026-11-16T08:30:00Z" },
+    { "code": "ATK-002", "name": "Pulpen Hitam", "uom": "Pcs", "category": "ATK", "updated_at": "2026-11-16T09:05:12Z" }
+  ],
+  "uoms": [
+    { "code": "ATK-001", "uom": "Box", "factor": 24 },
+    { "code": "ATK-001", "uom": "Rim", "factor": 500 }
+  ],
+  "nextCursor": null
+}
