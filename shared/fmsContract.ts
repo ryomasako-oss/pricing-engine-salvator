@@ -29,7 +29,7 @@ export const SalesOrderCreatedPayloadSchema = z.object({
   orderedAt: z.string(),
   items: z.array(SalesOrderItemSchema).min(1),
   shipping: SalesOrderShippingSchema,
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 export type SalesOrderCreatedPayload = z.infer<typeof SalesOrderCreatedPayloadSchema>;
 
