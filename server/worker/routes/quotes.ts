@@ -46,6 +46,7 @@ import {
   staffSnapshotSchema,
 } from "../../staffView";
 import { DEFAULT_ASSUMPTIONS, DEFAULT_REGIONS } from "../../../shared/engine";
+import { createSalesOrderFromQuote } from "../salesOrderService";
 import {
   notifyQuoteDecided,
   notifyQuoteReassigned,
@@ -1012,6 +1013,22 @@ quotesRouter.post("/:id/sales-review", async (c) => {
     );
   }
   return c.json({ quote: view(user.role, await findQuote(c.env.DB, id)), review: await latestSalesReview(c.env.DB, id) });
+});
+
+quotesRouter.post("/:id/sales-order", async (c) => {
+  const user = c.get("user")!;
+  const id = Number(c.req.param("id"));
+  let body = {};
+  try {
+    body = await c.req.json();
+  } catch {}
+  try {
+    const result = await createSalesOrderFromQuote(c.env.DB, id, user, body);
+    return c.json({ ok: true, salesOrder: result.salesOrder, eventId: result.eventId }, 201);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return c.json({ error: message }, 400);
+  }
 });
 
 quotesRouter.delete("/:id", async (c) => {

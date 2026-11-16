@@ -25,6 +25,9 @@ export interface Bindings {
   ASSISTANT_LIMITER: RateLimit;
   API_LIMITER: RateLimit;
   APP_URL?: string;
+  /* FMS Salvator Webhook Integration */
+  FMS_URL?: string;
+  FMS_WEBHOOK_SECRET?: string;
   GOOGLE_SERVICE_ACCOUNT_EMAIL?: string;
   GOOGLE_PRIVATE_KEY?: string;
   GOOGLE_SEND_AS_EMAIL?: string;

@@ -353,6 +353,15 @@ export function StaffQuotePage() {
             onDecide={() => undefined}
             onReopen={() => setModal("reopen")}
             onStatus={(s) => void act(() => api.post(`/quotes/${quoteId}/status`, { status: s }), "Status diperbarui.")}
+            onMakeSo={async () => {
+              if (!confirm("Terbitkan quotation ini menjadi Sales Order untuk diproses gudang FMS Salvator?")) return;
+              try {
+                const res = await api.post<{ ok: boolean; salesOrder: { orderNo: string } }>(`/quotes/${quoteId}/sales-order`);
+                toast(`Sales Order ${res.salesOrder.orderNo} berhasil diterbitkan ke FMS.`, "success");
+              } catch (e) {
+                toast(e instanceof Error ? e.message : "Gagal membuat Sales Order.", "error");
+              }
+            }}
           />
         </div>
       </div>

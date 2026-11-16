@@ -28,6 +28,7 @@ const SalesHistoryPage = lazy(() => import("./pages/SalesHistory").then((m) => (
 const PurchaseHistoryPage = lazy(() => import("./pages/PurchaseHistory").then((m) => ({ default: m.PurchaseHistoryPage })));
 const BelowCostPage = lazy(() => import("./pages/BelowCost").then((m) => ({ default: m.BelowCostPage })));
 const AuditLogPage = lazy(() => import("./pages/AuditLog").then((m) => ({ default: m.AuditLogPage })));
+const SalesOrdersPage = lazy(() => import("./pages/SalesOrders").then((m) => ({ default: m.SalesOrdersPage })));
 
 function PageLoading() {
   return (
@@ -78,6 +79,10 @@ function TopBar() {
         <NavLink to="/quotes" className={({ isActive }) => (isActive ? "active" : "")}>
           <Icon name="quote" size={16} />
           <span className="label">Quotation</span>
+        </NavLink>
+        <NavLink to="/sales-orders" className={({ isActive }) => (isActive ? "active" : "")}>
+          <Icon name="truck" size={16} />
+          <span className="label">Sales Order</span>
         </NavLink>
         <NavLink to="/pencocokan" className={({ isActive }) => (isActive ? "active" : "")}>
           <Icon name="search" size={16} />
@@ -193,6 +198,7 @@ export function App() {
       <Routes>
         <Route path="/" element={<Navigate to="/quotes" replace />} />
         <Route path="/quotes" element={<DashboardPage />} />
+        <Route path="/sales-orders" element={<SalesOrdersPage />} />
         {/* Staff get a screen without cost data; the server sends them none (PE-1). */}
         <Route path="/quotes/:id" element={<QuotePage />} />
         <Route
