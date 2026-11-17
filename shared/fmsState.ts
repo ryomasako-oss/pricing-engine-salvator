@@ -12,7 +12,7 @@ const MAP: Record<FmsState, FulfillmentState> = {
   IMPORTED: "queued",
   READY_TO_PACK: "queued",
   PACKING: "packing",
-  RECHECK: "packing",
+  RECHECK: "queued", // Siap Dipacking Ulang: kembali di antrean Belum Dipacking sampai Collect & Pack.
   TUNDA: "on_hold",
   WAITING_SPV: "on_hold",
   ACTION_REQUIRED: "on_hold",

@@ -100,8 +100,8 @@ Dikirim hanya untuk shipment ber-`source = 'PRICING_ENGINE'`. `prevState` dan `s
 
 | FMS (`SHIPMENT_STATES`) | PE `fulfillment_state` | Label di PE |
 |---|---|---|
-| `AWAITING_PAYMENT`, `IMPORTED`, `READY_TO_PACK` | `queued` | Antre di gudang |
-| `PACKING`, `RECHECK` | `packing` | Sedang dipacking |
+| `AWAITING_PAYMENT`, `IMPORTED`, `READY_TO_PACK`, `RECHECK` | `queued` | Antre di gudang |
+| `PACKING` | `packing` | Sedang dipacking |
 | `TUNDA`, `WAITING_SPV`, `ACTION_REQUIRED`, `FULFILLMENT_SPLIT` | `on_hold` | Tertahan (alasan dari `reason`) |
 | `AWAITING_HANDOVER`, `HANDING_OVER` | `packed` | Siap kirim |
 | `HANDED_OVER` | `shipped` | Sudah diserahkan |

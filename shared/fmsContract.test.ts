@@ -43,7 +43,7 @@ describe("FMS status -> PE fulfillment_state (docs/integrasi-pe-fms.md bagian 5)
     ["IMPORTED", "queued", "Antre di gudang"],
     ["READY_TO_PACK", "queued", "Antre di gudang"],
     ["PACKING", "packing", "Sedang dipacking"],
-    ["RECHECK", "packing", "Sedang dipacking"],
+    ["RECHECK", "queued", "Antre di gudang"],
     ["TUNDA", "on_hold", "Tertahan"],
     ["WAITING_SPV", "on_hold", "Tertahan"],
     ["ACTION_REQUIRED", "on_hold", "Tertahan"],
