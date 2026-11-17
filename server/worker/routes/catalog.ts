@@ -332,7 +332,7 @@ catalogRouter.put("/:id/barcode", async (c) => {
     .safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
   const barcode = parsed.data.barcode || null;
-  if (!barcode && !parsed.data.clear) return c.json({ error: "Barcode masih kosong. Untuk menghapus barcode, pakai tombol Hapus." }, 400);
+  if (!barcode && !parsed.data.clear) return c.json({ error: "Barcode masih kosong. Untuk menghapus barcode, pakai tombol Hapus barcode." }, 400);
   const item = await get<{ code: string; supplier_barcode: string | null }>(
     c.env.DB, "SELECT code, supplier_barcode FROM catalog_items WHERE id = ?", id,
   );
