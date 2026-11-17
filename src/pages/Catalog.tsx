@@ -826,53 +826,75 @@ function UnitsEditor({
 
 /**
  * Barcode from the brand, typed or scanned by warehouse staff (every role may set it).
- * Saves on Enter, on leaving the box, or with the Simpan button; Enter then jumps to the next row,
- * so a scanner can go down the list. The state stays visible: unsaved, saving, saved (✓), or the error.
+ * Empty item: the box saves on Enter or on leaving it, and Enter jumps to the next row, so a scanner
+ * can go down the list. A saved barcode is locked: Ubah opens it, only Simpan saves the change,
+ * and only Hapus (confirmed) removes it, so emptying the box never wipes it.
  */
 function BarcodeCell({ item }: { item: CatalogItem }) {
-  const saved = useRef(item.supplier_barcode ?? "");
-  const saving = useRef(false);
-  const [value, setValue] = useState(saved.current);
+  const [saved, setSaved] = useState(item.supplier_barcode ?? "");
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(saved);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   // The value that failed, so leaving the box again does not resend it.
   const failed = useRef<string | null>(null);
   const next = value.trim();
-  const dirty = next !== saved.current;
+  const changed = next !== saved;
 
-  const save = async (): Promise<boolean> => {
-    if (!dirty) return true;
-    if (saving.current || next === failed.current) return false;
-    saving.current = true;
+  const send = async (barcode: string, clear = false): Promise<boolean> => {
+    if (busy) return false;
     setBusy(true);
     try {
-      await api.put(`/catalog/${item.id}/barcode`, { barcode: next });
-      saved.current = next;
-      failed.current = null;
-      setValue(next);
+      await api.put(`/catalog/${item.id}/barcode`, { barcode, ...(clear && { clear }) });
+      setSaved(barcode);
+      setValue(barcode);
+      setEditing(false);
       setError(null);
+      failed.current = null;
       return true;
     } catch (e) {
-      failed.current = next;
+      failed.current = barcode;
       setError(e instanceof Error ? e.message : "Gagal menyimpan barcode.");
       return false;
     } finally {
-      saving.current = false;
       setBusy(false);
     }
   };
+  /** Saves a non-empty, changed value; an empty box is never sent as a delete. */
+  const save = () => (next && changed && next !== failed.current ? send(next) : Promise.resolve(false));
+  const cancel = () => {
+    setValue(saved);
+    setEditing(false);
+    setError(null);
+    failed.current = null;
+  };
+
+  if (saved && !editing) {
+    return (
+      <div className="barcode-row">
+        <span className="num grow">{saved}</span>
+        <span className="badge green barcode-ok">
+          <Icon name="check" size={14} />
+          Tersimpan
+        </span>
+        <button className="btn small ghost" onClick={() => setEditing(true)}>Ubah barcode</button>
+      </div>
+    );
+  }
 
   return (
     <div className="barcode-cell">
       <div className="barcode-row">
         <input
-          className={`input${error ? " invalid" : dirty ? " dirty" : ""}`}
+          className={`input${error ? " invalid" : changed && next ? " dirty" : ""}`}
           data-barcode
           inputMode="numeric"
           maxLength={64}
           placeholder="Scan / ketik"
           aria-label={`Barcode supplier ${item.name}`}
           aria-invalid={!!error}
+          autoFocus={editing}
           value={value}
           readOnly={busy}
           onChange={(e) => {
@@ -880,38 +902,47 @@ function BarcodeCell({ item }: { item: CatalogItem }) {
             setError(null);
             failed.current = null;
           }}
-          onBlur={() => void save()}
+          // A saved barcode being changed waits for Simpan; a first fill saves on leaving the box.
+          onBlur={() => !editing && void save()}
           onKeyDown={async (e) => {
-            if (e.key === "Escape") {
-              setValue(saved.current);
-              setError(null);
-              return;
-            }
+            if (e.key === "Escape") return cancel();
             if (e.key !== "Enter") return;
             e.preventDefault();
-            const box = e.currentTarget;
-            if (!(await save())) return;
             const all = [...document.querySelectorAll<HTMLInputElement>("input[data-barcode]")];
-            const nextBox = all[all.indexOf(box) + 1];
-            if (nextBox) nextBox.focus();
-            else box.blur();
+            const after = all[all.indexOf(e.currentTarget) + 1];
+            if ((await save()) && !editing) after?.focus();
           }}
         />
         {busy ? (
           <span className="muted small">Menyimpan…</span>
-        ) : dirty && !error ? (
-          // mousedown keeps focus in the box, so blur does not save a second time.
-          <button className="btn small" onMouseDown={(e) => e.preventDefault()} onClick={() => void save()}>
-            Simpan
-          </button>
-        ) : saved.current && !error ? (
-          <span className="badge green barcode-ok">
-            <Icon name="check" size={14} />
-            Tersimpan
-          </span>
-        ) : null}
+        ) : (
+          (editing || (changed && next)) && (
+            // mousedown keeps focus in the box, so leaving it does not save a second time.
+            <button className="btn small" disabled={!next || !changed} onMouseDown={(e) => e.preventDefault()} onClick={() => void save()}>
+              Simpan
+            </button>
+          )
+        )}
+        {editing && !busy && (
+          <>
+            <button className="btn small ghost" onClick={cancel}>Batal</button>
+            <button className="btn small ghost danger" onClick={() => setConfirmDelete(true)}>Hapus</button>
+          </>
+        )}
       </div>
       {error && <div className="text-err small" role="alert">{error}</div>}
+      {confirmDelete && (
+        <ConfirmModal
+          title="Hapus barcode supplier?"
+          message={<>Barcode <b className="num">{saved}</b> pada {item.code} ({item.name}) akan dihapus.</>}
+          confirmLabel="Ya, hapus"
+          busy={busy}
+          onClose={() => setConfirmDelete(false)}
+          onConfirm={async () => {
+            if (await send("", true)) setConfirmDelete(false);
+          }}
+        />
+      )}
     </div>
   );
 }

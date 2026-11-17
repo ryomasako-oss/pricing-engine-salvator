@@ -475,9 +475,10 @@ select.cell { text-align: left; width: 88px; }
 .input.dirty { border-color: var(--color-warn-mark); }
 /* Barcode supplier (Katalog): the box with its save state beside it. */
 .barcode-cell { display: grid; gap: 2px; min-width: 190px; }
-.barcode-row { display: flex; align-items: center; gap: 6px; }
+.barcode-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .barcode-row > .input { flex: 1; min-width: 0; }
 .barcode-ok { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+.btn.ghost.danger, .btn.ghost.danger:hover:not(:disabled) { color: var(--color-err-text); }
 
 /* ---------------- quote breakdown (internal) ---------------- */
 .breakdown-points { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 14px; color: var(--color-text); }
