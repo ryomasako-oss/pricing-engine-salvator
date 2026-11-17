@@ -477,6 +477,15 @@ select.cell { text-align: left; width: 88px; }
 .barcode-cell { display: grid; gap: 4px; min-width: 290px; }
 .barcode-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .barcode-cell > .input { width: 100%; }
+.sku-list { display: grid; gap: 10px; min-width: 290px; }
+.sku-row + .sku-row { border-top: 1px solid var(--color-border); padding-top: 8px; }
+.sku-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; margin-bottom: 4px; }
+.sku-add { justify-self: start; }
+.unit-form { display: grid; gap: 14px; }
+.unit-dir { border: 0; margin: 0; padding: 0; display: grid; gap: 6px; }
+.unit-dir legend { padding: 0; margin-bottom: 4px; font: var(--text-label); color: var(--color-text-2); }
+.unit-ratio { display: flex; align-items: center; gap: 8px; }
+.unit-ratio > .input { width: 110px; }
 .barcode-ok { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
 .btn.ghost.danger, .btn.ghost.danger:hover:not(:disabled) { color: var(--color-err-text); }
 
@@ -1088,6 +1097,9 @@ a.btn, a.btn:hover { text-decoration: none; }
   .table.stack td .cell { width: 140px; max-width: 55%; }
   .table.stack td.stack-title .cell { width: 100%; max-width: none; }
   .table.stack td > div .cell { max-width: none; }
+  /* Barcode per satuan: label on top, the SKU list across the full card width. */
+  .table.stack td:has(> .sku-list) { flex-direction: column; align-items: stretch; text-align: left; }
+  .table.stack .sku-list, .table.stack .barcode-cell { min-width: 0; }
   /* Cards scroll with the page; a nested scroll box would hide all but the first. */
   .table-wrap.scroll:has(> .table.stack), .ltq-table:has(> .table.stack) { max-height: none; }
   .table.stack td.empty-row { display: block; text-align: left; }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { amountInUnit, changeLineUom, cleanUnits, toBaseUnit, uomChoices, uomWarning, unitFactor, type ItemUnits, packUnitFromCatalog, packUnitNeedsCheck, packUnitWord, readPackUnit } from "./uom.js";
+import { amountInUnit, changeLineUom, cleanUnits, toBaseUnit, uomChoices, uomWarning, unitFactor, type ItemUnits, packUnitFromCatalog, packUnitNeedsCheck, packUnitWord, readPackUnit, ratioText } from "./uom.js";
 import type { QuoteItem } from "./types.js";
 
 const line = (over: Partial<QuoteItem> = {}): QuoteItem => ({
@@ -220,3 +220,12 @@ describe("which lines need a person to check the unit", () => {
   });
 });
 
+
+describe("ratioText", () => {
+  it("says a bigger unit as 1 X = n base, and a smaller one as 1 base = n X", () => {
+    expect(ratioText("Box", 24, "Pcs")).toBe("1 Box = 24 Pcs");
+    expect(ratioText("Pcs", 1 / 12, "Lusin")).toBe("1 Lusin = 12 Pcs");
+    expect(ratioText("Lembar", 1 / 500, "Rim")).toBe("1 Rim = 500 Lembar");
+    expect(ratioText("Box", 2.5, "Pak")).toBe("1 Box = 2,5 Pak");
+  });
+});

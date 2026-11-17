@@ -331,8 +331,10 @@ export interface CatalogItem {
   category: string;
   source: string;
   updated_at: string;
-  /** Barcode from the brand/supplier, filled in by warehouse staff; null = not yet. */
-  supplier_barcode?: string | null;
+  /** Barcode per unit (SKU): from the packaging, or generated. Set by GET /catalog. */
+  barcodes?: UnitBarcode[];
+  /** Units proposed by warehouse staff, waiting for a manager; quotes don't use them. */
+  unit_proposals?: UnitFactor[];
   /** Extra units and how many base units (`uom`) each holds, e.g. Box = 24. */
   units?: UnitFactor[];
   /** Data Hub thumbnail (served via /api/hub-media); null otherwise. */
@@ -344,6 +346,13 @@ export interface CatalogItem {
    * list (POST /catalog/match only): to that client if it has one, otherwise to any client.
    */
   last_sale?: { price: number; invoiceNo: string; date: string; ownClient: boolean } | null;
+}
+
+export interface UnitBarcode {
+  uom: string;
+  barcode: string;
+  /** An internal EAN-13 made by the system (prefix 20), not the brand's. */
+  generated: boolean;
 }
 
 export interface UnitFactor {

@@ -269,10 +269,11 @@ accurateRouter.post("/apply", requirePermission("import_catalog"), async (c) => 
       entity,
       insertNew ? 1 : 0,
     ),
-    // Unit ratios: only replace an item's units when Accurate actually has some.
+    // Unit ratios: only replace an item's units when Accurate actually has some. Units added by hand
+    // in the app (manual = 1, e.g. Pcs under a Lusin item, by warehouse staff) stay.
     stmt(
       db,
-      `DELETE FROM catalog_item_uoms WHERE code IN (
+      `DELETE FROM catalog_item_uoms WHERE manual = 0 AND code IN (
          SELECT i.code FROM accurate_items i WHERE ${scope} AND i.units <> '[]' AND ${keepUnit})`,
       entity,
       insertNew ? 1 : 0,

@@ -216,3 +216,12 @@ export function unitAssumed(asked: string | undefined, item: { uom?: string; uni
   if (!u) return undefined;
   return unitFactor({ baseUom: item.uom || "Pcs", units: item.units ?? [] }, u) === undefined ? u : undefined;
 }
+
+/**
+ * A ratio as people say it: "1 Box = 24 Pcs" for a bigger unit, and for a smaller one (factor < 1, e.g.
+ * Pcs under a Lusin item) the other way round, "1 Lusin = 12 Pcs", never "1 Pcs = 0,08 Lusin".
+ */
+export function ratioText(uom: string, factor: number, baseUom: string): string {
+  const num = (x: number) => (Math.round(x * 1000) / 1000).toLocaleString("id-ID");
+  return factor >= 1 ? `1 ${uom} = ${num(factor)} ${baseUom}` : `1 ${baseUom} = ${num(1 / factor)} ${uom}`;
+}
