@@ -322,6 +322,7 @@ export function CatalogPage() {
                     <th className="l">Kategori</th>
                     <th className="l">Satuan</th>
                     <th className="l">Rasio</th>
+                    <th className="l">Barcode supplier</th>
                     {seeCosts && sortHead("cogs", "COGS")}
                     {sortHead("list_price", "Harga jual")}
                     {sortHead("stock", "Stok")}
@@ -362,6 +363,9 @@ export function CatalogPage() {
                         ) : (
                           <span className="muted">—</span>
                         )}
+                      </td>
+                      <td className="l" data-label="Barcode supplier">
+                        <BarcodeCell key={`${item.id}:${item.supplier_barcode ?? ""}`} item={item} />
                       </td>
                       {seeCosts && (
                         <td className="num" data-label="COGS">
@@ -817,5 +821,54 @@ function UnitsEditor({
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Barcode from the brand, typed or scanned by warehouse staff (every role may set it).
+ * Saves on Enter or leaving the box; Enter then jumps to the next row, so a scanner can go down the list.
+ */
+function BarcodeCell({ item }: { item: CatalogItem }) {
+  const toast = useToast();
+  const saved = useRef(item.supplier_barcode ?? "");
+  const [value, setValue] = useState(saved.current);
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    const next = value.trim();
+    if (next === saved.current) return;
+    setBusy(true);
+    try {
+      await api.put(`/catalog/${item.id}/barcode`, { barcode: next });
+      saved.current = next;
+      setValue(next);
+      toast(next ? `Barcode ${item.code} tersimpan.` : `Barcode ${item.code} dihapus.`, "success");
+    } catch (e) {
+      setValue(saved.current);
+      toast(e instanceof Error ? e.message : "Gagal menyimpan barcode.", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <input
+      className="input"
+      data-barcode
+      inputMode="numeric"
+      maxLength={64}
+      placeholder="Scan / ketik"
+      aria-label={`Barcode supplier ${item.name}`}
+      value={value}
+      disabled={busy}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={() => void save()}
+      onKeyDown={(e) => {
+        if (e.key !== "Enter") return;
+        e.preventDefault();
+        const all = [...document.querySelectorAll<HTMLInputElement>("input[data-barcode]")];
+        const nextBox = all[all.indexOf(e.currentTarget) + 1];
+        if (nextBox) nextBox.focus();
+        else e.currentTarget.blur();
+      }}
+    />
   );
 }
