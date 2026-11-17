@@ -44,6 +44,7 @@ const ACTIONS: Record<string, string> = {
   image_set: "Foto dipasang",
   barcode_set: "Barcode diubah",
   unit_added: "Satuan barang ditambah",
+  linked: "Disambungkan ke kode Accurate",
   unit_proposed: "Satuan diusulkan gudang",
   unit_approved: "Usulan satuan disetujui",
   unit_rejected: "Usulan satuan ditolak",

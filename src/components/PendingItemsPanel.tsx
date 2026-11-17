@@ -1,10 +1,14 @@
-/* "Barang baru" waiting for Accurate (shared/pendingItems.ts), for managers:
-   hand a request to Accurate (opens a task and gives the admin an Excel to
-   copy from), or cancel it. Nothing is written to Accurate from here. */
+/* "Barang baru" waiting for Accurate (shared/pendingItems.ts). Everyone sees their own requests
+   (managers see all) with the barcodes and units warehouse staff filled in. Managers hand a request
+   to Accurate (opens a task and gives the admin an Excel to copy from), link it to the code Accurate
+   actually used, or cancel it. Nothing is written to Accurate from here. */
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
+import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
+import { Modal } from "./Modal";
+import { ratioText } from "@shared/uom";
 import { fmtDateTime, grp } from "@shared/format";
 import type { PendingItem } from "@shared/pendingItems";
 
@@ -15,15 +19,17 @@ const STATUS: Record<PendingItem["status"], { label: string; tone: string }> = {
   cancelled: { label: "Dibatalkan", tone: "grey" },
 };
 
-export function PendingItemsPanel() {
+export function PendingItemsPanel({ reload = 0, onLinked }: { reload?: number; onLinked?: () => void }) {
   const toast = useToast();
+  const manage = useAuth().can("edit_catalog");
   const [items, setItems] = useState<PendingItem[] | null>(null);
   const [busy, setBusy] = useState<number | null>(null);
+  const [linking, setLinking] = useState<PendingItem | null>(null);
 
   const load = useCallback(() => {
     api.get<{ items: PendingItem[] }>("/pending-items").then((r) => setItems(r.items)).catch(() => setItems(null));
   }, []);
-  useEffect(load, [load]);
+  useEffect(load, [load, reload]);
 
   if (!items) return null;
   const live = items.filter((i) => i.status === "draft" || i.status === "submitted");
@@ -51,7 +57,7 @@ export function PendingItemsPanel() {
         </span>
       </div>
       <div className="card-body">
-        {live.length > 0 && (
+        {manage && live.length > 0 && (
           <div className="row-wrap card-lead">
             <button className="btn small ghost" onClick={async () => (await import("../export/pendingItems")).exportPendingItems(live, new Date().toISOString().slice(0, 10))}>
               Unduh Excel untuk admin Accurate
@@ -70,15 +76,29 @@ export function PendingItemsPanel() {
                   {fmtDateTime(i.created_at)}
                   {i.proposed_price > 0 ? ` · perkiraan Rp ${grp(i.proposed_price)}` : ""}
                   {i.note ? ` · ${i.note}` : ""}
+                  {i.linked_code && i.linked_code !== i.code ? ` · dibuat di Accurate sebagai ${i.linked_code}` : ""}
                 </div>
+                {(!!i.units?.length || !!i.barcodes?.length) && (
+                  <div className="badge-row pending-skus">
+                    {i.units?.map((u) => (
+                      <span key={`u:${u.uom}`} className="badge grey num">{ratioText(u.uom, u.factor, i.uom)}</span>
+                    ))}
+                    {i.barcodes?.map((b) => (
+                      <span key={`b:${b.uom}`} className="badge green num">{b.uom}: {b.barcode}</span>
+                    ))}
+                  </div>
+                )}
               </div>
-              {(i.status === "draft" || i.status === "submitted") && (
+              {manage && (i.status === "draft" || i.status === "submitted") && (
                 <div className="row-wrap">
                   {i.status === "draft" && (
                     <button className="btn small" disabled={busy === i.id} onClick={() => act(i, "submit")}>
                       Ajukan ke Accurate
                     </button>
                   )}
+                  <button className="btn small ghost" disabled={busy === i.id} onClick={() => setLinking(i)}>
+                    Sambungkan ke kode Accurate
+                  </button>
                   <button className="btn small ghost" disabled={busy === i.id} onClick={() => act(i, "cancel")}>
                     Batalkan
                   </button>
@@ -88,6 +108,77 @@ export function PendingItemsPanel() {
           ))}
         </ul>
       </div>
+      {linking && (
+        <LinkDialog
+          item={linking}
+          onClose={() => setLinking(null)}
+          onDone={() => {
+            setLinking(null);
+            load();
+            onLinked?.();
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+/** Accurate created the item under another code: move the request (and its barcodes) to that code. */
+function LinkDialog({ item, onClose, onDone }: { item: PendingItem; onClose: () => void; onDone: () => void }) {
+  const toast = useToast();
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const submit = async () => {
+    if (!code.trim() || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api.post<{ target: { code: string; name: string }; dropped: { uom: string; barcode: string }[] }>(
+        `/pending-items/${item.id}/link`,
+        { code: code.trim() },
+      );
+      const kept = r.dropped.length ? ` Barcode ${r.dropped.map((d) => `${d.uom} ${d.barcode}`).join(", ")} tidak dipindah karena barang itu sudah punya barcode untuk satuan tersebut.` : "";
+      toast(`${item.code} disambungkan ke ${r.target.code} (${r.target.name}).${kept}`, "success");
+      onDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Gagal menyambungkan.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal
+      title="Sambungkan ke kode Accurate"
+      sub={`${item.code} · ${item.name}`}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn ghost" onClick={onClose}>Batal</button>
+          <button className="btn primary" disabled={!code.trim() || busy} onClick={() => void submit()}>
+            {busy ? "Menyambungkan…" : "Sambungkan"}
+          </button>
+        </>
+      }
+    >
+      <form
+        className="unit-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void submit();
+        }}
+      >
+        <label className="field">
+          <span>Kode barang di Accurate</span>
+          <input className="input" autoFocus maxLength={64} placeholder="Mis. 80801999" value={code} onChange={(e) => setCode(e.target.value)} />
+        </label>
+        <p className="muted small">
+          Barangnya harus sudah masuk katalog (sinkron lalu Terapkan data Accurate). Barcode dan usulan satuan dari gudang pindah ke kode
+          itu, dan pengajuan ini ditutup.
+        </p>
+        {error && <div className="text-err small" role="alert">{error}</div>}
+        <button type="submit" hidden />
+      </form>
+    </Modal>
   );
 }

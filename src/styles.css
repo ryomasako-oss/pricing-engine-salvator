@@ -481,16 +481,33 @@ select.cell { text-align: left; width: 88px; }
 /* Box and its buttons on one line; the buttons wrap under the box on a narrow card. */
 .barcode-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .barcode-line > .input { flex: 1 1 220px; min-width: 0; }
-.sku-summary { display: grid; gap: 4px; justify-items: start; max-width: 260px; }
-.sku-summary .badge { display: inline-flex; align-items: center; gap: 2px; }
-.sku-list { display: grid; gap: 12px; }
-.sku-row + .sku-row { border-top: 1px solid var(--color-border); padding-top: 12px; }
+/* Katalog: the arrow opens a row's units and barcodes underneath, as small cards. */
+.expand-btn { display: inline-flex; align-items: center; gap: 6px; }
+.expand-btn[aria-expanded="true"] { color: var(--color-action); }
+.expand-label { display: none; }
+.table tr.row-open > td { border-bottom-color: transparent; }
+.table tr.row-detail > td { padding: 4px 16px 16px; background: var(--color-layer-2, transparent); height: auto; }
+.sku-panel-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-bottom: 10px; }
+.sku-panel-head > .btn { margin-left: auto; }
+.sku-list { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+.sku-row { border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 10px 12px; background: var(--color-layer); }
 .sku-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; margin-bottom: 6px; }
 .unit-form { display: grid; gap: 14px; }
 .unit-dir { border: 0; margin: 0; padding: 0; display: grid; gap: 6px; }
 .unit-dir legend { padding: 0; margin-bottom: 4px; font: var(--text-label); color: var(--color-text-2); }
 .unit-ratio { display: flex; align-items: center; gap: 8px; }
 .unit-ratio > .input { width: 110px; }
+/* Barang baru: one line per unit (name, ratio, barcode); wraps on a phone. */
+.new-units { display: grid; gap: 10px; }
+.new-unit { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid var(--color-border); }
+.new-unit > .input { flex: 0 1 130px; min-width: 90px; }
+.new-unit-ratio { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.new-unit-ratio > .input { width: 80px; }
+.new-unit-barcode { display: inline-flex; align-items: center; gap: 8px; flex: 1 1 260px; }
+.new-unit-barcode > .input { flex: 1; min-width: 0; }
+.new-unit-add { justify-self: start; }
+.similar-list { margin: 6px 0 0; padding-left: 18px; }
+.pending-skus { margin-top: 4px; }
 .barcode-ok { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
 .btn.ghost.danger, .btn.ghost.danger:hover:not(:disabled) { color: var(--color-err-text); }
 
@@ -1102,7 +1119,20 @@ a.btn, a.btn:hover { text-decoration: none; }
   .table.stack td .cell { width: 140px; max-width: 55%; }
   .table.stack td.stack-title .cell { width: 100%; max-width: none; }
   .table.stack td > div .cell { max-width: none; }
-  .table.stack .sku-summary { justify-items: end; }
+  /* Phone: the arrow becomes a full-width "Satuan dan barcode" button at the foot of the card. */
+  .table.stack td.col-expand { order: 99; justify-content: flex-start; width: auto; }
+  .table.stack .expand-btn { width: 100%; justify-content: center; white-space: nowrap; border: 1px solid var(--color-border); padding: 8px 12px; }
+  .table.stack .expand-label { display: inline; }
+  .table.stack tr.row-detail { padding-top: 0; }
+  .table.stack tr.row-detail > td { display: block; padding: 0; text-align: left; }
+  .table.stack .sku-list { grid-template-columns: 1fr; }
+  /* Katalog on a phone: title and buttons, then straight to the list (search first); summary
+     numbers and panels follow it, and the page intro is left out. */
+  .catalog-page > * { order: 2; }
+  .catalog-page > .hk-page-head { order: 0; }
+  .catalog-page > .catalog-list { order: 1; }
+  .catalog-page > .hk-page-head p { display: none; }
+  .catalog-page .catalog-new-item { width: 100%; }
   /* Cards scroll with the page; a nested scroll box would hide all but the first. */
   .table-wrap.scroll:has(> .table.stack), .ltq-table:has(> .table.stack) { max-height: none; }
   .table.stack td.empty-row { display: block; text-align: left; }

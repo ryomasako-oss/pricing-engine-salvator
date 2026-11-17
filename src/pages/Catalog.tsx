@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useRef } from "react";
+import { Fragment, useCallback, useEffect, useState, useRef } from "react";
 import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
@@ -12,7 +12,8 @@ import { ItemImageEditor } from "../components/ItemImageEditor";
 import { BulkImageUpload } from "../components/BulkImageUpload";
 import { AccuratePanel } from "../components/AccuratePanel";
 import { PendingItemsPanel } from "../components/PendingItemsPanel";
-import { SkuBarcodes } from "../components/SkuBarcodes";
+import { SkuPanel, skuProgress } from "../components/SkuBarcodes";
+import { WarehouseNewItem } from "../components/WarehouseNewItem";
 import { UnitProposalsPanel } from "../components/UnitProposalsPanel";
 import { fmtDateTime, grp } from "@shared/format";
 import type { CatalogItem, UnitFactor } from "@shared/types";
@@ -58,6 +59,17 @@ export function CatalogPage() {
   const [editing, setEditing] = useState<EditingItem | null>(null);
   const [uomOptions, setUomOptions] = useState<string[]>([]);
   const [addingUom, setAddingUom] = useState(false);
+  const [newItemOpen, setNewItemOpen] = useState(false);
+  // Rows opened with the arrow, showing that item's units and barcodes.
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const toggleExpanded = (id: number) =>
+    setExpanded((s) => {
+      const next = new Set(s);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  // Bumped after a "barang baru" is saved, so the requests panel shows it.
+  const [pendingReload, setPendingReload] = useState(0);
   const [newUom, setNewUom] = useState("");
   // The base unit when the form opened: ratios are relative to it.
   const [baseAtOpen, setBaseAtOpen] = useState("");
@@ -171,7 +183,7 @@ export function CatalogPage() {
   };
 
   return (
-    <main className="hk-main page-stack">
+    <main className="hk-main page-stack catalog-page">
       <div className="hk-page-head">
         <div>
           <h1>Katalog barang</h1>
@@ -179,8 +191,12 @@ export function CatalogPage() {
             Harga pokok diambil dari harga beli terakhir di Accurate. Barang yang belum pernah dibeli memakai laporan Nilai Persediaan. Harga jual acuan diambil dari Daftar Barang dan Jasa.
           </p>
         </div>
-        {can("import_catalog") && (
-          <div className="row-wrap">
+        <div className="row-wrap">
+          <button className="btn catalog-new-item" onClick={() => setNewItemOpen(true)}>
+            Barang baru (belum di Accurate)
+          </button>
+          {can("import_catalog") && (
+            <>
             <Menu label="Impor" items={importMenu} />
             {can("edit_catalog") && (
               <button className="btn" onClick={() => setModal("images")}>
@@ -190,8 +206,9 @@ export function CatalogPage() {
             <button className="btn primary" onClick={() => openEditing({ ...EMPTY_ITEM })}>
               Tambah barang
             </button>
-          </div>
-        )}
+            </>
+          )}
+        </div>
       </div>
 
       {stats && (
@@ -225,7 +242,7 @@ export function CatalogPage() {
         </div>
       )}
 
-      {can("edit_catalog") && <PendingItemsPanel />}
+      <PendingItemsPanel reload={pendingReload} onLinked={load} />
       {can("edit_catalog") && <UnitProposalsPanel onReviewed={load} />}
 
       {can("import_catalog") && <AccuratePanel onApplied={load} />}
@@ -238,7 +255,7 @@ export function CatalogPage() {
         </p>
       )}
 
-      <div className="card">
+      <div className="card catalog-list">
         <div className="toolbar">
           <input
             className="input toolbar-search"
@@ -320,12 +337,12 @@ export function CatalogPage() {
               <table className="table stack">
                 <thead>
                   <tr>
+                    <th className="col-icon" aria-label="Buka satuan dan barcode" />
                     <th className="l">Kode</th>
                     <th className="l">Nama barang</th>
                     <th className="l">Kategori</th>
                     <th className="l">Satuan</th>
                     <th className="l">Rasio</th>
-                    <th className="l">Barcode per satuan</th>
                     {seeCosts && sortHead("cogs", "COGS")}
                     {sortHead("list_price", "Harga jual")}
                     {sortHead("stock", "Stok")}
@@ -333,8 +350,24 @@ export function CatalogPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {items.map((item) => (
-                    <tr key={item.id} className={(seeCosts ? item.cogs > 0 : !item.cogs_problem) ? "" : "flagged"}>
+                  {items.map((item) => {
+                    const open = expanded.has(item.id);
+                    const sku = skuProgress(item);
+                    return (
+                    <Fragment key={item.id}>
+                    <tr className={`${(seeCosts ? item.cogs > 0 : !item.cogs_problem) ? "" : "flagged"}${open ? " row-open" : ""}`}>
+                      <td className="col-icon col-expand">
+                        <button
+                          className="icon-btn expand-btn"
+                          aria-expanded={open}
+                          aria-label={`Satuan dan barcode ${item.name}: ${sku.filled} dari ${sku.total} satuan punya barcode`}
+                          title={`Satuan dan barcode (${sku.filled}/${sku.total})`}
+                          onClick={() => toggleExpanded(item.id)}
+                        >
+                          <Icon name={open ? "chevron-up" : "chevron-down"} size={16} />
+                          <span className="expand-label">Satuan dan barcode {sku.filled}/{sku.total}</span>
+                        </button>
+                      </td>
                       <td className="l muted num" data-label="Kode">{item.code}</td>
                       <td className="l stack-title">
                         <div className="with-thumb">
@@ -367,16 +400,6 @@ export function CatalogPage() {
                           <span className="muted">—</span>
                         )}
                       </td>
-                      <td className="l" data-label="Barcode per satuan">
-                        <SkuBarcodes
-                          item={item}
-                          uomOptions={uomOptions}
-                          onUomAdded={loadUom}
-                          onChange={(p) =>
-                            setItems((all) => all.map((i) => (i.id === item.id ? { ...i, units: p.units, barcodes: p.barcodes, unit_proposals: p.proposals } : i)))
-                          }
-                        />
-                      </td>
                       {seeCosts && (
                         <td className="num" data-label="COGS">
                           {item.cogs > 0 ? grp(item.cogs) : <span className="badge amber">kosong</span>}
@@ -390,7 +413,23 @@ export function CatalogPage() {
                         </td>
                       )}
                     </tr>
-                  ))}
+                    {open && (
+                      <tr className="row-detail">
+                        <td colSpan={8 + (seeCosts ? 1 : 0) + (can("edit_catalog") ? 1 : 0)}>
+                          <SkuPanel
+                            item={item}
+                            uomOptions={uomOptions}
+                            onUomAdded={loadUom}
+                            onChange={(p) =>
+                              setItems((all) => all.map((i) => (i.id === item.id ? { ...i, units: p.units, barcodes: p.barcodes, unit_proposals: p.proposals } : i)))
+                            }
+                          />
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -547,6 +586,17 @@ export function CatalogPage() {
         />
       )}
 
+      {newItemOpen && (
+        <WarehouseNewItem
+          uomOptions={uomOptions}
+          onClose={() => setNewItemOpen(false)}
+          onCreated={() => {
+            setNewItemOpen(false);
+            setPendingReload((n) => n + 1);
+            loadUom();
+          }}
+        />
+      )}
       {editing && (
         <Modal
           title={editing.id ? "Ubah data barang" : "Tambah barang"}

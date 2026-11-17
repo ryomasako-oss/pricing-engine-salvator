@@ -27,7 +27,7 @@ export const pendingItemSchema = z.object({
 
 const SELECT = `
   SELECT p.id, p.code, p.name, p.uom, p.proposed_price, p.note, p.status, p.requested_by,
-         u.name AS requested_by_name, p.created_at, p.submitted_at, p.linked_at
+         u.name AS requested_by_name, p.created_at, p.submitted_at, p.linked_at, p.linked_code
     FROM pending_items p LEFT JOIN users u ON u.id = p.requested_by`;
 
 /** Managers see every request, staff only their own. Live ones first, then what was linked lately. */
