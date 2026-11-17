@@ -10,6 +10,8 @@
 import { all, get } from "../../db.d1";
 import { netPerBaseUnit } from "../../../shared/salesBelowCost";
 import type { EntityKey } from "./sync";
+import { lineRatio } from "../../../shared/uomAdjust";
+import { loadUomAdjustments } from "./uomAdjust";
 
 export const SALES_HISTORY_PAGE_SIZE = 20;
 /** Newest invoice lines shown on one card. */
@@ -106,6 +108,7 @@ export async function salesHistory(
     codes,
   );
 
+  const adj = await loadUomAdjustments(db, entity);
   const round = (n: number) => Math.round(n * 100) / 100;
   const cards = items.map(({ base_uom, ...i }): SalesHistoryCard => ({
     ...i,
@@ -113,7 +116,7 @@ export async function salesHistory(
     sales: lines
       .filter((l) => l.item_code === i.code)
       .map((l): HistorySale => {
-        const ratio = l.unit_ratio > 0 ? l.unit_ratio : 1;
+        const ratio = lineRatio(adj, l.item_code, l.unit, l.unit_ratio > 0 ? l.unit_ratio : 1);
         const net = netPerBaseUnit({
           invoiceNo: l.invoice_no, transDate: l.trans_date, customerName: l.customer_name, itemCode: l.item_code,
           unit: l.unit, unitRatio: ratio, quantity: l.quantity, returnQty: l.return_qty, salesAmount: l.sales_amount,

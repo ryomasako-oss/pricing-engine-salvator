@@ -10,6 +10,8 @@ import { sameUom, unitFactor } from "../../../shared/uom";
 import type { UnitFactor } from "../../../shared/types";
 import { applyPurchaseCosts } from "./purchaseCost";
 import type { EntityKey } from "./sync";
+import { mergeUnits } from "../../../shared/uomAdjust";
+import { loadUomAdjustments } from "./uomAdjust";
 import { RECEIPT_LINES, type CostLines } from "./receipts";
 
 export const HISTORY_PAGE_SIZE = 20;
@@ -108,6 +110,7 @@ export async function cogsHistory(
       codes,
     )).map((u) => [u.code, u]),
   );
+  const adj = await loadUomAdjustments(db, entity);
   const parseUnits = (s: string): UnitFactor[] => {
     try {
       const v = JSON.parse(s);
@@ -119,7 +122,7 @@ export async function cogsHistory(
 
   const cards = items.map((i): HistoryCard => {
     const a = units.get(i.code);
-    const item = a && sameUom(i.uom, a.uom || "Pcs") ? { baseUom: a.uom || "Pcs", units: parseUnits(a.units) } : undefined;
+    const item = a && sameUom(i.uom, a.uom || "Pcs") ? { baseUom: a.uom || "Pcs", units: mergeUnits(parseUnits(a.units), adj.get(i.code)) } : undefined;
     let found = false;
     const own = receipts
       .filter((r) => r.item_code === i.code)

@@ -16,7 +16,10 @@
 import { all, get, run } from "../../db.d1";
 import type { ReceiptLine } from "../../../shared/lastPurchaseCost";
 import { findBelowCost, netPerBaseUnit, type BelowCostResult, type CatalogFacts, type SalesLine } from "../../../shared/salesBelowCost";
+import { findUomDiff, type UomDiffRow } from "../../../shared/uomDiff";
+import { lineRatio, mergeUnits } from "../../../shared/uomAdjust";
 import { parseUnits } from "./purchaseCost";
+import { loadUomAdjustments } from "./uomAdjust";
 import { SALES_LIST_FIELDS, mapSalesInvoice, mapSalesLines } from "./mapping";
 import { RECEIPT_LINES, docStep, receiptConfig, type CostLines, type DocKind, type ReceiptState } from "./receipts";
 import { catalogEntity, credsFor, syncConfig, type EntityKey } from "./sync";
@@ -103,7 +106,7 @@ async function belowCost(
   params: string[],
   lines: CostLines,
   cursor: string | null,
-): Promise<{ result: BelowCostResult; cursor: string | null }> {
+): Promise<{ result: BelowCostResult & { uomDiff: UomDiffRow[] }; cursor: string | null }> {
   const rows = await all<SalesRow>(
     db,
     `SELECT s.invoice_no, s.trans_date, s.customer_name, s.item_code, s.unit, s.unit_ratio, s.quantity, s.return_qty,
@@ -134,22 +137,23 @@ async function belowCost(
       else receipts.set(r.item_code, [line]);
     }
   }
+  const adj = await loadUomAdjustments(db, entity);
   const catalog = new Map<string, CatalogFacts>();
   const sales: SalesLine[] = [];
   let next = cursor;
   for (const r of rows) {
     if (!catalog.has(r.item_code)) {
-      catalog.set(r.item_code, { name: r.name, uom: r.catalog_uom, listPrice: r.list_price, baseUom: r.accurate_uom, units: parseUnits(r.units) });
+      catalog.set(r.item_code, { name: r.name, uom: r.catalog_uom, listPrice: r.list_price, baseUom: r.accurate_uom, units: mergeUnits(parseUnits(r.units), adj.get(r.item_code)) });
     }
     sales.push({
       invoiceNo: r.invoice_no, transDate: r.trans_date, customerName: r.customer_name, itemCode: r.item_code, unit: r.unit,
-      unitRatio: r.unit_ratio, quantity: r.quantity, returnQty: r.return_qty, salesAmount: r.sales_amount,
+      unitRatio: lineRatio(adj, r.item_code, r.unit, r.unit_ratio), quantity: r.quantity, returnQty: r.return_qty, salesAmount: r.sales_amount,
       inclusiveTax: r.inclusive_tax === 1, taxRate: r.tax_rate, cashDiscount: r.cash_discount, subTotal: r.sub_total,
       detailName: r.detail_name ?? "",
     });
     if (!next || r.synced_at > next) next = r.synced_at;
   }
-  return { result: findBelowCost(sales, receipts, catalog), cursor: next };
+  return { result: { ...findBelowCost(sales, receipts, catalog), uomDiff: findUomDiff(sales, receipts, catalog) }, cursor: next };
 }
 
 export type LastSale = { price: number; invoiceNo: string; date: string; ownClient: boolean };
@@ -172,7 +176,7 @@ export async function lastSales(
   const since = new Date(now.getTime() - 365 * 86_400_000).toISOString().slice(0, 10);
   const rows = await all<SalesRow & { customer_no: string; accurate_uom: string }>(
     db,
-    `SELECT s.invoice_no, s.trans_date, s.customer_no, s.item_code, s.unit_ratio, s.quantity, s.return_qty, s.sales_amount,
+    `SELECT s.invoice_no, s.trans_date, s.customer_no, s.item_code, s.unit, s.unit_ratio, s.quantity, s.return_qty, s.sales_amount,
             s.inclusive_tax, s.tax_rate, s.cash_discount, s.sub_total, COALESCE(NULLIF(i.uom, ''), 'Pcs') AS accurate_uom
        FROM accurate_sales_lines s
        JOIN accurate_items i ON i.entity = ?1 AND i.code = s.item_code
@@ -182,6 +186,7 @@ export async function lastSales(
     since,
     JSON.stringify(items.map((i) => i.code)),
   );
+  const adj = await loadUomAdjustments(db, entity);
   const byCode = new Map(items.map((i) => [i.code, i]));
   const anyClient = new Map<string, LastSale>();
   for (const r of rows) {
@@ -190,7 +195,7 @@ export async function lastSales(
     const own = !!customerNo && r.customer_no === customerNo;
     if (out.has(r.item_code) || (!own && anyClient.has(r.item_code))) continue;
     const net = netPerBaseUnit({
-      invoiceNo: r.invoice_no, transDate: r.trans_date, customerName: "", itemCode: r.item_code, unit: "", unitRatio: r.unit_ratio,
+      invoiceNo: r.invoice_no, transDate: r.trans_date, customerName: "", itemCode: r.item_code, unit: r.unit, unitRatio: lineRatio(adj, r.item_code, r.unit, r.unit_ratio),
       quantity: r.quantity, returnQty: r.return_qty, salesAmount: r.sales_amount, inclusiveTax: r.inclusive_tax === 1,
       taxRate: r.tax_rate, cashDiscount: r.cash_discount, subTotal: r.sub_total,
     });

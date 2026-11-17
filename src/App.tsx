@@ -26,6 +26,7 @@ const MatchingPage = lazy(() => import("./pages/Matching").then((m) => ({ defaul
 const CogsHistoryPage = lazy(() => import("./pages/CogsHistory").then((m) => ({ default: m.CogsHistoryPage })));
 const SalesHistoryPage = lazy(() => import("./pages/SalesHistory").then((m) => ({ default: m.SalesHistoryPage })));
 const PurchaseHistoryPage = lazy(() => import("./pages/PurchaseHistory").then((m) => ({ default: m.PurchaseHistoryPage })));
+const UomDiffPage = lazy(() => import("./pages/UomDiff").then((m) => ({ default: m.UomDiffPage })));
 const BelowCostPage = lazy(() => import("./pages/BelowCost").then((m) => ({ default: m.BelowCostPage })));
 const AuditLogPage = lazy(() => import("./pages/AuditLog").then((m) => ({ default: m.AuditLogPage })));
 
@@ -235,6 +236,14 @@ export function App() {
           element={
             <RequirePermission permission="view_costs">
               <BelowCostPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/stock-uom-adjustment"
+          element={
+            <RequirePermission permission="view_costs">
+              <UomDiffPage />
             </RequirePermission>
           }
         />

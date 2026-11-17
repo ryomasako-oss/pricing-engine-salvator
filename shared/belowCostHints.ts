@@ -58,6 +58,8 @@ export function belowCostHints(r: {
   listPrice: number;
   saleUnit: string;
   saleRatio: number;
+  /** The sale unit's ratio is known (Accurate's item units or a Stock UOM Adjustment); else saleRatio > 1 decides. */
+  saleRatioKnown?: boolean;
   baseUom: string;
   /** Per base unit cost of the item's other PIs, and net price of its other SIs; [] when unknown. */
   otherCosts?: number[];
@@ -104,7 +106,7 @@ export function belowCostHints(r: {
     h("ppn", "Urusan PPN?",
       'Selisihnya sekitar 11%, sama dengan PPN. Kemungkinan salah satu nota keliru mencentang (atau tidak mencentang) "termasuk pajak". Cek centang pajak di nota beli dan nota jual.');
   }
-  if (r.saleUnit && !same(r.saleUnit, r.baseUom) && !(r.saleRatio > 1)) {
+  if (r.saleUnit && !same(r.saleUnit, r.baseUom) && !(r.saleRatioKnown ?? r.saleRatio > 1)) {
     h("sale_unit", "Isi satuan belum diisi",
       `Nota jual memakai satuan ${r.saleUnit}, tapi isi per ${r.saleUnit} belum diisi di Accurate, jadi sistem menganggap 1 ${r.saleUnit} = 1 ${r.baseUom}. Lengkapi isi satuannya di data barang Accurate.`);
   }
