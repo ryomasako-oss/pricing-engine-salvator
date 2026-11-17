@@ -31,7 +31,7 @@ interface Excluded {
 }
 type Preview =
   | { enabled: false }
-  | { enabled: true; salesOrder: { id: number; number: string } }
+  | { enabled: true; salesOrder: { id: number; number: string }; fmsUrl: string | null }
   | {
       enabled: true;
       salesOrder: null;
@@ -71,9 +71,16 @@ export function SalesOrderAction({ quoteId, status, version, onCreated }: { quot
   if (!preview?.enabled) return null;
   if (preview.salesOrder) {
     return (
-      <Link className="btn" to={`/sales-orders/${preview.salesOrder.id}`}>
-        Lihat SO {preview.salesOrder.number}
-      </Link>
+      <>
+        <Link className="btn" to={`/sales-orders/${preview.salesOrder.id}`}>
+          Lihat SO {preview.salesOrder.number}
+        </Link>
+        {preview.fmsUrl && (
+          <a className="btn" href={preview.fmsUrl} target="_blank" rel="noopener noreferrer">
+            Buka di FMS
+          </a>
+        )}
+      </>
     );
   }
   if (!preview.canCreate) return null;

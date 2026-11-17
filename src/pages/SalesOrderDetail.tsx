@@ -48,6 +48,7 @@ interface Detail {
   parked: number;
   canCancel: boolean;
   canResend: boolean;
+  fmsUrl: string | null;
 }
 
 const TYPE_LABEL: Record<string, string> = {
@@ -170,6 +171,11 @@ export function SalesOrderDetailPage() {
           </div>
         </div>
         <div className="row">
+          {data.fmsUrl && so.sync_state === "delivered" && (
+            <a className="btn" href={data.fmsUrl} target="_blank" rel="noopener noreferrer">
+              Buka di FMS
+            </a>
+          )}
           {showResend && (
             <button className="btn" onClick={resend} disabled={busy}>
               {busy ? "Mengirim…" : "Kirim ulang"}

@@ -15,6 +15,7 @@ import {
   listSalesOrders,
   outboxStmts,
   salesOrderEnabled,
+  fmsOutboundUrl,
   salesOrderEvents,
   soStatusGuard,
   timelineStmt,
@@ -65,6 +66,7 @@ salesOrdersRouter.get("/:id", async (c) => {
     parked: parked?.n ?? 0,
     canCancel: so.status === "open" && !!owner && canEdit(user, owner.created_by, owner.assigned_to),
     canResend: hasPermission(user.role, "manage_policy"),
+    fmsUrl: fmsOutboundUrl(c.env, so.number),
   });
 });
 

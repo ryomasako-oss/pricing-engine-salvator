@@ -894,6 +894,9 @@ body:has(.chat-fab) .hk-main { padding-bottom: 88px; }
   min-width: 0;
 }
 .thumb-zoomable { cursor: zoom-in; }
+/* Katalog picker: klik barang atau centang memilihnya (Qty 1); baris terpilih ditandai. */
+.pick-cell { cursor: pointer; }
+tr.picked > td { background: var(--color-action-soft); }
 
 /* Pratinjau gambar barang (ImageLightbox): di atas Modal (z-index 60) dan toast (90). */
 .lightbox {

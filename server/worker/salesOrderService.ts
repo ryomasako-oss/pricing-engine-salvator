@@ -305,3 +305,14 @@ async function recordOnly(db: D1Database, eventId: string, ack: Ack): Promise<Ac
   await batch(db, [stmt(db, "INSERT OR IGNORE INTO fms_inbox(event_id, result) VALUES (?, ?)", eventId, JSON.stringify(ack))]);
   return ack;
 }
+
+/** Link to the outbound in FMS Salvator (its order search by SO number), or null without a usable FMS address. */
+export function fmsOutboundUrl(env: { FMS_APP_URL?: string; FMS_SO_URL?: string }, soNumber: string): string | null {
+  try {
+    const base = env.FMS_APP_URL ? new URL(env.FMS_APP_URL) : new URL(env.FMS_SO_URL ?? "");
+    if (base.protocol !== "https:" && base.protocol !== "http:") return null;
+    return `${base.origin}/pesanan?q=${encodeURIComponent(soNumber)}`;
+  } catch {
+    return null;
+  }
+}

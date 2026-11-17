@@ -55,6 +55,7 @@ import {
   envelope,
   outboxStmts,
   salesOrderEnabled,
+  fmsOutboundUrl,
   soLinesFor,
   timelineStmt,
 } from "../salesOrderService";
@@ -1056,7 +1057,7 @@ quotesRouter.get("/:id/sales-order", async (c) => {
   const quote = await findQuote(c.env.DB, id);
   if (!quote) return c.json({ error: "Quotation tidak ditemukan." }, 404);
   const salesOrder = (await activeSalesOrderFor(c.env.DB, id)) ?? null;
-  if (salesOrder) return c.json({ enabled: true, salesOrder });
+  if (salesOrder) return c.json({ enabled: true, salesOrder, fmsUrl: fmsOutboundUrl(c.env, salesOrder.number) });
   const client = await quoteClient(c.env.DB, quote);
   const { lines, excluded, total } = await soLinesFor(c.env.DB, quote);
   return c.json({

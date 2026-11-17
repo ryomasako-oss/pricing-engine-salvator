@@ -121,6 +121,13 @@ export function CatalogPicker({
   /** The quote line for an item, built in its base unit, then converted to the chosen unit. */
   // A COGS problem doesn't stop the pick: the line goes on the quote held
   // (server/cogsCheck.ts applyHolds), so it isn't forgotten or offered.
+  /** Qty for one row; ticking the box or clicking the item picks 1, unticking clears it. */
+  const pick = (item: CatalogItem, qty: number) => {
+    setChosen((c) => ({ ...c, [item.id]: qty }));
+    setPickedItems((p) => ({ ...p, [item.id]: item }));
+    const typed = query.trim();
+    if (typed) setPickedQuery((p) => ({ ...p, [item.id]: typed }));
+  };
   const lineFor = (item: CatalogItem, qty: number): QuoteItem => {
     const line = lineFromCatalog(item, qty, { uom: uomOverride[item.id] });
     return item.cogs_problem ? { ...line, held: true } : line;
@@ -240,9 +247,15 @@ export function CatalogPicker({
                 const line = lineFor(item, 0);
                 const warn = uomWarning(line);
                 return (
-                <tr key={item.id}>
-                  <td className="l">
+                <tr key={item.id} className={(chosen[item.id] ?? 0) > 0 ? "picked" : undefined}>
+                  <td className="l pick-cell" onClick={(e) => (e.target as HTMLElement).tagName !== "INPUT" && pick(item, (chosen[item.id] ?? 0) > 0 ? 0 : 1)}>
                     <div className="with-thumb">
+                      <input
+                        type="checkbox"
+                        checked={(chosen[item.id] ?? 0) > 0}
+                        onChange={(e) => pick(item, e.target.checked ? 1 : 0)}
+                        aria-label={`Pilih ${item.name}`}
+                      />
                       <Thumb src={item.image} alt={item.name} />
                       <div className="grow">
                         <div className="cell-title">{item.name}</div>
@@ -278,12 +291,7 @@ export function CatalogPicker({
                       min="0"
                       placeholder="0"
                       value={chosen[item.id] ?? ""}
-                      onChange={(e) => {
-                        setChosen((c) => ({ ...c, [item.id]: Math.max(0, Number(e.target.value)) }));
-                        setPickedItems((p) => ({ ...p, [item.id]: item }));
-                        const typed = query.trim();
-                        if (typed) setPickedQuery((p) => ({ ...p, [item.id]: typed }));
-                      }}
+                      onChange={(e) => pick(item, Math.max(0, Number(e.target.value)))}
                       aria-label={`Qty untuk ${item.name}`}
                     />
                   </td>

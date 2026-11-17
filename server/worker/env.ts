@@ -31,6 +31,8 @@ export interface Bindings {
   PE_FMS_SECRET?: string;
   FMS_PE_SECRET?: string;
   FMS_SO_URL?: string;
+  /* FMS Salvator address people open in a browser ("Buka di FMS"); defaults to the origin of FMS_SO_URL. */
+  FMS_APP_URL?: string;
   GOOGLE_SERVICE_ACCOUNT_EMAIL?: string;
   GOOGLE_PRIVATE_KEY?: string;
   GOOGLE_SEND_AS_EMAIL?: string;

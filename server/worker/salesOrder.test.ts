@@ -1,3 +1,4 @@
+import { fmsOutboundUrl } from "./salesOrderService";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -600,6 +601,16 @@ async function signedGet(t: T, pathAndQuery: string, o: { secret?: string; signe
   const r = await t.raw(pathAndQuery, { headers: { "x-fms-timestamp": ts, "x-fms-signature": sig } });
   return { status: r.status, json: (await r.json()) as Record<string, any> };
 }
+
+describe("fmsOutboundUrl", () => {
+  it("links to the FMS order search: FMS_APP_URL first, else the origin of FMS_SO_URL, else none", () => {
+    expect(fmsOutboundUrl({ FMS_APP_URL: "https://fms.example/", FMS_SO_URL: "https://hook.example/api/x" }, "HK/SIP/SO/2611/001"))
+      .toBe("https://fms.example/pesanan?q=HK%2FSIP%2FSO%2F2611%2F001");
+    expect(fmsOutboundUrl({ FMS_SO_URL: "https://fms.example/api/webhooks/pricing-engine" }, "SO 1")).toBe("https://fms.example/pesanan?q=SO%201");
+    expect(fmsOutboundUrl({}, "SO")).toBeNull();
+    expect(fmsOutboundUrl({ FMS_APP_URL: "javascript:alert(1)" }, "SO")).toBeNull();
+  });
+});
 
 describe("POST /api/integrations/fms/events", () => {
   async function withSo(env: Partial<Bindings> = { FMS_PE_SECRET: FMS_SECRET }) {
