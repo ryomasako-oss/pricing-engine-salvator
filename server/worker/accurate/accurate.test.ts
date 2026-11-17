@@ -294,6 +294,23 @@ describe("POST /api/accurate/apply keeps cost, unit and stock consistent (Codex 
     expect(r.json.unitMismatch).toEqual(["B1"]);
   });
 
+  it("keeps a unit added by hand in the app (warehouse: Pcs under a Lusin item); Accurate's own units still replace the rest", async () => {
+    const { sqlite, db } = freshDb();
+    sqlite.exec(`INSERT INTO users(id, email, name, password_hash, role) VALUES (1, 'm@x', 'M', 'x', 'manager')`);
+    sqlite.exec(`INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock) VALUES ('D1', 'Pulpen', 'Lsn', 0, 0, 0)`);
+    sqlite.exec(`INSERT INTO catalog_item_uoms(code, uom, factor, manual) VALUES
+      ('D1', 'Pcs', ${1 / 12}, 1), ('D1', 'Box', 5, 0), ('D1', 'Dus', 50, 1)`);
+    const items = [{ id: 1, no: "D1", name: "Pulpen", unitPrice: 1000, unit1Name: "Lsn", unit2Name: "Gros", ratio2: 12, unit3Name: "Dus", ratio3: 40 }];
+    await runToIdle(db, fakeAccurate({ items, stock: {} }).impl, cfg, "PT");
+    expect((await applier(db)({ entity: "PT" })).status).toBe(200);
+    expect(sqlite.prepare("SELECT uom, factor, manual FROM catalog_item_uoms WHERE code = 'D1' ORDER BY factor").all()).toEqual([
+      { uom: "Pcs", factor: 1 / 12, manual: 1 },
+      { uom: "Gros", factor: 12, manual: 0 },
+      // Accurate now has Dus too: its ratio wins and the row is Accurate's from here on.
+      { uom: "Dus", factor: 40, manual: 0 },
+    ]);
+  });
+
   it("doesn't apply stock while a sync run is still in progress", async () => {
     const { sqlite, db } = freshDb();
     sqlite.exec(`INSERT INTO users(id, email, name, password_hash, role) VALUES (1, 'm@x', 'M', 'x', 'manager')`);

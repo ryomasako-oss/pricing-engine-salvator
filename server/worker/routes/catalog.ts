@@ -35,8 +35,9 @@ import { rerankCandidates } from "../../../shared/matchRank";
 import { isPriorityBrand } from "../../../shared/priorityBrands";
 import { normalizeText } from "../../../shared/match";
 import { canSeeCosts, catalogItemsForViewer, problemsForViewer } from "../../staffView";
-import { cleanUnits, type ItemUnits } from "../../../shared/uom";
+import { cleanUnits, sameUom, type ItemUnits } from "../../../shared/uom";
 import { chunks } from "../../sqlParams";
+import { barcodeOwner, barcodesByCode, nextInternalBarcode, proposalsByCode, takenMessage } from "../unitBarcodes";
 import { refreshItemImagesIfStale } from "../itemImages";
 import { itemImageUrl } from "../../../shared/itemImages";
 import type { CatalogItem, UnitFactor } from "../../../shared/types";
@@ -116,12 +117,26 @@ async function unitsByCode(db: D1Database, codes: string[]): Promise<Map<string,
   return map;
 }
 
-/** Statements that replace one item's extra units, for inclusion in a batch. */
+/**
+ * Statements that replace one item's extra units, for inclusion in a batch. A unit that stays keeps its
+ * `manual` mark; a new one is manual, so Accurate's "Terapkan" leaves it alone (migrations/0039).
+ */
 function replaceUnitsStmts(db: D1Database, code: string, baseUom: string | undefined, units: UnitFactor[]) {
+  const clean = cleanUnits(baseUom, units);
   return [
-    stmt(db, "DELETE FROM catalog_item_uoms WHERE code = ?", code),
-    ...cleanUnits(baseUom, units).map((u) =>
-      stmt(db, "INSERT INTO catalog_item_uoms(code, uom, factor) VALUES(?, ?, ?)", code, u.uom, u.factor),
+    stmt(
+      db,
+      "DELETE FROM catalog_item_uoms WHERE code = ? AND lower(uom) NOT IN (SELECT lower(value) FROM json_each(?))",
+      code,
+      JSON.stringify(clean.map((u) => u.uom)),
+    ),
+    ...clean.map((u) =>
+      stmt(
+        db,
+        `INSERT INTO catalog_item_uoms(code, uom, factor, manual) VALUES(?, ?, ?, 1)
+         ON CONFLICT(code, uom) DO UPDATE SET factor = excluded.factor`,
+        code, u.uom, u.factor,
+      ),
     ),
   ];
 }
@@ -216,7 +231,14 @@ catalogRouter.get("/", async (c) => {
   }
   const codes = items.map((i) => i.code);
   const units = await unitsByCode(c.env.DB, codes);
-  const withUnits = items.map((i) => ({ ...i, units: units.get(i.code) ?? [] }));
+  const barcodes = await barcodesByCode(c.env.DB, codes);
+  const proposals = await proposalsByCode(c.env.DB, codes);
+  const withUnits = items.map((i) => ({
+    ...i,
+    units: units.get(i.code) ?? [],
+    barcodes: barcodes.get(i.code) ?? [],
+    unit_proposals: proposals.get(i.code) ?? [],
+  }));
   const images = await imagesByCode(c.env.DB, codes);
   const role = c.get("user")!.role;
   const visible = catalogItemsForViewer(role, withProblems(withUnits, await cogsProblemsFor(c.env.DB, codes)));
@@ -316,37 +338,167 @@ catalogRouter.post("/:id/verify-cogs", requirePermission("edit_catalog"), async 
   return c.json({ code: item.code, reference: item.cogs, cogs_problem: problems.get(item.code) ?? null });
 });
 
+const barcodeText = z.string().trim().max(64).regex(/^[0-9A-Za-z-]*$/, "Barcode hanya boleh huruf, angka, dan tanda minus.");
+
+/** The item and its SKUs: the base unit, the extra units, proposed units, and any unit that only still has a barcode. */
+async function itemSkus(db: D1Database, id: number) {
+  const item = await get<{ code: string; name: string; uom: string }>(db, "SELECT code, name, uom FROM catalog_items WHERE id = ?", id);
+  if (!item) return null;
+  const { units, barcodes, proposals } = await skuOut(db, item.code);
+  const has = (uom: string) =>
+    sameUom(uom, item.uom) || [...units, ...proposals, ...barcodes].some((u) => sameUom(u.uom, uom));
+  return { ...item, units, barcodes, proposals, has };
+}
+
+const skuOut = async (db: D1Database, code: string) => ({
+  units: (await unitsByCode(db, [code])).get(code) ?? [],
+  barcodes: (await barcodesByCode(db, [code])).get(code) ?? [],
+  proposals: (await proposalsByCode(db, [code])).get(code) ?? [],
+});
+
 /**
- * Barcode from the brand/supplier, filled in by warehouse staff from the packaging.
- * Every logged-in role may set it (warehouse accounts are usually `rep`); it touches no price.
- * Clearing needs `clear: true` (the Hapus button), so an emptied box never wipes a saved barcode.
+ * Barcode of one SKU (item + unit; the base unit when `uom` is left out), filled in by warehouse staff
+ * from the packaging. Every logged-in role may set it (warehouse accounts are usually `rep`); it touches
+ * no price. Clearing needs `clear: true` (the Hapus button), so an emptied box never wipes a saved barcode.
  */
 catalogRouter.put("/:id/barcode", async (c) => {
   const user = c.get("user")!;
-  const id = Number(c.req.param("id"));
   const parsed = z
-    .object({
-      barcode: z.string().trim().max(64).regex(/^[0-9A-Za-z-]*$/, "Barcode hanya boleh huruf, angka, dan tanda minus."),
-      clear: z.boolean().optional(),
-    })
+    .object({ uom: z.string().trim().min(1).max(32).optional(), barcode: barcodeText, clear: z.boolean().optional() })
     .safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
   const barcode = parsed.data.barcode || null;
   if (!barcode && !parsed.data.clear) return c.json({ error: "Barcode masih kosong. Untuk menghapus barcode, pakai tombol Hapus barcode." }, 400);
-  const item = await get<{ code: string; supplier_barcode: string | null }>(
-    c.env.DB, "SELECT code, supplier_barcode FROM catalog_items WHERE id = ?", id,
-  );
+  const item = await itemSkus(c.env.DB, Number(c.req.param("id")));
   if (!item) return c.json({ error: "Item tidak ditemukan." }, 404);
+  const uom = parsed.data.uom ?? item.uom;
+  if (!item.has(uom)) return c.json({ error: `Satuan ${uom} belum ada di barang ini. Tambah satuannya dulu.` }, 400);
+  const before = item.barcodes.find((b) => sameUom(b.uom, uom))?.barcode ?? null;
+  if (before === barcode) return c.json(await skuOut(c.env.DB, item.code));
   if (barcode) {
-    const other = await get<{ code: string; name: string }>(
-      c.env.DB, "SELECT code, name FROM catalog_items WHERE supplier_barcode = ? AND id <> ?", barcode, id,
+    const other = await barcodeOwner(c.env.DB, barcode);
+    if (other) return c.json({ error: takenMessage(barcode, other) }, 409);
+    await run(
+      c.env.DB,
+      `INSERT INTO catalog_unit_barcodes(code, uom, barcode, generated) VALUES(?, ?, ?, 0)
+       ON CONFLICT(code, uom) DO UPDATE SET barcode = excluded.barcode, generated = 0, updated_at = datetime('now')`,
+      item.code, uom, barcode,
     );
-    if (other) return c.json({ error: `Barcode ${barcode} sudah dipakai barang ${other.code} (${other.name}).` }, 409);
+  } else {
+    await run(c.env.DB, "DELETE FROM catalog_unit_barcodes WHERE code = ? AND uom = ?", item.code, uom);
   }
-  if (item.supplier_barcode === barcode) return c.json({ supplier_barcode: barcode });
-  await run(c.env.DB, "UPDATE catalog_items SET supplier_barcode = ? WHERE id = ?", barcode, id);
-  await audit(c.env.DB, user.id, "catalog", id, "barcode_set", { code: item.code, before: item.supplier_barcode, after: barcode });
-  return c.json({ supplier_barcode: barcode });
+  await audit(c.env.DB, user.id, "catalog", Number(c.req.param("id")), "barcode_set", { code: item.code, uom, before, after: barcode });
+  return c.json(await skuOut(c.env.DB, item.code));
+});
+
+/** No barcode on the packaging: give the SKU an internal EAN-13 (prefix 20) to print as a label. */
+catalogRouter.post("/:id/barcode/generate", async (c) => {
+  const user = c.get("user")!;
+  const parsed = z.object({ uom: z.string().trim().min(1).max(32).optional() }).safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
+  const item = await itemSkus(c.env.DB, Number(c.req.param("id")));
+  if (!item) return c.json({ error: "Item tidak ditemukan." }, 404);
+  const uom = parsed.data.uom ?? item.uom;
+  if (!item.has(uom)) return c.json({ error: `Satuan ${uom} belum ada di barang ini. Tambah satuannya dulu.` }, 400);
+  const existing = item.barcodes.find((b) => sameUom(b.uom, uom));
+  if (existing) return c.json({ error: `${item.code} (${uom}) sudah punya barcode ${existing.barcode}.` }, 409);
+  const barcode = await nextInternalBarcode(c.env.DB);
+  await run(c.env.DB, "INSERT INTO catalog_unit_barcodes(code, uom, barcode, generated) VALUES(?, ?, ?, 1)", item.code, uom, barcode);
+  await audit(c.env.DB, user.id, "catalog", Number(c.req.param("id")), "barcode_set", { code: item.code, uom, before: null, after: barcode, generated: true });
+  return c.json(await skuOut(c.env.DB, item.code));
+});
+
+/**
+ * Warehouse staff propose a unit the item does not have yet (e.g. 1 Lusin = 12 Pcs: factor 1/12), with its
+ * barcode in the same step. A proposal does not reach quotes, which follow Accurate's units, until a
+ * manager approves it (POST /:id/unit/review). A manager's own addition needs no review.
+ * A unit name that is not in the list yet is added to it.
+ */
+catalogRouter.post("/:id/unit", async (c) => {
+  const user = c.get("user")!;
+  const id = Number(c.req.param("id"));
+  const parsed = z
+    .object({
+      uom: z.string().trim().min(1).max(32),
+      factor: z.number().positive("Isi harus lebih dari 0.").max(1_000_000),
+      barcode: barcodeText.optional(),
+      generate: z.boolean().optional(),
+    })
+    .safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
+  const item = await itemSkus(c.env.DB, id);
+  if (!item) return c.json({ error: "Item tidak ditemukan." }, 404);
+  const d = parsed.data;
+  if (sameUom(d.uom, item.uom) || item.units.some((u) => sameUom(u.uom, d.uom))) {
+    return c.json({ error: `Satuan ${d.uom} sudah ada di barang ini. Isinya hanya bisa diubah manager/admin lewat Edit barang.` }, 409);
+  }
+  if (item.proposals.some((u) => sameUom(u.uom, d.uom))) {
+    return c.json({ error: `Satuan ${d.uom} sudah diusulkan dan menunggu persetujuan manager.` }, 409);
+  }
+  if (item.units.length + item.proposals.length >= 10) return c.json({ error: "Barang ini sudah punya 10 satuan tambahan." }, 400);
+  if (d.barcode) {
+    const other = await barcodeOwner(c.env.DB, d.barcode);
+    if (other) return c.json({ error: takenMessage(d.barcode, other) }, 409);
+  }
+  // The list's own spelling when it already has this name in another case ("box" -> "Box").
+  const option = await get<{ name: string }>(c.env.DB, "SELECT name FROM uom_options WHERE name = ? COLLATE NOCASE", d.uom);
+  const uom = option?.name ?? d.uom;
+  const direct = hasPermission(user.role, "edit_catalog");
+  const barcode = d.barcode || (d.generate ? await nextInternalBarcode(c.env.DB) : null);
+  await batch(c.env.DB, [
+    ...(option ? [] : [stmt(c.env.DB, "INSERT INTO uom_options(name) VALUES(?)", uom)]),
+    direct
+      ? stmt(c.env.DB, "INSERT INTO catalog_item_uoms(code, uom, factor, manual) VALUES(?, ?, ?, 1)", item.code, uom, d.factor)
+      : stmt(c.env.DB, "INSERT INTO catalog_unit_proposals(code, uom, factor, proposed_by) VALUES(?, ?, ?, ?)", item.code, uom, d.factor, user.id),
+    // An orphan barcode left on this unit name (its ratio was removed) is replaced, not duplicated.
+    ...(barcode
+      ? [stmt(
+          c.env.DB,
+          `INSERT INTO catalog_unit_barcodes(code, uom, barcode, generated) VALUES(?, ?, ?, ?)
+           ON CONFLICT(code, uom) DO UPDATE SET barcode = excluded.barcode, generated = excluded.generated, updated_at = datetime('now')`,
+          item.code, uom, barcode, d.barcode ? 0 : 1,
+        )]
+      : []),
+  ]);
+  if (!option) await audit(c.env.DB, user.id, "catalog", 0, "uom_added", { name: uom });
+  await audit(c.env.DB, user.id, "catalog", id, direct ? "unit_added" : "unit_proposed", { code: item.code, uom, factor: d.factor, base: item.uom, barcode });
+  return c.json(await skuOut(c.env.DB, item.code), 201);
+});
+
+/** Every unit proposal waiting for a manager, oldest first (Katalog › Usulan satuan). */
+catalogRouter.get("/unit-proposals", async (c) => {
+  const rows = await all(
+    c.env.DB,
+    `SELECT i.id, p.code, i.name, i.uom AS base_uom, p.uom, p.factor, u.name AS proposed_by, p.created_at, b.barcode
+       FROM catalog_unit_proposals p
+       JOIN catalog_items i ON i.code = p.code
+       LEFT JOIN users u ON u.id = p.proposed_by
+       LEFT JOIN catalog_unit_barcodes b ON b.code = p.code AND b.uom = p.uom
+      ORDER BY p.created_at, p.code`,
+  );
+  return c.json({ proposals: rows });
+});
+
+/** A manager approves a proposed unit (quotes use it from now on) or rejects it (its barcode goes too). */
+catalogRouter.post("/:id/unit/review", requirePermission("edit_catalog"), async (c) => {
+  const user = c.get("user")!;
+  const id = Number(c.req.param("id"));
+  const parsed = z.object({ uom: z.string().trim().min(1).max(32), approve: z.boolean() }).safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
+  const item = await itemSkus(c.env.DB, id);
+  if (!item) return c.json({ error: "Item tidak ditemukan." }, 404);
+  const p = item.proposals.find((u) => sameUom(u.uom, parsed.data.uom));
+  if (!p) return c.json({ error: `Tidak ada usulan satuan ${parsed.data.uom} untuk barang ini.` }, 404);
+  const taken = item.units.some((u) => sameUom(u.uom, p.uom));
+  await batch(c.env.DB, [
+    stmt(c.env.DB, "DELETE FROM catalog_unit_proposals WHERE code = ? AND uom = ?", item.code, p.uom),
+    ...(parsed.data.approve
+      ? // Accurate may have brought the same unit meanwhile: its ratio stays, the proposal just closes.
+        taken ? [] : [stmt(c.env.DB, "INSERT INTO catalog_item_uoms(code, uom, factor, manual) VALUES(?, ?, ?, 1)", item.code, p.uom, p.factor)]
+      : taken ? [] : [stmt(c.env.DB, "DELETE FROM catalog_unit_barcodes WHERE code = ? AND uom = ?", item.code, p.uom)]),
+  ]);
+  await audit(c.env.DB, user.id, "catalog", id, parsed.data.approve ? "unit_approved" : "unit_rejected", { code: item.code, uom: p.uom, factor: p.factor });
+  return c.json(await skuOut(c.env.DB, item.code));
 });
 
 /** Remembers which catalog item a client's wording means, for the next list. */
