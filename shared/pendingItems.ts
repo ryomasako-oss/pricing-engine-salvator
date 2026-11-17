@@ -8,6 +8,8 @@
    opens a "Barang baru ke Accurate" task and gives the Accurate admin an
    Excel to copy from. Nothing is written to Accurate by the pricing engine. */
 
+import type { UnitBarcode, UnitFactor } from "./types.js";
+
 export type PendingStatus = "draft" | "submitted" | "linked" | "cancelled";
 
 /** The "problem" a line with a pending code gets; applyHolds turns it into holdReason "new_item". */
@@ -53,6 +55,11 @@ export interface PendingItem {
   created_at: string;
   submitted_at: string | null;
   linked_at: string | null;
+  /** The Accurate code a manager linked this request to, when it differs from `code`. */
+  linked_code?: string | null;
+  /** Barcodes per unit filled in by warehouse staff, and the extra units they proposed. Set by GET /pending-items. */
+  barcodes?: UnitBarcode[];
+  units?: UnitFactor[];
 }
 
 const idr = (n: number) => new Intl.NumberFormat("id-ID").format(Math.round(n));

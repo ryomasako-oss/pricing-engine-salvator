@@ -32,75 +32,37 @@ function skuRows(item: CatalogItem) {
   return rows.map((r) => ({ ...r, saved: barcodes.find((b) => sameUom(b.uom, r.uom)) }));
 }
 
-/**
- * The table cell: one small badge per unit (green = has a barcode) and a button that opens the item's
- * card, where the barcodes are filled in. Keeps a catalog row one line high, on a phone too.
- */
-export function SkuBarcodes({
-  item,
-  uomOptions,
-  onChange,
-  onUomAdded,
-}: {
-  item: CatalogItem;
-  uomOptions: string[];
-  onChange: (patch: SkuPatch) => void;
-  onUomAdded: () => void;
-}) {
-  const [open, setOpen] = useState(false);
+/** "2/4": units with a barcode out of all units, for the row's expand button. */
+export function skuProgress(item: CatalogItem): { filled: number; total: number } {
   const rows = skuRows(item);
-  const filled = rows.filter((r) => r.saved).length;
-  return (
-    <div className="sku-summary">
-      <div className="badge-row">
-        {rows.map((r) => (
-          <span
-            key={r.uom}
-            className={`badge ${r.pending ? "amber" : r.saved ? "green" : "grey"}`}
-            title={r.saved ? `${r.uom}: ${r.saved.barcode}` : r.pending ? `${r.uom}: menunggu persetujuan` : `${r.uom}: belum ada barcode`}
-          >
-            {r.saved && <Icon name="check" size={12} />}
-            {r.uom}
-          </span>
-        ))}
-      </div>
-      <button className="btn small ghost" onClick={() => setOpen(true)} aria-label={`Barcode ${item.name}, ${filled} dari ${rows.length} satuan terisi`}>
-        {filled === rows.length ? "Lihat barcode" : "Isi barcode"} <span className="muted num">{filled}/{rows.length}</span>
-      </button>
-      {open && <SkuCard item={item} uomOptions={uomOptions} onChange={onChange} onUomAdded={onUomAdded} onClose={() => setOpen(false)} />}
-    </div>
-  );
+  return { filled: rows.filter((r) => r.saved).length, total: rows.length };
 }
 
-/** One item's card: a compact line per unit (unit and ratio, then its barcode box), and Tambah satuan. */
-function SkuCard({
+/**
+ * The opened catalog row: one small card per unit (unit and ratio, then its barcode box), and
+ * Tambah satuan. Enter in a box saves it and goes on to the next unit, for a scanner.
+ */
+export function SkuPanel({
   item,
   uomOptions,
   onChange,
   onUomAdded,
-  onClose,
 }: {
   item: CatalogItem;
   uomOptions: string[];
   onChange: (patch: SkuPatch) => void;
   onUomAdded: () => void;
-  onClose: () => void;
 }) {
   const [adding, setAdding] = useState(false);
   return (
-    <Modal
-      title={item.name}
-      sub={`${item.code} · satuan dasar ${item.uom}. Scan lalu Enter untuk lanjut ke satuan berikutnya.`}
-      onClose={onClose}
-      footer={
-        <>
-          <button className="btn ghost" onClick={() => setAdding(true)}>
-            <Icon name="plus" size={14} /> Tambah satuan
-          </button>
-          <button className="btn" onClick={onClose}>Selesai</button>
-        </>
-      }
-    >
+    <div className="sku-panel">
+      <div className="sku-panel-head">
+        <strong>Barcode per satuan</strong>
+        <span className="muted small">Scan lalu Enter untuk lanjut ke satuan berikutnya.</span>
+        <button className="btn small ghost" onClick={() => setAdding(true)}>
+          <Icon name="plus" size={14} /> Tambah satuan
+        </button>
+      </div>
       <div className="sku-list">
         {skuRows(item).map((r) => (
           <div key={r.uom} className="sku-row">
@@ -126,7 +88,7 @@ function SkuCard({
           }}
         />
       )}
-    </Modal>
+    </div>
   );
 }
 
