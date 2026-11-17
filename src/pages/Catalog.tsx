@@ -183,7 +183,7 @@ export function CatalogPage() {
   };
 
   return (
-    <main className="hk-main page-stack">
+    <main className="hk-main page-stack catalog-page">
       <div className="hk-page-head">
         <div>
           <h1>Katalog barang</h1>
@@ -192,7 +192,7 @@ export function CatalogPage() {
           </p>
         </div>
         <div className="row-wrap">
-          <button className="btn" onClick={() => setNewItemOpen(true)}>
+          <button className="btn catalog-new-item" onClick={() => setNewItemOpen(true)}>
             Barang baru (belum di Accurate)
           </button>
           {can("import_catalog") && (
@@ -255,7 +255,7 @@ export function CatalogPage() {
         </p>
       )}
 
-      <div className="card">
+      <div className="card catalog-list">
         <div className="toolbar">
           <input
             className="input toolbar-search"

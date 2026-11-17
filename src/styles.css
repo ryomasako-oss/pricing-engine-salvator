@@ -1126,6 +1126,13 @@ a.btn, a.btn:hover { text-decoration: none; }
   .table.stack tr.row-detail { padding-top: 0; }
   .table.stack tr.row-detail > td { display: block; padding: 0; text-align: left; }
   .table.stack .sku-list { grid-template-columns: 1fr; }
+  /* Katalog on a phone: title and buttons, then straight to the list (search first); summary
+     numbers and panels follow it, and the page intro is left out. */
+  .catalog-page > * { order: 2; }
+  .catalog-page > .hk-page-head { order: 0; }
+  .catalog-page > .catalog-list { order: 1; }
+  .catalog-page > .hk-page-head p { display: none; }
+  .catalog-page .catalog-new-item { width: 100%; }
   /* Cards scroll with the page; a nested scroll box would hide all but the first. */
   .table-wrap.scroll:has(> .table.stack), .ltq-table:has(> .table.stack) { max-height: none; }
   .table.stack td.empty-row { display: block; text-align: left; }
