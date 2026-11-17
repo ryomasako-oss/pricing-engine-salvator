@@ -926,16 +926,21 @@ function BarcodeCell({ item }: { item: CatalogItem }) {
         {editing && !busy && (
           <>
             <button className="btn small ghost" onClick={cancel}>Batal</button>
-            <button className="btn small ghost danger" onClick={() => setConfirmDelete(true)}>Hapus</button>
+            <button className="btn small ghost danger" onClick={() => setConfirmDelete(true)}>Hapus barcode</button>
           </>
         )}
       </div>
       {error && <div className="text-err small" role="alert">{error}</div>}
       {confirmDelete && (
         <ConfirmModal
-          title="Hapus barcode supplier?"
-          message={<>Barcode <b className="num">{saved}</b> pada {item.code} ({item.name}) akan dihapus.</>}
-          confirmLabel="Ya, hapus"
+          title="Hapus barcode saja?"
+          message={
+            <>
+              Yang dihapus hanya barcode supplier <b className="num">{saved}</b>. Barangnya ({item.code}, {item.name}) tetap ada
+              di katalog beserta harga, stok, dan fotonya.
+            </>
+          }
+          confirmLabel="Ya, hapus barcode"
           busy={busy}
           onClose={() => setConfirmDelete(false)}
           onConfirm={async () => {
