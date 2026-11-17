@@ -316,6 +316,35 @@ catalogRouter.post("/:id/verify-cogs", requirePermission("edit_catalog"), async 
   return c.json({ code: item.code, reference: item.cogs, cogs_problem: problems.get(item.code) ?? null });
 });
 
+/**
+ * Barcode from the brand/supplier, filled in by warehouse staff from the packaging.
+ * Every logged-in role may set it (warehouse accounts are usually `rep`); it touches no price.
+ * Empty clears it.
+ */
+catalogRouter.put("/:id/barcode", async (c) => {
+  const user = c.get("user")!;
+  const id = Number(c.req.param("id"));
+  const parsed = z
+    .object({ barcode: z.string().trim().max(64).regex(/^[0-9A-Za-z-]*$/, "Barcode hanya boleh huruf, angka, dan tanda minus.") })
+    .safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
+  const barcode = parsed.data.barcode || null;
+  const item = await get<{ code: string; supplier_barcode: string | null }>(
+    c.env.DB, "SELECT code, supplier_barcode FROM catalog_items WHERE id = ?", id,
+  );
+  if (!item) return c.json({ error: "Item tidak ditemukan." }, 404);
+  if (barcode) {
+    const other = await get<{ code: string; name: string }>(
+      c.env.DB, "SELECT code, name FROM catalog_items WHERE supplier_barcode = ? AND id <> ?", barcode, id,
+    );
+    if (other) return c.json({ error: `Barcode ${barcode} sudah dipakai barang ${other.code} (${other.name}).` }, 409);
+  }
+  if (item.supplier_barcode === barcode) return c.json({ supplier_barcode: barcode });
+  await run(c.env.DB, "UPDATE catalog_items SET supplier_barcode = ? WHERE id = ?", barcode, id);
+  await audit(c.env.DB, user.id, "catalog", id, "barcode_set", { code: item.code, before: item.supplier_barcode, after: barcode });
+  return c.json({ supplier_barcode: barcode });
+});
+
 /** Remembers which catalog item a client's wording means, for the next list. */
 catalogRouter.post("/aliases", async (c) => {
   const user = c.get("user")!;

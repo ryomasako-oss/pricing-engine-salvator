@@ -331,6 +331,8 @@ export interface CatalogItem {
   category: string;
   source: string;
   updated_at: string;
+  /** Barcode from the brand/supplier, filled in by warehouse staff; null = not yet. */
+  supplier_barcode?: string | null;
   /** Extra units and how many base units (`uom`) each holds, e.g. Box = 24. */
   units?: UnitFactor[];
   /** Data Hub thumbnail (served via /api/hub-media); null otherwise. */

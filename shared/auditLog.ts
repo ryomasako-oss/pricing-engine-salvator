@@ -42,6 +42,7 @@ const ACTIONS: Record<string, string> = {
   cleared: "Dikosongkan",
   uom_added: "Satuan ditambah",
   image_set: "Foto dipasang",
+  barcode_set: "Barcode supplier diubah",
   image_removed: "Foto dihapus",
   aliases_saved: "Alias disimpan",
   cogs_verified: "COGS diverifikasi",
