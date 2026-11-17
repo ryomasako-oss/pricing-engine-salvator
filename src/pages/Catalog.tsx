@@ -885,51 +885,54 @@ function BarcodeCell({ item }: { item: CatalogItem }) {
 
   return (
     <div className="barcode-cell">
-      <div className="barcode-row">
-        <input
-          className={`input${error ? " invalid" : changed && next ? " dirty" : ""}`}
-          data-barcode
-          inputMode="numeric"
-          maxLength={64}
-          placeholder="Scan / ketik"
-          aria-label={`Barcode supplier ${item.name}`}
-          aria-invalid={!!error}
-          autoFocus={editing}
-          value={value}
-          readOnly={busy}
-          onChange={(e) => {
-            setValue(e.target.value);
-            setError(null);
-            failed.current = null;
-          }}
-          // A saved barcode being changed waits for Simpan; a first fill saves on leaving the box.
-          onBlur={() => !editing && void save()}
-          onKeyDown={async (e) => {
-            if (e.key === "Escape") return cancel();
-            if (e.key !== "Enter") return;
-            e.preventDefault();
-            const all = [...document.querySelectorAll<HTMLInputElement>("input[data-barcode]")];
-            const after = all[all.indexOf(e.currentTarget) + 1];
-            if ((await save()) && !editing) after?.focus();
-          }}
-        />
-        {busy ? (
-          <span className="muted small">Menyimpan…</span>
-        ) : (
-          (editing || (changed && next)) && (
-            // mousedown keeps focus in the box, so leaving it does not save a second time.
-            <button className="btn small" disabled={!next || !changed} onMouseDown={(e) => e.preventDefault()} onClick={() => void save()}>
-              Simpan
-            </button>
-          )
-        )}
-        {editing && !busy && (
-          <>
-            <button className="btn small ghost" onClick={cancel}>Batal</button>
-            <button className="btn small ghost danger" onClick={() => setConfirmDelete(true)}>Hapus barcode</button>
-          </>
-        )}
-      </div>
+      <input
+        className={`input${error ? " invalid" : changed && next ? " dirty" : ""}`}
+        data-barcode
+        inputMode="numeric"
+        maxLength={64}
+        placeholder="Scan / ketik"
+        aria-label={`Barcode supplier ${item.name}`}
+        aria-invalid={!!error}
+        autoFocus={editing}
+        value={value}
+        readOnly={busy}
+        onChange={(e) => {
+          setValue(e.target.value);
+          setError(null);
+          failed.current = null;
+        }}
+        // A saved barcode being changed waits for Simpan; a first fill saves on leaving the box.
+        onBlur={() => !editing && void save()}
+        onKeyDown={async (e) => {
+          if (e.key === "Escape") return cancel();
+          if (e.key !== "Enter") return;
+          e.preventDefault();
+          const all = [...document.querySelectorAll<HTMLInputElement>("input[data-barcode]")];
+          const after = all[all.indexOf(e.currentTarget) + 1];
+          if ((await save()) && !editing) after?.focus();
+        }}
+      />
+      {/* Buttons go under the box, so the box keeps its full width for long barcodes. */}
+      {(busy || editing || (changed && next)) && (
+        <div className="barcode-row">
+          {busy ? (
+            <span className="muted small">Menyimpan…</span>
+          ) : (
+            (editing || (changed && next)) && (
+              // mousedown keeps focus in the box, so leaving it does not save a second time.
+              <button className="btn small" disabled={!next || !changed} onMouseDown={(e) => e.preventDefault()} onClick={() => void save()}>
+                Simpan
+              </button>
+            )
+          )}
+          {editing && !busy && (
+            <>
+              <button className="btn small ghost" onClick={cancel}>Batal</button>
+              <button className="btn small ghost danger" onClick={() => setConfirmDelete(true)}>Hapus barcode</button>
+            </>
+          )}
+        </div>
+      )}
       {error && <div className="text-err small" role="alert">{error}</div>}
       {confirmDelete && (
         <ConfirmModal
