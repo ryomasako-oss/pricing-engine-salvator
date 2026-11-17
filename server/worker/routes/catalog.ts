@@ -319,16 +319,20 @@ catalogRouter.post("/:id/verify-cogs", requirePermission("edit_catalog"), async 
 /**
  * Barcode from the brand/supplier, filled in by warehouse staff from the packaging.
  * Every logged-in role may set it (warehouse accounts are usually `rep`); it touches no price.
- * Empty clears it.
+ * Clearing needs `clear: true` (the Hapus button), so an emptied box never wipes a saved barcode.
  */
 catalogRouter.put("/:id/barcode", async (c) => {
   const user = c.get("user")!;
   const id = Number(c.req.param("id"));
   const parsed = z
-    .object({ barcode: z.string().trim().max(64).regex(/^[0-9A-Za-z-]*$/, "Barcode hanya boleh huruf, angka, dan tanda minus.") })
+    .object({
+      barcode: z.string().trim().max(64).regex(/^[0-9A-Za-z-]*$/, "Barcode hanya boleh huruf, angka, dan tanda minus."),
+      clear: z.boolean().optional(),
+    })
     .safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
   const barcode = parsed.data.barcode || null;
+  if (!barcode && !parsed.data.clear) return c.json({ error: "Barcode masih kosong. Untuk menghapus barcode, pakai tombol Hapus." }, 400);
   const item = await get<{ code: string; supplier_barcode: string | null }>(
     c.env.DB, "SELECT code, supplier_barcode FROM catalog_items WHERE id = ?", id,
   );

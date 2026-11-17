@@ -49,11 +49,17 @@ describe("PUT /catalog/:id/barcode", () => {
     expect(barcodeOf(2)).toBeNull();
   });
 
-  it("clears it with an empty value and rejects odd characters", async () => {
+  it("never clears a saved barcode by an emptied box: only an explicit delete clears it", async () => {
     const { req, barcodeOf } = setup();
     await req("/1/barcode", "PUT", { barcode: "123" });
-    expect((await req("/1/barcode", "PUT", { barcode: "" })).status).toBe(200);
+    expect((await req("/1/barcode", "PUT", { barcode: "" })).status).toBe(400);
+    expect(barcodeOf(1)).toBe("123");
+    expect((await req("/1/barcode", "PUT", { barcode: "", clear: true })).status).toBe(200);
     expect(barcodeOf(1)).toBeNull();
+  });
+
+  it("rejects odd characters and unknown items", async () => {
+    const { req } = setup();
     expect((await req("/1/barcode", "PUT", { barcode: "12 34'" })).status).toBe(400);
     expect((await req("/99/barcode", "PUT", { barcode: "1" })).status).toBe(404);
   });
