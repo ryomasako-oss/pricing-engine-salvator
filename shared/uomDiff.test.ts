@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ReceiptLine } from "./lastPurchaseCost";
 import type { CatalogFacts, SalesLine } from "./salesBelowCost";
-import { findUomDiff } from "./uomDiff";
+import { findUomDiff, groupUomDiff, type UomDiffRow } from "./uomDiff";
 
 const sale = (o: Partial<SalesLine> = {}): SalesLine => ({
   invoiceNo: "SI.1", transDate: "2026-10-26", customerName: "MESTIKA", itemCode: "100003", unit: "BOX",
@@ -43,5 +43,26 @@ describe("findUomDiff", () => {
   it("no PI before the SI, or no quantity: nothing to compare", () => {
     expect(findUomDiff([sale()], pis(ri("PI.1", "2026-11-01", "BTL")), catalog)).toEqual([]);
     expect(findUomDiff([sale({ quantity: 0 })], pis(ri("PI.1", "2026-10-01", "BTL")), catalog)).toEqual([]);
+  });
+});
+
+describe("groupUomDiff", () => {
+  const row = (o: Partial<UomDiffRow>): UomDiffRow => ({
+    invoiceNo: "SI", transDate: "2026-10-01", customerName: "K", code: "A", name: "A", baseUom: "KG", siUnit: "PAK", siRatio: 0.5,
+    piUnit: "KG", piRatio: 1, receiptNo: "PI", receiptDate: "2026-09-01", net: 30000, cost: 20000, ...o,
+  });
+
+  it("one group per item and unit pair, the newest line standing for it", () => {
+    const g = groupUomDiff([row({ invoiceNo: "SI.1" }), row({ invoiceNo: "SI.2", transDate: "2026-10-05", siUnit: "pak " }), row({ code: "B", invoiceNo: "SI.3" })]);
+    expect(g.map((x) => [x.latest.code, x.rows.length, x.latest.invoiceNo])).toEqual([["A", 2, "SI.2"], ["B", 1, "SI.3"]]);
+  });
+
+  it("missing ratio first, then most lines under cost, then most lines", () => {
+    const g = groupUomDiff([
+      row({ code: "MANY" }), row({ code: "MANY" }), row({ code: "MANY" }),
+      row({ code: "LOSS", net: 1000 }),
+      row({ code: "NORATIO", siRatio: null, net: null }),
+    ]);
+    expect(g.map((x) => [x.latest.code, x.below])).toEqual([["NORATIO", 0], ["LOSS", 1], ["MANY", 0]]);
   });
 });

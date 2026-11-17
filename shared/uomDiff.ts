@@ -59,3 +59,34 @@ export function findUomDiff(
   }
   return out.sort((a, b) => Number(ratioKnown(a)) - Number(ratioKnown(b)) || b.transDate.localeCompare(a.transDate) || a.code.localeCompare(b.code));
 }
+
+/** One item and unit pair (Ryoma, 17 Nov: "mass update jadi lebih gampang"): one ratio fixes all its SI lines. */
+export interface UomDiffGroup {
+  key: string;
+  /** The newest SI line of the group: its units, ratios and prices stand for the group. */
+  latest: UomDiffRow;
+  rows: UomDiffRow[];
+  /** SI lines sold under the PI price per base unit. */
+  below: number;
+}
+
+const isBelow = (r: UomDiffRow) => r.net !== null && r.cost !== null && r.net < r.cost;
+
+/** Groups by item, SI unit and PI unit: missing ratio first, then most lines under cost, then most lines. */
+export function groupUomDiff(rows: UomDiffRow[]): UomDiffGroup[] {
+  const groups = new Map<string, UomDiffGroup>();
+  for (const r of rows) {
+    const key = `${r.code}|${r.siUnit.trim().toLowerCase()}|${r.piUnit.trim().toLowerCase()}`;
+    const g = groups.get(key);
+    if (!g) groups.set(key, { key, latest: r, rows: [r], below: Number(isBelow(r)) });
+    else {
+      g.rows.push(r);
+      g.below += Number(isBelow(r));
+      if (r.transDate > g.latest.transDate) g.latest = r;
+    }
+  }
+  return [...groups.values()].sort(
+    (a, b) =>
+      Number(ratioKnown(a.latest)) - Number(ratioKnown(b.latest)) || b.below - a.below || b.rows.length - a.rows.length || a.key.localeCompare(b.key),
+  );
+}

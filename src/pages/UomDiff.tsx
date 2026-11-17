@@ -8,7 +8,7 @@ import { api } from "../api";
 import { HistoryTabs } from "../components/HistoryTabs";
 import { LoadError } from "../components/LoadError";
 import { fmtDate, grp, rp } from "@shared/format";
-import { ratioKnown, type UomDiffRow } from "@shared/uomDiff";
+import { groupUomDiff, ratioKnown, type UomDiffGroup, type UomDiffRow } from "@shared/uomDiff";
 import { sameUom } from "@shared/uom";
 import { useAuth } from "../context/AuthContext";
 
@@ -141,6 +141,7 @@ export function UomDiffPage() {
   const [kind, setKind] = useState<Kind>("");
   const [adjustments, setAdjustments] = useState<Adjustment[]>([]);
   const [editing, setEditing] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
   const { can } = useAuth();
   const canAdjust = can("edit_catalog");
 
@@ -163,18 +164,22 @@ export function UomDiffPage() {
   }, [from, to, retry]);
 
   const all = data?.uomDiff ?? [];
-  const noRatio = all.filter((r) => !ratioKnown(r)).length;
   const rows = useMemo(() => {
     const words = q.toLowerCase().split(/\s+/).filter(Boolean);
     return all.filter((r) => {
-      if (kind && (kind === "ratio") !== ratioKnown(r)) return false;
       const hay = `${r.invoiceNo} ${r.customerName} ${r.code} ${r.name} ${r.receiptNo} ${r.siUnit} ${r.piUnit}`.toLowerCase();
       return words.every((w) => hay.includes(w));
     });
-  }, [all, q, kind]);
+  }, [all, q]);
+  const allGroups = useMemo(() => groupUomDiff(rows), [rows]);
+  const groups = allGroups.filter((g) => !kind || (kind === "ratio") === ratioKnown(g.latest));
+  const noRatio = allGroups.filter((g) => !ratioKnown(g.latest));
+  const withRatio = allGroups.filter((g) => ratioKnown(g.latest));
+  const lines = (gs: UomDiffGroup[]) => gs.reduce((n, g) => n + g.rows.length, 0);
   const pick = (k: Kind) => setKind(kind === k ? "" : k);
   const adjustedOf = (r: UomDiffRow) => adjustments.filter((a) => a.code === r.code);
   const shown = (r: UomDiffRow) => adjustedOf(r).filter((a) => sameUom(a.uom, r.siUnit) || sameUom(a.uom, r.piUnit));
+  const filtered = !!q || !!kind;
 
   return (
     <main className="hk-main page-stack">
@@ -183,7 +188,8 @@ export function UomDiffPage() {
         <div>
           <h1>Stock UOM Adjustment</h1>
           <p>
-            Baris penjualan (SI) yang satuannya berbeda dengan satuan di pembelian (PI) terakhir sebelum tanggal SI. Ini PI yang sama yang dipakai di
+            Barang yang satuannya di penjualan (SI) berbeda dengan satuan di pembelian (PI) terakhir sebelum tanggal SI, satu baris per barang dan
+            satuan. Satu rasio membereskan semua SI barang itu sekaligus. Ini PI yang sama yang dipakai di
             "Jual &lt; Beli". Harga jual dan beli ditampilkan per satuan dasar supaya bisa dibandingkan langsung. Kalau rasionya belum ada atau
             salah, klik "Sesuaikan" untuk mengisi rasio di aplikasi: Jual &lt; Beli, COGS dari harga beli, dan riwayat langsung memakainya. Data di
             Accurate tidak diubah.
@@ -225,23 +231,23 @@ export function UomDiffPage() {
       ) : data ? (
         <>
           <div className="kpi-grid">
-            <button type="button" className={`kpi kpi-btn${kind === "no_ratio" ? " on" : ""}${noRatio ? " tone-warn" : ""}`} onClick={() => pick("no_ratio")} aria-pressed={kind === "no_ratio"}>
-              <div className="label">Satuan beda, rasio belum diisi</div>
-              <div className="value num">{grp(noRatio)}</div>
-              <div className="foot">Harga jual dan beli bisa salah dibandingkan. Dahulukan ini. Klik untuk menyaring.</div>
+            <button type="button" className={`kpi kpi-btn${kind === "no_ratio" ? " on" : ""}${noRatio.length ? " tone-warn" : ""}`} onClick={() => pick("no_ratio")} aria-pressed={kind === "no_ratio"}>
+              <div className="label">Barang dengan rasio belum diisi</div>
+              <div className="value num">{grp(noRatio.length)}</div>
+              <div className="foot">{grp(lines(noRatio))} baris SI · harga jual dan beli bisa salah dibandingkan. Dahulukan ini. Klik untuk menyaring.</div>
             </button>
             <button type="button" className={`kpi kpi-btn${kind === "ratio" ? " on" : ""}`} onClick={() => pick("ratio")} aria-pressed={kind === "ratio"}>
-              <div className="label">Satuan beda, rasio ada</div>
-              <div className="value num">{grp(all.length - noRatio)}</div>
-              <div className="foot">Harga sudah dihitung per satuan dasar, tapi satuannya tetap tidak sama. Klik untuk menyaring.</div>
+              <div className="label">Barang dengan rasio ada</div>
+              <div className="value num">{grp(withRatio.length)}</div>
+              <div className="foot">{grp(lines(withRatio))} baris SI · harga sudah dihitung per satuan dasar, tapi satuannya tetap tidak sama. Klik untuk menyaring.</div>
             </button>
           </div>
 
           <div className={`card${loading ? " is-stale" : ""}`}>
-            {rows.length === 0 ? (
+            {groups.length === 0 ? (
               <div className="card-body empty">
-                {rows.length !== all.length ? (
-                  <h3>Tidak ada baris yang cocok dengan filter</h3>
+                {filtered ? (
+                  <h3>Tidak ada barang yang cocok dengan filter</h3>
                 ) : (
                   <>
                     <h3>Semua satuan SI sama dengan PI</h3>
@@ -254,87 +260,134 @@ export function UomDiffPage() {
                 <table className="table stack">
                   <thead>
                     <tr>
-                      <th className="l">Nomor SI</th>
-                      <th className="l">Tanggal</th>
-                      <th className="l">Klien</th>
                       <th className="l">Barang</th>
                       <th className="l">Satuan SI</th>
                       <th className="l">Satuan PI</th>
+                      <th>Jumlah SI</th>
                       <th>Harga jual / satuan dasar</th>
                       <th>Harga beli / satuan dasar</th>
                       <th className="l">Keterangan</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((r, i) => (
-                      <Fragment key={r.invoiceNo + r.code + i}>
-                      <tr>
-                        <td className="l num nowrap stack-title">{r.invoiceNo}</td>
-                        <td className="l nowrap" data-label="Tanggal">{fmtDate(r.transDate)}</td>
-                        <td className="l" data-label="Klien">{r.customerName}</td>
-                        <td className="l" data-label="Barang">
-                          <div>
-                            {r.name}
-                            <div className="muted small">{r.code}</div>
-                          </div>
-                        </td>
-                        <td className="l" data-label="Satuan SI">
-                          <div>
-                            <strong>{r.siUnit || "(kosong)"}</strong>
-                            <div className="muted small">{unitText(r.siUnit, r.siRatio, r.baseUom)}</div>
-                          </div>
-                        </td>
-                        <td className="l" data-label="Satuan PI">
-                          <div>
-                            <strong>{r.piUnit || "(kosong)"}</strong>
-                            <div className="muted small">
-                              {unitText(r.piUnit, r.piRatio, r.baseUom)} · {r.receiptNo}, {fmtDate(r.receiptDate)}
-                            </div>
-                          </div>
-                        </td>
-                        <td className="num nowrap" data-label="Harga jual / dasar">
-                          {r.net === null ? <span className="muted">–</span> : <>{rp(r.net)}<div className="muted small">per {r.baseUom}</div></>}
-                        </td>
-                        <td className={`num nowrap${r.net !== null && r.cost !== null && r.net < r.cost ? " text-err" : ""}`} data-label="Harga beli / dasar">
-                          {r.cost === null ? <span className="muted">–</span> : <>{rp(r.cost)}<div className="muted small">per {r.baseUom}</div></>}
-                        </td>
-                        <td className="l" data-label="Keterangan">
-                          <ul className="hint-list">
-                            <li>
-                              {ratioKnown(r) ? <span className="badge grey">Rasio ada</span> : <span className="badge amber">Rasio belum diisi</span>}
-                            </li>
-                            {shown(r).map((a) => (
-                              <li key={a.uom}>
-                                <span className="badge blue" title={`${a.note ? a.note + " · " : ""}${a.updatedBy ?? ""} ${fmtDate(a.updatedAt.slice(0, 10))}`}>
-                                  Disesuaikan: 1 {a.uom} = {grp(a.factor)} {r.baseUom}
-                                </span>
-                              </li>
-                            ))}
-                          </ul>
-                          {canAdjust && editing !== `${r.code}|${i}` && (
-                            <button type="button" className="link-btn small" onClick={() => setEditing(`${r.code}|${i}`)} aria-label={`Sesuaikan ${r.invoiceNo} ${r.code}`}>
-                              Sesuaikan ›
-                            </button>
+                    {groups.map((g) => {
+                      const r = g.latest;
+                      return (
+                        <Fragment key={g.key}>
+                          <tr>
+                            <td className="l stack-title" data-label="Barang">
+                              <div>
+                                {r.name}
+                                <div className="muted small">{r.code}</div>
+                              </div>
+                            </td>
+                            <td className="l" data-label="Satuan SI">
+                              <div>
+                                <strong>{r.siUnit || "(kosong)"}</strong>
+                                <div className="muted small">{unitText(r.siUnit, r.siRatio, r.baseUom)}</div>
+                              </div>
+                            </td>
+                            <td className="l" data-label="Satuan PI">
+                              <div>
+                                <strong>{r.piUnit || "(kosong)"}</strong>
+                                <div className="muted small">
+                                  {unitText(r.piUnit, r.piRatio, r.baseUom)} · {r.receiptNo}
+                                </div>
+                              </div>
+                            </td>
+                            <td className="num nowrap" data-label="Jumlah SI">
+                              <div>
+                                {grp(g.rows.length)} SI
+                                {g.below > 0 && <div className="text-err small">{grp(g.below)} di bawah harga beli</div>}
+                              </div>
+                            </td>
+                            <td className="num nowrap" data-label="Harga jual / dasar">
+                              {r.net === null ? <span className="muted">–</span> : <>{rp(r.net)}<div className="muted small">SI terakhir, per {r.baseUom}</div></>}
+                            </td>
+                            <td className={`num nowrap${r.net !== null && r.cost !== null && r.net < r.cost ? " text-err" : ""}`} data-label="Harga beli / dasar">
+                              {r.cost === null ? <span className="muted">–</span> : <>{rp(r.cost)}<div className="muted small">per {r.baseUom}</div></>}
+                            </td>
+                            <td className="l" data-label="Keterangan">
+                              <ul className="hint-list">
+                                <li>
+                                  {ratioKnown(r) ? <span className="badge grey">Rasio ada</span> : <span className="badge amber">Rasio belum diisi</span>}
+                                </li>
+                                {shown(r).map((a) => (
+                                  <li key={a.uom}>
+                                    <span className="badge blue" title={`${a.note ? a.note + " · " : ""}${a.updatedBy ?? ""} ${fmtDate(a.updatedAt.slice(0, 10))}`}>
+                                      Disesuaikan: 1 {a.uom} = {grp(a.factor)} {r.baseUom}
+                                    </span>
+                                  </li>
+                                ))}
+                                <li className="row" style={{ gap: "0.25rem 0.75rem", flexWrap: "wrap" }}>
+                                {canAdjust && editing !== g.key && (
+                                  <button type="button" className="link-btn small" onClick={() => setEditing(g.key)} aria-label={`Sesuaikan ${r.code} ${r.siUnit}`}>
+                                    Sesuaikan ›
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  className="link-btn small"
+                                  onClick={() => setOpen(open === g.key ? null : g.key)}
+                                  aria-expanded={open === g.key}
+                                  aria-label={`${open === g.key ? "Tutup" : "Lihat"} SI ${r.code} ${r.siUnit}`}
+                                >
+                                  {open === g.key ? "Tutup SI" : `Lihat ${grp(g.rows.length)} SI`}
+                                </button>
+                                </li>
+                              </ul>
+                            </td>
+                          </tr>
+                          {editing === g.key && (
+                            <tr>
+                              <td className="l" colSpan={7}>
+                                <AdjustForm
+                                  row={r}
+                                  current={adjustedOf(r)}
+                                  onCancel={() => setEditing(null)}
+                                  onDone={() => {
+                                    setEditing(null);
+                                    setRetry((x) => x + 1);
+                                  }}
+                                />
+                              </td>
+                            </tr>
                           )}
-                        </td>
-                      </tr>
-                      {editing === `${r.code}|${i}` && (
-                        <tr>
-                          <td className="l" colSpan={9}>
-                            <AdjustForm
-                              row={r}
-                              current={adjustedOf(r)}
-                              onCancel={() => setEditing(null)}
-                              onDone={() => {
-                                setEditing(null);
-                                setRetry((x) => x + 1);
-                              }}
-                            />
-                          </td>
-                        </tr>
-                      )}
-                      </Fragment>
-                    ))}
+                          {open === g.key && (
+                            <tr>
+                              <td className="l" colSpan={7}>
+                                <table className="table compact" aria-label={`SI ${r.code}`}>
+                                  <thead>
+                                    <tr>
+                                      <th className="l">Nomor SI</th>
+                                      <th className="l">Tanggal</th>
+                                      <th className="l">Klien</th>
+                                      <th>Harga jual / dasar</th>
+                                      <th>Harga beli / dasar</th>
+                                      <th className="l">PI</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {g.rows.map((x, i) => (
+                                      <tr key={x.invoiceNo + i}>
+                                        <td className="l num nowrap stack-title">{x.invoiceNo}</td>
+                                        <td className="l nowrap" data-label="Tanggal">{fmtDate(x.transDate)}</td>
+                                        <td className="l" data-label="Klien">{x.customerName}</td>
+                                        <td className="num nowrap" data-label="Harga jual / dasar">{x.net === null ? "–" : rp(x.net)}</td>
+                                        <td className={`num nowrap${x.net !== null && x.cost !== null && x.net < x.cost ? " text-err" : ""}`} data-label="Harga beli / dasar">{x.cost === null ? "–" : rp(x.cost)}</td>
+                                        <td className="l nowrap muted small" data-label="PI">
+                                          {x.receiptNo}, {fmtDate(x.receiptDate)}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
