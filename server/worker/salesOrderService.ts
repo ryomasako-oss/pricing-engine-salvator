@@ -251,9 +251,9 @@ export async function applyFmsEvent(
   if (seen) return { status: 200, ack: duplicateAck(seen.result) };
 
   const p = event.payload;
-  const so = await get<{ id: number; number: string; last_fms_sequence: number }>(
+  const so = await get<{ id: number; number: string; last_fms_sequence: number; fulfillment_state: FulfillmentState | null; fulfillment_reason: string | null }>(
     db,
-    "SELECT id, number, last_fms_sequence FROM sales_orders WHERE number = ?",
+    "SELECT id, number, last_fms_sequence, fulfillment_state, fulfillment_reason FROM sales_orders WHERE number = ?",
     p.soNumber,
   );
   if (!so) return { status: 422, error: `Sales Order ${p.soNumber} tidak dikenal.` };
@@ -281,7 +281,8 @@ export async function applyFmsEvent(
           WHERE id = ?`,
         state, p.reason, p.outboundRef, event.sequence, p.state, p.state, so.id,
       ),
-      timelineStmt(db, so.number, "fms_state", detail),
+      // Several FMS states share one position (AWAITING_HANDOVER and HANDING_OVER are both "Siap kirim"); the timeline shows changes only.
+      ...(state === so.fulfillment_state && (p.reason ?? null) === so.fulfillment_reason ? [] : [timelineStmt(db, so.number, "fms_state", detail)]),
       auditStmt(db, null, so.number, "fms_state", detail),
     ]);
     return { status: 200, ack: applied };

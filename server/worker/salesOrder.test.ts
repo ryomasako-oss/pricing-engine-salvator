@@ -627,6 +627,16 @@ describe("POST /api/integrations/fms/events", () => {
     expect(t.one("SELECT status, fulfillment_state FROM sales_orders")).toEqual({ status: "shipped", fulfillment_state: "shipped" });
   });
 
+  it("a new FMS state with the same position and reason: applied, but no second timeline entry", async () => {
+    const { t, so } = await withSo();
+    await signedPost(t, stateEvent(so.number, "AWAITING_HANDOVER", 1, "PACKING"));
+    const r = await signedPost(t, stateEvent(so.number, "HANDING_OVER", 2, "AWAITING_HANDOVER"));
+    expect(r.json).toEqual({ received: true, duplicate: false, applied: true });
+    expect(t.one("SELECT fulfillment_state, last_fms_sequence FROM sales_orders")).toEqual({ fulfillment_state: "packed", last_fms_sequence: 2 });
+    expect(t.one("SELECT COUNT(*) AS n FROM sales_order_events WHERE kind = 'fms_state'")).toEqual({ n: 1 });
+    expect(t.one("SELECT COUNT(*) AS n FROM audit_log WHERE entity = 'sales_order' AND action = 'fms_state'")).toEqual({ n: 2 });
+  });
+
   it("the same eventId again: duplicate, nothing changes", async () => {
     const { t, so } = await withSo();
     const e = stateEvent(so.number, "PACKING", 1);
