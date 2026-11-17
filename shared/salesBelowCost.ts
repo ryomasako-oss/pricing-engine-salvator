@@ -15,6 +15,7 @@
 import type { UnitFactor } from "./types.js";
 import { LIST_HOLD_RATIO, lastPurchaseCost, type ReceiptLine } from "./lastPurchaseCost.js";
 import { belowCostHints, type Hint } from "./belowCostHints.js";
+import { unitFactor } from "./uom.js";
 
 export interface SalesLine {
   invoiceNo: string;
@@ -173,6 +174,7 @@ export function findBelowCost(
         hints: belowCostHints({
           net, cost: c.cost, saleDate: l.transDate, receiptDate: c.transDate, listPrice: item.listPrice,
           saleUnit: l.unit, saleRatio: l.unitRatio, baseUom: item.baseUom,
+          saleRatioKnown: l.unitRatio > 1 || unitFactor({ baseUom: item.baseUom, units: item.units }, l.unit) !== undefined,
           otherCosts: (receiptsByItem.get(l.itemCode) ?? []).filter((r) => r.receiptNo !== c.receiptNo).map((r) => costOf(r, item)),
           otherPrices: (netsByItem.get(l.itemCode) ?? []).filter((o) => o !== l).map((o) => nets.get(o)!),
           detailName: l.detailName, name: item.name, discount: discountShare(l),

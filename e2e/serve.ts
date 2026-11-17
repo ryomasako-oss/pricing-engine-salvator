@@ -68,6 +68,25 @@ const seed = [
    INSERT INTO accurate_sales_lines(entity, invoice_id, line_id, invoice_no, trans_date, customer_no, customer_name, item_code, unit, unit_ratio, quantity, sales_amount, sub_total)
      VALUES ('PT', 9201, 1, 'SI.2026.09.09201', '2026-09-03', 'C.09001', 'PT Zqbc Klien', 'ZQBC-1', 'Pcs', 1, 10, 90000, 90000),
             ('PT', 9202, 1, 'SI.2026.09.09202', '2026-09-04', 'C.09002', 'CV Zqbc Lain', 'ZQBC-1', 'Pcs', 1, 5, 40000, 40000);`,
+  // Stock UOM Adjustment: bought per Pcs on 1 Jul 2026, sold per BOX (1 BOX = 12 Pcs, under cost) and per DUS (no ratio) in July.
+  // Only e2e/uom-diff.spec.ts reads it (July, so the Sep/Oct ranges of other specs don't see it).
+  `INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock, source) VALUES('ZQUD-1', 'ZQUD AMPLOP COKLAT', 'Pcs', 1000, 2000, 10, 'e2e');
+   INSERT INTO accurate_items(entity, accurate_id, code, name, uom, units, run_id) VALUES ('PT', 99102, 'ZQUD-1', 'ZQUD AMPLOP COKLAT', 'Pcs', '[{"uom":"BOX","factor":12}]', 'e2e');
+   INSERT INTO accurate_purchase_lines(entity, receipt_id, line_id, receipt_no, trans_date, item_code, unit, quantity, unit_price, unit_price_gross, inclusive_tax)
+     VALUES ('PT', 9301, 1, 'PI.2026.07.09301', '2026-07-01', 'ZQUD-1', 'Pcs', 100, 1000, 1000, 0);
+   INSERT INTO accurate_sales_lines(entity, invoice_id, line_id, invoice_no, trans_date, customer_no, customer_name, item_code, unit, unit_ratio, quantity, sales_amount, sub_total)
+     VALUES ('PT', 9301, 1, 'SI.2026.07.09301', '2026-07-03', 'C.09003', 'PT Zqud Klien', 'ZQUD-1', 'BOX', 12, 2, 18000, 18000),
+            ('PT', 9302, 1, 'SI.2026.07.09302', '2026-07-04', 'C.09003', 'PT Zqud Klien', 'ZQUD-1', 'DUS', 1, 1, 50000, 50000),
+            ('PT', 9303, 1, 'SI.2026.07.09303', '2026-07-05', 'C.09003', 'PT Zqud Klien', 'ZQUD-1', 'pcs', 1, 5, 7500, 7500);`,
+  // Stock UOM Adjustment, the write flow: sold per PAK (no ratio in Accurate) in June, bought per Pcs at 1.000.
+  // Only the adjust test in e2e/uom-diff.spec.ts reads it (June; it runs once, it writes).
+  `INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock, source) VALUES('ZQUA-1', 'ZQUA KANTONG PLASTIK', 'Pcs', 1000, 2000, 10, 'e2e');
+   INSERT INTO accurate_items(entity, accurate_id, code, name, uom, run_id) VALUES ('PT', 99103, 'ZQUA-1', 'ZQUA KANTONG PLASTIK', 'Pcs', 'e2e');
+   INSERT INTO accurate_purchase_lines(entity, receipt_id, line_id, receipt_no, trans_date, item_code, unit, quantity, unit_price, unit_price_gross, inclusive_tax)
+     VALUES ('PT', 9401, 1, 'PI.2026.06.09401', '2026-06-01', 'ZQUA-1', 'Pcs', 100, 1000, 1000, 0);
+   INSERT INTO accurate_sales_lines(entity, invoice_id, line_id, invoice_no, trans_date, customer_no, customer_name, item_code, unit, unit_ratio, quantity, sales_amount, sub_total)
+     VALUES ('PT', 9401, 1, 'SI.2026.06.09401', '2026-06-10', 'C.09004', 'PT Zqua Klien', 'ZQUA-1', 'PAK', 1, 3, 45000, 45000),
+            ('PT', 9402, 1, 'SI.2026.06.09402', '2026-06-05', 'C.09004', 'PT Zqua Klien', 'ZQUA-1', 'PAK', 1, 2, 10000, 10000);`,
   // Colour variants that tie on a plain "zqhl highlighter": only e2e/match-accept-all.spec.ts lists them.
   `INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock, source) VALUES
    ('ZQHL-B', 'ZQHL HIGHLIGHTER BLUE', 'Pcs', 4000, 7000, 10, 'e2e'), ('ZQHL-G', 'ZQHL HIGHLIGHTER GREEN', 'Pcs', 4000, 7000, 10, 'e2e');`,

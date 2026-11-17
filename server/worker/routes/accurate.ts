@@ -381,6 +381,66 @@ accurateRouter.get("/below-cost", requirePermission("view_costs"), async (c) => 
 });
 
 /**
+ * Stock UOM Adjustment (Ryoma, 2026-11-17): a unit ratio set in the app for an item whose SI and PI units
+ * differ, so the two compare per the same base unit (shared/uomAdjust.ts). Wins over Accurate's ratio in
+ * every cost reader; Accurate is not changed. Reading is cost data (view_costs); writing moves COGS
+ * (apply-cogs reads it), so it takes edit_catalog too.
+ */
+accurateRouter.get("/uom-adjustments", requirePermission("view_costs"), async (c) => {
+  const rows = await all<{ code: string; uom: string; factor: number; note: string; updated_at: string; updated_by: string | null }>(
+    c.env.DB,
+    `SELECT a.code, a.uom, a.factor, a.note, a.updated_at, u.name AS updated_by
+       FROM uom_adjustments a LEFT JOIN users u ON u.id = a.updated_by
+      WHERE a.entity = ?1 ORDER BY a.code, a.uom`,
+    catalogEntity(c.env),
+  );
+  return c.json({ adjustments: rows.map((r) => ({ code: r.code, uom: r.uom, factor: r.factor, note: r.note, updatedAt: r.updated_at, updatedBy: r.updated_by })) });
+});
+
+const uomAdjustBody = z.object({
+  code: z.string().trim().min(1).max(64),
+  uom: z.string().trim().min(1).max(32),
+  factor: z.number().finite().positive().max(1_000_000),
+  note: z.string().trim().max(300).default(""),
+});
+
+accurateRouter.put("/uom-adjustments", requirePermission("view_costs"), requirePermission("edit_catalog"), async (c) => {
+  const parsed = uomAdjustBody.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
+  const { code, uom, factor, note } = parsed.data;
+  const entity = catalogEntity(c.env);
+  const item = await get<{ uom: string }>(c.env.DB, "SELECT COALESCE(NULLIF(uom, ''), 'Pcs') AS uom FROM accurate_items WHERE entity = ?1 AND code = ?2", entity, code);
+  if (!item) return c.json({ error: `Barang ${code} tidak ada di data Accurate.` }, 404);
+  if (item.uom.trim().toLowerCase() === uom.toLowerCase()) {
+    return c.json({ error: `${uom} adalah satuan dasar ${code}; rasionya selalu 1.` }, 400);
+  }
+  const user = c.get("user")!;
+  await batch(c.env.DB, [
+    stmt(
+      c.env.DB,
+      `INSERT INTO uom_adjustments(entity, code, uom, factor, note, updated_by) VALUES(?1, ?2, ?3, ?4, ?5, ?6)
+       ON CONFLICT(entity, code, uom) DO UPDATE SET factor = excluded.factor, note = excluded.note,
+              updated_by = excluded.updated_by, updated_at = datetime('now')`,
+      entity, code, uom, factor, note, user.id,
+    ),
+  ]);
+  await audit(c.env.DB, user.id, "catalog", 0, "uom_adjusted", { entity, code, uom, factor, baseUom: item.uom, note });
+  return c.json({ code, uom, factor, baseUom: item.uom });
+});
+
+accurateRouter.delete("/uom-adjustments", requirePermission("view_costs"), requirePermission("edit_catalog"), async (c) => {
+  const parsed = uomAdjustBody.pick({ code: true, uom: true }).safeParse({ code: c.req.query("code") ?? "", uom: c.req.query("uom") ?? "" });
+  if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
+  const { code, uom } = parsed.data;
+  const entity = catalogEntity(c.env);
+  const old = await get<{ factor: number }>(c.env.DB, "SELECT factor FROM uom_adjustments WHERE entity = ?1 AND code = ?2 AND uom = ?3", entity, code, uom);
+  if (!old) return c.json({ error: "Penyesuaian tidak ditemukan." }, 404);
+  await batch(c.env.DB, [stmt(c.env.DB, "DELETE FROM uom_adjustments WHERE entity = ?1 AND code = ?2 AND uom = ?3", entity, code, uom)]);
+  await audit(c.env.DB, c.get("user")!.id, "catalog", 0, "uom_adjustment_removed", { entity, code, uom, factor: old.factor });
+  return c.json({ ok: true });
+});
+
+/**
  * COGS = harga pembelian terakhir: sets each catalog item's COGS to the unit
  * price of its latest Accurate goods receipt (server/worker/accurate/purchaseCost.ts).
  * `dryRun` (default) only reports what would change. Separate from /apply,

@@ -12,6 +12,7 @@ import { fmtDate, grp, rp } from "@shared/format";
 import { GROUPS, groupOf, matchesCause, type GroupKey } from "@shared/belowCostHints";
 import type { BelowCostRow } from "@shared/salesBelowCost";
 import { LossTrace } from "../components/LossTrace";
+import { sameUom } from "@shared/uom";
 
 interface Report {
   from: string;
@@ -225,6 +226,11 @@ export function BelowCostPage() {
                           <div>
                             {rp(r.cost)}
                             <div className="muted small">{r.receiptNo}</div>
+                            {!sameUom(r.trace.unit, r.trace.receiptUnit) && (
+                              <span className="badge amber" title="Satuan di SI tidak sama dengan satuan di PI. Lihat tab Stock UOM Adjustment.">
+                                Satuan SI {r.trace.unit} ≠ PI {r.trace.receiptUnit}
+                              </span>
+                            )}
                           </div>
                         </td>
                         <td className="num nowrap" data-label="Selisih (beli − jual)">

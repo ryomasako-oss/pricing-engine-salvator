@@ -24,6 +24,8 @@ import { HISTORY_RECEIPTS, lastPurchaseCost, purchaseCostHold, purchaseHistory, 
 import type { UnitFactor } from "../../../shared/types";
 import { all, batch, get, run, stmt } from "../../db.d1";
 import type { EntityKey } from "./sync";
+import { mergeUnits } from "../../../shared/uomAdjust";
+import { loadUomAdjustments } from "./uomAdjust";
 import { RECEIPT_LINES, type CostLines } from "./receipts";
 
 interface LineRow {
@@ -123,6 +125,7 @@ export async function applyPurchaseCosts(
     if (list) list.push(row);
     else byCode.set(row.code, [row]);
   }
+  const adj = await loadUomAdjustments(db, entity);
   const changed: PurchaseCostChange[] = [];
   const held: PurchaseCostHold[] = [];
   const skipped: PurchaseCostSkip[] = [];
@@ -133,7 +136,7 @@ export async function applyPurchaseCosts(
     const lines: ReceiptLine[] = rows.map((l) => ({
       receiptId: l.receipt_id, lineId: l.line_id, receiptNo: l.receipt_no, transDate: l.trans_date, unit: l.unit, quantity: l.quantity, unitPrice: l.unit_price,
     }));
-    const item = { baseUom: row.accurate_uom, units: parseUnits(row.units) };
+    const item = { baseUom: row.accurate_uom, units: mergeUnits(parseUnits(row.units), adj.get(row.code)) };
     const r = lastPurchaseCost(lines, item, row.catalog_uom);
     if (r.ok) {
       if (Math.abs(r.cost - row.catalog_cogs) < 0.005) unchanged++;

@@ -51,6 +51,8 @@ const ACTIONS: Record<string, string> = {
   aliases_saved: "Alias disimpan",
   cogs_verified: "COGS diverifikasi",
   cogs_from_purchases: "COGS dari harga beli",
+  uom_adjusted: "Rasio satuan disesuaikan",
+  uom_adjustment_removed: "Penyesuaian rasio satuan dihapus",
   accurate_applied: "Terapkan dari Accurate",
   sync_requested: "Sinkron diminta",
   reconciled: "Cek silang",

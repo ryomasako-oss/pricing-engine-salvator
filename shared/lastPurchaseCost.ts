@@ -37,7 +37,7 @@ export type PurchaseCost =
 const round2 = (x: number) => Math.round(x * 100) / 100;
 
 /** Latest first: date, then the later Accurate record, then the later line. Receipt numbers are not ordered. */
-const newestFirst = (a: ReceiptLine, b: ReceiptLine) =>
+export const newestFirst = (a: ReceiptLine, b: ReceiptLine) =>
   b.transDate.localeCompare(a.transDate) || b.receiptId - a.receiptId || b.lineId - a.lineId;
 
 export function lastPurchaseCost(
