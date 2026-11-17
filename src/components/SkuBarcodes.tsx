@@ -19,6 +19,23 @@ export interface SkuPatch {
   proposals: UnitFactor[];
 }
 
+/** Every SKU of an item: base unit, extra units, proposals, and units that only still have a barcode. */
+function skuRows(item: CatalogItem) {
+  const rows: { uom: string; note: string; pending?: boolean }[] = [
+    { uom: item.uom, note: "satuan dasar" },
+    ...(item.units ?? []).map((u) => ({ uom: u.uom, note: ratioText(u.uom, u.factor, item.uom) })),
+    ...(item.unit_proposals ?? []).map((u) => ({ uom: u.uom, note: ratioText(u.uom, u.factor, item.uom), pending: true })),
+  ];
+  const barcodes = item.barcodes ?? [];
+  // A barcode whose unit has gone (e.g. Accurate dropped the ratio) still shows, so it can be removed.
+  for (const b of barcodes) if (!rows.some((r) => sameUom(r.uom, b.uom))) rows.push({ uom: b.uom, note: "rasio tidak ada" });
+  return rows.map((r) => ({ ...r, saved: barcodes.find((b) => sameUom(b.uom, r.uom)) }));
+}
+
+/**
+ * The table cell: one small badge per unit (green = has a barcode) and a button that opens the item's
+ * card, where the barcodes are filled in. Keeps a catalog row one line high, on a phone too.
+ */
 export function SkuBarcodes({
   item,
   uomOptions,
@@ -30,37 +47,73 @@ export function SkuBarcodes({
   onChange: (patch: SkuPatch) => void;
   onUomAdded: () => void;
 }) {
-  const [adding, setAdding] = useState(false);
-  const units = item.units ?? [];
-  const proposals = item.unit_proposals ?? [];
-  const barcodes = item.barcodes ?? [];
-  const rows: { uom: string; note: string; pending?: boolean }[] = [
-    { uom: item.uom, note: "satuan dasar" },
-    ...units.map((u) => ({ uom: u.uom, note: ratioText(u.uom, u.factor, item.uom) })),
-    ...proposals.map((u) => ({ uom: u.uom, note: ratioText(u.uom, u.factor, item.uom), pending: true })),
-  ];
-  // A barcode whose unit has gone (e.g. Accurate dropped the ratio) still shows, so it can be removed.
-  for (const b of barcodes) if (!rows.some((r) => sameUom(r.uom, b.uom))) rows.push({ uom: b.uom, note: "rasio tidak ada" });
-
+  const [open, setOpen] = useState(false);
+  const rows = skuRows(item);
+  const filled = rows.filter((r) => r.saved).length;
   return (
-    <div className="sku-list">
-      {rows.map((r) => {
-        const saved = barcodes.find((b) => sameUom(b.uom, r.uom));
-        return (
+    <div className="sku-summary">
+      <div className="badge-row">
+        {rows.map((r) => (
+          <span
+            key={r.uom}
+            className={`badge ${r.pending ? "amber" : r.saved ? "green" : "grey"}`}
+            title={r.saved ? `${r.uom}: ${r.saved.barcode}` : r.pending ? `${r.uom}: menunggu persetujuan` : `${r.uom}: belum ada barcode`}
+          >
+            {r.saved && <Icon name="check" size={12} />}
+            {r.uom}
+          </span>
+        ))}
+      </div>
+      <button className="btn small ghost" onClick={() => setOpen(true)} aria-label={`Barcode ${item.name}, ${filled} dari ${rows.length} satuan terisi`}>
+        {filled === rows.length ? "Lihat barcode" : "Isi barcode"} <span className="muted num">{filled}/{rows.length}</span>
+      </button>
+      {open && <SkuCard item={item} uomOptions={uomOptions} onChange={onChange} onUomAdded={onUomAdded} onClose={() => setOpen(false)} />}
+    </div>
+  );
+}
+
+/** One item's card: a compact line per unit (unit and ratio, then its barcode box), and Tambah satuan. */
+function SkuCard({
+  item,
+  uomOptions,
+  onChange,
+  onUomAdded,
+  onClose,
+}: {
+  item: CatalogItem;
+  uomOptions: string[];
+  onChange: (patch: SkuPatch) => void;
+  onUomAdded: () => void;
+  onClose: () => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  return (
+    <Modal
+      title={item.name}
+      sub={`${item.code} · satuan dasar ${item.uom}. Scan lalu Enter untuk lanjut ke satuan berikutnya.`}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn ghost" onClick={() => setAdding(true)}>
+            <Icon name="plus" size={14} /> Tambah satuan
+          </button>
+          <button className="btn" onClick={onClose}>Selesai</button>
+        </>
+      }
+    >
+      <div className="sku-list">
+        {skuRows(item).map((r) => (
           <div key={r.uom} className="sku-row">
             <div className="sku-head">
               <strong>{r.uom}</strong>
               <span className="muted small">{r.note}</span>
               {r.pending && <span className="badge amber">menunggu persetujuan</span>}
-              {saved?.generated && <span className="badge grey">buatan sistem</span>}
+              {r.saved?.generated && <span className="badge grey">buatan sistem</span>}
             </div>
-            <BarcodeCell key={`${r.uom}:${saved?.barcode ?? ""}`} item={item} uom={r.uom} saved={saved?.barcode ?? ""} onChange={onChange} />
+            <BarcodeCell key={`${r.uom}:${r.saved?.barcode ?? ""}`} item={item} uom={r.uom} saved={r.saved?.barcode ?? ""} onChange={onChange} />
           </div>
-        );
-      })}
-      <button className="btn small ghost sku-add" onClick={() => setAdding(true)}>
-        <Icon name="plus" size={14} /> Tambah satuan
-      </button>
+        ))}
+      </div>
       {adding && (
         <AddUnitModal
           item={item}
@@ -73,7 +126,7 @@ export function SkuBarcodes({
           }}
         />
       )}
-    </div>
+    </Modal>
   );
 }
 
@@ -146,58 +199,60 @@ function BarcodeCell({
 
   return (
     <div className="barcode-cell">
-      <input
-        className={`input${error ? " invalid" : changed && next ? " dirty" : ""}`}
-        data-barcode
-        inputMode="numeric"
-        maxLength={64}
-        placeholder="Scan / ketik"
-        aria-label={`Barcode ${item.name} per ${uom}`}
-        aria-invalid={!!error}
-        autoFocus={editing}
-        value={value}
-        readOnly={busy}
-        onChange={(e) => {
-          setValue(e.target.value);
-          setError(null);
-          failed.current = null;
-        }}
-        // A saved barcode being changed waits for Simpan; a first fill saves on leaving the box.
-        onBlur={() => !editing && void save()}
-        onKeyDown={async (e) => {
-          if (e.key === "Escape") return cancel();
-          if (e.key !== "Enter") return;
-          e.preventDefault();
-          const all = [...document.querySelectorAll<HTMLInputElement>("input[data-barcode]")];
-          const after = all[all.indexOf(e.currentTarget) + 1];
-          if ((await save()) && !editing) after?.focus();
-        }}
-      />
-      {/* Buttons go under the box, so the box keeps its full width for long barcodes. */}
-      <div className="barcode-row">
-        {busy ? (
-          <span className="muted small">Menyimpan…</span>
-        ) : (
-          <>
-            {(editing || (changed && next)) && (
-              // mousedown keeps focus in the box, so leaving it does not save a second time.
-              <button className="btn small" disabled={!next || !changed} onMouseDown={(e) => e.preventDefault()} onClick={() => void save()}>
-                Simpan
-              </button>
-            )}
-            {!saved && !next && (
-              <button className="btn small ghost" onClick={() => void generate()} title="Untuk barang yang kemasannya tidak ada barcode">
-                Buat barcode
-              </button>
-            )}
-            {editing && (
-              <>
-                <button className="btn small ghost" onClick={cancel}>Batal</button>
-                <button className="btn small ghost danger" onClick={() => setConfirmDelete(true)}>Hapus barcode</button>
-              </>
-            )}
-          </>
-        )}
+      <div className="barcode-line">
+        <input
+          className={`input${error ? " invalid" : changed && next ? " dirty" : ""}`}
+          data-barcode
+          inputMode="numeric"
+          maxLength={64}
+          placeholder="Scan / ketik"
+          aria-label={`Barcode ${item.name} per ${uom}`}
+          aria-invalid={!!error}
+          autoFocus={editing}
+          value={value}
+          readOnly={busy}
+          onChange={(e) => {
+            setValue(e.target.value);
+            setError(null);
+            failed.current = null;
+          }}
+          // A saved barcode being changed waits for Simpan; a first fill saves on leaving the box.
+          onBlur={() => !editing && void save()}
+          onKeyDown={async (e) => {
+            if (e.key === "Escape") return cancel();
+            if (e.key !== "Enter") return;
+            e.preventDefault();
+            const all = [...document.querySelectorAll<HTMLInputElement>("input[data-barcode]")];
+            const after = all[all.indexOf(e.currentTarget) + 1];
+            if ((await save()) && !editing) after?.focus();
+          }}
+        />
+        {/* Buttons sit beside the box; they wrap under it on a narrow screen. */}
+        <div className="barcode-row">
+          {busy ? (
+            <span className="muted small">Menyimpan…</span>
+          ) : (
+            <>
+              {(editing || (changed && next)) && (
+                // mousedown keeps focus in the box, so leaving it does not save a second time.
+                <button className="btn small" disabled={!next || !changed} onMouseDown={(e) => e.preventDefault()} onClick={() => void save()}>
+                  Simpan
+                </button>
+              )}
+              {!saved && !next && (
+                <button className="btn small ghost" onClick={() => void generate()} title="Untuk barang yang kemasannya tidak ada barcode">
+                  Buat barcode
+                </button>
+              )}
+              {editing && (
+                <>
+                  <button className="btn small ghost" onClick={cancel}>Batal</button>
+                  <button className="btn small ghost danger" onClick={() => setConfirmDelete(true)}>Hapus barcode</button>
+                </>
+              )}
+            </>
+          )}
+        </div>
       </div>
       {error && <div className="text-err small" role="alert">{error}</div>}
       {confirmDelete && (
