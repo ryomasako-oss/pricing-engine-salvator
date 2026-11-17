@@ -12,9 +12,11 @@ import { ItemImageEditor } from "../components/ItemImageEditor";
 import { BulkImageUpload } from "../components/BulkImageUpload";
 import { AccuratePanel } from "../components/AccuratePanel";
 import { PendingItemsPanel } from "../components/PendingItemsPanel";
+import { SkuBarcodes } from "../components/SkuBarcodes";
+import { UnitProposalsPanel } from "../components/UnitProposalsPanel";
 import { fmtDateTime, grp } from "@shared/format";
 import type { CatalogItem, UnitFactor } from "@shared/types";
-import { cleanUnits, sameUom } from "@shared/uom";
+import { cleanUnits, ratioText, sameUom } from "@shared/uom";
 
 /** COGS = harga pembelian terakhir: an import leaves the COGS of purchased items alone (server/worker/routes/catalog.ts). */
 const keptNote = (n = 0) =>
@@ -224,6 +226,7 @@ export function CatalogPage() {
       )}
 
       {can("edit_catalog") && <PendingItemsPanel />}
+      {can("edit_catalog") && <UnitProposalsPanel onReviewed={load} />}
 
       {can("import_catalog") && <AccuratePanel onApplied={load} />}
 
@@ -322,7 +325,7 @@ export function CatalogPage() {
                     <th className="l">Kategori</th>
                     <th className="l">Satuan</th>
                     <th className="l">Rasio</th>
-                    <th className="l">Barcode supplier</th>
+                    <th className="l">Barcode per satuan</th>
                     {seeCosts && sortHead("cogs", "COGS")}
                     {sortHead("list_price", "Harga jual")}
                     {sortHead("stock", "Stok")}
@@ -356,7 +359,7 @@ export function CatalogPage() {
                           <div className="badge-row">
                             {item.units.map((u) => (
                               <span key={u.uom} className="badge grey num">
-                                1 {u.uom} = {grp(u.factor)} {item.uom}
+                                {ratioText(u.uom, u.factor, item.uom)}
                               </span>
                             ))}
                           </div>
@@ -364,8 +367,15 @@ export function CatalogPage() {
                           <span className="muted">—</span>
                         )}
                       </td>
-                      <td className="l" data-label="Barcode supplier">
-                        <BarcodeCell key={`${item.id}:${item.supplier_barcode ?? ""}`} item={item} />
+                      <td className="l" data-label="Barcode per satuan">
+                        <SkuBarcodes
+                          item={item}
+                          uomOptions={uomOptions}
+                          onUomAdded={loadUom}
+                          onChange={(p) =>
+                            setItems((all) => all.map((i) => (i.id === item.id ? { ...i, units: p.units, barcodes: p.barcodes, unit_proposals: p.proposals } : i)))
+                          }
+                        />
                       </td>
                       {seeCosts && (
                         <td className="num" data-label="COGS">
@@ -820,137 +830,6 @@ function UnitsEditor({
           </button>
         )}
       </div>
-    </div>
-  );
-}
-
-/**
- * Barcode from the brand, typed or scanned by warehouse staff (every role may set it).
- * Empty item: the box saves on Enter or on leaving it, and Enter jumps to the next row, so a scanner
- * can go down the list. A saved barcode is locked: Ubah opens it, only Simpan saves the change,
- * and only Hapus (confirmed) removes it, so emptying the box never wipes it.
- */
-function BarcodeCell({ item }: { item: CatalogItem }) {
-  const [saved, setSaved] = useState(item.supplier_barcode ?? "");
-  const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState(saved);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  // The value that failed, so leaving the box again does not resend it.
-  const failed = useRef<string | null>(null);
-  const next = value.trim();
-  const changed = next !== saved;
-
-  const send = async (barcode: string, clear = false): Promise<boolean> => {
-    if (busy) return false;
-    setBusy(true);
-    try {
-      await api.put(`/catalog/${item.id}/barcode`, { barcode, ...(clear && { clear }) });
-      setSaved(barcode);
-      setValue(barcode);
-      setEditing(false);
-      setError(null);
-      failed.current = null;
-      return true;
-    } catch (e) {
-      failed.current = barcode;
-      setError(e instanceof Error ? e.message : "Gagal menyimpan barcode.");
-      return false;
-    } finally {
-      setBusy(false);
-    }
-  };
-  /** Saves a non-empty, changed value; an empty box is never sent as a delete. */
-  const save = () => (next && changed && next !== failed.current ? send(next) : Promise.resolve(false));
-  const cancel = () => {
-    setValue(saved);
-    setEditing(false);
-    setError(null);
-    failed.current = null;
-  };
-
-  if (saved && !editing) {
-    return (
-      <div className="barcode-row">
-        <span className="num grow">{saved}</span>
-        <span className="badge green barcode-ok">
-          <Icon name="check" size={14} />
-          Tersimpan
-        </span>
-        <button className="btn small ghost" onClick={() => setEditing(true)}>Ubah barcode</button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="barcode-cell">
-      <input
-        className={`input${error ? " invalid" : changed && next ? " dirty" : ""}`}
-        data-barcode
-        inputMode="numeric"
-        maxLength={64}
-        placeholder="Scan / ketik"
-        aria-label={`Barcode supplier ${item.name}`}
-        aria-invalid={!!error}
-        autoFocus={editing}
-        value={value}
-        readOnly={busy}
-        onChange={(e) => {
-          setValue(e.target.value);
-          setError(null);
-          failed.current = null;
-        }}
-        // A saved barcode being changed waits for Simpan; a first fill saves on leaving the box.
-        onBlur={() => !editing && void save()}
-        onKeyDown={async (e) => {
-          if (e.key === "Escape") return cancel();
-          if (e.key !== "Enter") return;
-          e.preventDefault();
-          const all = [...document.querySelectorAll<HTMLInputElement>("input[data-barcode]")];
-          const after = all[all.indexOf(e.currentTarget) + 1];
-          if ((await save()) && !editing) after?.focus();
-        }}
-      />
-      {/* Buttons go under the box, so the box keeps its full width for long barcodes. */}
-      {(busy || editing || (changed && next)) && (
-        <div className="barcode-row">
-          {busy ? (
-            <span className="muted small">Menyimpan…</span>
-          ) : (
-            (editing || (changed && next)) && (
-              // mousedown keeps focus in the box, so leaving it does not save a second time.
-              <button className="btn small" disabled={!next || !changed} onMouseDown={(e) => e.preventDefault()} onClick={() => void save()}>
-                Simpan
-              </button>
-            )
-          )}
-          {editing && !busy && (
-            <>
-              <button className="btn small ghost" onClick={cancel}>Batal</button>
-              <button className="btn small ghost danger" onClick={() => setConfirmDelete(true)}>Hapus barcode</button>
-            </>
-          )}
-        </div>
-      )}
-      {error && <div className="text-err small" role="alert">{error}</div>}
-      {confirmDelete && (
-        <ConfirmModal
-          title="Hapus barcode saja?"
-          message={
-            <>
-              Yang dihapus hanya barcode supplier <b className="num">{saved}</b>. Barangnya ({item.code}, {item.name}) tetap ada
-              di katalog beserta harga, stok, dan fotonya.
-            </>
-          }
-          confirmLabel="Ya, hapus barcode"
-          busy={busy}
-          onClose={() => setConfirmDelete(false)}
-          onConfirm={async () => {
-            if (await send("", true)) setConfirmDelete(false);
-          }}
-        />
-      )}
     </div>
   );
 }
