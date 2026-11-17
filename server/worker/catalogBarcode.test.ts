@@ -52,7 +52,10 @@ describe("PUT /catalog/:id/barcode", () => {
   it("never clears a saved barcode by an emptied box: only an explicit delete clears it", async () => {
     const { req, barcodeOf } = setup();
     await req("/1/barcode", "PUT", { barcode: "123" });
-    expect((await req("/1/barcode", "PUT", { barcode: "" })).status).toBe(400);
+    const emptied = await req("/1/barcode", "PUT", { barcode: "" });
+    expect(emptied.status).toBe(400);
+    // Names the button as it is labelled in Katalog.
+    expect(((await emptied.json()) as { error: string }).error).toContain("tombol Hapus barcode");
     expect(barcodeOf(1)).toBe("123");
     expect((await req("/1/barcode", "PUT", { barcode: "", clear: true })).status).toBe(200);
     expect(barcodeOf(1)).toBeNull();
