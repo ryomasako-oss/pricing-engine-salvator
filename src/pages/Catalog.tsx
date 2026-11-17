@@ -826,49 +826,92 @@ function UnitsEditor({
 
 /**
  * Barcode from the brand, typed or scanned by warehouse staff (every role may set it).
- * Saves on Enter or leaving the box; Enter then jumps to the next row, so a scanner can go down the list.
+ * Saves on Enter, on leaving the box, or with the Simpan button; Enter then jumps to the next row,
+ * so a scanner can go down the list. The state stays visible: unsaved, saving, saved (✓), or the error.
  */
 function BarcodeCell({ item }: { item: CatalogItem }) {
-  const toast = useToast();
   const saved = useRef(item.supplier_barcode ?? "");
+  const saving = useRef(false);
   const [value, setValue] = useState(saved.current);
   const [busy, setBusy] = useState(false);
-  const save = async () => {
-    const next = value.trim();
-    if (next === saved.current) return;
+  const [error, setError] = useState<string | null>(null);
+  // The value that failed, so leaving the box again does not resend it.
+  const failed = useRef<string | null>(null);
+  const next = value.trim();
+  const dirty = next !== saved.current;
+
+  const save = async (): Promise<boolean> => {
+    if (!dirty) return true;
+    if (saving.current || next === failed.current) return false;
+    saving.current = true;
     setBusy(true);
     try {
       await api.put(`/catalog/${item.id}/barcode`, { barcode: next });
       saved.current = next;
+      failed.current = null;
       setValue(next);
-      toast(next ? `Barcode ${item.code} tersimpan.` : `Barcode ${item.code} dihapus.`, "success");
+      setError(null);
+      return true;
     } catch (e) {
-      setValue(saved.current);
-      toast(e instanceof Error ? e.message : "Gagal menyimpan barcode.", "error");
+      failed.current = next;
+      setError(e instanceof Error ? e.message : "Gagal menyimpan barcode.");
+      return false;
     } finally {
+      saving.current = false;
       setBusy(false);
     }
   };
+
   return (
-    <input
-      className="input"
-      data-barcode
-      inputMode="numeric"
-      maxLength={64}
-      placeholder="Scan / ketik"
-      aria-label={`Barcode supplier ${item.name}`}
-      value={value}
-      disabled={busy}
-      onChange={(e) => setValue(e.target.value)}
-      onBlur={() => void save()}
-      onKeyDown={(e) => {
-        if (e.key !== "Enter") return;
-        e.preventDefault();
-        const all = [...document.querySelectorAll<HTMLInputElement>("input[data-barcode]")];
-        const nextBox = all[all.indexOf(e.currentTarget) + 1];
-        if (nextBox) nextBox.focus();
-        else e.currentTarget.blur();
-      }}
-    />
+    <div className="barcode-cell">
+      <div className="barcode-row">
+        <input
+          className={`input${error ? " invalid" : dirty ? " dirty" : ""}`}
+          data-barcode
+          inputMode="numeric"
+          maxLength={64}
+          placeholder="Scan / ketik"
+          aria-label={`Barcode supplier ${item.name}`}
+          aria-invalid={!!error}
+          value={value}
+          readOnly={busy}
+          onChange={(e) => {
+            setValue(e.target.value);
+            setError(null);
+            failed.current = null;
+          }}
+          onBlur={() => void save()}
+          onKeyDown={async (e) => {
+            if (e.key === "Escape") {
+              setValue(saved.current);
+              setError(null);
+              return;
+            }
+            if (e.key !== "Enter") return;
+            e.preventDefault();
+            const box = e.currentTarget;
+            if (!(await save())) return;
+            const all = [...document.querySelectorAll<HTMLInputElement>("input[data-barcode]")];
+            const nextBox = all[all.indexOf(box) + 1];
+            if (nextBox) nextBox.focus();
+            else box.blur();
+          }}
+        />
+        {busy ? (
+          <span className="muted small">Menyimpan…</span>
+        ) : dirty && !error ? (
+          // mousedown keeps focus in the box, so blur does not save a second time.
+          <button className="btn small" onMouseDown={(e) => e.preventDefault()} onClick={() => void save()}>
+            Simpan
+          </button>
+        ) : saved.current && !error ? (
+          <span className="badge green barcode-ok">
+            <Icon name="check" size={14} />
+            Tersimpan
+          </span>
+        ) : null}
+      </div>
+      {error && <div className="text-err small" role="alert">{error}</div>}
+    </div>
   );
 }
