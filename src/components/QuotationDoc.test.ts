@@ -27,7 +27,7 @@ describe("QuotationDoc with a client template", () => {
       const h = html(t);
       expect(heads(h)).toEqual(["No", "Item", "Satuan", "Qty", "Harga satuan", "Total per bulan"]);
       expect(h).toContain('<td class="l">Pulpen<div class="muted small">ATK-1</div></td>');
-      expect(h).toContain('<div class="quote-title">Penawaran Harga</div>');
+      expect(h).toContain('Perihal: <strong class="quote-title">Penawaran Harga</strong>');
       expect(h).not.toContain("Merk Standard");
     }
   });

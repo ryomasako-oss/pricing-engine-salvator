@@ -5,6 +5,8 @@ import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { useUnsavedGuard } from "../context/UnsavedGuardContext";
 import { computeEngine, SCENARIOS } from "@shared/engine";
+import { isDraftDoc } from "@shared/docColumns";
+import { useDocSignature } from "../lib/useDocSignature";
 import { evaluatePolicy, isWithinPolicy } from "@shared/policy";
 import { fmtDateTime, pct, rp, uid } from "@shared/format";
 import {
@@ -108,6 +110,7 @@ export function QuoteEditorPage() {
 
   const [detail, setDetail] = useState<QuoteDetail | null>(null);
   const [snapshot, setSnapshot] = useState<QuoteSnapshot | null>(null);
+  const signature = useDocSignature(detail?.quote.id, detail?.quote.status);
   const [policy, setPolicy] = useState<PricingPolicy | null>(null);
   const [company, setCompany] = useState<CompanyInfo | null>(null);
   // PE-2: office password for the "Cek harga" Excel (managers/admins only receive it).
@@ -825,7 +828,9 @@ export function QuoteEditorPage() {
                       clientAddress={clientRecord?.address}
                       template={clientRecord?.doc_template}
                       number={quote.number}
-                      draft={quote.status !== "approved" && quote.status !== "sent" && quote.status !== "won" && quote.status !== "completed"}
+                      draft={isDraftDoc(quote.status)}
+                      signature={signature}
+                      clientContact={clientRecord?.contact_name}
                     />
                   )}
                 </div>
@@ -1004,7 +1009,7 @@ export function QuoteEditorPage() {
                 const { downloadQuotationPdf } = await import("../export/pdf");
                 downloadQuotationPdf({
                   ...exportInput, company, clientAddress: clientRecord?.address,
-                  draft: quote.status !== "approved" && quote.status !== "sent" && quote.status !== "won" && quote.status !== "completed",
+                  draft: isDraftDoc(quote.status), signature, clientContact: clientRecord?.contact_name,
                 });
                 setModal(null);
               }}

@@ -21,6 +21,8 @@ import { TermsBox } from "../components/TermsBox";
 import { UomCell } from "../components/UomCell";
 import { SalesReviewBanner, SalesReviewImport, salesImportMessage, type SalesReviewRecord } from "../components/SalesReview";
 import { WorkflowButtons } from "./QuoteEditor";
+import { isDraftDoc } from "@shared/docColumns";
+import { useDocSignature } from "../lib/useDocSignature";
 import { DEFAULT_ASSUMPTIONS } from "@shared/engine";
 import { grp, pct, rp } from "@shared/format";
 import { missingTerms, missingTermsMessage } from "@shared/terms";
@@ -122,6 +124,7 @@ export function StaffQuotePage() {
   const [detail, setDetail] = useState<Detail | null>(null);
   const [lines, setLines] = useState<StaffLine[]>([]);
   const [meta, setMeta] = useState<QuoteMeta | null>(null);
+  const signature = useDocSignature(detail?.quote.id, detail?.quote.status);
   const [pricing, setPricing] = useState<StaffPricing | null>(null);
   const [dirty, setDirty] = useState(false);
   // Read by async loads: an edit made while a load is in flight must not be overwritten by it.
@@ -308,7 +311,7 @@ export function StaffQuotePage() {
       clientAddress: clientRecord?.address,
       template: clientRecord?.doc_template,
       number: quote.number,
-      draft: !["approved", "sent", "won", "completed"].includes(quote.status),
+      draft: isDraftDoc(quote.status), signature, clientContact: clientRecord?.contact_name,
     });
   };
 
@@ -578,7 +581,9 @@ export function StaffQuotePage() {
               template={clientRecord?.doc_template}
               number={quote.number}
               showInternal={false}
-              draft={!["approved", "sent", "won", "completed"].includes(quote.status)}
+              draft={isDraftDoc(quote.status)}
+              signature={signature}
+              clientContact={clientRecord?.contact_name}
             />
           )}
         </div>

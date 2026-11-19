@@ -9,6 +9,7 @@ import { SearchPrioritySettings } from "../components/SearchPrioritySettings";
 import { fmtDateTime, grp, rp } from "@shared/format";
 import type { PasswordResetRequest, PricingPolicy, Role, User } from "@shared/types";
 import type { CompanyInfo } from "../components/QuotationDoc";
+import { SignatureSettings } from "../components/SignatureSettings";
 
 export function SettingsPage() {
   const { user, can, refreshUser } = useAuth();
@@ -150,6 +151,7 @@ export function SettingsPage() {
     { key: "excel", label: "Password Excel", show: can("manage_company") },
     { key: "notifikasi", label: "Notifikasi", show: true },
     { key: "pencarian", label: "Pencarian", show: can("edit_catalog") },
+    { key: "ttd", label: "Tanda tangan saya", show: true },
     { key: "sandi", label: "Kata sandi saya", show: true },
     { key: "pengguna", label: "Pengguna", show: can("manage_users") },
     { key: "reset", label: "Permintaan reset", show: can("manage_users"), count: resetRequests.length },
@@ -318,6 +320,7 @@ export function SettingsPage() {
                   ["tagline", "Tagline"],
                   ["phone", "Telepon"],
                   ["email", "Email"],
+                  ["city", "Kota surat (mis. Jakarta)"],
                   ["npwp", "NPWP"],
                 ] as const).map(([key, label]) => (
                   <label className="field" key={key}>
@@ -325,7 +328,7 @@ export function SettingsPage() {
                     <input
                       className="input"
                       disabled={readOnlyCompany}
-                      value={company[key]}
+                      value={company[key] ?? ""}
                       onChange={(e) => setCompany({ ...company, [key]: e.target.value })}
                     />
                   </label>
@@ -447,6 +450,8 @@ export function SettingsPage() {
             </section>
           </div>
         )}
+
+        {current === "ttd" && <SignatureSettings />}
 
         {current === "sandi" && (
           <section className="card">

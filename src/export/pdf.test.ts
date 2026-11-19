@@ -12,14 +12,16 @@ const meta: QuoteMeta = {
 };
 const company = { name: "PT Salvator Inti Pratama", brand: "", tagline: "", address: "Jakarta", phone: "", email: "", npwp: "", bank: "" };
 
-function pdfFor(n: number, over: Partial<QuoteMeta> = {}, template?: DocTemplate | null) {
+const DOT = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+
+function pdfFor(n: number, over: Partial<QuoteMeta> = {}, template?: DocTemplate | null, signature?: { name: string; image: string }) {
   const items: QuoteItem[] = Array.from({ length: n }, (_, i) => ({
     id: `i${i}`, lineNo: i + 1, code: `C${i}`, name: `Item nomor ${i + 1}`, uom: "Pcs", qty: 1, cogs: 1000, rrp: 2000, role: "CORE",
     notes: `Catatan ${i + 1}`,
   }));
   return quotationPdf({
     engine: computeEngine(DEFAULT_ASSUMPTIONS, items, DEFAULT_REGIONS), meta: { ...meta, ...over }, assumptions: DEFAULT_ASSUMPTIONS,
-    scenario: 0, company, clientName: "PT Klien", number: "Q-1", draft: false, template,
+    scenario: 0, company, clientName: "PT Klien", number: "Q-1", draft: false, template, signature,
   });
 }
 
@@ -33,6 +35,12 @@ function pagesWith(doc: ReturnType<typeof pdfFor>, text: string): number[] {
   return out;
 }
 
+/** 1-based page numbers whose content stream draws text containing this. */
+function pagesContaining(doc: ReturnType<typeof pdfFor>, text: string): number[] {
+  const pages = (doc.internal as unknown as { pages: (string[] | undefined)[] }).pages;
+  return pages.flatMap((ops, i) => (ops?.some((op) => op.includes(text)) ? [i] : []));
+}
+
 /** Distance from the bottom edge (PDF coordinates) of the first draw of this text. */
 function bottomOffset(doc: ReturnType<typeof pdfFor>, text: string): number {
   const pages = (doc.internal as unknown as { pages: (string[] | undefined)[] }).pages;
@@ -40,6 +48,9 @@ function bottomOffset(doc: ReturnType<typeof pdfFor>, text: string): number {
     const op = ops?.find((o) => o.includes(`(${text})`));
     const m = op && /([\d.]+) (-?[\d.]+) Td\n\(/.exec(op);
     if (m) return Number(m[2]);
+    const partial = ops?.find((o) => o.includes(`(${text}`));
+    const p = partial && /([\d.]+) (-?[\d.]+) Td\n\(/.exec(partial);
+    if (p) return Number(p[2]);
   }
   throw new Error(`"${text}" not drawn`);
 }
@@ -85,9 +96,8 @@ describe("quotation PDF columns", () => {
 describe("quotation PDF", { timeout: 20_000 }, () => {
   it("shows term of payment and warranty", () => {
     const doc = pdfFor(3);
-    expect(pagesWith(doc, "Term of payment")).toEqual([1]);
-    expect(pagesWith(doc, "30 hari setelah invoice")).toEqual([1]);
-    expect(pagesWith(doc, "1 tahun")).toEqual([1]);
+    expect(pagesContaining(doc, "Term of payment: 30 hari setelah invoice")).toEqual([1]);
+    expect(pagesContaining(doc, "Garansi: 1 tahun")).toEqual([1]);
   });
 
   it("keeps the signature block on one page for every table length from 1 to 60 items", () => {
@@ -145,7 +155,7 @@ describe("quotation PDF with a client document template", () => {
     for (const t of [undefined, null]) {
       const d = pdfFor(2, {}, t);
       expect(order(d, STANDARD)).toEqual(STANDARD);
-      expect(pagesWith(d, "PENAWARAN HARGA")).toEqual([1]);
+      expect(pagesWith(d, "Perihal: Penawaran Harga")).toEqual([1]);
       expect(pagesWith(d, "Kode")).toEqual([]);
       expect(pagesWith(d, "Catatan 1")).toEqual([]);
       // The code still sits under the item name.
@@ -166,8 +176,8 @@ describe("quotation PDF with a client document template", () => {
     expect(order(d, ["Kd", "Spesifikasi", "Harga Rp", "Volume", "No.", "Uraian"])).toEqual(
       ["No.", "Uraian", "Volume", "Harga Rp", "Kd", "Spesifikasi"],
     );
-    expect(pagesWith(d, "SURAT PENAWARAN TENDER")).toEqual([1]);
-    expect(pagesWith(d, "PENAWARAN HARGA")).toEqual([]);
+    expect(pagesWith(d, "Perihal: Surat Penawaran Tender")).toEqual([1]);
+    expect(pagesWith(d, "Perihal: Penawaran Harga")).toEqual([]);
     expect(pagesWith(d, "Dengan hormat, bersama ini kami sampaikan penawaran.")).toEqual([1]);
     expect(pagesWith(d, "Demikian penawaran ini kami sampaikan.")).toEqual([1]);
     expect(pagesWith(d, "Catatan 1")).toEqual([1]);
@@ -179,18 +189,32 @@ describe("quotation PDF with a client document template", () => {
     expect(pagesWith(plain, "Subtotal per bulan")).toEqual([]);
   });
 
-  it("wraps a long tender title on the right half, above the client block", () => {
-    const title = "Surat Penawaran Harga Pengadaan Alat Tulis Kantor Tahun Anggaran 2027 Kantor Pusat";
+  it("wraps a long tender title inside the page, below the client block", () => {
+    const title = "Surat Penawaran Harga Pengadaan Alat Tulis Kantor Tahun Anggaran 2027 Kantor Pusat Dan Seluruh Kantor Cabang Di Wilayah Jawa Bali Sumatra Kalimantan Dan Sulawesi Cabang";
     const d = pdfFor(1, {}, { title });
-    expect(pagesWith(d, title.toUpperCase())).toEqual([]);
-    const ops = (d.internal as unknown as { pages: (string[] | undefined)[] }).pages[1]!;
-    const lines = ops.filter((o) => /\((SURAT|[A-Z0-9 ]*PUSAT)/.test(o));
-    expect(lines.length).toBeGreaterThan(1);
-    const W = d.internal.pageSize.getWidth();
-    const at = (o: string) => /([\d.]+) (-?[\d.]+) Td/.exec(o)!.slice(1).map(Number);
-    for (const o of lines) expect(at(o)[0], o).toBeGreaterThan(W / 2 - 5);
-    // PDF y grows upwards: the client block starts below the last title line.
-    const lowestTitle = Math.min(...lines.map((o) => at(o)[1]));
-    expect(bottomOffset(d, "Kepada")).toBeLessThan(lowestTitle - 10);
+    expect(pagesWith(d, `Perihal: ${title}`)).toEqual([]);
+    // Wrapped, not cut: the last words are still drawn, and the first line sits below "Kepada Yth." (PDF y grows upwards).
+    expect(pagesContaining(d, "Sulawesi Cabang")).toEqual([1]);
+    expect(bottomOffset(d, "Perihal: Surat")).toBeLessThan(bottomOffset(d, "Kepada Yth."));
+  });
+});
+
+describe("quotation PDF letter", () => {
+  const images = (d: ReturnType<typeof pdfFor>) =>
+    (d.internal as unknown as { pages: (string[] | undefined)[] }).pages.reduce((n, ops) => n + (ops?.filter((o) => / Do$/m.test(o)).length ?? 0), 0);
+
+  it("draws the logo, and the signature with the signer's name only when one is given", () => {
+    const plain = pdfFor(2);
+    expect(images(plain)).toBe(1);
+    expect(pagesWith(plain, "Sales Satu")).toEqual([1]);
+    const signed = pdfFor(2, {}, undefined, { name: "Ernita", image: DOT });
+    expect(images(signed)).toBe(2);
+    expect(pagesWith(signed, "Ernita")).toEqual([1]);
+  });
+
+  it("puts the letterhead on every page", () => {
+    const d = pdfFor(60);
+    expect(d.getNumberOfPages()).toBeGreaterThan(1);
+    expect(pagesWith(d, "PT Salvator Inti Pratama").length).toBeGreaterThanOrEqual(d.getNumberOfPages());
   });
 });

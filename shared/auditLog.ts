@@ -37,6 +37,7 @@ const ACTIONS: Record<string, string> = {
   logout: "Keluar",
   password_changed: "Ganti kata sandi",
   profile_updated: "Profil diubah",
+  signature_updated: "Tanda tangan diubah",
   telegram_linked: "Telegram ditautkan",
   imported: "Impor",
   cleared: "Dikosongkan",

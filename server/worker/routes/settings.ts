@@ -11,12 +11,14 @@ export const settingsRouter = new Hono<Env>();
 settingsRouter.use(requireAuth);
 
 export const DEFAULT_COMPANY = {
-  name: "PT Salvator Inti Pratama",
-  brand: "PT Salvator Inti Pratama",
-  tagline: "Perlengkapan kantor B2B",
-  address: "Tiang Bendera 3 No. 52-9, Jakarta Barat, DKI Jakarta",
-  phone: "",
-  email: "",
+  // Letterhead of the quotation template (Salvator Quote.xlsx, 2026-11-19).
+  name: "PT. Salvator Inti Pratama",
+  brand: "Salvator Distribution",
+  tagline: "",
+  address: "Jalan Tiang Bendera III No. 52/9 RT/RW 07/005, Kel. Roa Malaka, Kec. Tambora, Jakarta Barat, DKI Jakarta",
+  phone: "Telp/WA 0811 1133 877 · Kantor 021-6905614",
+  email: "PT.Salvatorintipratama@salvator.co.id",
+  city: "Jakarta",
   npwp: "",
   bank: "",
   logo: "",

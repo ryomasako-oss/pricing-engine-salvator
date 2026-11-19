@@ -707,8 +707,12 @@ input[type=checkbox] { accent-color: var(--color-action); width: 17px; height: 1
 .quote-doc { border: 1px solid #DCE2E8; border-radius: var(--radius-md); padding: 22px; background: #fff; color: #1B2530; border-top: 4px solid var(--c); }
 .quote-top { display: flex; justify-content: space-between; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid #DCE2E8; }
 .wordmark { font-weight: 800; font-size: 22px; color: var(--brand); letter-spacing: -.03em; }
-.quote-logo { max-height: 44px; max-width: 220px; object-fit: contain; margin-bottom: 6px; }
-.quote-title { font-weight: 750; font-size: 18px; color: var(--c); text-align: right; }
+.quote-logo { max-height: 72px; max-width: 220px; object-fit: contain; }
+.quote-title { font-weight: 750; }
+.quote-to { display: flex; flex-direction: column; gap: 1px; margin: 13px 0 4px; }
+.quote-notes ul { margin: 4px 0 0; padding-left: 18px; }
+.quote-foot { margin-top: 18px; padding-top: 8px; border-top: 1px solid #DCE2E8; text-align: center; font-size: 11px; color: #667384; }
+.quote-foot strong { color: #1B2530; font-size: 12.5px; }
 .quote-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; background: #F6F8FA; border-radius: var(--radius-md); padding: 11px; margin: 13px 0; }
 .quote-meta div { display: flex; flex-direction: column; }
 .quote-meta span { font-size: 11px; color: #667384; }
@@ -720,6 +724,7 @@ input[type=checkbox] { accent-color: var(--color-action); width: 17px; height: 1
 .quote-sign > div { display: flex; flex-direction: column; font-size: 12.5px; }
 .quote-sign span { color: #667384; font-size: 11.5px; }
 .quote-sign .sign-space { height: 72px; }
+.quote-sign .sign-image { height: 72px; width: auto; max-width: 200px; object-fit: contain; object-position: left; }
 .quote-sign .sign-name, .quote-sign .sign-date { border-top: 1px solid #1B2530; padding-top: 4px; min-height: 18px; }
 .quote-sign .sign-date { border-top: 0; color: #667384; }
 .internal { margin-top: 12px; background: #FEF3F2; border: 1px solid #F1C6C0; color: #7A271A; border-radius: var(--radius-md); padding: 9px 11px; font-size: 12px; }

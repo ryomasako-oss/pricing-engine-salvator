@@ -30,6 +30,7 @@ import {
   saveRevision,
 } from "../quoteService";
 import { isWithinPolicy } from "../../../shared/policy";
+import { isDraftDoc } from "../../../shared/docColumns";
 import { defaultPayment, missingTerms, missingTermsMessage } from "../../../shared/terms";
 import { ALL_HELD, applyHolds, recostCodes } from "../../cogsCheck";
 import {
@@ -215,6 +216,16 @@ quotesRouter.get("/:id", async (c) => {
     policy: policyForViewer(user.role, await breachesFor(c.env.DB, quote)),
     canEdit: canEdit(user, quote.created_by, quote.assigned_to) && EDITABLE_STATUSES.includes(quote.status),
   });
+});
+
+/* The signature printed on the customer letter: the quote's creator's, and only
+   once the quote is final, so a draft can never go out signed (2026-11-19). */
+quotesRouter.get("/:id/signature", async (c) => {
+  const quote = await findQuote(c.env.DB, Number(c.req.param("id")));
+  if (!quote) return c.json({ error: "Quotation tidak ditemukan." }, 404);
+  const signer = await get<{ name: string; signature: string }>(c.env.DB, "SELECT name, signature FROM users WHERE id = ?", quote.created_by);
+  const final = !isDraftDoc(quote.status);
+  return c.json({ name: signer?.name ?? "", signature: final ? signer?.signature ?? "" : "" });
 });
 
 quotesRouter.post("/", async (c) => {

@@ -5,9 +5,9 @@
 import { SCENARIOS } from "@shared/engine";
 import { fmtDate, grp, pct, rp } from "@shared/format";
 import type { Assumptions, ComputedRow, DocColumnKey, DocTemplate, EngineResult, QuoteMeta, ScenarioIndex } from "@shared/types";
-import { paymentLabel, warrantyLabel } from "@shared/terms";
 import { heldNote, offeredRows } from "@shared/holds";
-import { docCell, docLayout, docTotals } from "@shared/docColumns";
+import { docCell, docLayout, docNotes, docTotals } from "@shared/docColumns";
+import { DEFAULT_LOGO } from "../assets/defaultLogo";
 
 /** Cell alignment per column, by key so a client template can reorder them. */
 const ALIGN: Record<DocColumnKey, string> = {
@@ -23,7 +23,15 @@ export interface CompanyInfo {
   email: string;
   npwp: string;
   bank: string;
+  /** Where the letter is written from; "Jakarta" when unset. */
+  city?: string;
   logo?: string;
+}
+
+/** The preparer's signature, printed only on a final quote (GET /api/quotes/:id/signature). */
+export interface DocSignature {
+  name: string;
+  image: string;
 }
 
 interface Props {
@@ -34,6 +42,9 @@ interface Props {
   company: CompanyInfo;
   clientName: string;
   clientAddress?: string;
+  /** "Up:" line, the client's contact person. */
+  clientContact?: string;
+  signature?: DocSignature | null;
   /** The client's document template (shared/docColumns.ts); absent shows the standard document. */
   template?: DocTemplate | null;
   number: string;
@@ -49,6 +60,8 @@ export function QuotationDoc({
   company,
   clientName,
   clientAddress,
+  clientContact,
+  signature,
   template,
   number,
   showInternal = true,
@@ -63,75 +76,29 @@ export function QuotationDoc({
   };
   const s = engine.scen[scenario];
   const sc = SCENARIOS[scenario];
-  const validUntil = new Date(
-    new Date(meta.date).getTime() + (meta.validity || 30) * 86400000,
-  );
+  const logo = company.logo || DEFAULT_LOGO;
+  const following = heldNote(engine.rows);
 
   return (
     <div className="quote-doc print-area" style={{ ["--c" as string]: `var(--s${scenario + 1})` }}>
       <div className="quote-top">
-        <div>
-          {company.logo ? (
-            <img src={company.logo} alt={company.brand} className="quote-logo" />
-          ) : (
-            <div className="wordmark">{company.brand}</div>
-          )}
-          <div className="muted small">
-            {company.name}
-            {company.tagline ? `, ${company.tagline}` : ""}
-          </div>
-          {company.address && <div className="muted small">{company.address}</div>}
-          {(company.phone || company.email) && (
-            <div className="muted small">
-              {[company.phone, company.email].filter(Boolean).join(" · ")}
-            </div>
-          )}
-        </div>
-        <div>
-          <div className="quote-title">{layout.title}</div>
-          {draft && (
-            <div className="small right" style={{ color: "var(--doc-err)", fontWeight: 600 }}>
-              Draft — belum disetujui
-            </div>
-          )}
+        <img src={logo} alt={company.brand} className="quote-logo" />
+        <div className="right small">
+          <div>{company.city || "Jakarta"}, {fmtDate(meta.date)}</div>
+          <div>No. <strong>{number || meta.quoteNo}</strong></div>
+          {draft && <div style={{ color: "var(--doc-err)", fontWeight: 600 }}>Draft — belum disetujui</div>}
         </div>
       </div>
 
-      <div className="quote-meta">
-        <div>
-          <span>Kepada</span>
-          <strong>{clientName}</strong>
-          {clientAddress && <span>{clientAddress}</span>}
-        </div>
-        <div>
-          <span>Nomor</span>
-          <strong>{number || meta.quoteNo}</strong>
-        </div>
-        <div>
-          <span>Tanggal</span>
-          <strong>{fmtDate(meta.date)}</strong>
-        </div>
-        <div>
-          <span>Berlaku sampai</span>
-          <strong>{fmtDate(validUntil)}</strong>
-        </div>
-        <div>
-          <span>Term of payment</span>
-          <strong>{paymentLabel(meta) || "—"}</strong>
-        </div>
-        <div>
-          <span>Garansi</span>
-          <strong>{warrantyLabel(meta) || "—"}</strong>
-        </div>
-        {meta.preparedBy && (
-          <div>
-            <span>Disiapkan oleh</span>
-            <strong>{meta.preparedBy}</strong>
-          </div>
-        )}
+      <div className="quote-to small">
+        <strong>Kepada Yth.</strong>
+        <div>{clientName}</div>
+        {clientContact && <div>Up: {clientContact}</div>}
+        {clientAddress && <div className="muted">{clientAddress}</div>}
       </div>
 
-      {layout.opening && <p className="small pre-line">{layout.opening}</p>}
+      <p className="small">Perihal: <strong className="quote-title">{layout.title}</strong></p>
+      <p className="small pre-line">{layout.opening}</p>
 
       <div className="table-wrap">
         <table className="table">
@@ -163,23 +130,27 @@ export function QuotationDoc({
         </div>
       )}
 
-      <p className="small muted">
-        Harga dalam Rupiah per satuan dan belum termasuk PPN.
-        Pengiriman {meta.delivery}. Penawaran berlaku {meta.validity} hari sejak tanggal di atas.
-        {company.bank ? ` Pembayaran ke ${company.bank}.` : ""}
-        {company.npwp ? ` NPWP ${company.npwp}.` : ""}
-      </p>
-      {meta.notes && <p className="small">{meta.notes}</p>}
-      {heldNote(engine.rows) && <p className="small"><strong>Item menyusul:</strong> {heldNote(engine.rows)}</p>}
-      {layout.closing && <p className="small pre-line">{layout.closing}</p>}
+      <div className="quote-notes small">
+        <strong>Note:</strong>
+        <ul>
+          {docNotes(meta, company).map((l) => <li key={l}>{l}</li>)}
+          {following && <li>Item menyusul: {following}</li>}
+          {meta.notes && <li className="pre-line">{meta.notes}</li>}
+        </ul>
+      </div>
+      <p className="small pre-line">{layout.closing}</p>
 
       {/* Meeting 2026-10-05: room for a wet or digital signature on both sides. */}
       <div className="quote-sign">
         <div>
           <span>Hormat kami,</span>
           <strong>{company.name}</strong>
-          <div className="sign-space" aria-label="Tempat tanda tangan dan cap perusahaan" />
-          <div className="sign-name">{meta.preparedBy || "Nama"}</div>
+          {signature?.image ? (
+            <img className="sign-image" src={signature.image} alt={`Tanda tangan ${signature.name}`} />
+          ) : (
+            <div className="sign-space" aria-label="Tempat tanda tangan dan cap perusahaan" />
+          )}
+          <div className="sign-name">{signature?.name || meta.preparedBy || "Nama"}</div>
         </div>
         <div>
           <span>Disetujui oleh,</span>
@@ -188,6 +159,12 @@ export function QuotationDoc({
           <div className="sign-name">Nama &amp; jabatan:</div>
           <div className="sign-date">Tanggal:</div>
         </div>
+      </div>
+
+      <div className="quote-foot">
+        <strong>{company.name}</strong>
+        {company.address && <div>{company.address}</div>}
+        {(company.email || company.phone) && <div>{[company.email, company.phone].filter(Boolean).join(" · ")}</div>}
       </div>
 
       {showInternal && (
