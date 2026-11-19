@@ -109,12 +109,16 @@ export function CatalogDraftsPage() {
       toast(e instanceof Error ? e.message : "Gagal.", "error");
     }
   };
-  const toggle = (id: number) =>
+  /** Pick or unpick every change of one item at once. */
+  const toggle = (ids: number[]) =>
     setPicked((s) => {
       const n = new Set(s);
-      if (!n.delete(id)) n.add(id);
+      const all = ids.every((id) => n.has(id));
+      for (const id of ids) all ? n.delete(id) : n.add(id);
       return n;
     });
+  // One card per item: barcode, satuan and Ubah barang of the same barang sit together.
+  const cards = [...rows.reduce((m, r) => m.set(r.code, [...(m.get(r.code) ?? []), r]), new Map<string, DraftRow[]>()).values()];
 
   return (
     <main className="hk-main page-stack">
@@ -167,44 +171,68 @@ export function CatalogDraftsPage() {
           </div>
         ) : (
           <ul className="fix-list">
-            {rows.map((r) => (
-              <li key={r.id} className="fix-row">
-                <div className="fix-main">
-                  <div className="badge-row">
-                    {reviewer && status === "pending" && (
-                      <input type="checkbox" checked={picked.has(r.id)} onChange={() => toggle(r.id)} aria-label={`Pilih draf ${r.code} ${r.uom}`} />
-                    )}
-                    <span className="badge amber">{KIND_LABEL[r.kind]}</span>
-                    {r.status !== "pending" && <span className={`badge ${STATUS[r.status][0]}`}>{STATUS[r.status][1]}</span>}
-                  </div>
-                  <strong className="fix-item">
-                    {r.name ?? "(barang tidak ada lagi)"} <span className="muted num">· {r.code}</span>
-                  </strong>
-                  {draftChanges(r.kind, r.uom, r.payload, r.before).map((line) => (
-                    <div key={line} className="num">{line}</div>
-                  ))}
-                  <div className="muted small">
-                    {r.created_by_name}, {fmtDateTime(r.created_at)}
-                    {r.reviewed_at && r.status !== "cancelled" && (
-                      <> · {STATUS[r.status as "approved"][1]} oleh {r.reviewed_by_name}, {fmtDateTime(r.reviewed_at)}</>
-                    )}
-                  </div>
-                  {r.note && <div className="fix-done"><em>{r.note}</em></div>}
-                </div>
-                {status === "pending" && (
-                  <div className="fix-actions">
-                    {reviewer ? (
-                      <>
-                        <button className="btn small primary" disabled={busy} onClick={() => void approve([r.id])}>ACC</button>
-                        <button className="btn small ghost danger" disabled={busy} onClick={() => setRejecting(r)}>Tolak</button>
-                      </>
-                    ) : (
-                      <button className="btn small ghost" onClick={() => void cancel(r.id)}>Batalkan</button>
+            {cards.map((group) => {
+              const ids = group.map((r) => r.id);
+              const pending = reviewer && status === "pending";
+              return (
+                <li key={group[0].code} className="fix-row draft-card">
+                  <div className="draft-head">
+                    <strong className="fix-item">
+                      {pending && (
+                        <input
+                          type="checkbox"
+                          checked={ids.every((id) => picked.has(id))}
+                          onChange={() => toggle(ids)}
+                          aria-label={`Pilih semua draf ${group[0].code}`}
+                        />
+                      )}
+                      <span>
+                        {group[0].name ?? "(barang tidak ada lagi)"} <span className="muted num">· {group[0].code}</span>
+                      </span>
+                    </strong>
+                    {pending && group.length > 1 && (
+                      <button className="btn small primary" disabled={busy} onClick={() => void approve(ids)}>
+                        ACC semua ({grp(group.length)})
+                      </button>
                     )}
                   </div>
-                )}
-              </li>
-            ))}
+                  <ul className="draft-changes">
+                    {group.map((r) => (
+                      <li key={r.id} className="draft-change">
+                        <div className="fix-main">
+                          <div className="badge-row">
+                            <span className="badge amber">{KIND_LABEL[r.kind]}</span>
+                            {r.status !== "pending" && <span className={`badge ${STATUS[r.status][0]}`}>{STATUS[r.status][1]}</span>}
+                          </div>
+                          {draftChanges(r.kind, r.uom, r.payload, r.before).map((line) => (
+                            <div key={line} className="num">{line}</div>
+                          ))}
+                          <div className="muted small">
+                            {r.created_by_name}, {fmtDateTime(r.created_at)}
+                            {r.reviewed_at && r.status !== "cancelled" && (
+                              <> · {STATUS[r.status as "approved"][1]} oleh {r.reviewed_by_name}, {fmtDateTime(r.reviewed_at)}</>
+                            )}
+                          </div>
+                          {r.note && <div className="fix-done"><em>{r.note}</em></div>}
+                        </div>
+                        {status === "pending" && (
+                          <div className="fix-actions">
+                            {reviewer ? (
+                              <>
+                                <button className="btn small primary" disabled={busy} onClick={() => void approve([r.id])}>ACC</button>
+                                <button className="btn small ghost danger" disabled={busy} onClick={() => setRejecting(r)}>Tolak</button>
+                              </>
+                            ) : (
+                              <button className="btn small ghost" onClick={() => void cancel(r.id)}>Batalkan</button>
+                            )}
+                          </div>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>

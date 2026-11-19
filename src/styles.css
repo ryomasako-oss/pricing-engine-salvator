@@ -667,9 +667,15 @@ input[type=checkbox] { accent-color: var(--color-action); width: 17px; height: 1
 .fix-done { display: flex; gap: var(--space-3); align-items: flex-start; }
 .fix-done > svg { flex: none; margin-top: 2px; color: var(--color-ok-text); }
 .fix-actions { display: flex; gap: var(--space-3); flex-wrap: wrap; justify-content: flex-end; flex-shrink: 0; }
+.draft-card { flex-direction: column; align-items: stretch; gap: var(--space-3); }
+.draft-head { display: flex; gap: var(--space-3); justify-content: space-between; align-items: flex-start; flex-wrap: wrap; }
+.draft-head .fix-item { display: flex; gap: var(--space-3); align-items: flex-start; }
+.draft-changes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-3); }
+.draft-change { display: flex; gap: var(--space-5); justify-content: space-between; align-items: flex-start; padding-top: var(--space-3); border-top: 1px solid var(--color-border); }
 .toolbar .chips { margin-top: 0; }
 @media (max-width: 671px) {
   .fix-row { flex-direction: column; }
+  .draft-change { flex-direction: column; }
   .fix-actions { justify-content: flex-start; }
 }
 .composer { display: flex; align-items: flex-end; gap: 8px; border-top: 1px solid var(--color-border); padding: 10px; }
