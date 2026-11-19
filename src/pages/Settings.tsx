@@ -579,6 +579,7 @@ export function SettingsPage() {
                           }}
                         >
                           <option value="rep">Sales</option>
+                          <option value="gudang">Admin Gudang</option>
                           <option value="manager">Manajer</option>
                           <option value="admin">Admin</option>
                         </select>
@@ -772,6 +773,7 @@ function NewUserModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
             onChange={(e) => setForm({ ...form, role: e.target.value as Role })}
           >
             <option value="rep">Sales: membuat dan mengajukan quotation sendiri</option>
+            <option value="gudang">Admin Gudang: merapikan satuan dan barcode di Katalog lewat draf yang di-ACC admin</option>
             <option value="manager">Manajer: menyetujui dan melihat semua quotation</option>
             <option value="admin">Admin: mengatur kebijakan dan pengguna</option>
           </select>

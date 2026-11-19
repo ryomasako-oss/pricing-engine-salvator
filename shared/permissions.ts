@@ -21,7 +21,11 @@ export type Permission =
   /** See COGS, landed cost and margin, and set them (PE-1, meeting 2026-10-05 #4). */
   | "view_costs"
   /** Create a quote from a client's list with some matches still unconfirmed, and fix them in the editor. */
-  | "skip_match_review";
+  | "skip_match_review"
+  /** Admin Gudang: catalog fixes (edit, units, barcodes) are saved as drafts, not applied. */
+  | "draft_catalog"
+  /** ACC or reject those drafts (Draf Perbaikan Divisi Gudang). Admin only (owner, 2026-11-19). */
+  | "review_catalog_drafts";
 
 /** Reproduces today's rank-based access exactly: admin inherits manager. */
 const MANAGER_PERMISSIONS: Permission[] = [
@@ -37,6 +41,7 @@ const MANAGER_PERMISSIONS: Permission[] = [
 
 export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   rep: [],
+  gudang: ["draft_catalog"],
   manager: MANAGER_PERMISSIONS,
   admin: [
     ...MANAGER_PERMISSIONS,
@@ -45,6 +50,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "manage_company",
     "delete_catalog",
     "delete_quotes",
+    "review_catalog_drafts",
   ],
 };
 

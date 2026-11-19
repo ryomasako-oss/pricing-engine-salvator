@@ -46,8 +46,15 @@ describe("permissions", () => {
         "manage_company",
         "delete_catalog",
         "delete_quotes",
+        "review_catalog_drafts",
       ]),
     );
+  });
+
+  it("Admin Gudang only drafts catalog fixes, sees no costs, and only admins ACC drafts", () => {
+    expect(ROLE_PERMISSIONS.gudang).toEqual(["draft_catalog"]);
+    expect(rolesWith("review_catalog_drafts")).toEqual(["admin"]);
+    expect(rolesWith("draft_catalog")).toEqual(["gudang"]);
   });
 
   it("rolesWith returns only roles carrying that permission", () => {
@@ -57,7 +64,7 @@ describe("permissions", () => {
   });
 
   it("every role/permission pair matches ROLE_PERMISSIONS", () => {
-    const roles: Role[] = ["rep", "manager", "admin"];
+    const roles: Role[] = ["rep", "gudang", "manager", "admin"];
     for (const role of roles) {
       for (const permission of ["manage_users", "manage_policy", "manage_company", "import_catalog",
         "edit_catalog", "delete_catalog", "delete_clients", "decide_quotes", "edit_all_quotes",

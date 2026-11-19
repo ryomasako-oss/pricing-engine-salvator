@@ -9,7 +9,7 @@ import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { Icon } from "./Icon";
 import { ConfirmModal, Modal } from "./Modal";
-import type { CatalogItem, UnitBarcode, UnitFactor } from "@shared/types";
+import type { CatalogDraftMark, CatalogItem, UnitBarcode, UnitFactor } from "@shared/types";
 import { ratioText, sameUom } from "@shared/uom";
 
 /** What the server answers after a change to one item's units or barcodes. */
@@ -17,25 +17,40 @@ export interface SkuPatch {
   units: UnitFactor[];
   barcodes: UnitBarcode[];
   proposals: UnitFactor[];
+  /** Admin Gudang drafts waiting for an admin's ACC. */
+  drafts: CatalogDraftMark[];
 }
+
+/** What a waiting barcode draft asks for, as the SKU card shows it. */
+const draftText = (d: CatalogDraftMark) =>
+  d.payload.generate ? "buatkan barcode" : typeof d.payload.barcode === "string" ? d.payload.barcode : "hapus barcode";
 
 /** Every SKU of an item: base unit, extra units, proposals, and units that only still have a barcode. */
 function skuRows(item: CatalogItem) {
-  const rows: { uom: string; note: string; pending?: boolean }[] = [
+  const rows: { uom: string; note: string; pending?: boolean; drafted?: CatalogDraftMark }[] = [
     { uom: item.uom, note: "satuan dasar" },
     ...(item.units ?? []).map((u) => ({ uom: u.uom, note: ratioText(u.uom, u.factor, item.uom) })),
     ...(item.unit_proposals ?? []).map((u) => ({ uom: u.uom, note: ratioText(u.uom, u.factor, item.uom), pending: true })),
+    // A unit drafted by an Admin Gudang: not a unit yet, so no barcode box until the ACC.
+    ...(item.drafts ?? [])
+      .filter((d) => d.kind === "unit")
+      .map((d) => ({ uom: d.uom, note: ratioText(d.uom, Number(d.payload.factor), item.uom), drafted: d })),
   ];
   const barcodes = item.barcodes ?? [];
   // A barcode whose unit has gone (e.g. Accurate dropped the ratio) still shows, so it can be removed.
   for (const b of barcodes) if (!rows.some((r) => sameUom(r.uom, b.uom))) rows.push({ uom: b.uom, note: "rasio tidak ada" });
-  return rows.map((r) => ({ ...r, saved: barcodes.find((b) => sameUom(b.uom, r.uom)) }));
+  return rows.map((r) => ({
+    ...r,
+    saved: barcodes.find((b) => sameUom(b.uom, r.uom)),
+    draft: (item.drafts ?? []).find((d) => d.kind === "barcode" && sameUom(d.uom, r.uom)),
+  }));
 }
 
 /** "2/4": units with a barcode out of all units, for the row's expand button. */
 export function skuProgress(item: CatalogItem): { filled: number; total: number } {
   const rows = skuRows(item);
-  return { filled: rows.filter((r) => r.saved).length, total: rows.length };
+  const real = rows.filter((r) => !r.drafted);
+  return { filled: real.filter((r) => r.saved).length, total: real.length };
 }
 
 /**
@@ -70,9 +85,19 @@ export function SkuPanel({
               <strong>{r.uom}</strong>
               <span className="muted small">{r.note}</span>
               {r.pending && <span className="badge amber">menunggu persetujuan</span>}
+              {r.drafted && <span className="badge amber">draf menunggu ACC</span>}
               {r.saved?.generated && <span className="badge grey">buatan sistem</span>}
             </div>
-            <BarcodeCell key={`${r.uom}:${r.saved?.barcode ?? ""}`} item={item} uom={r.uom} saved={r.saved?.barcode ?? ""} onChange={onChange} />
+            {r.draft && (
+              <div className="muted small">
+                Draf: <b className="num">{draftText(r.draft)}</b> <span className="badge amber">menunggu ACC</span>
+              </div>
+            )}
+            {r.drafted ? (
+              typeof r.drafted.payload.barcode === "string" && <div className="muted small num">Barcode draf: {r.drafted.payload.barcode}</div>
+            ) : (
+              <BarcodeCell key={`${r.uom}:${r.saved?.barcode ?? ""}:${r.draft?.id ?? ""}`} item={item} uom={r.uom} saved={r.saved?.barcode ?? ""} onChange={onChange} />
+            )}
           </div>
         ))}
       </div>
@@ -251,7 +276,9 @@ function AddUnitModal({
   onAdded: (patch: SkuPatch) => void;
 }) {
   const toast = useToast();
-  const direct = useAuth().can("edit_catalog");
+  const { can } = useAuth();
+  const direct = can("edit_catalog");
+  const drafting = can("draft_catalog") && !direct;
   const [smaller, setSmaller] = useState(false);
   const [uom, setUom] = useState("");
   const [count, setCount] = useState("");
@@ -276,9 +303,14 @@ function AddUnitModal({
         ...(barcode.trim() ? { barcode: barcode.trim() } : generate ? { generate: true } : {}),
       });
       // The server may have used the list's spelling ("pcs" -> "Pcs").
-      const added = [...patch.units, ...patch.proposals].find((u) => sameUom(u.uom, uom.trim()))?.uom ?? uom.trim();
+      const added =
+        [...patch.units, ...patch.proposals, ...patch.drafts].find((u) => sameUom(u.uom, uom.trim()))?.uom ?? uom.trim();
       toast(
-        direct ? `Satuan ${added} ditambahkan.` : `Satuan ${added} diusulkan. Quotation baru memakainya setelah disetujui manager.`,
+        direct
+          ? `Satuan ${added} ditambahkan.`
+          : drafting
+            ? `Satuan ${added} masuk draf, menunggu ACC admin.`
+            : `Satuan ${added} diusulkan. Quotation baru memakainya setelah disetujui manager.`,
         "success",
       );
       onAdded(patch);
@@ -370,7 +402,9 @@ function AddUnitModal({
         <p className="muted small">
           {direct
             ? "Satuan ini langsung dipakai quotation. "
-            : "Satuan ini diperiksa manager dulu. Sebelum disetujui, quotation tetap memakai satuan dari Accurate. "}
+            : drafting
+              ? "Satuan ini masuk Draf Perbaikan Divisi Gudang dan baru dipakai setelah di-ACC admin. "
+              : "Satuan ini diperiksa manager dulu. Sebelum disetujui, quotation tetap memakai satuan dari Accurate. "}
           Data ini tidak dikirim ke Accurate.
         </p>
         {error && <div className="text-err small" role="alert">{error}</div>}

@@ -1,6 +1,6 @@
 import { all, get } from "../db.d1";
 import { chunks } from "../sqlParams";
-import type { UnitBarcode, UnitFactor } from "../../shared/types";
+import type { CatalogDraftMark, UnitBarcode, UnitFactor } from "../../shared/types";
 
 /* Barcode per SKU (item code + unit). Table: migrations/0039_unit_barcodes.sql. */
 
@@ -73,6 +73,24 @@ export async function proposalsByCode(db: D1Database, codes: string[]): Promise<
     for (const r of rows) {
       if (!map.has(r.code)) map.set(r.code, []);
       map.get(r.code)!.push({ uom: r.uom, factor: r.factor });
+    }
+  }
+  return map;
+}
+
+/** Admin Gudang drafts waiting for an admin's ACC, per item code (migrations/0043_catalog_drafts.sql). */
+export async function draftsByCode(db: D1Database, codes: string[]): Promise<Map<string, CatalogDraftMark[]>> {
+  const map = new Map<string, CatalogDraftMark[]>();
+  for (const chunk of chunks(codes, 90)) {
+    const rows = await all<{ id: number; code: string; kind: CatalogDraftMark["kind"]; uom: string; payload: string }>(
+      db,
+      `SELECT id, code, kind, uom, payload FROM catalog_drafts
+        WHERE status = 'pending' AND code IN (${chunk.map(() => "?").join(",")}) ORDER BY id`,
+      ...chunk,
+    );
+    for (const r of rows) {
+      if (!map.has(r.code)) map.set(r.code, []);
+      map.get(r.code)!.push({ id: r.id, kind: r.kind, uom: r.uom, payload: JSON.parse(r.payload) });
     }
   }
   return map;
