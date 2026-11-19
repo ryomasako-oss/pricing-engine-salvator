@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DOC_COLUMN_KEYS, docCell, docColumns, docLayout, docTotals } from "./docColumns";
+import { DEFAULT_DOC_CLOSING, DEFAULT_DOC_OPENING, DOC_COLUMN_KEYS, docCell, docColumns, docLayout, docNotes, docTotals } from "./docColumns";
 import type { ComputedRow, DocTemplate } from "./types";
 
 describe("docColumns", () => {
@@ -61,7 +61,7 @@ describe("docLayout: client document template", () => {
     for (const t of [undefined, null, {}]) {
       const print = docLayout({}, t, "print");
       expect(keys(print)).toEqual(["no:No", "name:Item", "uom:Satuan", "qty:Qty", "price:Harga satuan", "total:Total per bulan"]);
-      expect(print).toMatchObject({ totals: true, title: "Penawaran Harga", opening: "", closing: "", codeUnderName: true });
+      expect(print).toMatchObject({ totals: true, title: "Penawaran Harga", opening: DEFAULT_DOC_OPENING, closing: DEFAULT_DOC_CLOSING, codeUnderName: true });
       const sheet = docLayout({}, t, "sheet");
       expect(keys(sheet)).toEqual(["no:No", "code:Kode", "name:Item", "uom:Satuan", "qty:Qty", "price:Harga satuan", "total:Total per bulan"]);
       expect(sheet.codeUnderName).toBe(false);

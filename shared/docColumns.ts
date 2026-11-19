@@ -8,9 +8,14 @@
    three cannot drift. The quote's own options can only hide more: hideQty and
    hideLineTotal still drop those columns (and the totals) from a template. */
 
-import { pct } from "./format";
+import { fmtDate, pct } from "./format";
+import { paymentLabel, warrantyLabel } from "./terms";
 import { shownCode } from "./pendingItems";
-import type { Assumptions, ComputedRow, DocColumnKey, DocTemplate, QuoteMeta, ScenarioResult, TotalRowKey } from "./types";
+import type { Assumptions, ComputedRow, DocColumnKey, DocTemplate, QuoteMeta, QuoteStatus, ScenarioResult, TotalRowKey } from "./types";
+
+/** Statuses whose customer document is final: no "Draft" mark, and the preparer's signature is printed. */
+export const FINAL_DOC_STATUSES: readonly QuoteStatus[] = ["approved", "sent", "won", "completed"];
+export const isDraftDoc = (status: QuoteStatus): boolean => !FINAL_DOC_STATUSES.includes(status);
 
 export interface DocColumns {
   qty: boolean;
@@ -37,6 +42,30 @@ export const DOC_COLUMN_LABELS: Record<DocColumnKey, string> = {
 };
 export const DOC_COLUMN_KEYS = Object.keys(DOC_COLUMN_LABELS) as DocColumnKey[];
 export const DEFAULT_DOC_TITLE = "Penawaran Harga";
+/* The letter around the table, from the company quotation template (Salvator Quote.xlsx, 2026-11-19).
+   A client template's own opening/closing replaces these. */
+export const DEFAULT_DOC_OPENING =
+  "Dengan hormat,\nBerikut penawaran harga list item dari kami dengan tipe dan merk yang sesuai permintaan sebagai berikut:";
+export const DEFAULT_DOC_CLOSING =
+  "Demikian surat penawaran ini. Mohon Bapak/Ibu dapat segera menginformasikan kepada kami, agar segera dapat kami tindak lanjuti.";
+
+/** The "Note" lines under the table, built from the quote's own terms (never one client's fixed wording). */
+export function docNotes(
+  meta: Pick<QuoteMeta, "date" | "validity" | "delivery" | "payment" | "paymentDays" | "warrantyYears" | "warrantyNote">,
+  company: { bank?: string; npwp?: string },
+): string[] {
+  const validity = meta.validity || 30;
+  const until = new Date(new Date(meta.date).getTime() + validity * 86400000);
+  return [
+    "Harga dalam Rupiah per satuan, belum termasuk PPN.",
+    paymentLabel(meta) && `Term of payment: ${paymentLabel(meta)}.`,
+    meta.delivery && `Pengiriman: ${meta.delivery}.`,
+    warrantyLabel(meta) && `Garansi: ${warrantyLabel(meta)}.`,
+    `Penawaran berlaku ${validity} hari, sampai ${fmtDate(until)}.`,
+    company.bank && `Pembayaran ke ${company.bank}.`,
+    company.npwp && `NPWP ${company.npwp}.`,
+  ].filter((l): l is string => Boolean(l));
+}
 
 /* The standard tables, as they printed before templates: the PDF and the
    preview put the code under the item name, the Excel sheet in its own column. */
@@ -79,8 +108,8 @@ export function docLayout(
     totals: totalRows.length > 0,
     totalRows,
     title: t.title?.trim() || DEFAULT_DOC_TITLE,
-    opening: t.opening?.trim() ?? "",
-    closing: t.closing?.trim() ?? "",
+    opening: t.opening?.trim() || DEFAULT_DOC_OPENING,
+    closing: t.closing?.trim() || DEFAULT_DOC_CLOSING,
     codeUnderName: !picked.length && target === "print",
   };
 }

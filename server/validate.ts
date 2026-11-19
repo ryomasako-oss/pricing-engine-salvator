@@ -100,6 +100,8 @@ export const companySchema = z.object({
   address: z.string().max(500).default(""),
   phone: z.string().max(64).default(""),
   email: z.string().max(200).default(""),
+  /** Where the letter is written from: "Jakarta, 19 November 2026". */
+  city: z.string().max(80).default(""),
   npwp: z.string().max(64).default(""),
   bank: z.string().max(300).default(""),
   logo: z
@@ -165,6 +167,11 @@ const phoneNumber = (what: string) => z.string().max(32).regex(/^$|^\+?[0-9 ()-]
 export const profileSchema = z
   .object({ phone: phoneNumber("WhatsApp").optional(), telegram_phone: phoneNumber("Telegram").optional() })
   .refine((p) => p.phone !== undefined || p.telegram_phone !== undefined, "Tidak ada nomor yang diubah.");
+
+/** A user's own signature image for the quotation letter; "" removes it. */
+export const signatureSchema = z.object({
+  signature: z.string().max(400_000, "Ukuran tanda tangan maksimum 300 KB.").regex(/^$|^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/, "Format tanda tangan harus PNG, JPEG, atau WEBP."),
+});
 
 /** Formats a ZodError into one human-readable line for the UI. */
 export function zodMessage(err: z.ZodError): string {

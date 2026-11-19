@@ -4,7 +4,7 @@ import { all, get, run } from "../../db.d1";
 import { audit } from "../audit";
 import { clearSession, hashPassword, issueSession, requireAuth, requirePermission, verifyDummyPassword, verifyPassword } from "../auth";
 import { hasPermission, rolesWith } from "../../../shared/permissions";
-import { profileSchema, zodMessage } from "../../validate";
+import { profileSchema, signatureSchema, zodMessage } from "../../validate";
 import type { User } from "../../../shared/types";
 import { clientIp, type Env } from "../env";
 
@@ -149,6 +149,22 @@ authRouter.patch("/profile", requireAuth, async (c) => {
       user.id,
     ),
   });
+});
+
+/* The user's own signature for the quotation letter. Kept out of /me and the
+   user lists: a few hundred KB that only Settings and an approved quote need. */
+authRouter.get("/signature", requireAuth, async (c) => {
+  const row = await get<{ signature: string }>(c.env.DB, "SELECT signature FROM users WHERE id = ?", c.get("user")!.id);
+  return c.json({ signature: row?.signature ?? "" });
+});
+
+authRouter.put("/signature", requireAuth, async (c) => {
+  const user = c.get("user")!;
+  const parsed = signatureSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: parsed.error.issues[0]?.message ?? "Tanda tangan tidak valid." }, 400);
+  await run(c.env.DB, "UPDATE users SET signature = ? WHERE id = ?", parsed.data.signature, user.id);
+  await audit(c.env.DB, user.id, "user", user.id, "signature_updated", { set: Boolean(parsed.data.signature) });
+  return c.json({ ok: true });
 });
 
 /* ---------------- user administration ---------------- */
