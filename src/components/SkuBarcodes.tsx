@@ -403,7 +403,7 @@ function AddUnitModal({
           {direct
             ? "Satuan ini langsung dipakai quotation. "
             : drafting
-              ? "Satuan ini masuk Draf Perbaikan Divisi Gudang dan baru dipakai setelah di-ACC admin. "
+              ? "Satuan ini masuk menu Gudang dan baru dipakai setelah di-ACC admin. "
               : "Satuan ini diperiksa manager dulu. Sebelum disetujui, quotation tetap memakai satuan dari Accurate. "}
           Data ini tidak dikirim ke Accurate.
         </p>

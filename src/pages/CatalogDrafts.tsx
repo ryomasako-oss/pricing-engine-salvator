@@ -1,8 +1,9 @@
-/* Draf Perbaikan Divisi Gudang (2026-11-19): what an Admin Gudang changed in Katalog (barcode, Buat barcode,
+/* Menu Gudang (2026-11-19; was "Draf Perbaikan Divisi Gudang"): what an Admin Gudang changed in Katalog (barcode, Buat barcode,
    Tambah satuan, Ubah barang), waiting for an admin. ACC applies it to the catalog; Tolak needs a reason.
    The Admin Gudang sees their own drafts here and can take one back. Server: /catalog/drafts. */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../api";
 import { LoadError } from "../components/LoadError";
 import { Modal } from "../components/Modal";
@@ -124,11 +125,11 @@ export function CatalogDraftsPage() {
     <main className="hk-main page-stack">
       <div className="hk-page-head">
         <div>
-          <h1>Draf Perbaikan Divisi Gudang</h1>
+          <h1>Gudang</h1>
           <p>
             {reviewer
               ? "Perubahan Admin Gudang di Katalog (barcode, satuan, data barang). Baru masuk katalog setelah di-ACC. Stok tetap dari Accurate."
-              : "Perubahan Anda di Katalog menunggu ACC admin di sini. Yang ditolak tampil di tab Riwayat beserta alasannya."}
+              : "Barcode dan satuan tetap dikerjakan di Katalog. Hasilnya menunggu ACC admin di sini; yang ditolak tampil di tab Riwayat beserta alasannya."}
           </p>
         </div>
         <div className="row-wrap">
@@ -137,14 +138,15 @@ export function CatalogDraftsPage() {
               ACC {grp(picked.size)} yang dipilih
             </button>
           )}
+          <Link className="btn ghost" to="/catalog">Barcode &amp; satuan (Katalog)</Link>
           <button className="btn ghost" onClick={load} disabled={loading}>Muat ulang</button>
         </div>
       </div>
 
       <div className="card">
-        <div className="tabs card-tabs" role="group" aria-label="Status draf">
+        <div className="tabs card-tabs" role="group" aria-label="Sub-menu Gudang">
           {([
-            ["pending", "Menunggu ACC"],
+            ["pending", reviewer ? "Menunggu ACC" : "Draf saya"],
             ["done", "Riwayat"],
           ] as const).map(([key, label]) => (
             <button key={key} className={status === key ? "on" : ""} aria-pressed={status === key} onClick={() => setStatus(key)}>
