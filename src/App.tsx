@@ -28,6 +28,7 @@ const SalesHistoryPage = lazy(() => import("./pages/SalesHistory").then((m) => (
 const PurchaseHistoryPage = lazy(() => import("./pages/PurchaseHistory").then((m) => ({ default: m.PurchaseHistoryPage })));
 const UomDiffPage = lazy(() => import("./pages/UomDiff").then((m) => ({ default: m.UomDiffPage })));
 const BelowCostPage = lazy(() => import("./pages/BelowCost").then((m) => ({ default: m.BelowCostPage })));
+const CatalogDraftsPage = lazy(() => import("./pages/CatalogDrafts").then((m) => ({ default: m.CatalogDraftsPage })));
 const AuditLogPage = lazy(() => import("./pages/AuditLog").then((m) => ({ default: m.AuditLogPage })));
 
 function PageLoading() {
@@ -45,7 +46,7 @@ function PageLoading() {
 function TopBar() {
   const { user, logout, can } = useAuth();
   const { theme, toggleTheme } = useTheme();
-  const { pending, toFix } = useNavCounts();
+  const { pending, toFix, drafts } = useNavCounts();
   const confirmLeave = useConfirmLeave();
   const { pathname } = useLocation();
 
@@ -100,6 +101,13 @@ function TopBar() {
           <Icon name="box" size={16} />
           <span className="label">Katalog</span>
         </NavLink>
+        {(can("draft_catalog") || can("review_catalog_drafts")) && (
+          <NavLink to="/draf-gudang" className={({ isActive }) => (isActive ? "active" : "")}>
+            <Icon name="check" size={16} />
+            <span className="label">Draf Gudang</span>
+            {!!drafts && <span className="count" aria-label={`${drafts} draf menunggu ACC`}>{drafts}</span>}
+          </NavLink>
+        )}
         {can("view_costs") && (
           <>
             {/* One "Riwayat" item for COGS, SI, PI and Jual < Beli; the pages switch with HistoryTabs. */}
@@ -127,7 +135,7 @@ function TopBar() {
         <span className="muted small hide-sm">
           {user?.name}
           <span className="badge grey rev-badge">
-            {user?.role === "admin" ? "Admin" : user?.role === "manager" ? "Manajer" : "Sales"}
+            {user?.role === "admin" ? "Admin" : user?.role === "manager" ? "Manajer" : user?.role === "gudang" ? "Admin Gudang" : "Sales"}
           </span>
         </span>
         <button
@@ -207,6 +215,7 @@ export function App() {
         <Route path="/perbaikan" element={<FixTasksPage />} />
         <Route path="/pencocokan" element={<MatchingPage />} />
         <Route path="/catalog" element={<CatalogPage />} />
+        <Route path="/draf-gudang" element={<CatalogDraftsPage />} />
         <Route
           path="/cogs-history"
           element={

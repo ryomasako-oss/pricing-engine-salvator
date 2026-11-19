@@ -2,7 +2,8 @@
    Shared domain types — used by both server and web client.
    ============================================================ */
 
-export type Role = "rep" | "manager" | "admin";
+/** gudang = Admin Gudang: fixes the catalog (units, barcodes) through drafts an admin approves. */
+export type Role = "rep" | "gudang" | "manager" | "admin";
 
 export interface User {
   id: number;
@@ -335,6 +336,8 @@ export interface CatalogItem {
   barcodes?: UnitBarcode[];
   /** Units proposed by warehouse staff, waiting for a manager; quotes don't use them. */
   unit_proposals?: UnitFactor[];
+  /** Admin Gudang changes waiting for an admin's ACC (Draf Perbaikan Divisi Gudang). Set by GET /catalog. */
+  drafts?: CatalogDraftMark[];
   /** Extra units and how many base units (`uom`) each holds, e.g. Box = 24. */
   units?: UnitFactor[];
   /** Data Hub thumbnail (served via /api/hub-media); null otherwise. */
@@ -346,6 +349,14 @@ export interface CatalogItem {
    * list (POST /catalog/match only): to that client if it has one, otherwise to any client.
    */
   last_sale?: { price: number; invoiceNo: string; date: string; ownClient: boolean } | null;
+}
+
+/** A pending draft on one item, as the catalog row shows it. Payload shapes: shared/catalogDrafts.ts. */
+export interface CatalogDraftMark {
+  id: number;
+  kind: "barcode" | "unit" | "edit";
+  uom: string;
+  payload: Record<string, unknown>;
 }
 
 export interface UnitBarcode {

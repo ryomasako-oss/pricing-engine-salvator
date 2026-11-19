@@ -41,6 +41,8 @@ export function CatalogPage() {
   const { can } = useAuth();
   // Staff receive no COGS and can't sort by it either (PE-1).
   const seeCosts = can("view_costs");
+  // Ubah barang: directly (manager/admin), or as a draft for an admin's ACC (Admin Gudang).
+  const mayEdit = can("edit_catalog") || can("draft_catalog");
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [total, setTotal] = useState(0);
   const [stockAsOf, setStockAsOf] = useState<string | null>(null);
@@ -346,7 +348,7 @@ export function CatalogPage() {
                     {seeCosts && sortHead("cogs", "COGS")}
                     {sortHead("list_price", "Harga jual")}
                     {sortHead("stock", "Stok")}
-                    {can("edit_catalog") && <th aria-label="Aksi" />}
+                    {mayEdit && <th aria-label="Aksi" />}
                   </tr>
                 </thead>
                 <tbody>
@@ -374,6 +376,11 @@ export function CatalogPage() {
                           <Thumb src={item.image} alt={item.name} />
                           <span className="grow">{item.name}</span>
                         </div>
+                        {!!item.drafts?.length && (
+                          <span className="badge amber" title="Perubahan Admin Gudang yang menunggu ACC admin">
+                            {item.drafts.length} draf menunggu ACC
+                          </span>
+                        )}
                         {item.cogs_problem && (!seeCosts || item.cogs > 0) && (
                           <div className="cell-problem">
                             <span>{item.cogs_problem}. Belum bisa dipakai di quotation.</span>
@@ -407,7 +414,7 @@ export function CatalogPage() {
                       )}
                       <td className="num" data-label="Harga jual">{item.list_price > 0 ? grp(item.list_price) : "—"}</td>
                       <td className="num muted" data-label="Stok">{grp(item.stock)}</td>
-                      {can("edit_catalog") && (
+                      {mayEdit && (
                         <td className="stack-action">
                           <button className="btn small ghost" onClick={() => openEditing({ ...item, units: item.units ?? [] })}>Ubah</button>
                         </td>
@@ -415,14 +422,15 @@ export function CatalogPage() {
                     </tr>
                     {open && (
                       <tr className="row-detail">
-                        <td colSpan={8 + (seeCosts ? 1 : 0) + (can("edit_catalog") ? 1 : 0)}>
+                        <td colSpan={8 + (seeCosts ? 1 : 0) + (mayEdit ? 1 : 0)}>
                           <SkuPanel
                             item={item}
                             uomOptions={uomOptions}
                             onUomAdded={loadUom}
-                            onChange={(p) =>
-                              setItems((all) => all.map((i) => (i.id === item.id ? { ...i, units: p.units, barcodes: p.barcodes, unit_proposals: p.proposals } : i)))
-                            }
+                            onChange={(p) => {
+                              setItems((all) => all.map((i) => (i.id === item.id ? { ...i, units: p.units, barcodes: p.barcodes, unit_proposals: p.proposals, drafts: p.drafts } : i)));
+                              window.dispatchEvent(new Event("catalog-drafts-changed"));
+                            }}
                           />
                         </td>
                       </tr>
@@ -611,15 +619,16 @@ export function CatalogPage() {
                 onClick={async () => {
                   try {
                     if (editing.id) {
-                      await api.put(`/catalog/${editing.id}`, {
+                      const r = await api.put<{ draft: boolean }>(`/catalog/${editing.id}`, {
                         name: editing.name,
                         uom: editing.uom,
-                        cogs: Number(editing.cogs),
-                        list_price: Number(editing.list_price),
+                        // An Admin Gudang never sees or sets cost and price.
+                        ...(can("edit_catalog") && { cogs: Number(editing.cogs), list_price: Number(editing.list_price) }),
                         category: editing.category,
                         units: cleanUnits(editing.uom, editing.units),
                       });
-                      toast("Barang diperbarui.", "success");
+                      toast(r.draft ? "Tersimpan sebagai draf, menunggu ACC admin." : "Barang diperbarui.", "success");
+                      if (r.draft) window.dispatchEvent(new Event("catalog-drafts-changed"));
                     } else {
                       await api.post("/catalog/import", {
                         rows: [
@@ -651,6 +660,9 @@ export function CatalogPage() {
           }
         >
           <div className="form-stack">
+            {editing.id && !can("edit_catalog") && (
+              <p className="muted small">Perubahan ini masuk Draf Perbaikan Divisi Gudang dan baru dipakai setelah di-ACC admin.</p>
+            )}
             {!editing.id && (
               <label className="field">
                 <span>Kode barang</span>
@@ -731,6 +743,8 @@ export function CatalogPage() {
                   </select>
                 )}
               </label>
+              {can("edit_catalog") && (
+                <>
               <label className="field">
                 <span>COGS per {editing.uom || "satuan"}</span>
                 <input
@@ -751,6 +765,8 @@ export function CatalogPage() {
                   onChange={(e) => setEditing({ ...editing, list_price: Number(e.target.value) })}
                 />
               </label>
+                </>
+              )}
               <label className="field">
                 <span>Kategori</span>
                 <input

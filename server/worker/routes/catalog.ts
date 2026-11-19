@@ -36,11 +36,12 @@ import { isPriorityBrand } from "../../../shared/priorityBrands";
 import { normalizeText } from "../../../shared/match";
 import { canSeeCosts, catalogItemsForViewer, problemsForViewer } from "../../staffView";
 import { cleanUnits, sameUom, type ItemUnits } from "../../../shared/uom";
+import { NO_CHANGE, draftChanges, type DraftPayloads } from "../../../shared/catalogDrafts";
 import { chunks } from "../../sqlParams";
-import { barcodeOwner, barcodesByCode, nextInternalBarcode, proposalsByCode, takenMessage } from "../unitBarcodes";
+import { barcodeOwner, barcodesByCode, draftsByCode, nextInternalBarcode, proposalsByCode, takenMessage } from "../unitBarcodes";
 import { refreshItemImagesIfStale } from "../itemImages";
 import { itemImageUrl } from "../../../shared/itemImages";
-import type { CatalogItem, UnitFactor } from "../../../shared/types";
+import type { CatalogDraftMark, CatalogItem, Role, UnitFactor } from "../../../shared/types";
 import type { Env } from "../env";
 
 export const catalogRouter = new Hono<Env>();
@@ -233,11 +234,13 @@ catalogRouter.get("/", async (c) => {
   const units = await unitsByCode(c.env.DB, codes);
   const barcodes = await barcodesByCode(c.env.DB, codes);
   const proposals = await proposalsByCode(c.env.DB, codes);
+  const drafts = await draftsByCode(c.env.DB, codes);
   const withUnits = items.map((i) => ({
     ...i,
     units: units.get(i.code) ?? [],
     barcodes: barcodes.get(i.code) ?? [],
     unit_proposals: proposals.get(i.code) ?? [],
+    drafts: drafts.get(i.code) ?? [],
   }));
   const images = await imagesByCode(c.env.DB, codes);
   const role = c.get("user")!.role;
@@ -344,7 +347,9 @@ const barcodeText = z.string().trim().max(64).regex(/^[0-9A-Za-z-]*$/, "Barcode 
 async function itemSkus(db: D1Database, id: number) {
   const item = await get<{ code: string; name: string; uom: string }>(db, "SELECT code, name, uom FROM catalog_items WHERE id = ?", id);
   if (!item) return null;
-  const { units, barcodes, proposals } = await skuOut(db, item.code);
+  const units = (await unitsByCode(db, [item.code])).get(item.code) ?? [];
+  const barcodes = (await barcodesByCode(db, [item.code])).get(item.code) ?? [];
+  const proposals = (await proposalsByCode(db, [item.code])).get(item.code) ?? [];
   const has = (uom: string) =>
     sameUom(uom, item.uom) || [...units, ...proposals, ...barcodes].some((u) => sameUom(u.uom, uom));
   return { ...item, units, barcodes, proposals, has };
@@ -354,115 +359,338 @@ const skuOut = async (db: D1Database, code: string) => ({
   units: (await unitsByCode(db, [code])).get(code) ?? [],
   barcodes: (await barcodesByCode(db, [code])).get(code) ?? [],
   proposals: (await proposalsByCode(db, [code])).get(code) ?? [],
+  drafts: (await draftsByCode(db, [code])).get(code) ?? [],
 });
 
-/**
- * Barcode of one SKU (item + unit; the base unit when `uom` is left out), filled in by warehouse staff
- * from the packaging. Every logged-in role may set it (warehouse accounts are usually `rep`); it touches
- * no price. Clearing needs `clear: true` (the Hapus button), so an emptied box never wipes a saved barcode.
- */
-catalogRouter.put("/:id/barcode", async (c) => {
-  const user = c.get("user")!;
-  const parsed = z
-    .object({ uom: z.string().trim().min(1).max(32).optional(), barcode: barcodeText, clear: z.boolean().optional() })
-    .safeParse(await c.req.json().catch(() => null));
-  if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
-  const barcode = parsed.data.barcode || null;
-  if (!barcode && !parsed.data.clear) return c.json({ error: "Barcode masih kosong. Untuk menghapus barcode, pakai tombol Hapus barcode." }, 400);
-  const item = await itemSkus(c.env.DB, Number(c.req.param("id")));
-  if (!item) return c.json({ error: "Item tidak ditemukan." }, 404);
-  const uom = parsed.data.uom ?? item.uom;
-  if (!item.has(uom)) return c.json({ error: `Satuan ${uom} belum ada di barang ini. Tambah satuannya dulu.` }, 400);
+/* Each catalog fix below is one function that either only checks (`apply` false: an Admin Gudang's save,
+   which then becomes a draft) or checks and writes (a direct save, or an admin's ACC of that draft, `via`
+   naming the draft and who drafted it in the audit). */
+type Fail = { error: string; status: 400 | 404 | 409 };
+const fail = (error: string, status: Fail["status"]): Fail => ({ error, status });
+const failed = (r: object): r is Fail => "error" in r;
+type Via = { draft_id: number; proposed_by: number | null };
+
+async function setBarcode(
+  db: D1Database, actorId: number, id: number, uomIn: string | undefined, barcode: string | null, apply: boolean, via?: Via,
+): Promise<Fail | { code: string; uom: string; before: string | null }> {
+  const item = await itemSkus(db, id);
+  if (!item) return fail("Item tidak ditemukan.", 404);
+  const uom = uomIn ?? item.uom;
+  if (!item.has(uom)) return fail(`Satuan ${uom} belum ada di barang ini. Tambah satuannya dulu.`, 400);
   const before = item.barcodes.find((b) => sameUom(b.uom, uom))?.barcode ?? null;
-  if (before === barcode) return c.json(await skuOut(c.env.DB, item.code));
+  const done = { code: item.code, uom, before };
+  if (before === barcode) return done;
   if (barcode) {
-    const other = await barcodeOwner(c.env.DB, barcode);
-    if (other) return c.json({ error: takenMessage(barcode, other) }, 409);
+    const other = await barcodeOwner(db, barcode);
+    if (other) return fail(takenMessage(barcode, other), 409);
+  }
+  if (!apply) return done;
+  if (barcode) {
     await run(
-      c.env.DB,
+      db,
       `INSERT INTO catalog_unit_barcodes(code, uom, barcode, generated) VALUES(?, ?, ?, 0)
        ON CONFLICT(code, uom) DO UPDATE SET barcode = excluded.barcode, generated = 0, updated_at = datetime('now')`,
       item.code, uom, barcode,
     );
   } else {
-    await run(c.env.DB, "DELETE FROM catalog_unit_barcodes WHERE code = ? AND uom = ?", item.code, uom);
+    await run(db, "DELETE FROM catalog_unit_barcodes WHERE code = ? AND uom = ?", item.code, uom);
   }
-  await audit(c.env.DB, user.id, "catalog", Number(c.req.param("id")), "barcode_set", { code: item.code, uom, before, after: barcode });
-  return c.json(await skuOut(c.env.DB, item.code));
-});
+  await audit(db, actorId, "catalog", id, "barcode_set", { code: item.code, uom, before, after: barcode, ...via });
+  return done;
+}
 
-/** No barcode on the packaging: give the SKU an internal EAN-13 (prefix 20) to print as a label. */
-catalogRouter.post("/:id/barcode/generate", async (c) => {
-  const user = c.get("user")!;
-  const parsed = z.object({ uom: z.string().trim().min(1).max(32).optional() }).safeParse(await c.req.json().catch(() => ({})));
-  if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
-  const item = await itemSkus(c.env.DB, Number(c.req.param("id")));
-  if (!item) return c.json({ error: "Item tidak ditemukan." }, 404);
-  const uom = parsed.data.uom ?? item.uom;
-  if (!item.has(uom)) return c.json({ error: `Satuan ${uom} belum ada di barang ini. Tambah satuannya dulu.` }, 400);
+async function generateBarcode(
+  db: D1Database, actorId: number, id: number, uomIn: string | undefined, apply: boolean, via?: Via,
+): Promise<Fail | { code: string; uom: string }> {
+  const item = await itemSkus(db, id);
+  if (!item) return fail("Item tidak ditemukan.", 404);
+  const uom = uomIn ?? item.uom;
+  if (!item.has(uom)) return fail(`Satuan ${uom} belum ada di barang ini. Tambah satuannya dulu.`, 400);
   const existing = item.barcodes.find((b) => sameUom(b.uom, uom));
-  if (existing) return c.json({ error: `${item.code} (${uom}) sudah punya barcode ${existing.barcode}.` }, 409);
-  const barcode = await nextInternalBarcode(c.env.DB);
-  await run(c.env.DB, "INSERT INTO catalog_unit_barcodes(code, uom, barcode, generated) VALUES(?, ?, ?, 1)", item.code, uom, barcode);
-  await audit(c.env.DB, user.id, "catalog", Number(c.req.param("id")), "barcode_set", { code: item.code, uom, before: null, after: barcode, generated: true });
-  return c.json(await skuOut(c.env.DB, item.code));
+  if (existing) return fail(`${item.code} (${uom}) sudah punya barcode ${existing.barcode}.`, 409);
+  if (!apply) return { code: item.code, uom };
+  const barcode = await nextInternalBarcode(db);
+  await run(db, "INSERT INTO catalog_unit_barcodes(code, uom, barcode, generated) VALUES(?, ?, ?, 1)", item.code, uom, barcode);
+  await audit(db, actorId, "catalog", id, "barcode_set", { code: item.code, uom, before: null, after: barcode, generated: true, ...via });
+  return { code: item.code, uom };
+}
+
+const unitInput = z.object({
+  uom: z.string().trim().min(1).max(32),
+  factor: z.number().positive("Isi harus lebih dari 0.").max(1_000_000),
+  barcode: barcodeText.optional(),
+  generate: z.boolean().optional(),
 });
 
-/**
- * Warehouse staff propose a unit the item does not have yet (e.g. 1 Lusin = 12 Pcs: factor 1/12), with its
- * barcode in the same step. A proposal does not reach quotes, which follow Accurate's units, until a
- * manager approves it (POST /:id/unit/review). A manager's own addition needs no review.
- * A unit name that is not in the list yet is added to it.
- */
-catalogRouter.post("/:id/unit", async (c) => {
-  const user = c.get("user")!;
-  const id = Number(c.req.param("id"));
-  const parsed = z
-    .object({
-      uom: z.string().trim().min(1).max(32),
-      factor: z.number().positive("Isi harus lebih dari 0.").max(1_000_000),
-      barcode: barcodeText.optional(),
-      generate: z.boolean().optional(),
-    })
-    .safeParse(await c.req.json().catch(() => null));
-  if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
-  const item = await itemSkus(c.env.DB, id);
-  if (!item) return c.json({ error: "Item tidak ditemukan." }, 404);
-  const d = parsed.data;
+/** `direct` false: a rep's proposal for a manager (catalog_unit_proposals); true: the unit itself. */
+async function addUnit(
+  db: D1Database, actorId: number, id: number, d: z.infer<typeof unitInput>, direct: boolean, apply: boolean, via?: Via,
+): Promise<Fail | { code: string; uom: string; base: string }> {
+  const item = await itemSkus(db, id);
+  if (!item) return fail("Item tidak ditemukan.", 404);
   if (sameUom(d.uom, item.uom) || item.units.some((u) => sameUom(u.uom, d.uom))) {
-    return c.json({ error: `Satuan ${d.uom} sudah ada di barang ini. Isinya hanya bisa diubah manager/admin lewat Edit barang.` }, 409);
+    return fail(`Satuan ${d.uom} sudah ada di barang ini. Isinya hanya bisa diubah lewat Ubah barang.`, 409);
   }
   if (item.proposals.some((u) => sameUom(u.uom, d.uom))) {
-    return c.json({ error: `Satuan ${d.uom} sudah diusulkan dan menunggu persetujuan manager.` }, 409);
+    return fail(`Satuan ${d.uom} sudah diusulkan dan menunggu persetujuan manager.`, 409);
   }
-  if (item.units.length + item.proposals.length >= 10) return c.json({ error: "Barang ini sudah punya 10 satuan tambahan." }, 400);
+  if (item.units.length + item.proposals.length >= 10) return fail("Barang ini sudah punya 10 satuan tambahan.", 400);
   if (d.barcode) {
-    const other = await barcodeOwner(c.env.DB, d.barcode);
-    if (other) return c.json({ error: takenMessage(d.barcode, other) }, 409);
+    const other = await barcodeOwner(db, d.barcode);
+    if (other) return fail(takenMessage(d.barcode, other), 409);
   }
   // The list's own spelling when it already has this name in another case ("box" -> "Box").
-  const option = await get<{ name: string }>(c.env.DB, "SELECT name FROM uom_options WHERE name = ? COLLATE NOCASE", d.uom);
+  const option = await get<{ name: string }>(db, "SELECT name FROM uom_options WHERE name = ? COLLATE NOCASE", d.uom);
   const uom = option?.name ?? d.uom;
-  const direct = hasPermission(user.role, "edit_catalog");
-  const barcode = d.barcode || (d.generate ? await nextInternalBarcode(c.env.DB) : null);
-  await batch(c.env.DB, [
-    ...(option ? [] : [stmt(c.env.DB, "INSERT INTO uom_options(name) VALUES(?)", uom)]),
+  if (!apply) return { code: item.code, uom, base: item.uom };
+  const barcode = d.barcode || (d.generate ? await nextInternalBarcode(db) : null);
+  await batch(db, [
+    ...(option ? [] : [stmt(db, "INSERT INTO uom_options(name) VALUES(?)", uom)]),
     direct
-      ? stmt(c.env.DB, "INSERT INTO catalog_item_uoms(code, uom, factor, manual) VALUES(?, ?, ?, 1)", item.code, uom, d.factor)
-      : stmt(c.env.DB, "INSERT INTO catalog_unit_proposals(code, uom, factor, proposed_by) VALUES(?, ?, ?, ?)", item.code, uom, d.factor, user.id),
+      ? stmt(db, "INSERT INTO catalog_item_uoms(code, uom, factor, manual) VALUES(?, ?, ?, 1)", item.code, uom, d.factor)
+      : stmt(db, "INSERT INTO catalog_unit_proposals(code, uom, factor, proposed_by) VALUES(?, ?, ?, ?)", item.code, uom, d.factor, actorId),
     // An orphan barcode left on this unit name (its ratio was removed) is replaced, not duplicated.
     ...(barcode
       ? [stmt(
-          c.env.DB,
+          db,
           `INSERT INTO catalog_unit_barcodes(code, uom, barcode, generated) VALUES(?, ?, ?, ?)
            ON CONFLICT(code, uom) DO UPDATE SET barcode = excluded.barcode, generated = excluded.generated, updated_at = datetime('now')`,
           item.code, uom, barcode, d.barcode ? 0 : 1,
         )]
       : []),
   ]);
-  if (!option) await audit(c.env.DB, user.id, "catalog", 0, "uom_added", { name: uom });
-  await audit(c.env.DB, user.id, "catalog", id, direct ? "unit_added" : "unit_proposed", { code: item.code, uom, factor: d.factor, base: item.uom, barcode });
-  return c.json(await skuOut(c.env.DB, item.code), 201);
+  if (!option) await audit(db, actorId, "catalog", 0, "uom_added", { name: uom });
+  await audit(db, actorId, "catalog", id, direct ? "unit_added" : "unit_proposed", { code: item.code, uom, factor: d.factor, base: item.uom, barcode, ...via });
+  return { code: item.code, uom, base: item.uom };
+}
+
+/**
+ * Saves an Admin Gudang's checked change as a draft. A second save of the same SKU (or of the same item,
+ * for Ubah barang) replaces the waiting one. A barcode already in another waiting draft is refused, so
+ * two drafts can't both be ACCed onto one barcode.
+ */
+async function saveDraft(
+  db: D1Database, userId: number,
+  d: { item_id: number; code: string; kind: CatalogDraftMark["kind"]; uom: string; payload: Record<string, unknown>; before: Record<string, unknown> },
+): Promise<Fail | null> {
+  const barcode = typeof d.payload.barcode === "string" && d.payload.barcode ? d.payload.barcode : null;
+  if (barcode) {
+    const other = await get<{ code: string; uom: string }>(
+      db,
+      `SELECT code, uom FROM catalog_drafts WHERE status = 'pending' AND json_extract(payload, '$.barcode') = ?
+          AND NOT (code = ? AND kind = ? AND uom = ?)`,
+      barcode, d.code, d.kind, d.uom,
+    );
+    if (other) return fail(`Barcode ${barcode} sudah ada di draf lain (${other.code} ${other.uom}) yang menunggu ACC.`, 409);
+  }
+  await run(
+    db,
+    `INSERT INTO catalog_drafts(item_id, code, kind, uom, payload, before, created_by) VALUES(?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(code, kind, uom) WHERE status = 'pending'
+     DO UPDATE SET payload = excluded.payload, before = excluded.before, created_by = excluded.created_by, created_at = datetime('now')`,
+    d.item_id, d.code, d.kind, d.uom, JSON.stringify(d.payload), JSON.stringify(d.before), userId,
+  );
+  await audit(db, userId, "catalog", d.item_id, "catalog_draft_submitted", { code: d.code, kind: d.kind, uom: d.uom, ...d.payload });
+  return null;
+}
+
+/** Admin Gudang: every catalog fix becomes a draft for an admin, nothing reaches the catalog itself. */
+const drafting = (role: Role) => hasPermission(role, "draft_catalog") && !hasPermission(role, "edit_catalog");
+
+/**
+ * Barcode of one SKU (item + unit; the base unit when `uom` is left out), filled in by warehouse staff
+ * from the packaging. Every logged-in role may set it (warehouse accounts are usually `rep`); it touches
+ * no price. Clearing needs `clear: true` (the Hapus button), so an emptied box never wipes a saved barcode.
+ * An Admin Gudang's change is saved as a draft.
+ */
+catalogRouter.put("/:id/barcode", async (c) => {
+  const user = c.get("user")!;
+  const id = Number(c.req.param("id"));
+  const parsed = z
+    .object({ uom: z.string().trim().min(1).max(32).optional(), barcode: barcodeText, clear: z.boolean().optional() })
+    .safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
+  const barcode = parsed.data.barcode || null;
+  if (!barcode && !parsed.data.clear) return c.json({ error: "Barcode masih kosong. Untuk menghapus barcode, pakai tombol Hapus barcode." }, 400);
+  const draft = drafting(user.role);
+  const r = await setBarcode(c.env.DB, user.id, id, parsed.data.uom, barcode, !draft);
+  if (failed(r)) return c.json({ error: r.error }, r.status);
+  if (draft && r.before !== barcode) {
+    const f = await saveDraft(c.env.DB, user.id, { item_id: id, code: r.code, kind: "barcode", uom: r.uom, payload: { barcode }, before: { barcode: r.before } });
+    if (f) return c.json({ error: f.error }, f.status);
+  }
+  return c.json(await skuOut(c.env.DB, r.code));
+});
+
+/** No barcode on the packaging: give the SKU an internal EAN-13 (prefix 20) to print as a label. */
+catalogRouter.post("/:id/barcode/generate", async (c) => {
+  const user = c.get("user")!;
+  const id = Number(c.req.param("id"));
+  const parsed = z.object({ uom: z.string().trim().min(1).max(32).optional() }).safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
+  const draft = drafting(user.role);
+  const r = await generateBarcode(c.env.DB, user.id, id, parsed.data.uom, !draft);
+  if (failed(r)) return c.json({ error: r.error }, r.status);
+  // The number itself is picked at ACC time, so a waiting draft holds none back.
+  if (draft) await saveDraft(c.env.DB, user.id, { item_id: id, code: r.code, kind: "barcode", uom: r.uom, payload: { generate: true }, before: { barcode: null } });
+  return c.json(await skuOut(c.env.DB, r.code));
+});
+
+/**
+ * Warehouse staff propose a unit the item does not have yet (e.g. 1 Lusin = 12 Pcs: factor 1/12), with its
+ * barcode in the same step. A proposal does not reach quotes, which follow Accurate's units, until a
+ * manager approves it (POST /:id/unit/review). A manager's own addition needs no review.
+ * A unit name that is not in the list yet is added to it. An Admin Gudang's unit is a draft for an admin.
+ */
+catalogRouter.post("/:id/unit", async (c) => {
+  const user = c.get("user")!;
+  const id = Number(c.req.param("id"));
+  const parsed = unitInput.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
+  const draft = drafting(user.role);
+  const r = await addUnit(c.env.DB, user.id, id, parsed.data, hasPermission(user.role, "edit_catalog"), !draft);
+  if (failed(r)) return c.json({ error: r.error }, r.status);
+  if (draft) {
+    const { factor, barcode, generate } = parsed.data;
+    const f = await saveDraft(c.env.DB, user.id, {
+      item_id: id, code: r.code, kind: "unit", uom: r.uom, payload: { factor, base: r.base, ...(barcode ? { barcode } : generate ? { generate: true } : {}) }, before: {},
+    });
+    if (f) return c.json({ error: f.error }, f.status);
+  }
+  return c.json(await skuOut(c.env.DB, r.code), 201);
+});
+
+/* ---------------- Draf Perbaikan Divisi Gudang ---------------- */
+
+/** An admin sees every draft; an Admin Gudang only their own. Anyone else has no drafts page. */
+const draftViewer = (role: Role) =>
+  hasPermission(role, "review_catalog_drafts") ? "all" : hasPermission(role, "draft_catalog") ? "own" : null;
+
+/** Waiting drafts (oldest first), or the reviewed / cancelled ones (newest first, last 200). */
+catalogRouter.get("/drafts", async (c) => {
+  const user = c.get("user")!;
+  const viewer = draftViewer(user.role);
+  if (!viewer) return c.json({ error: "Akses ditolak untuk peran Anda." }, 403);
+  const done = c.req.query("status") === "done";
+  const rows = await all<Record<string, unknown> & { payload: string; before: string }>(
+    c.env.DB,
+    `SELECT d.id, d.item_id, d.code, i.name, i.uom AS base_uom, d.kind, d.uom, d.payload, d.before, d.status, d.note,
+            d.created_by, u.name AS created_by_name, d.created_at, r.name AS reviewed_by_name, d.reviewed_at
+       FROM catalog_drafts d
+       LEFT JOIN catalog_items i ON i.id = d.item_id
+       LEFT JOIN users u ON u.id = d.created_by
+       LEFT JOIN users r ON r.id = d.reviewed_by
+      WHERE ${done ? "d.status != 'pending'" : "d.status = 'pending'"} ${viewer === "own" ? "AND d.created_by = ?" : ""}
+      ORDER BY ${done ? "COALESCE(d.reviewed_at, d.created_at) DESC, d.id DESC LIMIT 200" : "d.created_at, d.id"}`,
+    ...(viewer === "own" ? [user.id] : []),
+  );
+  return c.json({ drafts: rows.map((r) => ({ ...r, payload: JSON.parse(r.payload), before: JSON.parse(r.before) })) });
+});
+
+/** For the menu badge: drafts waiting (all of them for an admin, one's own for an Admin Gudang). */
+catalogRouter.get("/drafts/count", async (c) => {
+  const user = c.get("user")!;
+  const viewer = draftViewer(user.role);
+  if (!viewer) return c.json({ pending: 0 });
+  const row = await get<{ n: number }>(
+    c.env.DB,
+    `SELECT COUNT(*) AS n FROM catalog_drafts WHERE status = 'pending' ${viewer === "own" ? "AND created_by = ?" : ""}`,
+    ...(viewer === "own" ? [user.id] : []),
+  );
+  return c.json({ pending: row?.n ?? 0 });
+});
+
+type DraftRow = { id: number; item_id: number; code: string; kind: CatalogDraftMark["kind"]; uom: string; payload: string; before: string; created_by: number | null };
+
+/**
+ * An Ubah barang draft carries only what the Admin Gudang changed, laid over the item as it is now. Without
+ * this, an older draft's full unit list would undo a unit ACCed after it was drafted.
+ */
+export function editOverCurrent(
+  current: { name: string; uom: string; category: string; units: UnitFactor[] },
+  before: { name?: string; uom?: string; category?: string; units?: UnitFactor[] },
+  wanted: { name: string; uom: string; category: string; units?: UnitFactor[] },
+) {
+  const pick = <K extends "name" | "uom" | "category">(k: K) => (wanted[k] !== before[k] ? wanted[k] : current[k]);
+  let units = current.units;
+  if (wanted.units) {
+    const was = before.units ?? [];
+    const removed = was.filter((u) => !wanted.units!.some((w) => sameUom(w.uom, u.uom)));
+    const changed = wanted.units.filter((w) => !was.some((u) => sameUom(u.uom, w.uom) && u.factor === w.factor));
+    units = [
+      ...current.units.filter((u) => !removed.some((r) => sameUom(r.uom, u.uom)) && !changed.some((c) => sameUom(c.uom, u.uom))),
+      ...changed,
+    ];
+  }
+  return { name: pick("name"), uom: pick("uom"), category: pick("category"), units };
+}
+
+async function editDraft(db: D1Database, actorId: number, d: DraftRow, p: DraftPayloads["edit"], via: Via) {
+  const now = await get<{ name: string; uom: string; category: string }>(db, "SELECT name, uom, category FROM catalog_items WHERE id = ?", d.item_id);
+  if (!now) return fail("Item tidak ditemukan.", 404);
+  const units = (await unitsByCode(db, [d.code])).get(d.code) ?? [];
+  return editItem(db, actorId, d.item_id, editOverCurrent({ ...now, units }, JSON.parse(d.before), p), true, via);
+}
+
+/** Applies an ACCed draft as the admin, through the same checks as a direct save. */
+async function applyDraft(db: D1Database, actorId: number, d: DraftRow): Promise<Fail | null> {
+  const via: Via = { draft_id: d.id, proposed_by: d.created_by };
+  const p = JSON.parse(d.payload);
+  const r =
+    d.kind === "barcode"
+      ? p.generate
+        ? await generateBarcode(db, actorId, d.item_id, d.uom, true, via)
+        : await setBarcode(db, actorId, d.item_id, d.uom, p.barcode ?? null, true, via)
+      : d.kind === "unit"
+        ? await addUnit(db, actorId, d.item_id, { uom: d.uom, factor: p.factor, barcode: p.barcode, generate: p.generate }, true, true, via)
+        : await editDraft(db, actorId, d, p, via);
+  return failed(r) ? r : null;
+}
+
+/**
+ * ACC (the change is applied now, as the admin) or Tolak (a reason is required). A draft that no longer
+ * fits (e.g. its barcode went to another item meanwhile) is not ACCed: the error says why, and it waits.
+ */
+catalogRouter.post("/drafts/:draftId/review", requirePermission("review_catalog_drafts"), async (c) => {
+  const user = c.get("user")!;
+  const draftId = Number(c.req.param("draftId"));
+  const parsed = z
+    .object({ approve: z.boolean(), note: z.string().trim().max(500).default("") })
+    .safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
+  const { approve, note } = parsed.data;
+  if (!approve && !note) return c.json({ error: "Tulis alasan penolakan supaya gudang tahu apa yang perlu diperbaiki." }, 400);
+  const d = await get<DraftRow>(c.env.DB, "SELECT id, item_id, code, kind, uom, payload, before, created_by FROM catalog_drafts WHERE id = ?", draftId);
+  if (!d) return c.json({ error: "Draf tidak ditemukan." }, 404);
+  // Claim it first, so a second admin pressing ACC at the same time cannot apply it twice.
+  const claim = await run(
+    c.env.DB,
+    `UPDATE catalog_drafts SET status = ?, note = ?, reviewed_by = ?, reviewed_at = datetime('now') WHERE id = ? AND status = 'pending'`,
+    approve ? "approved" : "rejected", note, user.id, draftId,
+  );
+  if (!claim.meta.changes) return c.json({ error: "Draf ini sudah diproses." }, 409);
+  if (approve) {
+    const f = await applyDraft(c.env.DB, user.id, d);
+    if (f) {
+      await run(c.env.DB, "UPDATE catalog_drafts SET status = 'pending', note = '', reviewed_by = NULL, reviewed_at = NULL WHERE id = ?", draftId);
+      return c.json({ error: f.error }, f.status);
+    }
+  }
+  await audit(c.env.DB, user.id, "catalog", d.item_id, approve ? "catalog_draft_approved" : "catalog_draft_rejected", { code: d.code, kind: d.kind, uom: d.uom, draft_id: draftId, note });
+  return c.json({ ok: true });
+});
+
+/** The Admin Gudang takes back their own waiting draft. */
+catalogRouter.post("/drafts/:draftId/cancel", async (c) => {
+  const user = c.get("user")!;
+  const draftId = Number(c.req.param("draftId"));
+  const d = await get<{ item_id: number; code: string }>(
+    c.env.DB, "SELECT item_id, code FROM catalog_drafts WHERE id = ? AND created_by = ? AND status = 'pending'", draftId, user.id,
+  );
+  if (!d) return c.json({ error: "Draf tidak ditemukan atau sudah diproses." }, 404);
+  await run(c.env.DB, "UPDATE catalog_drafts SET status = 'cancelled', reviewed_at = datetime('now') WHERE id = ?", draftId);
+  await audit(c.env.DB, user.id, "catalog", d.item_id, "catalog_draft_cancelled", { code: d.code, draft_id: draftId });
+  return c.json({ ok: true });
 });
 
 /** Every unit proposal waiting for a manager, oldest first (Katalog › Usulan satuan). */
@@ -582,8 +810,10 @@ catalogRouter.get("/uom", async (c) => {
   return c.json({ options });
 });
 
-catalogRouter.post("/uom", requirePermission("edit_catalog"), async (c) => {
+catalogRouter.post("/uom", async (c) => {
   const user = c.get("user")!;
+  // Only a name for the unit list; an Admin Gudang needs it in Ubah barang, where the rest is a draft.
+  if (!hasPermission(user.role, "edit_catalog") && !drafting(user.role)) return c.json({ error: "Akses ditolak untuk peran Anda." }, 403);
   const parsed = z
     .object({ name: z.string().trim().min(1).max(32) })
     .safeParse(await c.req.json().catch(() => null));
@@ -742,46 +972,66 @@ catalogRouter.post("/import", requirePermission("import_catalog"), async (c) => 
   return c.json({ ...result, total: rows.length });
 });
 
-catalogRouter.put("/:id", requirePermission("edit_catalog"), async (c) => {
-  const user = c.get("user")!;
-  const id = Number(c.req.param("id"));
-  const parsed = z
-    .object({
-      name: z.string().min(1).max(300),
-      uom: z.string().max(32),
-      cogs: z.number().min(0),
-      list_price: z.number().min(0),
-      category: z.string().max(120).default(""),
-      units: unitsSchema.optional(),
-    })
-    .safeParse(await c.req.json().catch(() => null));
-  if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
-  const d = parsed.data;
-  const old = await get<{ code: string; name: string; uom: string; cogs: number; list_price: number; category: string }>(
-    c.env.DB,
-    "SELECT code, name, uom, cogs, list_price, category FROM catalog_items WHERE id = ?",
-    id,
-  );
-  const code = old?.code;
-  await batch(c.env.DB, [
+const editInput = z.object({
+  name: z.string().min(1).max(300),
+  uom: z.string().max(32),
+  // Left out by an Admin Gudang, who never sees costs or prices: the item keeps its own.
+  cogs: z.number().min(0).optional(),
+  list_price: z.number().min(0).optional(),
+  category: z.string().max(120).default(""),
+  units: unitsSchema.optional(),
+});
+type EditOld = { code: string; name: string; uom: string; cogs: number; list_price: number; category: string };
+
+async function editItem(
+  db: D1Database, actorId: number, id: number, d: z.infer<typeof editInput>, apply: boolean, via?: Via,
+): Promise<Fail | { old: EditOld; units: UnitFactor[] }> {
+  const old = await get<EditOld>(db, "SELECT code, name, uom, cogs, list_price, category FROM catalog_items WHERE id = ?", id);
+  if (!old) return fail("Item tidak ditemukan.", 404);
+  const oldUnits = (await unitsByCode(db, [old.code])).get(old.code) ?? [];
+  if (!apply) return { old, units: oldUnits };
+  const next = { ...d, cogs: d.cogs ?? old.cogs, list_price: d.list_price ?? old.list_price };
+  await batch(db, [
     stmt(
-      c.env.DB,
+      db,
       `UPDATE catalog_items SET name = ?, uom = ?, cogs = ?, list_price = ?, category = ?,
               updated_at = datetime('now') WHERE id = ?`,
-      d.name, d.uom, d.cogs, d.list_price, d.category, id,
+      next.name, next.uom, next.cogs, next.list_price, next.category, id,
     ),
-    ...(code && d.units ? replaceUnitsStmts(c.env.DB, code, d.uom, d.units) : []),
+    ...(d.units ? replaceUnitsStmts(db, old.code, next.uom, d.units) : []),
   ]);
   // Old → new of each field that changed, so "who moved this COGS from X to Y" has an answer.
   const before: Record<string, unknown> = {};
   const after: Record<string, unknown> = {};
   for (const k of ["name", "uom", "cogs", "list_price", "category"] as const) {
-    if (old && old[k] !== d[k]) [before[k], after[k]] = [old[k], d[k]];
+    if (old[k] !== next[k]) [before[k], after[k]] = [old[k], next[k]];
   }
-  await audit(c.env.DB, user.id, "catalog", id, "updated", { code, before, after, ...(d.units && { units: d.units }) });
+  await audit(db, actorId, "catalog", id, "updated", { code: old.code, before, after, ...(d.units && { units: d.units }), ...via });
+  return { old, units: oldUnits };
+}
+
+/** Ubah barang. An Admin Gudang's edit (name, units, category; never cost or price) is a draft for an admin. */
+catalogRouter.put("/:id", async (c) => {
+  const user = c.get("user")!;
+  const draft = drafting(user.role);
+  if (!draft && !hasPermission(user.role, "edit_catalog")) return c.json({ error: "Akses ditolak untuk peran Anda." }, 403);
+  const id = Number(c.req.param("id"));
+  const parsed = editInput.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
+  const d = draft ? { ...parsed.data, cogs: undefined, list_price: undefined } : parsed.data;
+  const r = await editItem(c.env.DB, user.id, id, d, !draft);
+  if (failed(r)) return c.json({ error: r.error }, r.status);
+  if (draft) {
+    const { name, uom, category, units } = d;
+    const payload = { name, uom, category, ...(units && { units: cleanUnits(uom, units) }) };
+    const before = { name: r.old.name, uom: r.old.uom, category: r.old.category, units: r.units };
+    if (draftChanges("edit", "", payload, before)[0] === NO_CHANGE) return c.json({ error: "Belum ada yang diubah." }, 400);
+    const f = await saveDraft(c.env.DB, user.id, { item_id: id, code: r.old.code, kind: "edit", uom: "", payload, before });
+    if (f) return c.json({ error: f.error }, f.status);
+  }
   const item = await get<CatalogItem>(c.env.DB, "SELECT * FROM catalog_items WHERE id = ?", id);
   const units = item ? (await unitsByCode(c.env.DB, [item.code])).get(item.code) ?? [] : [];
-  return c.json({ item: item && { ...item, units } });
+  return c.json({ item: item && catalogItemsForViewer(user.role, [{ ...item, units }])[0], draft });
 });
 
 catalogRouter.delete("/", requirePermission("delete_catalog"), async (c) => {

@@ -184,7 +184,7 @@ authRouter.post("/users", requirePermission("manage_users"), async (c) => {
       email: z.string().email(),
       name: z.string().min(1).max(120),
       password: z.string().min(8).max(200),
-      role: z.enum(["rep", "manager", "admin"]),
+      role: z.enum(["rep", "gudang", "manager", "admin"]),
     })
     .safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) {
@@ -213,7 +213,7 @@ authRouter.patch("/users/:id", requirePermission("manage_users"), async (c) => {
   const parsed = z
     .object({
       name: z.string().min(1).max(120).optional(),
-      role: z.enum(["rep", "manager", "admin"]).optional(),
+      role: z.enum(["rep", "gudang", "manager", "admin"]).optional(),
       active: z.boolean().optional(),
       password: z.string().min(8).max(200).optional(),
     })
@@ -224,7 +224,7 @@ authRouter.patch("/users/:id", requirePermission("manage_users"), async (c) => {
   if (!target) return c.json({ error: "Pengguna tidak ditemukan." }, 404);
 
   // Guard against an admin locking themselves, and possibly everyone, out.
-  if (id === actor.id && (parsed.data.active === false || parsed.data.role === "rep")) {
+  if (id === actor.id && (parsed.data.active === false || parsed.data.role === "rep" || parsed.data.role === "gudang")) {
     return c.json({ error: "Anda tidak bisa menurunkan atau menonaktifkan akun sendiri." }, 400);
   }
   // Guard against removing the last user who can manage users, even by someone else.

@@ -11,15 +11,18 @@ interface NavCounts {
   /** null until loaded, and always null without decide_quotes. */
   pending: number | null;
   toFix: number | null;
+  /** Draf Perbaikan Divisi Gudang waiting: all for an admin, one's own for an Admin Gudang. */
+  drafts: number | null;
 }
 
-const NavCountsContext = createContext<NavCounts>({ pending: null, toFix: null });
+const NavCountsContext = createContext<NavCounts>({ pending: null, toFix: null, drafts: null });
 
 export function NavCountsProvider({ children }: { children: React.ReactNode }) {
   const { can } = useAuth();
   const { pathname } = useLocation();
   const [pending, setPending] = useState<number | null>(null);
   const [toFix, setToFix] = useState<number | null>(null);
+  const [drafts, setDrafts] = useState<number | null>(null);
 
   // Keep the approvals badge fresh as the user moves around the app.
   useEffect(() => {
@@ -39,7 +42,16 @@ export function NavCountsProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("fix-tasks-changed", refresh);
   }, [pathname]);
 
-  return <NavCountsContext.Provider value={{ pending, toFix }}>{children}</NavCountsContext.Provider>;
+  useEffect(() => {
+    if (!can("draft_catalog") && !can("review_catalog_drafts")) return;
+    const refresh = () =>
+      api.get<{ pending: number }>("/catalog/drafts/count").then((r) => setDrafts(r.pending)).catch(() => undefined);
+    refresh();
+    window.addEventListener("catalog-drafts-changed", refresh);
+    return () => window.removeEventListener("catalog-drafts-changed", refresh);
+  }, [can, pathname]);
+
+  return <NavCountsContext.Provider value={{ pending, toFix, drafts }}>{children}</NavCountsContext.Provider>;
 }
 
 export const useNavCounts = () => useContext(NavCountsContext);
