@@ -102,9 +102,9 @@ function TopBar() {
           <span className="label">Katalog</span>
         </NavLink>
         {(can("draft_catalog") || can("review_catalog_drafts")) && (
-          <NavLink to="/draf-gudang" className={({ isActive }) => (isActive ? "active" : "")}>
-            <Icon name="check" size={16} />
-            <span className="label">Draf Gudang</span>
+          <NavLink to="/gudang" className={({ isActive }) => (isActive ? "active" : "")}>
+            <Icon name="truck" size={16} />
+            <span className="label">Gudang</span>
             {!!drafts && <span className="count" aria-label={`${drafts} draf menunggu ACC`}>{drafts}</span>}
           </NavLink>
         )}
@@ -215,7 +215,8 @@ export function App() {
         <Route path="/perbaikan" element={<FixTasksPage />} />
         <Route path="/pencocokan" element={<MatchingPage />} />
         <Route path="/catalog" element={<CatalogPage />} />
-        <Route path="/draf-gudang" element={<CatalogDraftsPage />} />
+        <Route path="/gudang" element={<CatalogDraftsPage />} />
+        <Route path="/draf-gudang" element={<Navigate to="/gudang" replace />} />
         <Route
           path="/cogs-history"
           element={

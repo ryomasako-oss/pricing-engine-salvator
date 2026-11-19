@@ -661,7 +661,7 @@ export function CatalogPage() {
         >
           <div className="form-stack">
             {editing.id && !can("edit_catalog") && (
-              <p className="muted small">Perubahan ini masuk Draf Perbaikan Divisi Gudang dan baru dipakai setelah di-ACC admin.</p>
+              <p className="muted small">Perubahan ini masuk menu Gudang dan baru dipakai setelah di-ACC admin.</p>
             )}
             {!editing.id && (
               <label className="field">
