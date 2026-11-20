@@ -131,18 +131,27 @@ Semua tombolnya ada di halaman Katalog (peran manajer ke atas).
 Katalog, pemilih barang, dan baris quotation menampilkan gambar produk yang
 disimpan pricing engine sendiri. Tidak ada server lain yang terlibat.
 
-Nama berkas mengikuti kode barang, jadi tidak perlu rename:
+Cara mengisi gambar di produksi: Katalog > **Unggah gambar massal** (peran
+dengan izin `edit_catalog`). Pilih banyak berkas atau satu folder; nama berkas =
+kode barang (mis. `101885.jpg`), JPG, PNG, atau WebP, maks. 1.000 berkas sekali
+pilih. Gambar diperkecil otomatis menjadi WebP, lalu dikirim lewat Worker ke
+bucket R2. Pratinjau menandai tiap berkas: baru, menimpa gambar lama, kode tidak
+dikenal, bukan gambar, atau ganda; hanya yang cocok yang dikirim. Gambar satu
+barang bisa diganti atau dihapus dari baris katalognya.
+
+Khusus server lokal (Node, folder `IMAGES_DIR`), gambar bisa disalin dari folder
+mana pun. Nama berkas mengikuti kode barang:
 
 ```
 <kode>.webp         gambar penuh
 <kode>-thumb.webp   thumbnail (opsional)
 ```
 
-Salin dari folder mana pun ke folder gambar:
-
 ```bash
 npm run import:images -- /path/ke/folder/gambar
 ```
+
+Skrip ini tidak mengisi bucket R2 produksi.
 
 - **Tidak ada sakelar.** Folder gambar kosong = katalog tetap seperti biasa.
 - Yang disimpan di database hanya daftar kode yang punya gambar (`item_images`),
@@ -158,11 +167,6 @@ npm run import:images -- /path/ke/folder/gambar
   menit. Folder/bucket sedang tidak terbaca tidak mengosongkan daftar: kode lama
   tetap dipakai dan errornya dicatat di pengaturan `item_images_status`.
 - Klik thumbnail membuka gambar penuh di halaman yang sama (zoom, seret, Esc).
-
-`npm run import:images` hanya mengisi folder lokal. Untuk bucket R2 (Workers),
-unggah lewat aplikasi: Katalog > **Unggah gambar massal** (peran dengan izin
-`edit_catalog`; nama berkas = kode barang, mis. `101885.jpg`, maks. 1.000 berkas
-sekali kirim). Gambar satuan bisa diganti atau dihapus dari baris katalognya.
 
 ---
 

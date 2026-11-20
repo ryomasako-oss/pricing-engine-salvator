@@ -9,8 +9,8 @@
  * Berkas yang namanya tidak cocok pola dilewati dan dilaporkan, bukan diam-diam
  * dibuang: nama yang keliru biasanya berarti kode katalognya juga keliru.
  *
- * Skrip ini hanya mengisi folder lokal. Bucket R2 di Worker belum punya pengirim
- * massal; sampai itu ada, isi R2 dari mesin yang punya gambar lewat wrangler. */
+ * Skrip ini hanya mengisi folder lokal (server Node). Bucket R2 produksi diisi lewat
+ * aplikasi: Katalog > Unggah gambar massal (src/components/BulkImageUpload.tsx). */
 
 import fs from "node:fs";
 import path from "node:path";
