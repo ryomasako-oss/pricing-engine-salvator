@@ -31,6 +31,10 @@ interface DraftRow {
   reviewed_at: string | null;
   /** New item from an import: catalog items with a similar name (server picks at most three). */
   similar?: { code: string; name: string }[];
+  /** Import row: the item has an Accurate purchase price, so its COGS stays. */
+  purchased?: boolean;
+  /** Import row: other files in which the same code also waits. */
+  elsewhere?: string[];
 }
 
 /** One uploaded spreadsheet; its rows are `import` drafts, listed per file because a file can hold thousands. */
@@ -44,6 +48,12 @@ interface ImportFile {
   pending: number;
   approved: number;
   rejected: number;
+  cancelled: number;
+  /** Why the file (or part of it) was refused. */
+  note: string | null;
+  /** Replace file: what ACC of the whole file would delete now (waiting), or did delete (finished). */
+  removing: number | null;
+  removed: number | null;
 }
 interface OpenFile {
   drafts: DraftRow[];
@@ -51,6 +61,8 @@ interface OpenFile {
   loading: boolean;
 }
 const PAGE = 100;
+/** Drafts per ACC request; the server applies this many at most, so the page asks again until none are left. */
+const ACC_STEP = 120; // = server ACC_STEP (routes/catalog.ts)
 const MODE_LABEL: Record<ImportFile["mode"], string> = { merge: "Gabung ke katalog", replace: "Ganti seluruh katalog" };
 
 const KIND_LABEL: Record<DraftRow["kind"], string> = { barcode: "Barcode", unit: "Satuan baru", edit: "Ubah barang", stock: "Stok", import: "Impor file" };
@@ -65,6 +77,8 @@ export function CatalogDraftsPage() {
   const toast = useToast();
   const { can } = useAuth();
   const reviewer = can("review_catalog_drafts");
+  /** A manager only uploads: their files and what became of them, view only. */
+  const drafter = can("draft_catalog");
   const { drafts: waiting } = useNavCounts();
   const [status, setStatus] = useState<"pending" | "done" | "stock">("pending");
   const [history, setHistory] = useState<StockHistoryRow[]>([]);
@@ -78,55 +92,97 @@ export function CatalogDraftsPage() {
   const [rejectingFile, setRejectingFile] = useState<ImportFile | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState("");
 
   const loadSeq = useRef(0);
-  const load = useCallback(() => {
-    const seq = ++loadSeq.current;
-    setLoading(true);
-    setLoadError(null);
-    setPicked(new Set());
-    setOpen(new Map());
-    // Riwayat stok tab: the stock history of every item, not drafts.
-    (status === "stock"
-      ? api.get<{ history: StockHistoryRow[] }>("/stock/history").then((r) => seq === loadSeq.current && (setHistory(r.history), setRows([]), setFiles([])))
-      : Promise.all([
-          api.get<{ drafts: DraftRow[] }>(`/catalog/drafts?status=${status}`),
-          api.get<{ imports: ImportFile[] }>(`/catalog/imports?status=${status}`),
-        ]).then(([d, f]) => seq === loadSeq.current && (setRows(d.drafts), setFiles(f.imports)))
-    )
-      .catch((e) => seq === loadSeq.current && setLoadError(e instanceof Error ? e.message : String(e)))
-      .finally(() => seq === loadSeq.current && setLoading(false));
-  }, [status]);
-  useEffect(load, [load]);
-
-  /** Open the draft rows of one file (a page at a time). */
-  const openFile = async (f: ImportFile, more = false) => {
-    const have = more ? open.get(f.id)?.drafts ?? [] : [];
-    setOpen((m) => new Map(m).set(f.id, { drafts: have, total: f.pending, loading: true }));
+  const openRef = useRef(open);
+  openRef.current = open;
+  /** Open the drafts of one file (a page at a time); `size` rows from the start when the file is reloaded. */
+  const openFile = async (f: ImportFile, more = false, size = PAGE) => {
+    const have = more ? openRef.current.get(f.id)?.drafts ?? [] : [];
+    setOpen((m) => new Map(m).set(f.id, { drafts: have, total: status === "pending" ? f.pending : f.total, loading: true }));
     try {
-      const r = await api.get<{ drafts: DraftRow[]; total: number }>(`/catalog/imports/${f.id}/drafts?limit=${PAGE}&offset=${have.length}`);
-      const drafts = r.drafts.map((d) => ({ ...d, name: String(d.payload.name ?? d.before.name ?? ""), created_by_name: f.created_by_name, created_at: f.created_at, reviewed_by_name: null, reviewed_at: null, note: "" }));
+      const r = await api.get<{ drafts: DraftRow[]; total: number }>(`/catalog/imports/${f.id}/drafts?limit=${more ? PAGE : size}&offset=${have.length}&status=${status === "pending" ? "pending" : "all"}`);
+      const drafts = r.drafts.map((d) => ({ ...d, name: String(d.payload.name ?? d.before.name ?? ""), created_by_name: f.created_by_name, created_at: f.created_at }));
       setOpen((m) => new Map(m).set(f.id, { drafts: [...have, ...drafts], total: r.total, loading: false }));
     } catch (e) {
       setOpen((m) => { const n = new Map(m); n.delete(f.id); return n; });
       toast(e instanceof Error ? e.message : "Gagal memuat isi file.", "error");
     }
   };
+
+  /** `keepOpen`: after ACC or Tolak the files the admin has open stay open, with their rows read again. */
+  const load = useCallback((keepOpen = false) => {
+    const seq = ++loadSeq.current;
+    const stillOpen = keepOpen ? [...openRef.current] : [];
+    setLoading(true);
+    setLoadError(null);
+    setPicked(new Set());
+    if (!keepOpen) setOpen(new Map());
+    // Riwayat stok tab: the stock history of every item, not drafts.
+    (status === "stock"
+      ? api.get<{ history: StockHistoryRow[] }>("/stock/history").then((r) => seq === loadSeq.current && (setHistory(r.history), setRows([]), setFiles([])))
+      : Promise.all([
+          reviewer || drafter ? api.get<{ drafts: DraftRow[] }>(`/catalog/drafts?status=${status}`) : Promise.resolve({ drafts: [] as DraftRow[] }),
+          api.get<{ imports: ImportFile[] }>(`/catalog/imports?status=${status}`),
+        ]).then(([d, f]) => {
+          if (seq !== loadSeq.current) return;
+          setRows(d.drafts);
+          setFiles(f.imports);
+          setOpen((m) => new Map([...m].filter(([id]) => f.imports.some((x) => x.id === id))));
+          for (const [id, o] of stillOpen) {
+            const file = f.imports.find((x) => x.id === id);
+            if (file) void openFile(file, false, Math.min(500, Math.max(PAGE, o.drafts.length)));
+          }
+        })
+    )
+      .catch((e) => seq === loadSeq.current && setLoadError(e instanceof Error ? e.message : String(e)))
+      .finally(() => seq === loadSeq.current && setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, reviewer, drafter]);
+  useEffect(() => load(), [load]);
+
   const closeFile = (id: number) => setOpen((m) => { const n = new Map(m); n.delete(id); return n; });
 
-  /** ACC / Tolak a whole file, or the ticked rows of it, in one request. */
+  /**
+   * ACC / Tolak a whole file, or the given rows of it. ACC goes in steps the server limits (ACC_STEP rows per
+   * request); this asks again until nothing is left or a step fails, and says how far it got.
+   */
   const reviewFile = async (f: ImportFile, approve: boolean, ids?: number[], why = "") => {
     setBusy(true);
+    let applied = 0;
+    let removed: number | undefined;
     try {
-      const r = await api.post<{ count: number }>(`/catalog/imports/${f.id}/review`, { approve, note: why, ...(ids && { ids }) });
-      toast(approve ? `${grp(r.count)} barang dari ${f.source} di-ACC dan sudah masuk katalog.` : `${grp(r.count)} barang dari ${f.source} ditolak.`, "success");
+      if (!approve) {
+        for (const part of ids ? chunk(ids, ACC_STEP) : [undefined]) {
+          const r = await api.post<{ count: number }>(`/catalog/imports/${f.id}/review`, { approve, note: why, ...(part && { ids: part }) });
+          applied += r.count;
+        }
+        toast(`${grp(applied)} barang dari ${f.source} ditolak.`, "success");
+        return true;
+      }
+      for (const part of ids ? chunk(ids, ACC_STEP) : [undefined]) {
+        for (;;) {
+          const r = await api.post<{ applied: number; remaining: number; removed?: number }>(`/catalog/imports/${f.id}/review`, { approve, note: "", ...(part && { ids: part }) });
+          applied += r.applied;
+          if (r.removed !== undefined) removed = r.removed;
+          setProgress(`${f.source}: ${grp(applied)} barang diterapkan${ids ? "" : `, ${grp(r.remaining)} lagi`}…`);
+          if (part || !r.remaining || !r.applied) break;
+        }
+      }
+      toast(
+        `${grp(applied)} barang dari ${f.source} di-ACC dan sudah masuk katalog.${removed ? ` ${grp(removed)} barang yang tidak ada di file dihapus dari katalog.` : ""}`,
+        "success",
+      );
       return true;
     } catch (e) {
-      toast(`${f.source}: ${e instanceof Error ? e.message : "Gagal."}`, "error");
+      const msg = e instanceof Error ? e.message : "Gagal.";
+      toast(`${f.source}: ${applied ? `${grp(applied)} barang sudah masuk katalog. ` : ""}${msg}`, "error");
       return false;
     } finally {
       setBusy(false);
-      load();
+      setProgress("");
+      load(true);
       changed();
     }
   };
@@ -160,18 +216,27 @@ export function CatalogDraftsPage() {
     }
     setBusy(false);
     if (ok) toast(`${ok} draf di-ACC dan sudah masuk katalog.`, "success");
-    load();
+    load(true);
     changed();
   };
   const reject = async () => {
     if (!rejecting) return;
+    // A row of an import file is refused through its file.
+    const file = files.find((f) => open.get(f.id)?.drafts.some((d) => d.id === rejecting.id));
+    if (file) {
+      if (await reviewFile(file, false, [rejecting.id], note)) {
+        setRejecting(null);
+        setNote("");
+      }
+      return;
+    }
     setBusy(true);
     try {
       await api.post(`/catalog/drafts/${rejecting.id}/review`, { approve: false, note });
       toast("Draf ditolak.", "success");
       setRejecting(null);
       setNote("");
-      load();
+      load(true);
       changed();
     } catch (e) {
       toast(e instanceof Error ? e.message : "Gagal.", "error");
@@ -190,6 +255,7 @@ export function CatalogDraftsPage() {
     }
   };
   /** Pick or unpick every change of one item at once. */
+  const chunk = <T,>(xs: T[], n: number) => Array.from({ length: Math.ceil(xs.length / n) }, (_, i) => xs.slice(i * n, i * n + n));
   const toggle = (ids: number[]) =>
     setPicked((s) => {
       const n = new Set(s);
@@ -199,7 +265,7 @@ export function CatalogDraftsPage() {
     });
   // One card per item: barcode, satuan and Ubah barang of the same barang sit together.
   /** Every row on screen: the item cards and the opened import files. */
-  const shownIds = [...rows.map((r) => r.id), ...[...open.values()].flatMap((o) => o.drafts.map((d) => d.id))];
+  const shownIds = [...rows.map((r) => r.id), ...[...open.values()].flatMap((o) => o.drafts.filter((d) => d.status === "pending").map((d) => d.id))];
   const allPicked = shownIds.length > 0 && shownIds.every((id) => picked.has(id));
   const cards = [...rows.reduce((m, r) => m.set(r.code, [...(m.get(r.code) ?? []), r]), new Map<string, DraftRow[]>()).values()];
 
@@ -211,10 +277,13 @@ export function CatalogDraftsPage() {
           <p>
             {reviewer
               ? "Perubahan Admin Gudang di Katalog (barcode, satuan, data barang) dan file impor katalog. Baru masuk katalog setelah di-ACC. Stok katalog hanya berubah lewat Tarik, draf stok, atau file impor yang di-ACC."
-              : "Barcode dan satuan tetap dikerjakan di Katalog. Hasilnya menunggu ACC admin di sini; yang ditolak tampil di tab Riwayat beserta alasannya."}
+              : drafter
+                ? "Barcode dan satuan tetap dikerjakan di Katalog. Hasilnya menunggu ACC admin di sini; yang ditolak tampil di tab Riwayat beserta alasannya."
+                : "File impor katalog yang Anda unggah: menunggu ACC admin, sudah di-ACC, atau ditolak beserta alasannya. Di sini hanya untuk melihat; ACC dilakukan admin."}
           </p>
         </div>
         <div className="row-wrap">
+          {progress && <span className="muted small" role="status">{progress}</span>}
           {reviewer && status === "pending" && shownIds.length > 0 && (
             <label className="row-wrap">
               <input
@@ -231,16 +300,16 @@ export function CatalogDraftsPage() {
               ACC {grp(picked.size)} yang dipilih
             </button>
           )}
-          <StockActions onPulled={load} />
+          <StockActions onPulled={() => load()} />
           <Link className="btn ghost" to="/catalog">Barcode &amp; satuan (Katalog)</Link>
-          <button className="btn ghost" onClick={load} disabled={loading}>Muat ulang</button>
+          <button className="btn ghost" onClick={() => load()} disabled={loading}>Muat ulang</button>
         </div>
       </div>
 
       <div className="card">
         <div className="tabs card-tabs" role="group" aria-label="Sub-menu Gudang">
           {([
-            ["pending", reviewer ? "Menunggu ACC" : "Draf saya"],
+            ["pending", reviewer ? "Menunggu ACC" : drafter ? "Draf saya" : "File saya"],
             ["done", "Riwayat"],
             ["stock", "Riwayat stok"],
           ] as const).map(([key, label]) => (
@@ -252,7 +321,7 @@ export function CatalogDraftsPage() {
         </div>
 
         {loadError ? (
-          <LoadError message={loadError} onRetry={load} />
+          <LoadError message={loadError} onRetry={() => load()} />
         ) : loading ? (
           <div className="card-body skeleton-list" role="status" aria-label="Memuat draf…">
             {[0, 1, 2].map((i) => <span key={i} className="skeleton" />)}
@@ -264,8 +333,10 @@ export function CatalogDraftsPage() {
             <h3>{status === "pending" ? "Tidak ada draf yang menunggu" : "Belum ada riwayat"}</h3>
             <p>
               {status === "pending"
-                ? "Draf muncul di sini saat barcode, satuan, data barang, atau stok disimpan di Katalog."
-                : "Draf yang sudah di-ACC, ditolak, atau dibatalkan muncul di sini."}
+                ? drafter || reviewer
+                  ? "Draf muncul di sini saat barcode, satuan, data barang, atau stok disimpan di Katalog."
+                  : "File impor yang Anda unggah muncul di sini sampai admin memprosesnya."
+                : "Draf dan file impor yang sudah di-ACC, ditolak, atau dibatalkan muncul di sini."}
             </p>
           </div>
         ) : (
@@ -282,11 +353,9 @@ export function CatalogDraftsPage() {
                       </span>
                     </strong>
                     <div className="row-wrap">
-                      {status === "pending" && (
-                        <button className="btn small ghost" onClick={() => (o ? closeFile(f.id) : void openFile(f))}>
-                          {o ? "Tutup isi" : "Lihat isi"}
-                        </button>
-                      )}
+                      <button className="btn small ghost" onClick={() => (o ? closeFile(f.id) : void openFile(f))}>
+                        {o ? "Tutup isi" : "Lihat isi"}
+                      </button>
                       {pending && (
                         <>
                           <button className="btn small primary" disabled={busy} onClick={() => void reviewFile(f, true)}>ACC seluruh file</button>
@@ -298,9 +367,20 @@ export function CatalogDraftsPage() {
                   <div className="muted small">
                     Diunggah {f.created_by_name}, {fmtDateTime(f.created_at)} ·{" "}
                     {status === "pending"
-                      ? `${grp(f.pending)} barang menunggu${f.total > f.pending ? ` (dari ${grp(f.total)})` : ""}`
-                      : `${grp(f.approved)} di-ACC, ${grp(f.rejected)} ditolak`}
+                      ? f.total
+                        ? `${grp(f.pending)} barang menunggu${f.total > f.pending ? ` (dari ${grp(f.total)})` : ""}`
+                        : "Semua baris sama dengan katalog"
+                      : `${grp(f.approved)} di-ACC, ${grp(f.rejected)} ditolak${f.cancelled ? `, ${grp(f.cancelled)} digantikan file lain` : ""}`}
                   </div>
+                  {f.mode === "replace" && f.removing != null && (
+                    <div className="small">
+                      Saat ACC seluruh file, {grp(f.removing)} barang yang tidak ada di file dihapus dari katalog. ACC sebagian tidak menghapus apa pun.
+                    </div>
+                  )}
+                  {f.mode === "replace" && f.removed != null && f.removed > 0 && (
+                    <div className="small">{grp(f.removed)} barang yang tidak ada di file dihapus dari katalog.</div>
+                  )}
+                  {f.note && <div className="fix-done"><em>Alasan penolakan: {f.note}</em></div>}
                   {o && (
                     <>
                       <ul className="draft-changes">
@@ -308,14 +388,26 @@ export function CatalogDraftsPage() {
                           <li key={r.id} className="draft-change">
                             <div className="fix-main">
                               <strong className="fix-item">
-                                {pending && (
+                                {pending && r.status === "pending" && (
                                   <input type="checkbox" checked={picked.has(r.id)} onChange={() => toggle([r.id])} aria-label={`Pilih ${r.code}`} />
                                 )}
                                 <span>{r.name || r.code} <span className="muted num">· {r.code}</span></span>
                               </strong>
-                              {draftChanges(r.kind, r.uom, r.payload, r.before).map((line) => (
+                              {r.status !== "pending" && (
+                                <div className="badge-row"><span className={`badge ${STATUS[r.status][0]}`}>{STATUS[r.status][1]}</span></div>
+                              )}
+                              {draftChanges(r.kind, r.uom, r.payload, r.before, r.purchased).map((line) => (
                                 <div key={line} className="num">{line}</div>
                               ))}
+                              {!!r.elsewhere?.length && (
+                                <div className="small">
+                                  <span className="badge amber">Juga ada di file lain yang menunggu</span> {r.elsewhere.join(", ")} (ACC mengikuti urutan unggah; yang lama dibatalkan bila yang baru di-ACC)
+                                </div>
+                              )}
+                              {r.status !== "pending" && r.reviewed_at && (
+                                <div className="muted small">{r.reviewed_by_name}, {fmtDateTime(r.reviewed_at)}</div>
+                              )}
+                              {r.note && <div className="fix-done"><em>{r.note}</em></div>}
                               {!!r.similar?.length && (
                                 <div className="small">
                                   <span className="badge amber">Mirip barang katalog</span>{" "}
@@ -323,7 +415,7 @@ export function CatalogDraftsPage() {
                                 </div>
                               )}
                             </div>
-                            {pending && (
+                            {pending && r.status === "pending" && (
                               <div className="fix-actions">
                                 <button className="btn small primary" disabled={busy} onClick={() => void approve([r.id])}>ACC</button>
                                 <button className="btn small ghost danger" disabled={busy} onClick={() => setRejecting(r)}>Tolak</button>

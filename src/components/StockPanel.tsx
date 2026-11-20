@@ -153,7 +153,7 @@ export interface StockHistoryRow {
 }
 
 const SOURCE: Record<string, string> = {
-  draft_approved: "Draf di-ACC", draft_rejected: "Draf ditolak", tarik: "Tarik dari Accurate", apply: "Terapkan ke katalog", kirim: "Dikirim ke Accurate",
+  draft_approved: "Draf di-ACC", draft_rejected: "Draf ditolak", tarik: "Tarik dari Accurate", apply: "Terapkan ke katalog", kirim: "Dikirim ke Accurate", import: "Impor",
 };
 
 /** One line per stock change: time (WIB), before to after, who filled, who ACCed or refused, source. */

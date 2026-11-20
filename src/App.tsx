@@ -101,7 +101,7 @@ function TopBar() {
           <Icon name="box" size={16} />
           <span className="label">Katalog</span>
         </NavLink>
-        {(can("draft_catalog") || can("review_catalog_drafts")) && (
+        {(can("draft_catalog") || can("review_catalog_drafts") || can("import_catalog")) && (
           <NavLink to="/gudang" className={({ isActive }) => (isActive ? "active" : "")}>
             <Icon name="truck" size={16} />
             <span className="label">Gudang</span>

@@ -70,13 +70,20 @@ export function importUnchanged(a: ImportItem, b: ImportItem): boolean {
 
 const unitsText = (u: UnitFactor[]) => u.map((x) => `${x.uom} ${x.factor}`).join(", ") || "tidak ada";
 
-/** One line per change of an import draft, for the Gudang list. `payload` is the file row plus `mode`, or `{ delete: true }`. */
-export function importChanges(payload: Record<string, unknown>, before: Record<string, unknown>): string[] {
-  if (payload.delete) return ["Dihapus dari katalog (tidak ada di file, impor ganti seluruh katalog)"];
+/** The file's COGS differs from the catalog's but is not applied: the item has a purchase price from Accurate. */
+export function cogsIgnored(mode: ImportMode, row: ImportRow, cur: ImportItem | null, purchased: boolean): boolean {
+  return purchased && !!cur && cur.cogs !== undefined && row.cogs !== undefined && (row.cogs > 0 || mode === "replace") && row.cogs !== cur.cogs;
+}
+
+/**
+ * One line per change of an import draft, for the Gudang list. `payload` is the file row plus `mode`.
+ * `purchased` = the item has an Accurate purchase price (server decides), so its COGS stays and is not shown as changing.
+ */
+export function importChanges(payload: Record<string, unknown>, before: Record<string, unknown>, purchased = false): string[] {
   const row = payload as unknown as ImportRow & { mode?: ImportMode };
   const mode = row.mode ?? "merge";
   const cur = typeof before.name === "string" ? (before as unknown as ImportItem) : null;
-  const next = importNext(mode, row, cur, false);
+  const next = importNext(mode, row, cur, purchased);
   const out: string[] = [];
   const money = (n: number) => n.toLocaleString("id-ID");
   if (!cur) {
@@ -90,6 +97,7 @@ export function importChanges(payload: Record<string, unknown>, before: Record<s
   if (!sameUom(next.uom, cur.uom)) out.push(`Satuan dasar: ${cur.uom} → ${next.uom}`);
   // Hidden from a viewer without view_costs: the server leaves the numbers out, so there is nothing to compare.
   if (cur.cogs !== undefined && next.cogs !== cur.cogs) out.push(`COGS: ${money(cur.cogs)} → ${money(next.cogs ?? 0)}`);
+  if (cogsIgnored(mode, row, cur, purchased)) out.push("COGS tetap: harga beli Accurate");
   if (cur.list_price !== undefined && next.list_price !== cur.list_price) out.push(`Harga jual: ${money(cur.list_price)} → ${money(next.list_price ?? 0)}`);
   if (next.category !== cur.category) out.push(`Kategori: ${cur.category || "kosong"} → ${next.category || "kosong"}`);
   if (next.stock !== cur.stock) out.push(`Stok: ${cur.stock} → ${next.stock}`);
@@ -98,9 +106,16 @@ export function importChanges(payload: Record<string, unknown>, before: Record<s
 }
 
 /** Reply of POST /catalog/import, as the pages show it. `canReview` = the user sees the Gudang menu (admin). */
-export interface ImportQueued { importId: number | null; drafts: number; unchanged: number }
+export interface ImportQueued { importId: number | null; drafts: number; unchanged: number; cogsIgnored?: number }
 export function importQueuedNote(r: ImportQueued, canReview: boolean): string {
-  if (!r.drafts) return "Tidak ada yang berubah: semua barang di file sama dengan katalog.";
+  const where = canReview ? " di menu Gudang" : "";
+  const kept = r.cogsIgnored
+    ? ` ${r.cogsIgnored.toLocaleString("id-ID")} barang punya COGS berbeda di file, tetapi COGS-nya tetap karena sudah ada harga beli dari Accurate.`
+    : "";
+  if (!r.drafts) {
+    if (r.importId) return `Semua baris file sama dengan katalog. File tetap menunggu ACC admin${where} supaya barang yang tidak ada di file dihapus.${kept}`;
+    return `Tidak ada yang berubah di katalog: semua barang di file sama dengan katalog.${kept}`;
+  }
   const skipped = r.unchanged ? ` ${r.unchanged.toLocaleString("id-ID")} barang yang tidak berubah dilewati.` : "";
-  return `File masuk draf (${r.drafts.toLocaleString("id-ID")} barang), menunggu ACC admin${canReview ? " di menu Gudang" : ""}.${skipped}`;
+  return `File masuk draf (${r.drafts.toLocaleString("id-ID")} barang), menunggu ACC admin${where}.${skipped}${kept}`;
 }

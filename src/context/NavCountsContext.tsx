@@ -43,7 +43,7 @@ export function NavCountsProvider({ children }: { children: React.ReactNode }) {
   }, [pathname]);
 
   useEffect(() => {
-    if (!can("draft_catalog") && !can("review_catalog_drafts")) return;
+    if (!can("draft_catalog") && !can("review_catalog_drafts") && !can("import_catalog")) return;
     const refresh = () =>
       api.get<{ pending: number }>("/catalog/drafts/count").then((r) => setDrafts(r.pending)).catch(() => undefined);
     refresh();
