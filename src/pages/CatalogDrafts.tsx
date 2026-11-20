@@ -1,5 +1,5 @@
 /* Menu Gudang (2026-11-19; was "Draf Perbaikan Divisi Gudang"): what an Admin Gudang changed in Katalog (barcode, Buat barcode,
-   Tambah satuan, Ubah barang), waiting for an admin. ACC applies it to the catalog; Tolak needs a reason.
+   Tambah satuan, Ubah barang) and every uploaded catalog file (2026-11-20, grouped per file), waiting for an admin. ACC applies it to the catalog; Tolak needs a reason.
    The Admin Gudang sees their own drafts here and can take one back. Server: /catalog/drafts. */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -31,7 +31,27 @@ interface DraftRow {
   reviewed_at: string | null;
 }
 
-const KIND_LABEL: Record<DraftRow["kind"], string> = { barcode: "Barcode", unit: "Satuan baru", edit: "Ubah barang", stock: "Stok" };
+/** One uploaded spreadsheet; its rows are `import` drafts, listed per file because a file can hold thousands. */
+interface ImportFile {
+  id: number;
+  source: string;
+  mode: "merge" | "replace";
+  created_by_name: string | null;
+  created_at: string;
+  total: number;
+  pending: number;
+  approved: number;
+  rejected: number;
+}
+interface OpenFile {
+  drafts: DraftRow[];
+  total: number;
+  loading: boolean;
+}
+const PAGE = 100;
+const MODE_LABEL: Record<ImportFile["mode"], string> = { merge: "Gabung ke katalog", replace: "Ganti seluruh katalog" };
+
+const KIND_LABEL: Record<DraftRow["kind"], string> = { barcode: "Barcode", unit: "Satuan baru", edit: "Ubah barang", stock: "Stok", import: "Impor file" };
 const STATUS: Record<Exclude<DraftRow["status"], "pending">, [string, string]> = {
   approved: ["green", "Di-ACC"],
   rejected: ["red", "Ditolak"],
@@ -50,7 +70,10 @@ export function CatalogDraftsPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [picked, setPicked] = useState<Set<number>>(new Set());
+  const [files, setFiles] = useState<ImportFile[]>([]);
+  const [open, setOpen] = useState<Map<number, OpenFile>>(new Map());
   const [rejecting, setRejecting] = useState<DraftRow | null>(null);
+  const [rejectingFile, setRejectingFile] = useState<ImportFile | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -60,18 +83,68 @@ export function CatalogDraftsPage() {
     setLoading(true);
     setLoadError(null);
     setPicked(new Set());
+    setOpen(new Map());
     // Riwayat stok tab: the stock history of every item, not drafts.
     (status === "stock"
-      ? api.get<{ history: StockHistoryRow[] }>("/stock/history").then((r) => seq === loadSeq.current && (setHistory(r.history), setRows([])))
-      : api.get<{ drafts: DraftRow[] }>(`/catalog/drafts?status=${status}`).then((r) => seq === loadSeq.current && setRows(r.drafts))
+      ? api.get<{ history: StockHistoryRow[] }>("/stock/history").then((r) => seq === loadSeq.current && (setHistory(r.history), setRows([]), setFiles([])))
+      : Promise.all([
+          api.get<{ drafts: DraftRow[] }>(`/catalog/drafts?status=${status}`),
+          api.get<{ imports: ImportFile[] }>(`/catalog/imports?status=${status}`),
+        ]).then(([d, f]) => seq === loadSeq.current && (setRows(d.drafts), setFiles(f.imports)))
     )
       .catch((e) => seq === loadSeq.current && setLoadError(e instanceof Error ? e.message : String(e)))
       .finally(() => seq === loadSeq.current && setLoading(false));
   }, [status]);
   useEffect(load, [load]);
 
-  /** ACC one after another; one that no longer fits says why and the rest go on. */
+  /** Open the draft rows of one file (a page at a time). */
+  const openFile = async (f: ImportFile, more = false) => {
+    const have = more ? open.get(f.id)?.drafts ?? [] : [];
+    setOpen((m) => new Map(m).set(f.id, { drafts: have, total: f.pending, loading: true }));
+    try {
+      const r = await api.get<{ drafts: DraftRow[]; total: number }>(`/catalog/imports/${f.id}/drafts?limit=${PAGE}&offset=${have.length}`);
+      const drafts = r.drafts.map((d) => ({ ...d, name: String(d.payload.name ?? d.before.name ?? ""), created_by_name: f.created_by_name, created_at: f.created_at, reviewed_by_name: null, reviewed_at: null, note: "" }));
+      setOpen((m) => new Map(m).set(f.id, { drafts: [...have, ...drafts], total: r.total, loading: false }));
+    } catch (e) {
+      setOpen((m) => { const n = new Map(m); n.delete(f.id); return n; });
+      toast(e instanceof Error ? e.message : "Gagal memuat isi file.", "error");
+    }
+  };
+  const closeFile = (id: number) => setOpen((m) => { const n = new Map(m); n.delete(id); return n; });
+
+  /** ACC / Tolak a whole file, or the ticked rows of it, in one request. */
+  const reviewFile = async (f: ImportFile, approve: boolean, ids?: number[], why = "") => {
+    setBusy(true);
+    try {
+      const r = await api.post<{ count: number }>(`/catalog/imports/${f.id}/review`, { approve, note: why, ...(ids && { ids }) });
+      toast(approve ? `${grp(r.count)} barang dari ${f.source} di-ACC dan sudah masuk katalog.` : `${grp(r.count)} barang dari ${f.source} ditolak.`, "success");
+      return true;
+    } catch (e) {
+      toast(`${f.source}: ${e instanceof Error ? e.message : "Gagal."}`, "error");
+      return false;
+    } finally {
+      setBusy(false);
+      load();
+      changed();
+    }
+  };
+  const rejectFile = async () => {
+    if (!rejectingFile) return;
+    if (await reviewFile(rejectingFile, false, undefined, note)) {
+      setRejectingFile(null);
+      setNote("");
+    }
+  };
+
+  /** ACC one after another; one that no longer fits says why and the rest go on. Rows of an import file go together, per file. */
   const approve = async (ids: number[]) => {
+    const fileOf = new Map<number, number>();
+    for (const [fid, o] of open) for (const d of o.drafts) fileOf.set(d.id, fid);
+    const perFile = new Map<number, number[]>();
+    for (const id of ids) if (fileOf.has(id)) perFile.set(fileOf.get(id)!, [...(perFile.get(fileOf.get(id)!) ?? []), id]);
+    for (const [fid, fileIds] of perFile) await reviewFile(files.find((f) => f.id === fid)!, true, fileIds);
+    ids = ids.filter((id) => !fileOf.has(id));
+    if (!ids.length) return;
     setBusy(true);
     let ok = 0;
     for (const id of ids) {
@@ -123,6 +196,9 @@ export function CatalogDraftsPage() {
       return n;
     });
   // One card per item: barcode, satuan and Ubah barang of the same barang sit together.
+  /** Every row on screen: the item cards and the opened import files. */
+  const shownIds = [...rows.map((r) => r.id), ...[...open.values()].flatMap((o) => o.drafts.map((d) => d.id))];
+  const allPicked = shownIds.length > 0 && shownIds.every((id) => picked.has(id));
   const cards = [...rows.reduce((m, r) => m.set(r.code, [...(m.get(r.code) ?? []), r]), new Map<string, DraftRow[]>()).values()];
 
   return (
@@ -132,11 +208,22 @@ export function CatalogDraftsPage() {
           <h1>Gudang</h1>
           <p>
             {reviewer
-              ? "Perubahan Admin Gudang di Katalog (barcode, satuan, data barang). Baru masuk katalog setelah di-ACC. Stok katalog hanya berubah lewat Tarik atau draf stok yang di-ACC."
+              ? "Perubahan Admin Gudang di Katalog (barcode, satuan, data barang) dan file impor katalog. Baru masuk katalog setelah di-ACC. Stok katalog hanya berubah lewat Tarik, draf stok, atau file impor yang di-ACC."
               : "Barcode dan satuan tetap dikerjakan di Katalog. Hasilnya menunggu ACC admin di sini; yang ditolak tampil di tab Riwayat beserta alasannya."}
           </p>
         </div>
         <div className="row-wrap">
+          {reviewer && status === "pending" && shownIds.length > 0 && (
+            <label className="row-wrap">
+              <input
+                type="checkbox"
+                checked={allPicked}
+                onChange={() => setPicked(allPicked ? new Set() : new Set(shownIds))}
+                aria-label="Pilih semua yang tampil"
+              />
+              <span>Pilih semua</span>
+            </label>
+          )}
           {reviewer && status === "pending" && picked.size > 0 && (
             <button className="btn primary" disabled={busy} onClick={() => void approve([...picked])}>
               ACC {grp(picked.size)} yang dipilih
@@ -170,7 +257,7 @@ export function CatalogDraftsPage() {
           </div>
         ) : status === "stock" ? (
           <div className="card-body"><StockHistoryList rows={history} withItem /></div>
-        ) : rows.length === 0 ? (
+        ) : rows.length === 0 && files.length === 0 ? (
           <div className="card-body empty">
             <h3>{status === "pending" ? "Tidak ada draf yang menunggu" : "Belum ada riwayat"}</h3>
             <p>
@@ -181,6 +268,73 @@ export function CatalogDraftsPage() {
           </div>
         ) : (
           <ul className="fix-list">
+            {files.map((f) => {
+              const o = open.get(f.id);
+              const pending = reviewer && status === "pending";
+              return (
+                <li key={`file-${f.id}`} className="fix-row draft-card">
+                  <div className="draft-head">
+                    <strong className="fix-item">
+                      <span>
+                        {f.source} <span className="badge amber">{MODE_LABEL[f.mode]}</span>
+                      </span>
+                    </strong>
+                    <div className="row-wrap">
+                      {status === "pending" && (
+                        <button className="btn small ghost" onClick={() => (o ? closeFile(f.id) : void openFile(f))}>
+                          {o ? "Tutup isi" : "Lihat isi"}
+                        </button>
+                      )}
+                      {pending && (
+                        <>
+                          <button className="btn small primary" disabled={busy} onClick={() => void reviewFile(f, true)}>ACC seluruh file</button>
+                          <button className="btn small ghost danger" disabled={busy} onClick={() => setRejectingFile(f)}>Tolak seluruh file</button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <div className="muted small">
+                    Diunggah {f.created_by_name}, {fmtDateTime(f.created_at)} ·{" "}
+                    {status === "pending"
+                      ? `${grp(f.pending)} barang menunggu${f.total > f.pending ? ` (dari ${grp(f.total)})` : ""}`
+                      : `${grp(f.approved)} di-ACC, ${grp(f.rejected)} ditolak`}
+                  </div>
+                  {o && (
+                    <>
+                      <ul className="draft-changes">
+                        {o.drafts.map((r) => (
+                          <li key={r.id} className="draft-change">
+                            <div className="fix-main">
+                              <strong className="fix-item">
+                                {pending && (
+                                  <input type="checkbox" checked={picked.has(r.id)} onChange={() => toggle([r.id])} aria-label={`Pilih ${r.code}`} />
+                                )}
+                                <span>{r.name || r.code} <span className="muted num">· {r.code}</span></span>
+                              </strong>
+                              {draftChanges(r.kind, r.uom, r.payload, r.before).map((line) => (
+                                <div key={line} className="num">{line}</div>
+                              ))}
+                            </div>
+                            {pending && (
+                              <div className="fix-actions">
+                                <button className="btn small primary" disabled={busy} onClick={() => void approve([r.id])}>ACC</button>
+                                <button className="btn small ghost danger" disabled={busy} onClick={() => setRejecting(r)}>Tolak</button>
+                              </div>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                      {o.loading && <div className="muted small" role="status">Memuat…</div>}
+                      {!o.loading && o.drafts.length < o.total && (
+                        <button className="btn small ghost" onClick={() => void openFile(f, true)}>
+                          Muat lebih banyak ({grp(o.drafts.length)} dari {grp(o.total)})
+                        </button>
+                      )}
+                    </>
+                  )}
+                </li>
+              );
+            })}
             {cards.map((group) => {
               const ids = group.map((r) => r.id);
               const pending = reviewer && status === "pending";
@@ -246,6 +400,27 @@ export function CatalogDraftsPage() {
           </ul>
         )}
       </div>
+
+      {rejectingFile && (
+        <Modal
+          title="Tolak seluruh file"
+          sub={`${rejectingFile.source} · ${grp(rejectingFile.pending)} barang`}
+          onClose={() => setRejectingFile(null)}
+          footer={
+            <>
+              <button className="btn ghost" onClick={() => setRejectingFile(null)}>Batal</button>
+              <button className="btn primary" onClick={() => void rejectFile()} disabled={busy || !note.trim()}>
+                {busy ? "Menyimpan…" : "Tolak seluruh file"}
+              </button>
+            </>
+          }
+        >
+          <label className="field">
+            <span>Alasan (dibaca yang mengunggah)</span>
+            <textarea className="textarea" rows={3} autoFocus placeholder="mis. Kolom harga jual tertukar dengan COGS" value={note} onChange={(e) => setNote(e.target.value)} />
+          </label>
+        </Modal>
+      )}
 
       {rejecting && (
         <Modal

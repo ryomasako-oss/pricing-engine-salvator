@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import { request as pwRequest } from "@playwright/test";
 import * as XLSX from "xlsx";
-import { expect, test } from "./helpers";
+import { expect, test, importCatalog } from "./helpers";
 
 const CODE = "ZQAU-1";
 const WRONG = "salah-sandi-e2e";
@@ -14,10 +14,7 @@ const today = new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10);
 test.beforeAll(async ({ baseURL }) => {
   // Always the admin: the sales describe below runs this hook too, with its own storage state.
   const request = await pwRequest.newContext({ baseURL, storageState: "e2e/.auth/admin.json" });
-  const imported = await request.post("/api/catalog/import", {
-    data: { rows: [{ code: CODE, name: "ZQAU BUKU AUDIT", category: "GENERAL", cogs: 10000, list_price: 15000 }], source: "e2e" },
-  });
-  expect(imported.ok()).toBe(true);
+  await importCatalog(request, [{ code: CODE, name: "ZQAU BUKU AUDIT", category: "GENERAL", cogs: 10000, list_price: 15000 }]);
   const { items } = await (await request.get(`/api/catalog?q=${CODE}`)).json();
   const item = items.find((i: { code: string }) => i.code === CODE);
   const edited = await request.put(`/api/catalog/${item.id}`, {
@@ -41,9 +38,9 @@ async function open(page: import("@playwright/test").Page) {
 }
 
 /** Search for the code. The page waits half a second after typing, so first see the import row
-    (whose detail has no code) in the unfiltered list, then wait until the filtered list drops it. */
+    (the "Impor" badge; its detail has no code) in the unfiltered list, then wait until the filtered list drops it. */
 async function searchCode(page: import("@playwright/test").Page) {
-  const importRow = page.getByRole("row").filter({ hasText: "Impor" });
+  const importRow = page.getByRole("row").filter({ has: page.getByText("Impor", { exact: true }) });
   await expect(importRow.first()).toBeVisible();
   await page.getByLabel("Cari di riwayat audit").fill(CODE);
   await expect(importRow).toHaveCount(0);

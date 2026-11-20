@@ -49,6 +49,13 @@ function app(db: D1Database, role: "manager" | "admin") {
   };
 }
 
+/** An upload only makes drafts (2026-11-20); the whole file is ACCed by an admin, which applies it. */
+async function accFile(call: ReturnType<typeof app>, upload: { json: Record<string, unknown> }) {
+  const r = await call("POST", `/api/catalog/imports/${upload.json.importId}/review`, { approve: true });
+  expect(r.status).toBe(200);
+  return r;
+}
+
 const catalog = (sqlite: DatabaseSync) =>
   sqlite.prepare("SELECT code, name, uom, cogs, list_price, stock, category FROM catalog_items ORDER BY code").all();
 
@@ -69,9 +76,12 @@ describe("impor katalog ganti semua", () => {
 
   it("for an admin: the file wins, items not in it go, and a purchased item keeps its receipt COGS", async () => {
     const { sqlite, db } = freshDb();
+    const before = catalog(sqlite);
     const r = await app(db, "admin")("POST", "/api/catalog/import", { rows: FILE, mode: "replace" });
     expect(r.status).toBe(200);
-    expect(r.json).toMatchObject({ inserted: 1, updated: 2, removed: 1, total: 3 });
+    expect(r.json).toMatchObject({ inserted: 1, updated: 2, removed: 1, total: 3, drafts: 4 });
+    expect(catalog(sqlite)).toEqual(before); // nothing changes until ACC
+    await accFile(app(db, "admin"), r);
     expect(catalog(sqlite)).toEqual([
       { code: "FRESH", name: "Dari file", uom: "Rim", cogs: 50, list_price: 80, stock: 0, category: "" },
       // Stock is never written by an import (2026-11-20: it goes through an ACCed stock draft), so it stays.
@@ -84,7 +94,8 @@ describe("impor katalog ganti semua", () => {
 
   it("merge still never overwrites with 0 or blank", async () => {
     const { sqlite, db } = freshDb();
-    await app(db, "manager")("POST", "/api/catalog/import", { rows: FILE, mode: "merge" });
+    const up = await app(db, "manager")("POST", "/api/catalog/import", { rows: FILE, mode: "merge" });
+    await accFile(app(db, "admin"), up);
     expect(catalog(sqlite).find((i) => (i as { code: string }).code === "PLAIN")).toEqual(
       { code: "PLAIN", name: "Biasa baru", uom: "Box", cogs: 700, list_price: 900, stock: 2, category: "ATK" },
     );
@@ -94,7 +105,7 @@ describe("impor katalog ganti semua", () => {
 describe("barang baru otomatis berhenti setelah katalog dikosongkan", () => {
   for (const [label, empty] of [
     ["clear", (call: ReturnType<typeof app>) => call("DELETE", "/api/catalog")],
-    ["replace", (call: ReturnType<typeof app>) => call("POST", "/api/catalog/import", { rows: FILE, mode: "replace" })],
+    ["replace", async (call: ReturnType<typeof app>) => accFile(call, await call("POST", "/api/catalog/import", { rows: FILE, mode: "replace" }))],
   ] as const) {
     it(`after ${label}, a completed run adds nothing until "Terapkan" is answered OK`, async () => {
       const { db } = freshDb();

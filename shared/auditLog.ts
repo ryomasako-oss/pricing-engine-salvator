@@ -55,6 +55,8 @@ const ACTIONS: Record<string, string> = {
   stock_pulled: "Stok ditarik dari Accurate",
   catalog_draft_rejected: "Draf gudang ditolak",
   catalog_draft_cancelled: "Draf gudang dibatalkan",
+  import_approved: "Impor katalog di-ACC",
+  import_rejected: "Impor katalog ditolak",
   image_removed: "Foto dihapus",
   aliases_saved: "Alias disimpan",
   cogs_verified: "COGS diverifikasi",

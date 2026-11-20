@@ -19,12 +19,7 @@ import { UnitProposalsPanel } from "../components/UnitProposalsPanel";
 import { fmtDateTime, grp } from "@shared/format";
 import type { CatalogItem, UnitFactor } from "@shared/types";
 import { cleanUnits, ratioText, sameUom } from "@shared/uom";
-
-/** COGS = harga pembelian terakhir: an import leaves the COGS of purchased items alone (server/worker/routes/catalog.ts). */
-/** Stok dari file menjadi draf yang menunggu ACC admin (2026-11-20), bukan langsung berlaku. */
-const stockDraftNote = (n = 0) => (n ? ` ${n} perubahan stok masuk draf dan menunggu ACC admin di menu Gudang.` : "");
-const keptNote = (n = 0) =>
-  n > 0 ? `  COGS ${grp(n)} barang tidak diubah karena sudah memakai harga beli terakhir dari Accurate.` : "";
+import { importQueuedNote, type ImportQueued } from "@shared/catalogImport";
 
 interface Stats {
   total: number;
@@ -490,14 +485,14 @@ export function CatalogPage() {
           onFile={async (file) => {
             const { parseInventory } = await import("../import/parsers");
             const { rows, report } = await parseInventory(file);
-            const r = await api.post<{ inserted: number; updated: number; cogsFromPurchases?: number; stockDrafts?: number }>("/catalog/import", {
+            const r = await api.post<ImportQueued>("/catalog/import", {
               rows,
               source: file.name,
               mode: "merge",
             });
             return {
               report,
-              summary: `${report.count} barang terbaca. ${r.inserted} baru ditambahkan, ${r.updated} diperbarui.${keptNote(r.cogsFromPurchases)}${stockDraftNote(r.stockDrafts)}`,
+              summary: `${report.count} barang terbaca. ${importQueuedNote(r, can("review_catalog_drafts"))}`,
             };
           }}
         />
@@ -509,7 +504,8 @@ export function CatalogPage() {
           message={
             <>
               Barang yang tidak ada di file akan dihapus dari katalog
-              {stats ? ` (sekarang ${grp(stats.total)} barang)` : ""}. Barang yang ada di file diperbarui. Ini tidak bisa dibatalkan.
+              {stats ? ` (sekarang ${grp(stats.total)} barang)` : ""}. Barang yang ada di file diperbarui. Semuanya masuk draf dan baru berlaku
+              setelah admin meng-ACC di menu Gudang; setelah di-ACC tidak bisa dibatalkan.
             </>
           }
           confirmLabel="Ya, pilih file"
@@ -524,7 +520,7 @@ export function CatalogPage() {
           description={
             <>
               <strong className="text-err">
-                Ini menghapus seluruh isi katalog lalu menggantinya dengan isi file ini.
+                Setelah di-ACC, seluruh isi katalog diganti dengan isi file ini.
               </strong>{" "}
               Pakai template "Unduh template katalog". Kolom Kode Barang dan Nama Barang wajib diisi.
               Setelah itu, barang baru dari Accurate tidak masuk otomatis sampai "Terapkan ke katalog" dikonfirmasi.
@@ -537,14 +533,14 @@ export function CatalogPage() {
           onFile={async (file) => {
             const { parseFullCatalog } = await import("../import/parsers");
             const { rows, report } = await parseFullCatalog(file);
-            const r = await api.post<{ inserted: number; updated: number; total: number; removed: number }>("/catalog/import", {
+            const r = await api.post<ImportQueued & { removed?: number }>("/catalog/import", {
               rows,
               source: file.name,
               mode: "replace",
             });
             return {
               report,
-              summary: `Katalog diganti. ${r.total} barang dari file, ${r.inserted} ditambahkan, ${r.removed} dihapus.`,
+              summary: `${report.count} barang terbaca${r.removed ? `, ${grp(r.removed)} barang yang tidak ada di file akan dihapus` : ""}. ${importQueuedNote(r, can("review_catalog_drafts"))}`,
             };
           }}
         />
@@ -561,14 +557,14 @@ export function CatalogPage() {
           onFile={async (file) => {
             const { parseFullCatalog } = await import("../import/parsers");
             const { rows, report } = await parseFullCatalog(file);
-            const r = await api.post<{ inserted: number; updated: number; total: number; cogsFromPurchases?: number; stockDrafts?: number }>("/catalog/import", {
+            const r = await api.post<ImportQueued>("/catalog/import", {
               rows,
               source: file.name,
               mode: "merge",
             });
             return {
               report,
-              summary: `${r.total} barang dari file: ${r.inserted} ditambahkan, ${r.updated} diperbarui.${keptNote(r.cogsFromPurchases)}${stockDraftNote(r.stockDrafts)}`,
+              summary: `${report.count} barang terbaca. ${importQueuedNote(r, can("review_catalog_drafts"))}`,
             };
           }}
         />
@@ -585,14 +581,14 @@ export function CatalogPage() {
           onFile={async (file) => {
             const { parseItemMaster } = await import("../import/parsers");
             const { rows, report } = await parseItemMaster(file);
-            const r = await api.post<{ inserted: number; updated: number }>("/catalog/import", {
+            const r = await api.post<ImportQueued>("/catalog/import", {
               rows,
               source: file.name,
               mode: "merge",
             });
             return {
               report,
-              summary: `${report.count} barang terbaca. ${r.inserted} baru ditambahkan, ${r.updated} diperbarui.`,
+              summary: `${report.count} barang terbaca. ${importQueuedNote(r, can("review_catalog_drafts"))}`,
             };
           }}
         />
@@ -634,7 +630,7 @@ export function CatalogPage() {
                       toast(r.draft ? "Tersimpan sebagai draf, menunggu ACC admin." : "Barang diperbarui.", "success");
                       if (r.draft) window.dispatchEvent(new Event("catalog-drafts-changed"));
                     } else {
-                      await api.post("/catalog/import", {
+                      const r = await api.post<ImportQueued>("/catalog/import", {
                         rows: [
                           {
                             code: editing.code.trim(),
@@ -649,7 +645,8 @@ export function CatalogPage() {
                         source: "manual",
                         mode: "merge",
                       });
-                      toast("Barang ditambahkan.", "success");
+                      toast(importQueuedNote(r, can("review_catalog_drafts")), "success");
+                      if (r.drafts) window.dispatchEvent(new Event("catalog-drafts-changed"));
                     }
                     closeEditing();
                     load();

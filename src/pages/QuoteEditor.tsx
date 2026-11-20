@@ -5,6 +5,7 @@ import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { useUnsavedGuard } from "../context/UnsavedGuardContext";
 import { computeEngine, SCENARIOS } from "@shared/engine";
+import { importQueuedNote, type ImportQueued } from "@shared/catalogImport";
 import { isDraftDoc } from "@shared/docColumns";
 import { useDocSignature } from "../lib/useDocSignature";
 import { evaluatePolicy, isWithinPolicy } from "@shared/policy";
@@ -430,15 +431,13 @@ export function QuoteEditorPage() {
       row = { uom: priceUnitOf(item), cogs: item.cogs, list_price: item.rrp };
     }
     try {
-      const r = await api.post<{ inserted: number; updated: number }>("/catalog/import", {
+      const r = await api.post<ImportQueued>("/catalog/import", {
         rows: [{ code, name: item.name, ...row }],
         source: `quote:${quote.number}`,
         mode: "merge",
       });
-      toast(
-        r.updated ? `Katalog "${item.name}" diperbarui.` : `"${item.name}" ditambahkan ke katalog.`,
-        "success",
-      );
+      toast(importQueuedNote(r, can("review_catalog_drafts")), "success");
+      if (r.drafts) window.dispatchEvent(new Event("catalog-drafts-changed"));
     } catch (e) {
       toast(e instanceof Error ? e.message : "Gagal menyimpan ke katalog.", "error");
     }
