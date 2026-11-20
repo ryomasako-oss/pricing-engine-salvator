@@ -547,7 +547,7 @@ describe("POST /api/accurate/apply-cogs", () => {
 describe("POST /api/catalog/import keeps COGS from the latest purchase (2026-10-15)", () => {
   it("an import doesn't overwrite the COGS of an item with a priced receipt; other items still take it", async () => {
     const { sqlite, db } = freshDb();
-    sqlite.exec(`INSERT INTO users(id, email, name, password_hash, role) VALUES (1, 'm@x', 'M', 'x', 'manager')`);
+    sqlite.exec(`INSERT INTO users(id, email, name, password_hash, role) VALUES (1, 'm@x', 'M', 'x', 'manager'), (2, 'a@x', 'A', 'x', 'admin')`);
     sqlite.exec(`INSERT INTO catalog_items(code, name, uom, cogs, list_price) VALUES
       ('101311', 'Keset', 'PCS', 11005000, 12000000),
       ('A1', 'Kertas', 'Pcs', 9000, 15000),
@@ -557,8 +557,9 @@ describe("POST /api/catalog/import keeps COGS from the latest purchase (2026-10-
       ('PT', 600, 1, 'RI.BONUS', '2026-06-01', 'Z1', 'Pcs', 1, 0),
       ('PT', 601, 1, 'RI.NEW', '2026-06-02', 'N9', 'Pcs', 1, 4000)`);
     const app = new Hono<Env>();
+    let role: "manager" | "admin" = "manager";
     app.use(async (c, next) => {
-      c.set("user", { id: 1, email: "m@x", name: "M", role: "manager" } as never);
+      c.set("user", { id: role === "admin" ? 2 : 1, email: "m@x", name: "M", role } as never);
       await next();
     });
     app.route("/api/catalog", catalogRouter);
@@ -571,7 +572,7 @@ describe("POST /api/catalog/import keeps COGS from the latest purchase (2026-10-
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           rows: [
-            { code: "101311", name: "Keset", cogs: 10831300 },
+            { code: "101311", name: "Keset", cogs: 10831300, list_price: 12500000 }, // the price changes so the row is not skipped
             { code: "A1", name: "Kertas", cogs: 9500 },
             { code: "Z1", name: "Hanya bonus", cogs: 600 }, // a zero-price receipt is not a purchase price
             { code: "N9", name: "Baru", cogs: 3900 }, // new to the catalog: inserted as given
@@ -582,7 +583,13 @@ describe("POST /api/catalog/import keeps COGS from the latest purchase (2026-10-
       env,
     );
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ inserted: 1, updated: 3, cogsFromPurchases: 1 });
+    const up = (await res.json()) as { importId: number };
+    expect(up).toMatchObject({ inserted: 1, updated: 3, unchanged: 0, drafts: 4 });
+    // The upload only drafts; the admin's ACC of the file applies it (2026-11-20).
+    role = "admin";
+    const acc = await app.request(`/api/catalog/imports/${up.importId}/review`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ approve: true }) }, env);
+    expect(acc.status).toBe(200);
+    expect(await acc.json()).toMatchObject({ ok: true, count: 4, cogsFromPurchases: 1 });
     expect(Object.fromEntries((sqlite.prepare("SELECT code, cogs FROM catalog_items").all() as { code: string; cogs: number }[]).map((r) => [r.code, r.cogs]))).toEqual({
       "101311": 11005000,
       A1: 9500,

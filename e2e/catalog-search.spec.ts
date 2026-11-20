@@ -1,7 +1,7 @@
 /* Pencarian barang ala mesin cari (shared/catalogSearch.ts): words in any order, the priority
    brand first, and a typo answered with a suggestion that can be clicked. */
 
-import { expect, test } from "./helpers";
+import { expect, test, importCatalog } from "./helpers";
 
 test.use({ theme: "light" });
 
@@ -12,8 +12,7 @@ const ROWS = [
 ];
 
 test.beforeAll(async ({ request }) => {
-  const r = await request.post("/api/catalog/import", { data: { rows: ROWS, source: "e2e" } });
-  expect(r.ok()).toBe(true);
+  await importCatalog(request, ROWS);
 });
 
 test("quotation picker: any word order, Artline first, typo suggestion", async ({ page, errors }) => {

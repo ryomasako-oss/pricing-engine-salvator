@@ -181,7 +181,7 @@ describe("Kirim dan riwayat", () => {
 });
 
 describe("impor spreadsheet", () => {
-  it("never writes stock: changed numbers become stock drafts, a new item starts at 0 with a draft", async () => {
+  it("never writes stock on upload; ACC of the file sets it with history (source import) and marks it unsent", async () => {
     const { req, q, stockOf } = setup();
     const r = await req("manager", "/api/catalog/import", "POST", {
       rows: [
@@ -191,13 +191,23 @@ describe("impor spreadsheet", () => {
       ],
     });
     expect(r.status).toBe(200);
-    expect(((await r.json()) as { stockDrafts: number }).stockDrafts).toBe(2);
+    const up = (await r.json()) as { importId: number; drafts: number; unchanged: number };
+    // K-1 is the same as the catalog: nothing to ACC. The stock is inside the import draft, not a second stock draft.
+    expect([up.drafts, up.unchanged]).toEqual([2, 1]);
     expect(stockOf("P-1")).toBe(10);
-    expect(stockOf("B-1")).toBe(0);
-    const drafts = q("SELECT code, payload, before, created_by FROM catalog_drafts WHERE kind = 'stock' AND status = 'pending' ORDER BY code");
-    expect(drafts.map((d) => [d.code, JSON.parse(d.payload as string).stock, JSON.parse(d.before as string).stock, d.created_by])).toEqual([
-      ["B-1", 4, 0, USERS.manager],
-      ["P-1", 99, 10, USERS.manager],
+    expect(q("SELECT * FROM catalog_items WHERE code = 'B-1'")).toHaveLength(0);
+    expect(q("SELECT * FROM catalog_drafts WHERE kind = 'stock'")).toHaveLength(0);
+
+    const acc = await req("admin", `/api/catalog/imports/${up.importId}/review`, "POST", { approve: true });
+    expect(acc.status).toBe(200);
+    expect(stockOf("P-1")).toBe(99);
+    expect(stockOf("B-1")).toBe(4);
+    expect(stockOf("K-1")).toBe(5);
+    const h = q("SELECT code, qty_before, qty_after, source, filled_by, approved_by FROM stock_history ORDER BY code");
+    expect(h).toEqual([
+      { code: "B-1", qty_before: 0, qty_after: 4, source: "import", filled_by: USERS.manager, approved_by: USERS.admin },
+      { code: "P-1", qty_before: 10, qty_after: 99, source: "import", filled_by: USERS.manager, approved_by: USERS.admin },
     ]);
+    expect(q("SELECT code FROM stock_unsent ORDER BY code").map((x) => x.code)).toEqual(["B-1", "P-1"]);
   });
 });

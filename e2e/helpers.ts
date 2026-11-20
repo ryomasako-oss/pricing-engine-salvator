@@ -1,4 +1,4 @@
-import { expect, test as base, type Locator, type Page } from "@playwright/test";
+import { expect, test as base, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 
 export type Theme = "light" | "dark";
 export const THEMES: Theme[] = ["light", "dark"];
@@ -90,4 +90,12 @@ export function csvFile(name: string, rows: string[][]) {
     mimeType: "text/csv",
     buffer: Buffer.from(rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(",")).join("\n")),
   };
+}
+
+/** Fills the catalog the way the app now does it: upload (makes drafts), then an admin ACCs the whole file. */
+export async function importCatalog(request: APIRequestContext, rows: unknown[], source = "e2e") {
+  const up = await request.post("/api/catalog/import", { data: { rows, source } });
+  expect(up.ok()).toBe(true);
+  const { importId } = await up.json();
+  if (importId) expect((await request.post(`/api/catalog/imports/${importId}/review`, { data: { approve: true } })).ok()).toBe(true);
 }

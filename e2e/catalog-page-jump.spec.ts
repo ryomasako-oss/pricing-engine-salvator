@@ -1,14 +1,13 @@
 /* The catalog jumps straight to a chosen page instead of clicking
    "Berikutnya" one page at a time (50 items per page, ~7k items live). */
 
-import { THEMES, expect, expectReadable, expectTheme, test } from "./helpers";
+import { THEMES, expect, expectReadable, expectTheme, test, importCatalog } from "./helpers";
 
 // Names nothing in the other specs' client lists resembles.
 const ROWS = Array.from({ length: 120 }, (_, i) => ({ code: `ZQ-${String(i).padStart(3, "0")}`, name: `ZQXV ${String(i).padStart(3, "0")}` }));
 
 test.beforeAll(async ({ request }) => {
-  const r = await request.post("/api/catalog/import", { data: { rows: ROWS, source: "e2e" } });
-  expect(r.ok()).toBe(true);
+  await importCatalog(request, ROWS);
 });
 
 for (const theme of THEMES) {

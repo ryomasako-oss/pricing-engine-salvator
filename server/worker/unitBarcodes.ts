@@ -85,7 +85,7 @@ export async function draftsByCode(db: D1Database, codes: string[]): Promise<Map
     const rows = await all<{ id: number; code: string; kind: CatalogDraftMark["kind"]; uom: string; payload: string }>(
       db,
       `SELECT id, code, kind, uom, payload FROM catalog_drafts
-        WHERE status = 'pending' AND code IN (${chunk.map(() => "?").join(",")}) ORDER BY id`,
+        WHERE status = 'pending' AND kind != 'import' AND code IN (${chunk.map(() => "?").join(",")}) ORDER BY id`,
       ...chunk,
     );
     for (const r of rows) {

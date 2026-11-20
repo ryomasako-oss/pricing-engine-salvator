@@ -1,6 +1,7 @@
 /* Draf Perbaikan Divisi Gudang (2026-11-19): what an Admin Gudang's draft changes, in words, for the
    draft list and the catalog row. Server: server/worker/routes/catalog.ts (saveDraft, /drafts). */
 
+import { importChanges } from "./catalogImport.js";
 import { ratioText, sameUom } from "./uom.js";
 import type { CatalogDraftMark, UnitFactor } from "./types.js";
 
@@ -11,6 +12,8 @@ export interface DraftPayloads {
   edit: { name: string; uom: string; category: string; units?: UnitFactor[] };
   /** Stok baru dalam satuan dasar barang. */
   stock: { stock: number };
+  /** The file row plus its mode, or `{ delete: true }` for an item an "ganti seluruh katalog" file leaves out. */
+  import: Record<string, unknown>;
 }
 
 export const NO_CHANGE = "Tidak ada yang berubah";
@@ -29,6 +32,7 @@ export function draftChanges(kind: CatalogDraftMark["kind"], uom: string, payloa
     const code = p.barcode ? `, barcode ${p.barcode}` : p.generate ? ", barcode dibuatkan otomatis" : "";
     return [`Satuan baru: ${ratioText(uom, p.factor, p.base)}${code}`];
   }
+  if (kind === "import") return importChanges(payload, before);
   if (kind === "stock") {
     const was = (before as Partial<DraftPayloads["stock"]>).stock;
     return [`Stok: ${was ?? "kosong"} → ${(payload as DraftPayloads["stock"]).stock}`];
