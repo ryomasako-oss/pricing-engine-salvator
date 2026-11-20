@@ -29,6 +29,8 @@ interface DraftRow {
   created_at: string;
   reviewed_by_name: string | null;
   reviewed_at: string | null;
+  /** New item from an import: catalog items with a similar name (server picks at most three). */
+  similar?: { code: string; name: string }[];
 }
 
 /** One uploaded spreadsheet; its rows are `import` drafts, listed per file because a file can hold thousands. */
@@ -314,6 +316,12 @@ export function CatalogDraftsPage() {
                               {draftChanges(r.kind, r.uom, r.payload, r.before).map((line) => (
                                 <div key={line} className="num">{line}</div>
                               ))}
+                              {!!r.similar?.length && (
+                                <div className="small">
+                                  <span className="badge amber">Mirip barang katalog</span>{" "}
+                                  {r.similar.map((m) => `${m.name} (${m.code})`).join(", ")}
+                                </div>
+                              )}
                             </div>
                             {pending && (
                               <div className="fix-actions">

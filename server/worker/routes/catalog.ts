@@ -28,7 +28,8 @@ import { cogsProblemsFor } from "../quoteService";
 import { sweepPending } from "./pendingItems";
 import { catalogEntity } from "../accurate/sync";
 import { costLines } from "../accurate/receipts";
-import { forgetCatalogIndex, recordPicks, saveSearchPriority, searchPriority, searchWithMeaning, type IndexedItem } from "../catalogSearchIndex";
+import { searchCatalog } from "../../../shared/catalogSearch";
+import { catalogIndex, forgetCatalogIndex, recordPicks, saveSearchPriority, searchPriority, searchWithMeaning, type IndexedItem } from "../catalogSearchIndex";
 import { indexCatalogPage } from "../catalogSemantic";
 import { lastSales, salesEnabled, salesNameMap, soldCounts } from "../accurate/sales";
 import { rerankCandidates } from "../../../shared/matchRank";
@@ -781,11 +782,21 @@ catalogRouter.get("/imports/:importId/drafts", async (c) => {
     importId, ...args, limit, offset,
   );
   const total = (await get<{ n: number }>(c.env.DB, `SELECT COUNT(*) AS n FROM catalog_drafts WHERE import_id = ? AND status = 'pending' ${own}`, importId, ...args))?.n ?? 0;
+  // A new item may already be in the catalog under another code (pemilik, 2026-11-20): name the closest
+  // matches so the admin can refuse it. Only items whose every word matched, at most three.
+  const [index, priority] = await Promise.all([catalogIndex(c.env.DB), searchPriority(c.env.DB)]);
+  const similarTo = (code: string, payload: Record<string, unknown>, before: Record<string, unknown>) => {
+    if (Object.keys(before).length || typeof payload.name !== "string" || !payload.name.trim()) return [];
+    const found = searchCatalog(index, payload.name, { priority });
+    if (found.partial) return [];
+    return found.items.filter((i) => i.code.toLowerCase() !== code.toLowerCase()).slice(0, 3).map((i) => ({ code: i.code, name: i.name }));
+  };
   return c.json({
     total,
     drafts: rows.map((r) => ({
       id: r.id, code: r.code, kind: "import", uom: "", status: "pending",
       payload: hideCosts(user.role, JSON.parse(r.payload)), before: hideCosts(user.role, JSON.parse(r.before)),
+      similar: similarTo(r.code, JSON.parse(r.payload), JSON.parse(r.before)),
     })),
   });
 });

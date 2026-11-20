@@ -234,3 +234,19 @@ describe("daftar di Gudang", () => {
     expect(importChanges({ delete: true }, before)[0]).toMatch(/^Dihapus/);
   });
 });
+
+describe("tanda mirip barang katalog", () => {
+  it("a new item names catalog items with a similar name; an existing code or an unrelated name gets none", async () => {
+    const { upload, req } = setup();
+    const r = await upload("manager", [
+      { code: "BARU-1", name: "Biasa", uom: "Box", cogs: 1, list_price: 2 },
+      { code: "BARU-2", name: "Zebra ungu langka", uom: "Pcs", cogs: 1, list_price: 2 },
+      { code: "KEEP", name: "Dibeli", cogs: 1800, list_price: 3100 },
+    ]);
+    const list = await req("admin", "GET", `/api/catalog/imports/${r.json.importId}/drafts`);
+    const by = Object.fromEntries((list.json.drafts as { code: string; similar: unknown }[]).map((d) => [d.code, d.similar]));
+    expect(by["BARU-1"]).toEqual([{ code: "PLAIN", name: "Biasa" }]);
+    expect(by["BARU-2"]).toEqual([]);
+    expect(by.KEEP).toEqual([]);
+  });
+});
