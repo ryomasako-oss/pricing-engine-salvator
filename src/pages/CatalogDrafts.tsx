@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
 import { LoadError } from "../components/LoadError";
+import { StockActions, StockHistoryList, type StockHistoryRow } from "../components/StockPanel";
 import { Modal } from "../components/Modal";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
@@ -30,7 +31,7 @@ interface DraftRow {
   reviewed_at: string | null;
 }
 
-const KIND_LABEL: Record<DraftRow["kind"], string> = { barcode: "Barcode", unit: "Satuan baru", edit: "Ubah barang" };
+const KIND_LABEL: Record<DraftRow["kind"], string> = { barcode: "Barcode", unit: "Satuan baru", edit: "Ubah barang", stock: "Stok" };
 const STATUS: Record<Exclude<DraftRow["status"], "pending">, [string, string]> = {
   approved: ["green", "Di-ACC"],
   rejected: ["red", "Ditolak"],
@@ -43,7 +44,8 @@ export function CatalogDraftsPage() {
   const { can } = useAuth();
   const reviewer = can("review_catalog_drafts");
   const { drafts: waiting } = useNavCounts();
-  const [status, setStatus] = useState<"pending" | "done">("pending");
+  const [status, setStatus] = useState<"pending" | "done" | "stock">("pending");
+  const [history, setHistory] = useState<StockHistoryRow[]>([]);
   const [rows, setRows] = useState<DraftRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -58,9 +60,11 @@ export function CatalogDraftsPage() {
     setLoading(true);
     setLoadError(null);
     setPicked(new Set());
-    api
-      .get<{ drafts: DraftRow[] }>(`/catalog/drafts?status=${status}`)
-      .then((r) => seq === loadSeq.current && setRows(r.drafts))
+    // Riwayat stok tab: the stock history of every item, not drafts.
+    (status === "stock"
+      ? api.get<{ history: StockHistoryRow[] }>("/stock/history").then((r) => seq === loadSeq.current && (setHistory(r.history), setRows([])))
+      : api.get<{ drafts: DraftRow[] }>(`/catalog/drafts?status=${status}`).then((r) => seq === loadSeq.current && setRows(r.drafts))
+    )
       .catch((e) => seq === loadSeq.current && setLoadError(e instanceof Error ? e.message : String(e)))
       .finally(() => seq === loadSeq.current && setLoading(false));
   }, [status]);
@@ -128,7 +132,7 @@ export function CatalogDraftsPage() {
           <h1>Gudang</h1>
           <p>
             {reviewer
-              ? "Perubahan Admin Gudang di Katalog (barcode, satuan, data barang). Baru masuk katalog setelah di-ACC. Stok tetap dari Accurate."
+              ? "Perubahan Admin Gudang di Katalog (barcode, satuan, data barang). Baru masuk katalog setelah di-ACC. Stok katalog hanya berubah lewat Tarik atau draf stok yang di-ACC."
               : "Barcode dan satuan tetap dikerjakan di Katalog. Hasilnya menunggu ACC admin di sini; yang ditolak tampil di tab Riwayat beserta alasannya."}
           </p>
         </div>
@@ -138,6 +142,7 @@ export function CatalogDraftsPage() {
               ACC {grp(picked.size)} yang dipilih
             </button>
           )}
+          <StockActions onPulled={load} />
           <Link className="btn ghost" to="/catalog">Barcode &amp; satuan (Katalog)</Link>
           <button className="btn ghost" onClick={load} disabled={loading}>Muat ulang</button>
         </div>
@@ -148,6 +153,7 @@ export function CatalogDraftsPage() {
           {([
             ["pending", reviewer ? "Menunggu ACC" : "Draf saya"],
             ["done", "Riwayat"],
+            ["stock", "Riwayat stok"],
           ] as const).map(([key, label]) => (
             <button key={key} className={status === key ? "on" : ""} aria-pressed={status === key} onClick={() => setStatus(key)}>
               {label}
@@ -162,12 +168,14 @@ export function CatalogDraftsPage() {
           <div className="card-body skeleton-list" role="status" aria-label="Memuat draf…">
             {[0, 1, 2].map((i) => <span key={i} className="skeleton" />)}
           </div>
+        ) : status === "stock" ? (
+          <div className="card-body"><StockHistoryList rows={history} withItem /></div>
         ) : rows.length === 0 ? (
           <div className="card-body empty">
             <h3>{status === "pending" ? "Tidak ada draf yang menunggu" : "Belum ada riwayat"}</h3>
             <p>
               {status === "pending"
-                ? "Draf muncul di sini saat Admin Gudang menyimpan barcode, satuan, atau data barang di Katalog."
+                ? "Draf muncul di sini saat barcode, satuan, data barang, atau stok disimpan di Katalog."
                 : "Draf yang sudah di-ACC, ditolak, atau dibatalkan muncul di sini."}
             </p>
           </div>

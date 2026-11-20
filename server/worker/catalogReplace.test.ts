@@ -74,9 +74,10 @@ describe("impor katalog ganti semua", () => {
     expect(r.json).toMatchObject({ inserted: 1, updated: 2, removed: 1, total: 3 });
     expect(catalog(sqlite)).toEqual([
       { code: "FRESH", name: "Dari file", uom: "Rim", cogs: 50, list_price: 80, stock: 0, category: "" },
-      { code: "KEEP", name: "Dibeli", uom: "Pcs", cogs: 2083, list_price: 3100, stock: 0, category: "" },
+      // Stock is never written by an import (2026-11-20: it goes through an ACCed stock draft), so it stays.
+      { code: "KEEP", name: "Dibeli", uom: "Pcs", cogs: 2083, list_price: 3100, stock: 5, category: "" },
       // Replace writes 0 and blank as such (only a blank unit keeps the current one, so its ratios stay valid).
-      { code: "PLAIN", name: "Biasa baru", uom: "Box", cogs: 0, list_price: 0, stock: 0, category: "" },
+      { code: "PLAIN", name: "Biasa baru", uom: "Box", cogs: 0, list_price: 0, stock: 2, category: "" },
     ]);
     expect(sqlite.prepare("SELECT code, uom, factor FROM catalog_item_uoms").all()).toEqual([{ code: "PLAIN", uom: "Lusin", factor: 12 }]);
   });

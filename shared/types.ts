@@ -362,7 +362,7 @@ export interface CatalogItem {
 /** A pending draft on one item, as the catalog row shows it. Payload shapes: shared/catalogDrafts.ts. */
 export interface CatalogDraftMark {
   id: number;
-  kind: "barcode" | "unit" | "edit";
+  kind: "barcode" | "unit" | "edit" | "stock";
   uom: string;
   payload: Record<string, unknown>;
 }

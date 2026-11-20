@@ -494,6 +494,24 @@ async function saveDraft(
   return null;
 }
 
+/**
+ * Stok (pemilik, 2026-11-20): every manual stock change, from any role, is a draft that applies only after an
+ * admin's ACC. One waiting draft per item (a second save replaces it); the number is in the base unit.
+ */
+catalogRouter.put("/:id/stock", async (c) => {
+  const user = c.get("user")!;
+  if (!hasPermission(user.role, "draft_catalog") && !hasPermission(user.role, "edit_catalog")) return c.json({ error: "Akses ditolak untuk peran Anda." }, 403);
+  const id = Number(c.req.param("id"));
+  const parsed = z.object({ stock: z.number().min(0, "Stok tidak boleh minus.").max(1_000_000_000) }).safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
+  const item = await get<{ code: string; stock: number }>(c.env.DB, "SELECT code, stock FROM catalog_items WHERE id = ?", id);
+  if (!item) return c.json({ error: "Item tidak ditemukan." }, 404);
+  if (item.stock === parsed.data.stock) return c.json({ error: "Stok sama dengan yang sekarang. Belum ada yang diubah." }, 400);
+  const f = await saveDraft(c.env.DB, user.id, { item_id: id, code: item.code, kind: "stock", uom: "", payload: { stock: parsed.data.stock }, before: { stock: item.stock } });
+  if (f) return c.json({ error: f.error }, f.status);
+  return c.json(await skuOut(c.env.DB, item.code));
+});
+
 /** Admin Gudang: every catalog fix becomes a draft for an admin, nothing reaches the catalog itself. */
 const drafting = (role: Role) => hasPermission(role, "draft_catalog") && !hasPermission(role, "edit_catalog");
 
@@ -632,8 +650,27 @@ async function editDraft(db: D1Database, actorId: number, d: DraftRow, p: DraftP
   return editItem(db, actorId, d.item_id, editOverCurrent({ ...now, units }, JSON.parse(d.before), p), true, via);
 }
 
+/** ACC of a stock draft: the catalog stock is set, the history row names who filled and who ACCed, and the item waits to be sent. */
+async function applyStockDraft(db: D1Database, actorId: number, d: DraftRow): Promise<Fail | null> {
+  const now = await get<{ stock: number; uom: string }>(db, "SELECT stock, uom FROM catalog_items WHERE id = ?", d.item_id);
+  if (!now) return fail("Item tidak ditemukan.", 404);
+  const next = (JSON.parse(d.payload) as DraftPayloads["stock"]).stock;
+  await batch(db, [
+    stmt(db, "UPDATE catalog_items SET stock = ?, updated_at = datetime('now') WHERE id = ?", next, d.item_id),
+    stmt(
+      db,
+      `INSERT INTO stock_history(code, uom, qty_before, qty_after, source, draft_id, filled_by, approved_by) VALUES(?, ?, ?, ?, 'draft_approved', ?, ?, ?)`,
+      d.code, now.uom, now.stock, next, d.id, d.created_by, actorId,
+    ),
+    ...(now.stock !== next ? [stmt(db, "INSERT INTO stock_unsent(code) VALUES(?) ON CONFLICT(code) DO NOTHING", d.code)] : []),
+  ]);
+  await audit(db, actorId, "catalog", d.item_id, "stock_set", { code: d.code, before: now.stock, after: next, draft_id: d.id, proposed_by: d.created_by });
+  return null;
+}
+
 /** Applies an ACCed draft as the admin, through the same checks as a direct save. */
 async function applyDraft(db: D1Database, actorId: number, d: DraftRow): Promise<Fail | null> {
+  if (d.kind === "stock") return applyStockDraft(db, actorId, d);
   const via: Via = { draft_id: d.id, proposed_by: d.created_by };
   const p = JSON.parse(d.payload);
   const r =
@@ -675,6 +712,15 @@ catalogRouter.post("/drafts/:draftId/review", requirePermission("review_catalog_
       await run(c.env.DB, "UPDATE catalog_drafts SET status = 'pending', note = '', reviewed_by = NULL, reviewed_at = NULL WHERE id = ?", draftId);
       return c.json({ error: f.error }, f.status);
     }
+  }
+  if (!approve && d.kind === "stock") {
+    // The stock stays; the history keeps who proposed what and why it was refused.
+    const cur = await get<{ stock: number; uom: string }>(c.env.DB, "SELECT stock, uom FROM catalog_items WHERE id = ?", d.item_id);
+    await run(
+      c.env.DB,
+      `INSERT INTO stock_history(code, uom, qty_before, qty_after, source, draft_id, filled_by, approved_by, note) VALUES(?, ?, ?, ?, 'draft_rejected', ?, ?, ?, ?)`,
+      d.code, cur?.uom ?? "", cur?.stock ?? 0, (JSON.parse(d.payload) as DraftPayloads["stock"]).stock, d.id, d.created_by, user.id, note,
+    );
   }
   await audit(c.env.DB, user.id, "catalog", d.item_id, approve ? "catalog_draft_approved" : "catalog_draft_rejected", { code: d.code, kind: d.kind, uom: d.uom, draft_id: draftId, note });
   return c.json({ ok: true });
@@ -907,21 +953,36 @@ catalogRouter.post("/import", requirePermission("import_catalog"), async (c) => 
   const UPSERT = `
     INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock, category, source)
     VALUES (
-      ?1, ?2, COALESCE(NULLIF(?3, ''), 'Pcs'), ?4, ?5, COALESCE(?6, 0), ?7, ?8
+      ?1, ?2, COALESCE(NULLIF(?3, ''), 'Pcs'), ?4, ?5, 0, ?7, ?8
     )
     ON CONFLICT(code) DO UPDATE SET
       name = ?2,
       uom = CASE WHEN ?3 != '' THEN ?3 ELSE catalog_items.uom END,
       cogs = CASE WHEN ?9 IS NULL THEN catalog_items.cogs WHEN ?9 > 0 OR ?10 = 1 THEN ?9 ELSE catalog_items.cogs END,
       list_price = CASE WHEN ?5 > 0 OR ?10 = 1 THEN ?5 ELSE catalog_items.list_price END,
-      stock = CASE WHEN ?10 = 1 THEN COALESCE(?6, 0) ELSE COALESCE(?6, catalog_items.stock) END,
       category = CASE WHEN ?7 != '' OR ?10 = 1 THEN ?7 ELSE catalog_items.category END,
       source = ?8,
       updated_at = datetime('now')`;
 
+  // Stok dari file tidak langsung berlaku (pemilik, 2026-11-20): jadi draf stok yang menunggu ACC admin,
+  // sama seperti "Ajukan stok". Barang baru masuk dengan stok 0 lalu drafnya.
+  const STOCK_DRAFT = `
+    INSERT INTO catalog_drafts(item_id, code, kind, uom, payload, before, created_by)
+    SELECT id, code, 'stock', '', json_object('stock', ?2), json_object('stock', stock), ?3
+      FROM catalog_items WHERE code = ?1 AND stock IS NOT ?2
+    ON CONFLICT(code, kind, uom) WHERE status = 'pending'
+    DO UPDATE SET payload = excluded.payload, before = excluded.before, created_by = excluded.created_by, created_at = datetime('now')`;
+
   let inserted = 0;
   let updated = 0;
   let cogsFromPurchases = 0;
+  let stockDrafts = 0;
+  const drafts = new Set<D1PreparedStatement>();
+  const draftStmt = (code: string, stock: number) => {
+    const s = stmt(c.env.DB, STOCK_DRAFT, code, stock, user.id);
+    drafts.add(s);
+    return s;
+  };
   const validRows = rows.filter((r) => r.code.trim());
   for (const chunk of chunks(validRows, CHUNK)) {
     const statements = chunk.flatMap((r) => {
@@ -948,9 +1009,13 @@ catalogRouter.post("/import", requirePermission("import_catalog"), async (c) => 
         ...(r.units
           ? replaceUnitsStmts(c.env.DB, code, r.uom || existing.get(code) || "Pcs", r.units)
           : []),
+        ...(r.stock != null ? [draftStmt(code, r.stock)] : []),
       ];
     });
-    await batch(c.env.DB, statements);
+    const results = await batch(c.env.DB, statements);
+    statements.forEach((s, i) => {
+      if (drafts.has(s)) stockDrafts += results[i].meta.changes;
+    });
   }
 
   // Deleted last, so a failure part-way leaves the old catalog rather than half of the new one.
@@ -965,7 +1030,7 @@ catalogRouter.post("/import", requirePermission("import_catalog"), async (c) => 
     removed = gone.meta.changes;
   }
 
-  const result = { inserted, updated, cogsFromPurchases, ...(replace && { removed }) };
+  const result = { inserted, updated, cogsFromPurchases, stockDrafts, ...(replace && { removed }) };
   await audit(c.env.DB, user.id, "catalog", 0, "imported", { ...result, source, mode, rows: rows.length });
   // Barang baru requests whose code this import brought into the catalog are linked, and their tasks closed.
   await sweepPending(c.env.DB);
