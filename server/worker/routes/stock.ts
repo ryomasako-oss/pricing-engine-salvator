@@ -70,7 +70,7 @@ stockRouter.get("/compare", async (c) => {
   return c.json({ entity, items, more: rows.length > 500, asOf: (await loadState(c.env.DB, entity)).last_success_at });
 });
 
-/** Riwayat stok: one item (`code`) or the latest across all items. */
+/** Riwayat stok: one item (`code`) or the latest across all items (of those, one big import file shows only its last 30 rows). */
 stockRouter.get("/history", async (c) => {
   const code = c.req.query("code")?.trim() ?? "";
   const rows = await all(
@@ -81,7 +81,7 @@ stockRouter.get("/history", async (c) => {
        LEFT JOIN catalog_items i ON i.code = h.code
        LEFT JOIN users f ON f.id = h.filled_by
        LEFT JOIN users a ON a.id = h.approved_by
-      ${code ? "WHERE h.code = ? COLLATE NOCASE" : ""}
+      ${code ? "WHERE h.code = ? COLLATE NOCASE" : "WHERE (h.source != 'import' OR h.id IN (SELECT id FROM stock_history WHERE source = 'import' ORDER BY id DESC LIMIT 30))"}
       ORDER BY h.id DESC LIMIT ${code ? 100 : 200}`,
     ...(code ? [code] : []),
   );

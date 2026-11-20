@@ -12,7 +12,7 @@ export interface DraftPayloads {
   edit: { name: string; uom: string; category: string; units?: UnitFactor[] };
   /** Stok baru dalam satuan dasar barang. */
   stock: { stock: number };
-  /** The file row plus its mode, or `{ delete: true }` for an item an "ganti seluruh katalog" file leaves out. */
+  /** The file row plus its mode. Items an "ganti seluruh katalog" file leaves out are deleted by the last ACC, not drafted. */
   import: Record<string, unknown>;
 }
 
@@ -21,7 +21,7 @@ export const NO_CHANGE = "Tidak ada yang berubah";
 const unitsText = (units: UnitFactor[], base: string) => units.map((u) => ratioText(u.uom, u.factor, base)).join(", ") || "tidak ada";
 
 /** One line per change, e.g. "Barcode Box: kosong → 8991234567890". */
-export function draftChanges(kind: CatalogDraftMark["kind"], uom: string, payload: Record<string, unknown>, before: Record<string, unknown>): string[] {
+export function draftChanges(kind: CatalogDraftMark["kind"], uom: string, payload: Record<string, unknown>, before: Record<string, unknown>, purchased = false): string[] {
   if (kind === "barcode") {
     const p = payload as DraftPayloads["barcode"];
     const was = (before.barcode as string | null) ?? "kosong";
@@ -32,7 +32,7 @@ export function draftChanges(kind: CatalogDraftMark["kind"], uom: string, payloa
     const code = p.barcode ? `, barcode ${p.barcode}` : p.generate ? ", barcode dibuatkan otomatis" : "";
     return [`Satuan baru: ${ratioText(uom, p.factor, p.base)}${code}`];
   }
-  if (kind === "import") return importChanges(payload, before);
+  if (kind === "import") return importChanges(payload, before, purchased);
   if (kind === "stock") {
     const was = (before as Partial<DraftPayloads["stock"]>).stock;
     return [`Stok: ${was ?? "kosong"} → ${(payload as DraftPayloads["stock"]).stock}`];

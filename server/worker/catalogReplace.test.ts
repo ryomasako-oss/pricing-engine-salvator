@@ -79,7 +79,7 @@ describe("impor katalog ganti semua", () => {
     const before = catalog(sqlite);
     const r = await app(db, "admin")("POST", "/api/catalog/import", { rows: FILE, mode: "replace" });
     expect(r.status).toBe(200);
-    expect(r.json).toMatchObject({ inserted: 1, updated: 2, removed: 1, total: 3, drafts: 4 });
+    expect(r.json).toMatchObject({ inserted: 1, updated: 2, removed: 1, total: 3, drafts: 3 });
     expect(catalog(sqlite)).toEqual(before); // nothing changes until ACC
     await accFile(app(db, "admin"), r);
     expect(catalog(sqlite)).toEqual([

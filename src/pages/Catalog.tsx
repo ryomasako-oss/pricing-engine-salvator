@@ -540,7 +540,7 @@ export function CatalogPage() {
             });
             return {
               report,
-              summary: `${report.count} barang terbaca${r.removed ? `, ${grp(r.removed)} barang yang tidak ada di file akan dihapus` : ""}. ${importQueuedNote(r, can("review_catalog_drafts"))}`,
+              summary: `${report.count} barang terbaca${r.removed ? `, ${grp(r.removed)} barang yang tidak ada di file akan dihapus saat ACC seluruh file` : ""}. ${importQueuedNote(r, can("review_catalog_drafts"))}`,
             };
           }}
         />

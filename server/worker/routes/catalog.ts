@@ -39,7 +39,7 @@ import { canSeeCosts, catalogItemsForViewer, problemsForViewer } from "../../sta
 import { cleanUnits, sameUom, type ItemUnits } from "../../../shared/uom";
 import { NO_CHANGE, draftChanges, type DraftPayloads } from "../../../shared/catalogDrafts";
 import { chunks } from "../../sqlParams";
-import { importNext, importUnchanged, type ImportItem, type ImportMode, type ImportRow } from "../../../shared/catalogImport";
+import { cogsIgnored, importNext, importUnchanged, type ImportItem, type ImportMode, type ImportRow } from "../../../shared/catalogImport";
 import { barcodeOwner, barcodesByCode, draftsByCode, nextInternalBarcode, proposalsByCode, takenMessage } from "../unitBarcodes";
 import { refreshItemImagesIfStale } from "../itemImages";
 import { itemImageUrl } from "../../../shared/itemImages";
@@ -101,16 +101,26 @@ catalogRouter.put("/search-settings", requirePermission("edit_catalog"), async (
 });
 
 const CHUNK = 90;
+/** Import ACC: drafts applied per request (the page repeats until none wait) and per D1 batch (a batch is one transaction). */
+// Small enough that a call stays under D1's 1.000 queries per invocation even if every statement of a
+// batch counts as one (not settled by the docs, 2026-11-20): ~6 statements per row.
+const ACC_STEP = 120;
+const ACC_BATCH = 60;
+/** A merge file is finished when none of its drafts waits; a replace file also needs its delete step (finishReplace). */
+const CLOSE_MERGE_SQL = `UPDATE catalog_imports SET done_at = datetime('now')
+  WHERE ready = 1 AND done_at IS NULL AND mode = 'merge' AND NOT EXISTS (SELECT 1 FROM catalog_drafts d WHERE d.import_id = catalog_imports.id AND d.status = 'pending')`;
+/** Codes per query when they travel as one JSON array (json_each): a 20.000-row file is ~20 queries, not ~220. */
+const CODES_PER_QUERY = 1000;
 
 /** Extra units per code, for the given codes. */
 async function unitsByCode(db: D1Database, codes: string[]): Promise<Map<string, UnitFactor[]>> {
   const map = new Map<string, UnitFactor[]>();
-  for (const chunk of chunks(codes, CHUNK)) {
+  for (const chunk of chunks(codes, CODES_PER_QUERY)) {
     const rows = await all<{ code: string; uom: string; factor: number }>(
       db,
       `SELECT code, uom, factor FROM catalog_item_uoms
-        WHERE code IN (${chunk.map(() => "?").join(",")}) ORDER BY factor`,
-      ...chunk,
+        WHERE code IN (SELECT value FROM json_each(?)) ORDER BY factor`,
+      JSON.stringify(chunk),
     );
     for (const r of rows) {
       if (!map.has(r.code)) map.set(r.code, []);
@@ -124,25 +134,33 @@ async function unitsByCode(db: D1Database, codes: string[]): Promise<Map<string,
  * Statements that replace one item's extra units, for inclusion in a batch. A unit that stays keeps its
  * `manual` mark; a new one is manual, so Accurate's "Terapkan" leaves it alone (migrations/0039).
  */
-function replaceUnitsStmts(db: D1Database, code: string, baseUom: string | undefined, units: UnitFactor[]) {
+function replaceUnitsStmts(db: D1Database, code: string, baseUom: string | undefined, units: UnitFactor[], guard?: ClaimGuard) {
   const clean = cleanUnits(baseUom, units);
+  const when = guard ? CLAIMED : "1";
+  const g = guard ? [guard.draftId, guard.claim] : [];
   return [
     stmt(
       db,
-      "DELETE FROM catalog_item_uoms WHERE code = ? AND lower(uom) NOT IN (SELECT lower(value) FROM json_each(?))",
+      `DELETE FROM catalog_item_uoms WHERE code = ? AND lower(uom) NOT IN (SELECT lower(value) FROM json_each(?)) AND ${when}`,
       code,
       JSON.stringify(clean.map((u) => u.uom)),
+      ...g,
     ),
     ...clean.map((u) =>
       stmt(
         db,
-        `INSERT INTO catalog_item_uoms(code, uom, factor, manual) VALUES(?, ?, ?, 1)
+        `INSERT INTO catalog_item_uoms(code, uom, factor, manual) SELECT ?, ?, ?, 1 WHERE ${when}
          ON CONFLICT(code, uom) DO UPDATE SET factor = excluded.factor`,
-        code, u.uom, u.factor,
+        code, u.uom, u.factor, ...g,
       ),
     ),
   ];
 }
+
+/** A write inside an ACC batch runs only for a draft this batch claimed (`claim` = the batch's token). Takes (draft id, token) as its last two `?`. */
+const claimedBy = (id: string, claim: string) => `EXISTS (SELECT 1 FROM catalog_drafts WHERE id = ${id} AND claim = ${claim})`;
+const CLAIMED = claimedBy("?", "?");
+type ClaimGuard = { draftId: number; claim: string };
 
 /** URL gambar untuk kode yang punya gambar di storage sendiri (lihat shared/itemImages.ts). */
 async function imagesByCode(d1: D1Database, codes: string[]): Promise<Map<string, string>> {
@@ -488,7 +506,7 @@ async function saveDraft(
   await run(
     db,
     `INSERT INTO catalog_drafts(item_id, code, kind, uom, payload, before, created_by) VALUES(?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(code, kind, uom) WHERE status = 'pending'
+     ON CONFLICT(code, kind, uom) WHERE status = 'pending' AND kind != 'import'
      DO UPDATE SET payload = excluded.payload, before = excluded.before, created_by = excluded.created_by, created_at = datetime('now')`,
     d.item_id, d.code, d.kind, d.uom, JSON.stringify(d.payload), JSON.stringify(d.before), userId,
   );
@@ -607,17 +625,26 @@ catalogRouter.get("/drafts", async (c) => {
   return c.json({ drafts: rows.map((r) => ({ ...r, payload: JSON.parse(r.payload), before: JSON.parse(r.before) })) });
 });
 
-/** For the menu badge: drafts waiting (all of them for an admin, one's own for an Admin Gudang). */
+/** Who sees import files: an admin all of them, a manager (uploads) their own, in view-only mode. */
+const importViewer = (role: Role) =>
+  hasPermission(role, "review_catalog_drafts") ? "all" : hasPermission(role, "import_catalog") ? "own" : null;
+
+/**
+ * For the menu badge: drafts waiting (all of them for an admin, one's own for an Admin Gudang) plus open
+ * import files, one per file however many items it holds.
+ */
 catalogRouter.get("/drafts/count", async (c) => {
   const user = c.get("user")!;
   const viewer = draftViewer(user.role);
-  if (!viewer) return c.json({ pending: 0 });
-  const row = await get<{ n: number }>(
-    c.env.DB,
-    `SELECT COUNT(*) AS n FROM catalog_drafts WHERE status = 'pending' ${viewer === "own" ? "AND created_by = ?" : ""}`,
-    ...(viewer === "own" ? [user.id] : []),
-  );
-  return c.json({ pending: row?.n ?? 0 });
+  const files = importViewer(user.role);
+  const one = (sql: string, own: boolean) => get<{ n: number }>(c.env.DB, sql, ...(own ? [user.id] : []));
+  const drafts = viewer
+    ? await one(`SELECT COUNT(*) AS n FROM catalog_drafts WHERE status = 'pending' AND kind != 'import' ${viewer === "own" ? "AND created_by = ?" : ""}`, viewer === "own")
+    : undefined;
+  const imports = files
+    ? await one(`SELECT COUNT(*) AS n FROM catalog_imports WHERE ready = 1 AND done_at IS NULL ${files === "own" ? "AND created_by = ?" : ""}`, files === "own")
+    : undefined;
+  return c.json({ pending: (drafts?.n ?? 0) + (imports?.n ?? 0) });
 });
 
 type DraftRow = { id: number; item_id: number; code: string; kind: CatalogDraftMark["kind"]; uom: string; payload: string; before: string; created_by: number | null; import_id?: number | null };
@@ -674,10 +701,6 @@ async function applyStockDraft(db: D1Database, actorId: number, d: DraftRow): Pr
 async function applyDraft(env: Env["Bindings"], actorId: number, d: DraftRow): Promise<Fail | null> {
   const db = env.DB;
   if (d.kind === "stock") return applyStockDraft(db, actorId, d);
-  if (d.kind === "import") {
-    await applyImportDrafts(env, actorId, [{ ...d, import_id: d.import_id ?? null }]);
-    return null;
-  }
   const via: Via = { draft_id: d.id, proposed_by: d.created_by };
   const p = JSON.parse(d.payload);
   const r =
@@ -706,6 +729,8 @@ catalogRouter.post("/drafts/:draftId/review", requirePermission("review_catalog_
   if (!approve && !note) return c.json({ error: "Tulis alasan penolakan supaya gudang tahu apa yang perlu diperbaiki." }, 400);
   const d = await get<DraftRow>(c.env.DB, "SELECT id, item_id, code, kind, uom, payload, before, created_by, import_id FROM catalog_drafts WHERE id = ?", draftId);
   if (!d) return c.json({ error: "Draf tidak ditemukan." }, 404);
+  // A file row is claimed and applied only together with its file (it needs the batch claim and the file's bookkeeping).
+  if (d.kind === "import") return c.json({ error: "Baris file impor di-ACC atau ditolak lewat file-nya di menu Gudang." }, 400);
   // Claim it first, so a second admin pressing ACC at the same time cannot apply it twice.
   const claim = await run(
     c.env.DB,
@@ -729,10 +754,7 @@ catalogRouter.post("/drafts/:draftId/review", requirePermission("review_catalog_
       d.code, cur?.uom ?? "", cur?.stock ?? 0, (JSON.parse(d.payload) as DraftPayloads["stock"]).stock, d.id, d.created_by, user.id, note,
     );
   }
-  // An ACCed import draft was audited with its writes (applyImportDrafts).
-  if (!(approve && d.kind === "import")) {
-    await audit(c.env.DB, user.id, "catalog", d.item_id, approve ? "catalog_draft_approved" : "catalog_draft_rejected", { code: d.code, kind: d.kind, uom: d.uom, draft_id: draftId, note });
-  }
+  await audit(c.env.DB, user.id, "catalog", d.item_id, approve ? "catalog_draft_approved" : "catalog_draft_rejected", { code: d.code, kind: d.kind, uom: d.uom, draft_id: draftId, note });
   return c.json({ ok: true });
 });
 
@@ -743,45 +765,67 @@ const hideCosts = (role: Role, o: Record<string, unknown>) => {
   return rest;
 };
 
-/** Import files (Gudang groups their drafts per file): waiting ones, or the finished ones (newest first, last 50). */
+/** Import files: the waiting ones (default), the finished ones (`status=done`, last 50), or both (`status=all`, last 50). */
 catalogRouter.get("/imports", async (c) => {
   const user = c.get("user")!;
-  const viewer = draftViewer(user.role);
+  const viewer = importViewer(user.role);
   if (!viewer) return c.json({ error: "Akses ditolak untuk peran Anda." }, 403);
-  const done = c.req.query("status") === "done";
-  const imports = await all(
+  const status = c.req.query("status");
+  const open = status !== "done" && status !== "all";
+  const imports = await all<Record<string, unknown> & { mode: string; done_at: string | null; removed: number | null }>(
     c.env.DB,
-    `SELECT i.id, i.source, i.mode, i.rows, i.created_at, u.name AS created_by_name, COUNT(d.id) AS total,
-            SUM(d.status = 'pending') AS pending, SUM(d.status = 'approved') AS approved, SUM(d.status = 'rejected') AS rejected
+    `SELECT i.id, i.source, i.mode, i.rows, i.created_at, i.done_at, i.removed, u.name AS created_by_name, COUNT(d.id) AS total,
+            COALESCE(SUM(d.status = 'pending'), 0) AS pending, COALESCE(SUM(d.status = 'approved'), 0) AS approved,
+            COALESCE(SUM(d.status = 'rejected'), 0) AS rejected, COALESCE(SUM(d.status = 'cancelled'), 0) AS cancelled,
+            MAX(CASE WHEN d.status = 'rejected' AND d.note != '' THEN d.note END) AS note,
+            CASE WHEN i.mode = 'replace' AND i.done_at IS NULL
+                 THEN (SELECT COUNT(*) FROM catalog_items k WHERE k.code NOT IN (SELECT code FROM catalog_import_codes WHERE import_id = i.id)) END AS removing
        FROM catalog_imports i
-       JOIN catalog_drafts d ON d.import_id = i.id
+       LEFT JOIN catalog_drafts d ON d.import_id = i.id
        LEFT JOIN users u ON u.id = i.created_by
-      ${viewer === "own" ? "WHERE i.created_by = ?" : ""}
+      WHERE i.ready = 1 ${viewer === "own" ? "AND i.created_by = ?" : ""} ${status === "all" ? "" : open ? "AND i.done_at IS NULL" : "AND i.done_at IS NOT NULL"}
       GROUP BY i.id
-     HAVING SUM(d.status = 'pending') ${done ? "= 0" : "> 0"}
-      ORDER BY ${done ? "i.id DESC LIMIT 50" : "i.id"}`,
+      ORDER BY ${open ? "i.id" : "i.id DESC LIMIT 50"}`,
     ...(viewer === "own" ? [user.id] : []),
   );
-  return c.json({ imports });
+  // `removing` = what the ACC of the whole file would delete right now; `removed` = what the finishing ACC did delete.
+  return c.json({ imports: imports.map((i) => ({ ...i, removed: i.done_at && i.mode === "replace" ? Number(i.removed ?? 0) : null })) });
 });
 
-/** The waiting drafts of one import file, a page at a time (a file can hold 20.000 items). */
+/**
+ * The drafts of one import file, a page at a time (a file can hold 20.000 items): the waiting ones, or with
+ * `status=all` every one with its state and reason. A manager sees their own files here too, view only.
+ */
 catalogRouter.get("/imports/:importId/drafts", async (c) => {
   const user = c.get("user")!;
-  const viewer = draftViewer(user.role);
+  const viewer = importViewer(user.role);
   if (!viewer) return c.json({ error: "Akses ditolak untuk peran Anda." }, 403);
   const importId = Number(c.req.param("importId"));
-  const limit = Math.min(500, Math.max(1, Number(c.req.query("limit")) || 100));
-  const offset = Math.max(0, Number(c.req.query("offset")) || 0);
   const own = viewer === "own" ? "AND created_by = ?" : "";
   const args = viewer === "own" ? [user.id] : [];
-  const rows = await all<{ id: number; code: string; payload: string; before: string; created_at: string }>(
+  if (!(await get(c.env.DB, `SELECT id FROM catalog_imports WHERE id = ? AND ready = 1 ${own}`, importId, ...args))) return c.json({ error: "Impor tidak ditemukan." }, 404);
+  const limit = Math.min(500, Math.max(1, Number(c.req.query("limit")) || 100));
+  const offset = Math.max(0, Number(c.req.query("offset")) || 0);
+  const which = c.req.query("status") === "all" ? "" : "AND d.status = 'pending'";
+  const rows = await all<{ id: number; code: string; payload: string; before: string; status: string; note: string; reviewed_by_name: string | null; reviewed_at: string | null }>(
     c.env.DB,
-    `SELECT id, code, payload, before, created_at FROM catalog_drafts
-      WHERE import_id = ? AND status = 'pending' ${own} ORDER BY id LIMIT ? OFFSET ?`,
-    importId, ...args, limit, offset,
+    `SELECT d.id, d.code, d.payload, d.before, d.status, d.note, r.name AS reviewed_by_name, d.reviewed_at
+       FROM catalog_drafts d LEFT JOIN users r ON r.id = d.reviewed_by
+      WHERE d.import_id = ? ${which} ORDER BY d.id LIMIT ? OFFSET ?`,
+    importId, limit, offset,
   );
-  const total = (await get<{ n: number }>(c.env.DB, `SELECT COUNT(*) AS n FROM catalog_drafts WHERE import_id = ? AND status = 'pending' ${own}`, importId, ...args))?.n ?? 0;
+  const total = (await get<{ n: number }>(c.env.DB, `SELECT COUNT(*) AS n FROM catalog_drafts d WHERE d.import_id = ? ${which}`, importId))?.n ?? 0;
+  // Items with a purchase price from Accurate keep their COGS: the list says so instead of showing a change.
+  const purchased = await purchasedCodes(c.env, rows.filter((r) => typeof JSON.parse(r.before).name === "string").map((r) => r.code));
+  // The same code waiting in another file: the admin sees it, and ACC goes in upload order.
+  const elsewhere = new Map<string, string[]>();
+  for (const e of await all<{ code: string; source: string }>(
+    c.env.DB,
+    `SELECT d.code, i.source FROM catalog_drafts d JOIN catalog_imports i ON i.id = d.import_id
+      WHERE d.kind = 'import' AND d.status = 'pending' AND d.import_id != ? AND i.ready = 1 ${viewer === "own" ? "AND i.created_by = ?" : ""}
+        AND d.code IN (SELECT value FROM json_each(?)) ORDER BY d.import_id`,
+    importId, ...args, JSON.stringify(rows.map((r) => r.code)),
+  )) elsewhere.set(e.code, [...(elsewhere.get(e.code) ?? []), e.source]);
   // A new item may already be in the catalog under another code (pemilik, 2026-11-20): name the closest
   // matches so the admin can refuse it. Only items whose every word matched, at most three.
   const [index, priority] = await Promise.all([catalogIndex(c.env.DB), searchPriority(c.env.DB)]);
@@ -794,9 +838,11 @@ catalogRouter.get("/imports/:importId/drafts", async (c) => {
   return c.json({
     total,
     drafts: rows.map((r) => ({
-      id: r.id, code: r.code, kind: "import", uom: "", status: "pending",
+      id: r.id, code: r.code, kind: "import", uom: "", status: r.status, note: r.note, reviewed_by_name: r.reviewed_by_name, reviewed_at: r.reviewed_at,
       payload: hideCosts(user.role, JSON.parse(r.payload)), before: hideCosts(user.role, JSON.parse(r.before)),
-      similar: similarTo(r.code, JSON.parse(r.payload), JSON.parse(r.before)),
+      purchased: purchased.has(r.code),
+      elsewhere: elsewhere.get(r.code) ?? [],
+      similar: r.status === "pending" ? similarTo(r.code, JSON.parse(r.payload), JSON.parse(r.before)) : [],
     })),
   });
 });
@@ -804,52 +850,112 @@ catalogRouter.get("/imports/:importId/drafts", async (c) => {
 const importReviewInput = z.object({
   approve: z.boolean(),
   note: z.string().trim().max(500).default(""),
-  /** Only these drafts of the file; left out = every waiting draft of the file. */
-  ids: z.array(z.number().int()).max(20000).optional(),
+  /** Only these drafts of the file (the page sends them in slices of ACC_STEP); left out = every waiting draft of the file. */
+  ids: z.array(z.number().int()).max(ACC_STEP).optional(),
 });
 
+type ImportRowDb = { id: number; source: string; mode: ImportMode; done_at: string | null };
+
+const pendingOf = async (db: D1Database, importId: number) =>
+  (await get<{ n: number }>(db, "SELECT COUNT(*) AS n FROM catalog_drafts WHERE import_id = ? AND status = 'pending'", importId))?.n ?? 0;
+
 /**
- * ACC or Tolak a whole import file, or the chosen drafts of it, in one call (batched, not one request per
- * item). The drafts are claimed first, so two admins pressing ACC at once cannot apply a row twice.
+ * ACC or Tolak an import file, or the chosen drafts of it. ACC works through at most ACC_STEP drafts per
+ * request, each D1 batch claiming its drafts and writing their items together (see applyImportDrafts); the
+ * reply says how many are left and the page calls again until none are. Whatever a failed call did not get to
+ * stays pending and can be ACCed again. An impor-ganti file deletes the items it leaves out, and pauses new
+ * Accurate items, only when an ACC leaves nothing waiting in the file (never for a partial ACC).
  */
 catalogRouter.post("/imports/:importId/review", requirePermission("review_catalog_drafts"), async (c) => {
   const user = c.get("user")!;
+  const db = c.env.DB;
   const importId = Number(c.req.param("importId"));
   const parsed = importReviewInput.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
   const { approve, note, ids } = parsed.data;
   if (!approve && !note) return c.json({ error: "Tulis alasan penolakan supaya yang mengunggah tahu apa yang perlu diperbaiki." }, 400);
-  if (!(await get(c.env.DB, "SELECT id FROM catalog_imports WHERE id = ?", importId))) return c.json({ error: "Impor tidak ditemukan." }, 404);
-  const claimSql = `UPDATE catalog_drafts SET status = ?, note = ?, reviewed_by = ?, reviewed_at = datetime('now')
-     WHERE import_id = ? AND status = 'pending' ${ids ? "AND id IN (SELECT value FROM json_each(?))" : ""}
-     RETURNING id, item_id, code, payload, created_by, import_id`;
-  const claimed: ImportDraftRow[] = [];
-  for (const part of ids ? chunks(ids, 2000) : [null]) {
-    claimed.push(...(await all<ImportDraftRow>(c.env.DB, claimSql, approve ? "approved" : "rejected", note, user.id, importId, ...(part ? [JSON.stringify(part)] : []))));
+  const imp = await get<ImportRowDb>(db, "SELECT id, source, mode, done_at FROM catalog_imports WHERE id = ? AND ready = 1", importId);
+  if (!imp) return c.json({ error: "Impor tidak ditemukan." }, 404);
+  if (imp.done_at) return c.json({ error: "Impor ini sudah selesai." }, 409);
+  const idsSql = ids ? "AND id IN (SELECT value FROM json_each(?))" : "";
+  const idsArg = ids ? [JSON.stringify(ids)] : [];
+  // A replace file whose rows all equal the catalog has no drafts, yet it still waits for its ACC (the delete).
+  const emptyReplace = imp.mode === "replace" && !ids && (await pendingOf(db, importId)) === 0;
+
+  if (!approve) {
+    const r = await run(db, `UPDATE catalog_drafts SET status = 'rejected', note = ?, reviewed_by = ?, reviewed_at = datetime('now') WHERE import_id = ? AND status = 'pending' ${idsSql}`, note, user.id, importId, ...idsArg);
+    const count = Number(r.meta.changes ?? 0);
+    if (!count && !emptyReplace) return c.json({ error: "Tidak ada draf yang menunggu di impor ini." }, 409);
+    await closeImport(db, importId);
+    await audit(db, user.id, "catalog", 0, "import_rejected", { import_id: importId, count, whole_file: !ids, note });
+    return c.json({ ok: true, count, remaining: await pendingOf(db, importId) });
   }
-  if (!claimed.length) return c.json({ error: "Tidak ada draf yang menunggu di impor ini." }, 409);
-  let cogsFromPurchases = 0;
-  if (approve) {
-    try {
-      cogsFromPurchases = (await applyImportDrafts(c.env, user.id, claimed)).cogsFromPurchases;
-    } catch (e) {
-      // Applying is an upsert, so ACC again later finishes what stopped here.
-      for (const part of chunks(claimed.map((d) => d.id), 2000)) {
-        await run(c.env.DB, "UPDATE catalog_drafts SET status = 'pending', note = '', reviewed_by = NULL, reviewed_at = NULL WHERE id IN (SELECT value FROM json_each(?))", JSON.stringify(part));
-      }
-      return c.json({ error: `ACC gagal di tengah jalan (${e instanceof Error ? e.message : "kesalahan"}). Coba lagi.` }, 500);
-    }
+
+  const waiting = await all<ImportDraftRow>(
+    db,
+    `SELECT id, item_id, code, payload, created_by, import_id FROM catalog_drafts WHERE import_id = ? AND status = 'pending' ${idsSql} ORDER BY id LIMIT ${ACC_STEP}`,
+    importId, ...idsArg,
+  );
+  if (!waiting.length && !emptyReplace) return c.json({ error: "Tidak ada draf yang menunggu di impor ini." }, 409);
+  const progress = { applied: 0, cogsFromPurchases: 0 };
+  try {
+    await applyImportDrafts(c.env, user.id, imp, waiting, progress);
+  } catch (e) {
+    return c.json({
+      error: `ACC terhenti di tengah jalan (${e instanceof Error ? e.message : "kesalahan"}). ${progress.applied} barang sudah masuk katalog; sisanya masih menunggu, ACC lagi untuk melanjutkan.`,
+      applied: progress.applied, remaining: await pendingOf(db, importId),
+    }, 500);
   }
-  await audit(c.env.DB, user.id, "catalog", 0, approve ? "import_approved" : "import_rejected", { import_id: importId, count: claimed.length, whole_file: !ids, note, cogsFromPurchases });
-  return c.json({ ok: true, count: claimed.length, cogsFromPurchases });
+  if (progress.applied) await sweepPending(db); // "Barang baru" requests this import brought into the catalog are linked, and their tasks closed.
+  const remaining = await pendingOf(db, importId);
+  const removed = remaining === 0 ? await finishReplace(c.env, user.id, imp) : null;
+  await run(db, CLOSE_MERGE_SQL);
+  await audit(db, user.id, "catalog", 0, "import_approved", { import_id: importId, count: progress.applied, whole_file: !ids, cogsFromPurchases: progress.cogsFromPurchases, removed });
+  return c.json({ ok: true, count: progress.applied, applied: progress.applied, remaining, cogsFromPurchases: progress.cogsFromPurchases, ...(removed !== null && { removed }) });
 });
+
+/** Closes a file after a Tolak that left nothing waiting: a merge file closes by itself, a replace file is closed without deleting anything. */
+async function closeImport(db: D1Database, importId: number) {
+  await run(db, CLOSE_MERGE_SQL);
+  await batch(db, [
+    stmt(db, `UPDATE catalog_imports SET done_at = datetime('now'), removed = 0 WHERE id = ?1 AND done_at IS NULL AND mode = 'replace'
+                AND NOT EXISTS (SELECT 1 FROM catalog_drafts WHERE import_id = ?1 AND status = 'pending')`, importId),
+    stmt(db, "DELETE FROM catalog_import_codes WHERE import_id = ?1 AND EXISTS (SELECT 1 FROM catalog_imports WHERE id = ?1 AND done_at IS NOT NULL)", importId),
+  ]);
+}
+
+/**
+ * The last ACC of an impor-ganti file: delete the items the file does not list (worked out now, from the
+ * catalog as it is now, like the old direct import did), and pause Accurate's new items until "Terapkan" is
+ * answered OK. Null for a merge file. Atomic: `removed` goes negative while the batch runs (-1 - the count to
+ * delete) and is the guard of its later statements, so a second admin finishing the same file at the same
+ * moment deletes nothing twice. Returns how many items were deleted.
+ */
+async function finishReplace(env: Env["Bindings"], actorId: number, imp: ImportRowDb): Promise<number | null> {
+  if (imp.mode !== "replace") return null;
+  const db = env.DB;
+  const gone = "code NOT IN (SELECT code FROM catalog_import_codes WHERE import_id = ?1)";
+  const going = "EXISTS (SELECT 1 FROM catalog_imports WHERE id = ?1 AND removed < 0)";
+  // Paused first: if the batch below never runs, the pause is the safe side.
+  await run(db, PAUSE_NEW_ITEMS_SQL, actorId);
+  await batch(db, [
+    stmt(db, `UPDATE catalog_imports SET removed = -1 - (SELECT COUNT(*) FROM catalog_items WHERE ${gone})
+               WHERE id = ?1 AND done_at IS NULL AND removed IS NULL AND NOT EXISTS (SELECT 1 FROM catalog_drafts WHERE import_id = ?1 AND status = 'pending')`, imp.id),
+    stmt(db, `DELETE FROM catalog_item_uoms WHERE ${gone} AND ${going}`, imp.id),
+    stmt(db, `DELETE FROM catalog_items WHERE ${gone} AND ${going}`, imp.id),
+    stmt(db, `DELETE FROM catalog_import_codes WHERE import_id = ?1 AND ${going}`, imp.id),
+    stmt(db, "UPDATE catalog_imports SET removed = -1 - removed, done_at = datetime('now') WHERE id = ?1 AND removed < 0", imp.id),
+  ]);
+  const r = await get<{ removed: number | null }>(db, "SELECT removed FROM catalog_imports WHERE id = ?", imp.id);
+  return r?.removed != null && r.removed >= 0 ? r.removed : 0;
+}
 
 /** The Admin Gudang takes back their own waiting draft. */
 catalogRouter.post("/drafts/:draftId/cancel", async (c) => {
   const user = c.get("user")!;
   const draftId = Number(c.req.param("draftId"));
   const d = await get<{ item_id: number; code: string }>(
-    c.env.DB, "SELECT item_id, code FROM catalog_drafts WHERE id = ? AND created_by = ? AND status = 'pending'", draftId, user.id,
+    c.env.DB, "SELECT item_id, code FROM catalog_drafts WHERE id = ? AND created_by = ? AND status = 'pending' AND kind != 'import'", draftId, user.id,
   );
   if (!d) return c.json({ error: "Draf tidak ditemukan atau sudah diproses." }, 404);
   await run(c.env.DB, "UPDATE catalog_drafts SET status = 'cancelled', reviewed_at = datetime('now') WHERE id = ?", draftId);
@@ -1007,11 +1113,14 @@ catalogRouter.get("/stats", async (c) => {
 /**
  * Impor katalog (pemilik, 2026-11-20): an upload no longer touches the catalog. Every file row that would
  * change something becomes an `import` draft (payload = the file row + mode, before = the item now) and
- * waits for an admin's ACC in Gudang; in replace mode an item the file leaves out becomes a delete draft.
- * Applying a draft is applyImportDrafts below, with the same rules the import always had.
+ * waits for an admin's ACC in Gudang. Applying a draft is applyImportDrafts below, with the rules the import
+ * always had. A replace file also keeps its list of codes (catalog_import_codes): the items it leaves out
+ * are worked out and deleted by the last ACC, not at upload, and a replace file whose rows all equal the
+ * catalog is still created, so that ACC can run.
  * The client does the XLSX parsing and posts plain rows, so the server never handles uploaded binaries.
- * D1 has no interactive transactions, so current items are read once up front and drafts are written
- * in batches (one statement per row, never one query per row).
+ * D1 has no interactive transactions and counts every call: codes travel as JSON arrays (json_each), so a
+ * 20.000-row file is some 60 reads and 40 batches, far below the 1.000-query limit of one request.
+ * The file is invisible (ready = 0) until its last batch lands; a file that fails half-way is removed again.
  */
 catalogRouter.post("/import", requirePermission("import_catalog"), async (c) => {
   const user = c.get("user")!;
@@ -1029,77 +1138,81 @@ catalogRouter.post("/import", requirePermission("import_catalog"), async (c) => 
   if (replace && !hasPermission(user.role, "delete_catalog")) {
     return c.json({ error: "Mengganti seluruh katalog hanya bisa dilakukan admin. Pakai impor gabung." }, 403);
   }
+  const db = c.env.DB;
 
-  // A code twice in one file: the last row wins (one waiting draft per code).
+  // A code twice in one file: the last row wins (one draft per code and file).
   const byCode = new Map<string, z.infer<typeof catalogRowSchema>>();
   for (const r of rows) if (r.code.trim()) byCode.set(r.code.trim(), { ...r, code: r.code.trim() });
   const codes = [...byCode.keys()];
   if (replace && !codes.length) return c.json({ error: "File tidak berisi kode barang." }, 400);
 
   const current = new Map<string, ImportItem & { id: number }>();
-  for (const chunk of chunks(codes, CHUNK)) {
+  for (const chunk of chunks(codes, CODES_PER_QUERY)) {
     const found = await all<Omit<ImportItem, "units"> & { id: number; code: string }>(
-      c.env.DB,
-      `SELECT id, code, name, uom, cogs, list_price, stock, category FROM catalog_items WHERE code IN (${chunk.map(() => "?").join(",")})`,
-      ...chunk,
+      db,
+      `SELECT id, code, name, uom, cogs, list_price, stock, category FROM catalog_items WHERE code IN (SELECT value FROM json_each(?))`,
+      JSON.stringify(chunk),
     );
     for (const f of found) current.set(f.code, { ...f, units: [] });
   }
   const withUnits = [...current.keys()].filter((code) => byCode.get(code)?.units);
-  for (const [code, units] of await unitsByCode(c.env.DB, withUnits)) current.get(code)!.units = units;
+  for (const [code, units] of await unitsByCode(db, withUnits)) current.get(code)!.units = units;
   const purchased = await purchasedCodes(c.env, [...current.keys()]);
 
-  type NewDraft = { item_id: number; code: string; payload: unknown; before: unknown };
+  type NewDraft = { i: number; c: string; p: string; b: string };
   const news: NewDraft[] = [];
   let inserted = 0;
   let updated = 0;
   let unchanged = 0;
+  let cogsKept = 0;
   for (const r of byCode.values()) {
     const cur = current.get(r.code) ?? null;
-    if (cur && importUnchanged(importNext(mode, r, cur, purchased.has(r.code)), cur)) {
+    const keep = purchased.has(r.code);
+    if (cogsIgnored(mode, r, cur, keep)) cogsKept++;
+    if (cur && importUnchanged(importNext(mode, r, cur, keep), cur)) {
       unchanged++;
       continue;
     }
     cur ? updated++ : inserted++;
     const { id, ...before } = cur ?? { id: 0 };
-    news.push({ item_id: id, code: r.code, payload: { ...r, mode }, before });
-  }
-  // Items the file leaves out go in the same import, so ACC of the whole file is the whole replacement.
-  let removed = 0;
-  if (replace) {
-    const keep = new Set(codes);
-    const gone = await all<{ id: number; code: string; name: string; uom: string; cogs: number; list_price: number; stock: number; category: string }>(
-      c.env.DB, "SELECT id, code, name, uom, cogs, list_price, stock, category FROM catalog_items",
-    );
-    const goneUnits = await unitsByCode(c.env.DB, gone.filter((g) => !keep.has(g.code)).map((g) => g.code));
-    for (const { id, ...g } of gone) {
-      if (keep.has(g.code)) continue;
-      removed++;
-      news.push({ item_id: id, code: g.code, payload: { delete: true }, before: { ...g, units: goneUnits.get(g.code) ?? [] } });
-    }
+    news.push({ i: id, c: r.code, p: JSON.stringify({ ...r, mode }), b: JSON.stringify(before) });
   }
 
-  const result = { inserted, updated, unchanged, drafts: news.length, ...(replace && { removed }) };
+  const result = { inserted, updated, unchanged, drafts: news.length, cogsIgnored: cogsKept };
   let importId: number | null = null;
-  if (news.length) {
-    const info = await run(c.env.DB, "INSERT INTO catalog_imports(source, mode, rows, created_by) VALUES(?, ?, ?, ?)", source, mode, rows.length, user.id);
+  let removed = 0;
+  if (news.length || replace) {
+    const info = await run(db, "INSERT INTO catalog_imports(source, mode, rows, created_by) VALUES(?, ?, ?, ?)", source, mode, rows.length, user.id);
     importId = Number(info.meta.last_row_id);
-    for (const chunk of chunks(news, CHUNK)) {
-      await batch(c.env.DB, chunk.map((d) =>
-        // A second file for the same code takes over its waiting draft.
-        stmt(
-          c.env.DB,
-          `INSERT INTO catalog_drafts(item_id, code, kind, uom, payload, before, created_by, import_id) VALUES(?, ?, 'import', '', ?, ?, ?, ?)
-           ON CONFLICT(code, kind, uom) WHERE status = 'pending'
-           DO UPDATE SET item_id = excluded.item_id, payload = excluded.payload, before = excluded.before, created_by = excluded.created_by,
-                         import_id = excluded.import_id, created_at = datetime('now')`,
-          d.item_id, d.code, JSON.stringify(d.payload), JSON.stringify(d.before), user.id, importId,
-        ),
+    const id = importId;
+    const writes: D1PreparedStatement[] = [];
+    if (replace) for (const chunk of chunks(codes, CODES_PER_QUERY)) writes.push(stmt(db, "INSERT INTO catalog_import_codes(import_id, code) SELECT ?1, value FROM json_each(?2)", id, JSON.stringify(chunk)));
+    for (const chunk of chunks(news, 50)) {
+      writes.push(stmt(
+        db,
+        `INSERT INTO catalog_drafts(item_id, code, kind, uom, payload, before, created_by, import_id)
+         SELECT json_extract(value, '$.i'), json_extract(value, '$.c'), 'import', '', json_extract(value, '$.p'), json_extract(value, '$.b'), ?2, ?3
+           FROM json_each(?1)`,
+        JSON.stringify(chunk), user.id, id,
       ));
     }
+    // The last batch also makes the file visible, so a file is never seen half-written.
+    writes.push(stmt(db, "UPDATE catalog_imports SET ready = 1 WHERE id = ?", id));
+    try {
+      for (const part of chunks(writes, 10)) await batch(db, part);
+    } catch (e) {
+      await batch(db, [
+        stmt(db, "DELETE FROM catalog_drafts WHERE import_id = ?1", id),
+        stmt(db, "DELETE FROM catalog_import_codes WHERE import_id = ?1", id),
+        stmt(db, "DELETE FROM catalog_imports WHERE id = ?1", id),
+      ]).catch(() => undefined);
+      return c.json({ error: `Unggahan gagal di tengah jalan (${e instanceof Error ? e.message : "kesalahan"}); tidak ada yang tersimpan. Coba unggah lagi.` }, 500);
+    }
+    if (replace) removed = (await get<{ n: number }>(db, "SELECT COUNT(*) AS n FROM catalog_items WHERE code NOT IN (SELECT code FROM catalog_import_codes WHERE import_id = ?)", id))?.n ?? 0;
   }
-  await audit(c.env.DB, user.id, "catalog", 0, "imported", { ...result, importId, source, mode, rows: rows.length });
-  return c.json({ importId, ...result, total: rows.length });
+  // `removed` is only what the ACC of the whole file would delete right now; the ACC counts again then.
+  await audit(db, user.id, "catalog", 0, "imported", { ...result, importId, source, mode, rows: rows.length, ...(replace && { removed }) });
+  return c.json({ importId, ...result, ...(replace && { removed }), total: rows.length });
 });
 
 /** Items that already have a priced Accurate goods receipt: their COGS comes from "Terapkan COGS", not from a file. */
@@ -1108,13 +1221,13 @@ async function purchasedCodes(env: Env["Bindings"], existing: string[]): Promise
   // must not overwrite it. Other fields still update.
   const purchased = new Set<string>();
   const entity = catalogEntity(env);
-  for (const chunk of chunks(existing, CHUNK - 1)) {
+  for (const chunk of chunks(existing, CODES_PER_QUERY)) {
     const found = await all<{ item_code: string }>(
       env.DB,
       `SELECT DISTINCT item_code FROM ${costLines(env)}
-        WHERE entity = ? AND unit_price > 0 AND quantity > 0 AND item_code IN (${chunk.map(() => "?").join(",")})`,
+        WHERE entity = ? AND unit_price > 0 AND quantity > 0 AND item_code IN (SELECT value FROM json_each(?))`,
       entity,
-      ...chunk,
+      JSON.stringify(chunk),
     );
     for (const f of found) purchased.add(f.item_code);
   }
@@ -1124,12 +1237,12 @@ async function purchasedCodes(env: Env["Bindings"], existing: string[]): Promise
 // ?9 is NULL for a purchased item (its COGS stays); ?10 = 1 in replace mode, where the file wins and a 0
 // or blank is written as such. A blank unit keeps the current one in both modes, so the item's unit
 // ratios stay valid. Stock is not written here: it follows, with its history (see applyImportDrafts).
+// ?11 / ?12 = draft id and batch claim: the item is written only for a draft this batch claimed (CLAIMED).
 // Keep in step with importNext (shared/catalogImport.ts).
 const UPSERT_ITEM_SQL = `
   INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock, category, source)
-  VALUES (
-    ?1, ?2, COALESCE(NULLIF(?3, ''), 'Pcs'), ?4, ?5, 0, ?7, ?8
-  )
+  SELECT ?1, ?2, COALESCE(NULLIF(?3, ''), 'Pcs'), ?4, ?5, 0, ?7, ?8
+   WHERE EXISTS (SELECT 1 FROM catalog_drafts WHERE id = ?11 AND claim = ?12)
   ON CONFLICT(code) DO UPDATE SET
     name = ?2,
     uom = CASE WHEN ?3 != '' THEN ?3 ELSE catalog_items.uom END,
@@ -1142,73 +1255,93 @@ const UPSERT_ITEM_SQL = `
 type ImportDraftRow = Pick<DraftRow, "id" | "item_id" | "code" | "payload" | "created_by"> & { import_id: number | null };
 
 /**
- * Applies ACCed `import` drafts (already claimed by the caller) as the admin: the same writes the old
- * direct import made, in batches. Stock from the file goes through stock_history (source 'import') and
- * stock_unsent like an ACCed stock draft. One audit row per draft, with the draft id.
+ * Applies `drafts` of one import file as the admin, ACC_BATCH rows per D1 batch. A batch is one transaction
+ * that (1) claims its still-pending drafts (status approved, a token of its own), (2) writes the items of
+ * the drafts it claimed, nothing for one another admin claimed first, (3) cancels older files' waiting
+ * drafts of the same codes ("Digantikan file X"), so an older file can never overwrite this one later.
+ * So "approved" always means written, and a batch that fails leaves its drafts pending. `progress` counts
+ * what already landed, for the error reply. Stock from the file goes through stock_history (source
+ * 'import') and stock_unsent like an ACCed stock draft; one audit row per draft, with the draft id.
  */
-async function applyImportDrafts(env: Env["Bindings"], actorId: number, drafts: ImportDraftRow[]): Promise<{ applied: number; cogsFromPurchases: number }> {
+async function applyImportDrafts(
+  env: Env["Bindings"], actorId: number, imp: ImportRowDb, drafts: ImportDraftRow[], progress: { applied: number; cogsFromPurchases: number },
+): Promise<void> {
   const db = env.DB;
-  const items = drafts.map((d) => ({ d, p: JSON.parse(d.payload) as Record<string, unknown> }));
-  const writeCodes = items.filter((x) => !x.p.delete).map((x) => x.d.code);
+  const items = drafts.map((d) => ({ d, p: JSON.parse(d.payload) as ImportRow & { mode?: ImportMode } }));
   const baseUom = new Map<string, string>();
-  for (const chunk of chunks(writeCodes, CHUNK)) {
-    for (const f of await all<{ code: string; uom: string }>(db, `SELECT code, uom FROM catalog_items WHERE code IN (${chunk.map(() => "?").join(",")})`, ...chunk)) {
+  for (const chunk of chunks(items.map((x) => x.d.code), CODES_PER_QUERY)) {
+    for (const f of await all<{ code: string; uom: string }>(db, "SELECT code, uom FROM catalog_items WHERE code IN (SELECT value FROM json_each(?))", JSON.stringify(chunk))) {
       baseUom.set(f.code, f.uom);
     }
   }
   const purchased = await purchasedCodes(env, [...baseUom.keys()]);
-  const sources = new Map<number, string>();
-  for (const id of new Set(drafts.map((d) => d.import_id).filter((i): i is number => i != null))) {
-    sources.set(id, (await get<{ source: string }>(db, "SELECT source FROM catalog_imports WHERE id = ?", id))?.source ?? "import");
-  }
 
-  let cogsFromPurchases = 0;
-  const auditStmt = (d: ImportDraftRow, extra: Record<string, unknown> = {}) =>
-    stmt(
-      db,
-      `INSERT INTO audit_log(actor_id, entity, entity_id, action, detail)
-       VALUES(?1, 'catalog', COALESCE((SELECT id FROM catalog_items WHERE code = ?2), ?3), 'catalog_draft_approved', ?4)`,
-      actorId, d.code, d.item_id,
-      JSON.stringify({ code: d.code, kind: "import", uom: "", draft_id: d.id, import_id: d.import_id, proposed_by: d.created_by, ...extra }),
-    );
-  for (const chunk of chunks(items, 60)) {
-    const statements = chunk.flatMap(({ d, p }) => {
-      if (p.delete) {
+  for (const chunk of chunks(items, ACC_BATCH)) {
+    const claim = crypto.randomUUID();
+    const auditStmt = (d: ImportDraftRow) =>
+      stmt(
+        db,
+        `INSERT INTO audit_log(actor_id, entity, entity_id, action, detail)
+         SELECT ?1, 'catalog', COALESCE((SELECT id FROM catalog_items WHERE code = ?2), ?3), 'catalog_draft_approved', ?4
+          WHERE ${claimedBy("?5", "?6")}`,
+        actorId, d.code, d.item_id,
+        JSON.stringify({ code: d.code, kind: "import", uom: "", draft_id: d.id, import_id: d.import_id, proposed_by: d.created_by }),
+        d.id, claim,
+      );
+    const statements = [
+      stmt(
+        db,
+        `UPDATE catalog_drafts SET status = 'approved', note = '', reviewed_by = ?1, reviewed_at = datetime('now'), claim = ?2
+          WHERE import_id = ?3 AND status = 'pending' AND id IN (SELECT value FROM json_each(?4))`,
+        actorId, claim, imp.id, JSON.stringify(chunk.map((x) => x.d.id)),
+      ),
+      ...chunk.flatMap(({ d, p: r }) => {
+        const keepCogs = purchased.has(d.code);
+        const guard = { draftId: d.id, claim };
         return [
-          stmt(db, "DELETE FROM catalog_item_uoms WHERE code = ?", d.code),
-          auditStmt(d, { deleted: true }),
-          stmt(db, "DELETE FROM catalog_items WHERE code = ?", d.code),
+          stmt(db, UPSERT_ITEM_SQL, d.code, r.name, r.uom ?? "", r.cogs ?? 0, r.list_price ?? 0, null, r.category ?? "",
+            imp.source, keepCogs ? null : (r.cogs ?? 0), r.mode === "replace" ? 1 : 0, d.id, claim),
+          ...(r.units ? replaceUnitsStmts(db, d.code, r.uom || baseUom.get(d.code) || "Pcs", r.units, guard) : []),
+          ...(r.stock != null
+            ? [
+                stmt(
+                  db,
+                  `INSERT INTO stock_history(code, uom, qty_before, qty_after, source, draft_id, filled_by, approved_by)
+                   SELECT code, uom, stock, ?2, 'import', ?3, ?4, ?5 FROM catalog_items WHERE code = ?1 AND stock IS NOT ?2 AND ${claimedBy("?3", "?6")}`,
+                  d.code, r.stock, d.id, d.created_by, actorId, claim,
+                ),
+                stmt(
+                  db,
+                  `INSERT INTO stock_unsent(code) SELECT code FROM catalog_items WHERE code = ?1 AND stock IS NOT ?2 AND ${claimedBy("?3", "?4")} ON CONFLICT(code) DO NOTHING`,
+                  d.code, r.stock, d.id, claim,
+                ),
+                stmt(db, `UPDATE catalog_items SET stock = ?2, updated_at = datetime('now') WHERE code = ?1 AND ${claimedBy("?3", "?4")}`, d.code, r.stock, d.id, claim),
+              ]
+            : []),
+          auditStmt(d),
         ];
-      }
-      const r = p as unknown as ImportRow & { mode?: ImportMode };
-      const keepCogs = purchased.has(d.code);
-      if (keepCogs && (r.cogs ?? 0) > 0) cogsFromPurchases++;
-      return [
-        stmt(db, UPSERT_ITEM_SQL, d.code, r.name, r.uom ?? "", r.cogs ?? 0, r.list_price ?? 0, null, r.category ?? "",
-          sources.get(d.import_id ?? 0) ?? "import", keepCogs ? null : (r.cogs ?? 0), r.mode === "replace" ? 1 : 0),
-        ...(r.units ? replaceUnitsStmts(db, d.code, r.uom || baseUom.get(d.code) || "Pcs", r.units) : []),
-        ...(r.stock != null
-          ? [
-              stmt(
-                db,
-                `INSERT INTO stock_history(code, uom, qty_before, qty_after, source, draft_id, filled_by, approved_by)
-                 SELECT code, uom, stock, ?2, 'import', ?3, ?4, ?5 FROM catalog_items WHERE code = ?1 AND stock IS NOT ?2`,
-                d.code, r.stock, d.id, d.created_by, actorId,
-              ),
-              stmt(db, "INSERT INTO stock_unsent(code) SELECT code FROM catalog_items WHERE code = ?1 AND stock IS NOT ?2 ON CONFLICT(code) DO NOTHING", d.code, r.stock),
-              stmt(db, "UPDATE catalog_items SET stock = ?2, updated_at = datetime('now') WHERE code = ?1", d.code, r.stock),
-            ]
-          : []),
-        auditStmt(d),
-      ];
-    });
-    await batch(db, statements);
+      }),
+      // Older files' waiting drafts of the codes just applied: replaced by this file.
+      stmt(
+        db,
+        `UPDATE catalog_drafts
+            SET status = 'cancelled', reviewed_by = ?2, reviewed_at = datetime('now'),
+                note = 'Digantikan file ' || (SELECT i.source FROM catalog_drafts n JOIN catalog_imports i ON i.id = n.import_id
+                                               WHERE n.claim = ?1 AND n.code = catalog_drafts.code AND n.import_id > catalog_drafts.import_id LIMIT 1)
+          WHERE id IN (SELECT o.id FROM catalog_drafts n
+                         JOIN catalog_drafts o ON o.code = n.code AND o.kind = 'import' AND o.status = 'pending' AND o.import_id < n.import_id
+                        WHERE n.claim = ?1)`,
+        claim, actorId,
+      ),
+      stmt(db, CLOSE_MERGE_SQL),
+    ];
+    const results = await batch(db, statements);
+    const claimed = Number(results[0].meta.changes ?? 0);
+    progress.applied += claimed;
+    // COGS the file carried for a purchased item and the catalog kept: counted for the drafts this batch really claimed.
+    const mine = claimed === chunk.length ? null : new Set((await all<{ id: number }>(db, "SELECT id FROM catalog_drafts WHERE claim = ?", claim)).map((r) => r.id));
+    for (const { d, p: r } of chunk) if ((!mine || mine.has(d.id)) && purchased.has(d.code) && (r.cogs ?? 0) > 0) progress.cogsFromPurchases++;
   }
-  // Replace pauses Accurate's new items until "Terapkan" is answered OK, as the direct replace did.
-  if (items.some((x) => x.p.mode === "replace" || x.p.delete)) await run(db, PAUSE_NEW_ITEMS_SQL, actorId);
-  // Barang baru requests whose code this import brought into the catalog are linked, and their tasks closed.
-  await sweepPending(db);
-  return { applied: drafts.length, cogsFromPurchases };
 }
 
 const editInput = z.object({
