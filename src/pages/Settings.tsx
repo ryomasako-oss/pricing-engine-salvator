@@ -7,7 +7,7 @@ import { Modal } from "../components/Modal";
 import { PasswordInput } from "../components/PasswordInput";
 import { SearchPrioritySettings } from "../components/SearchPrioritySettings";
 import { fmtDateTime, grp, rp } from "@shared/format";
-import type { PasswordResetRequest, PricingPolicy, Role, User } from "@shared/types";
+import type { BlockApprover, PasswordResetRequest, PricingPolicy, Role, User } from "@shared/types";
 import type { CompanyInfo } from "../components/QuotationDoc";
 import { SignatureSettings } from "../components/SignatureSettings";
 
@@ -262,6 +262,20 @@ export function SettingsPage() {
                   onChange={(e) => setPolicy({ ...policy, allowBelowCost: e.target.checked })}
                 />
                 <span>Izinkan barang dijual di bawah landed cost</span>
+              </label>
+              <label className="field">
+                <span>Yang boleh menyetujui quotation dengan pelanggaran blokir</span>
+                <select
+                  className="select" disabled={readOnlyPolicy}
+                  value={policy.blockApprover ?? "other"}
+                  onChange={(e) => setPolicy({ ...policy, blockApprover: e.target.value as BlockApprover })}
+                >
+                  <option value="other">Manajer atau admin lain</option>
+                  <option value="admin">Hanya admin</option>
+                </select>
+                <small className="field-help">
+                  Siapa pun yang membuat, mengubah, atau mengajukan quotation itu tidak bisa menyetujuinya sendiri.
+                </small>
               </label>
               {!readOnlyPolicy && (
                 <div className="form-actions">

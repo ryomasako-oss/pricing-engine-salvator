@@ -91,6 +91,7 @@ export const policySchema = z.object({
   maxBasketDiscount: z.number().min(0).max(1),
   allowBelowCost: z.boolean(),
   approvalValueThreshold: z.number().min(0).max(1e15),
+  blockApprover: z.enum(["other", "admin"]).default("other"),
 });
 
 export const companySchema = z.object({

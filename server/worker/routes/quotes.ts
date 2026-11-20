@@ -21,6 +21,7 @@ import {
   EDITABLE_STATUSES,
   STATUS_FLOW,
   breachesFor,
+  approveRefusal,
   catalogListsByKeys,
   cogsProblemsFor,
   findQuote,
@@ -72,7 +73,6 @@ function canEdit(user: User, createdBy: number, assignedTo: number | null): bool
 }
 
 const QUOTE_MOVED = "Quotation ini sudah berubah (diubah, diajukan, atau diputuskan pengguna lain). Muat ulang untuk melihat versi terbaru.";
-const SELF_APPROVE_BLOCKED = "Quotation buatan sendiri dengan pelanggaran blokir harus diputuskan manajer/admin lain.";
 
 /**
  * Runs a status write as one batch led by the version/status guard, so a quote
@@ -208,12 +208,14 @@ quotesRouter.get("/:id", async (c) => {
   );
   const approvals = approvalRows.map((a) => ({ ...a, breaches: JSON.parse(a.breaches || "[]") }));
 
+  const policy = await breachesFor(c.env.DB, quote);
   return c.json({
     quote: quoteForViewer(user.role, quote),
     revisions,
     approvals: approvalsForViewer(user.role, approvals),
     audit: auditForViewer(user.role, await auditFor(c.env.DB, "quote", id, 60)),
-    policy: policyForViewer(user.role, await breachesFor(c.env.DB, quote)),
+    policy: policyForViewer(user.role, policy),
+    approveRefusal: hasPermission(user.role, "decide_quotes") ? await approveRefusal(c.env.DB, quote, user, policy.breaches) : null,
     canEdit: canEdit(user, quote.created_by, quote.assigned_to) && EDITABLE_STATUSES.includes(quote.status),
   });
 });
@@ -743,10 +745,12 @@ quotesRouter.post("/:id/decide", requirePermission("decide_quotes"), async (c) =
   if (parsed.data.decision === "rejected" && !parsed.data.note.trim()) {
     return c.json({ error: "Penolakan wajib disertai alasan." }, 400);
   }
-  // A block breach means the author can't approve it (shared/policy.ts): another manager or admin decides.
-  if (parsed.data.decision === "approved" && quote.created_by === user.id) {
+  // A block breach needs a second pair of eyes: not whoever created, edited or
+  // submitted it, and only an admin when Pengaturan says so (approveRefusal).
+  if (parsed.data.decision === "approved") {
     const { breaches } = await breachesFor(c.env.DB, quote);
-    if (breaches.some((b) => b.severity === "block")) return c.json({ error: SELF_APPROVE_BLOCKED }, 403);
+    const refusal = await approveRefusal(c.env.DB, quote, user, breaches);
+    if (refusal) return c.json({ error: refusal }, 403);
   }
   const pending = await get<{ id: number }>(
     c.env.DB,
