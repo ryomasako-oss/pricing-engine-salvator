@@ -73,6 +73,8 @@ interface QuoteDetail {
   revisions: Revision[];
   approvals: ApprovalRow[];
   audit: AuditRow[];
+  /** Why Setujui is off for this user (block breach rule), or null. */
+  approveRefusal?: string | null;
   canEdit: boolean;
 }
 interface AssignableUser {
@@ -1146,7 +1148,7 @@ export function QuoteEditorPage() {
           quote={quote}
           breaches={breaches}
           engine={engine}
-          selfBlocked={quote.created_by === user?.id && blocked.length > 0}
+          refusal={detail.approveRefusal ?? null}
           onClose={() => setModal(null)}
           onDecide={(decision, note) =>
             void act(
@@ -1266,16 +1268,14 @@ export function WorkflowButtons({
 
 /* ---------------- decision modal ---------------- */
 
-const SELF_APPROVE_HINT = "Quotation buatan sendiri yang diblokir kebijakan harus disetujui manajer atau admin lain. Anda tetap bisa menolaknya.";
-
 function DecideModal({
-  quote, breaches, engine, selfBlocked, onClose, onDecide,
+  quote, breaches, engine, refusal, onClose, onDecide,
 }: {
   quote: Quote;
   breaches: PolicyBreach[];
   engine: ReturnType<typeof computeEngine>;
-  /** The viewer wrote this quote and it has a block breach: someone else must approve it. */
-  selfBlocked: boolean;
+  /** From the server: why this viewer may not approve (block breach rule), or null. */
+  refusal: string | null;
   onClose: () => void;
   onDecide: (decision: "approved" | "rejected", note: string) => void;
 }) {
@@ -1302,8 +1302,8 @@ function DecideModal({
           <button
             className="btn success"
             onClick={() => onDecide("approved", note)}
-            disabled={selfBlocked}
-            title={selfBlocked ? SELF_APPROVE_HINT : undefined}
+            disabled={!!refusal}
+            title={refusal ?? undefined}
           >
             Setujui
           </button>
@@ -1326,7 +1326,7 @@ function DecideModal({
       </div>
 
       <BreachList breaches={breaches} />
-      {selfBlocked && <p className="note">{SELF_APPROVE_HINT}</p>}
+      {refusal && <p className="note">{refusal}</p>}
 
       <label className="field note-block">
         <span>Catatan keputusan {clean ? "(opsional)" : "(wajib jika menolak)"}</span>

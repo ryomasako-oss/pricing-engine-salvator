@@ -200,7 +200,15 @@ export interface PricingPolicy {
   allowBelowCost: boolean;
   /** Quotes above this monthly value always need manager sign-off. */
   approvalValueThreshold: number;
+  /**
+   * Who may approve a quote with a block breach. "other": any manager or admin
+   * who didn't create, edit or submit it. "admin": only such an admin.
+   * Missing on policies saved before 2026-11-20, read as "other".
+   */
+  blockApprover?: BlockApprover;
 }
+
+export type BlockApprover = "other" | "admin";
 
 export type BreachSeverity = "block" | "warn";
 

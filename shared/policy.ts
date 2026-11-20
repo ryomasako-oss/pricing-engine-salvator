@@ -19,6 +19,7 @@ export const DEFAULT_POLICY: PricingPolicy = {
   maxBasketDiscount: 0.35,
   allowBelowCost: false,
   approvalValueThreshold: 50_000_000,
+  blockApprover: "other",
 };
 
 const pctText = (x: number, d = 1) =>

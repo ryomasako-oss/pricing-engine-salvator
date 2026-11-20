@@ -11,7 +11,7 @@ import { type CatalogByKey, catalogByKeysSql, staffLookupKeys } from "../staffVi
 import { normalizeCode } from "../../shared/duplicates";
 import { keysNotIn, pendingCodesSql, pendingProblems, pendingRowsSql } from "../pendingItems";
 import { chunks } from "../sqlParams";
-import type { CatalogItem, UnitFactor } from "../../shared/types";
+import type { CatalogItem, UnitFactor, User } from "../../shared/types";
 import { DEFAULT_POLICY, evaluatePolicy } from "../../shared/policy";
 import type {
   PolicyBreach,
@@ -236,4 +236,35 @@ export async function catalogListsByKeys(
     }
   }
   return out;
+}
+
+/* Actions that put numbers on the quote. Whoever did one since the last decision
+   shares authorship and can't be the one to approve a block breach (2026-11-20). */
+const AUTHOR_ACTIONS = ["created", "edited", "revision_saved", "restored", "reopened", "submitted", "sales_rejected"];
+
+export const BLOCK_NEEDS_OTHER = "Quotation dengan pelanggaran blokir yang Anda buat, ubah, atau ajukan harus disetujui manajer atau admin lain. Anda tetap bisa menolaknya.";
+export const BLOCK_NEEDS_ADMIN = "Quotation dengan pelanggaran blokir hanya bisa disetujui admin (aturan di Pengaturan > Kebijakan harga). Anda tetap bisa menolaknya.";
+
+/** Why this user may not approve this quote, or null when they may. */
+export async function approveRefusal(
+  d1: D1Database,
+  quote: { id: number; created_by: number },
+  user: Pick<User, "id" | "role">,
+  breaches: PolicyBreach[],
+): Promise<string | null> {
+  if (!breaches.some((b) => b.severity === "block")) return null;
+  const rule = (await currentPolicy(d1)).blockApprover ?? "other";
+  if (rule === "admin" && user.role !== "admin") return BLOCK_NEEDS_ADMIN;
+  if (quote.created_by === user.id) return BLOCK_NEEDS_OTHER;
+  const touched = await get<{ n: number }>(
+    d1,
+    `SELECT COUNT(*) AS n FROM audit_log
+      WHERE entity = 'quote' AND entity_id = ?1 AND actor_id = ?2
+        AND action IN (${AUTHOR_ACTIONS.map((a) => `'${a}'`).join(", ")})
+        AND id > COALESCE((SELECT MAX(id) FROM audit_log
+                            WHERE entity = 'quote' AND entity_id = ?1 AND action IN ('approved', 'rejected')), 0)`,
+    quote.id,
+    user.id,
+  );
+  return touched && touched.n > 0 ? BLOCK_NEEDS_OTHER : null;
 }
