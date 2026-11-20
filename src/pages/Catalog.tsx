@@ -13,6 +13,7 @@ import { BulkImageUpload } from "../components/BulkImageUpload";
 import { AccuratePanel } from "../components/AccuratePanel";
 import { PendingItemsPanel } from "../components/PendingItemsPanel";
 import { SkuPanel, skuProgress } from "../components/SkuBarcodes";
+import { StockActions } from "../components/StockPanel";
 import { WarehouseNewItem } from "../components/WarehouseNewItem";
 import { UnitProposalsPanel } from "../components/UnitProposalsPanel";
 import { fmtDateTime, grp } from "@shared/format";
@@ -20,6 +21,8 @@ import type { CatalogItem, UnitFactor } from "@shared/types";
 import { cleanUnits, ratioText, sameUom } from "@shared/uom";
 
 /** COGS = harga pembelian terakhir: an import leaves the COGS of purchased items alone (server/worker/routes/catalog.ts). */
+/** Stok dari file menjadi draf yang menunggu ACC admin (2026-11-20), bukan langsung berlaku. */
+const stockDraftNote = (n = 0) => (n ? ` ${n} perubahan stok masuk draf dan menunggu ACC admin di menu Gudang.` : "");
 const keptNote = (n = 0) =>
   n > 0 ? `  COGS ${grp(n)} barang tidak diubah karena sudah memakai harga beli terakhir dari Accurate.` : "";
 
@@ -284,6 +287,7 @@ export function CatalogPage() {
             <option value="without">Belum ada gambar</option>
           </select>
           <span className="grow" />
+          <StockActions onPulled={load} />
           <span className="muted small" hidden={!!loadError}>
             {grp(total)} item cocok{stockAsOf && ` · stok Accurate per ${fmtDateTime(stockAsOf)}`}
           </span>
@@ -486,14 +490,14 @@ export function CatalogPage() {
           onFile={async (file) => {
             const { parseInventory } = await import("../import/parsers");
             const { rows, report } = await parseInventory(file);
-            const r = await api.post<{ inserted: number; updated: number; cogsFromPurchases?: number }>("/catalog/import", {
+            const r = await api.post<{ inserted: number; updated: number; cogsFromPurchases?: number; stockDrafts?: number }>("/catalog/import", {
               rows,
               source: file.name,
               mode: "merge",
             });
             return {
               report,
-              summary: `${report.count} barang terbaca. ${r.inserted} baru ditambahkan, ${r.updated} diperbarui.${keptNote(r.cogsFromPurchases)}`,
+              summary: `${report.count} barang terbaca. ${r.inserted} baru ditambahkan, ${r.updated} diperbarui.${keptNote(r.cogsFromPurchases)}${stockDraftNote(r.stockDrafts)}`,
             };
           }}
         />
@@ -557,14 +561,14 @@ export function CatalogPage() {
           onFile={async (file) => {
             const { parseFullCatalog } = await import("../import/parsers");
             const { rows, report } = await parseFullCatalog(file);
-            const r = await api.post<{ inserted: number; updated: number; total: number; cogsFromPurchases?: number }>("/catalog/import", {
+            const r = await api.post<{ inserted: number; updated: number; total: number; cogsFromPurchases?: number; stockDrafts?: number }>("/catalog/import", {
               rows,
               source: file.name,
               mode: "merge",
             });
             return {
               report,
-              summary: `${r.total} barang dari file: ${r.inserted} ditambahkan, ${r.updated} diperbarui.${keptNote(r.cogsFromPurchases)}`,
+              summary: `${r.total} barang dari file: ${r.inserted} ditambahkan, ${r.updated} diperbarui.${keptNote(r.cogsFromPurchases)}${stockDraftNote(r.stockDrafts)}`,
             };
           }}
         />

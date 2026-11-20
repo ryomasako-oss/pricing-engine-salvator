@@ -9,6 +9,7 @@ import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { Icon } from "./Icon";
 import { ConfirmModal, Modal } from "./Modal";
+import { StockEntry } from "./StockPanel";
 import type { CatalogDraftMark, CatalogItem, UnitBarcode, UnitFactor } from "@shared/types";
 import { ratioText, sameUom } from "@shared/uom";
 
@@ -79,6 +80,7 @@ export function SkuPanel({
         </button>
       </div>
       <div className="sku-list">
+        <StockEntry item={item} onChange={onChange} />
         {skuRows(item).map((r) => (
           <div key={r.uom} className="sku-row">
             <div className="sku-head">

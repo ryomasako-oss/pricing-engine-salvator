@@ -245,8 +245,25 @@ accurateRouter.post("/apply", requirePermission("import_catalog"), async (c) => 
   const stockReady = `COALESCE((SELECT last_success_at IS NOT NULL AND phase = 'idle'
                                  FROM accurate_sync_state WHERE entity = ?1), 0) = 1`;
   const keepUnit = `NOT EXISTS (SELECT 1 FROM catalog_items c WHERE c.code = i.code AND ${unitChanged("c")})`;
-  const [ready, upsert, , units] = await batch(db, [
+  // Stok (2026-11-20): an item with an ACCed change not yet sent to Accurate keeps its stock, and each stock
+  // that does change leaves a stock_history row, written before the upsert while the old value is still there.
+  const notUnsent = (c: string) => `NOT EXISTS (SELECT 1 FROM stock_unsent u WHERE u.code = ${c}.code)`;
+  const [ready, , upsert, , units] = await batch(db, [
     stmt(db, `SELECT ${stockReady} AS ok`, entity),
+    stmt(
+      db,
+      `INSERT INTO stock_history(code, uom, qty_before, qty_after, source, filled_by)
+       SELECT c.code, COALESCE(NULLIF(i.uom, ''), 'Pcs'), c.stock, COALESCE(s.qty, 0), 'apply', ?3
+         FROM accurate_items i
+         JOIN catalog_items c ON c.code = i.code
+         LEFT JOIN (SELECT item_code, SUM(quantity) AS qty FROM accurate_stock
+                     WHERE entity = ?1 GROUP BY item_code) s ON s.item_code = i.code
+        WHERE ${scope} AND ${stockReady} AND NOT ${unitChanged("c")} AND ${notUnsent("c")}
+          AND c.stock IS NOT COALESCE(s.qty, 0)`,
+      entity,
+      insertNew ? 1 : 0,
+      c.get("user")!.id,
+    ),
     stmt(
       db,
       `INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock, category, source)
@@ -262,7 +279,9 @@ accurateRouter.post("/apply", requirePermission("import_catalog"), async (c) => 
                     WHEN excluded.uom <> '' THEN excluded.uom ELSE catalog_items.uom END,
          list_price = CASE WHEN ${upsertUnitChanged} THEN catalog_items.list_price
                            WHEN excluded.list_price > 0 THEN excluded.list_price ELSE catalog_items.list_price END,
-         stock = CASE WHEN ${stockReady} AND NOT ${upsertUnitChanged} THEN excluded.stock ELSE catalog_items.stock END,
+         stock = CASE WHEN ${stockReady} AND NOT ${upsertUnitChanged}
+                       AND NOT EXISTS (SELECT 1 FROM stock_unsent u WHERE u.code = catalog_items.code)
+                      THEN excluded.stock ELSE catalog_items.stock END,
          category = CASE WHEN excluded.category <> '' THEN excluded.category ELSE catalog_items.category END,
          source = excluded.source,
          updated_at = datetime('now')`,

@@ -3,7 +3,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { D1DatabaseShim } from "../../../scripts/d1-sqlite-shim";
-import { refreshStock, STOCK_AS_OF_KEY } from "./stock";
+import { pullStock, STOCK_AS_OF_KEY } from "./stock";
 
 function freshDb() {
   const sqlite = new DatabaseSync(":memory:");
@@ -12,7 +12,7 @@ function freshDb() {
   return { sqlite, db: new D1DatabaseShim(sqlite) as unknown as D1Database };
 }
 
-describe("catalog stock follows Accurate after every completed run", () => {
+describe("Tarik: catalog stock copied from Accurate on demand", () => {
   it("copies the entity's total across warehouses, skips other units, suspended and non-Accurate items", async () => {
     const { sqlite, db } = freshDb();
     sqlite.exec(`INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock) VALUES
@@ -34,7 +34,7 @@ describe("catalog stock follows Accurate after every completed run", () => {
       ('PT', 1, 'ABC-01', 11, 'r1'), ('PT', 1, 'B', 50, 'r1'), ('PT', 1, 'S', 50, 'r1'), ('CV', 1, 'M', 50, 'r1')`);
     sqlite.exec(`INSERT INTO accurate_sync_state(entity, phase, last_success_at) VALUES ('PT', 'idle', '2026-10-30T01:00:00.000Z')`);
 
-    expect(await refreshStock(db, "PT")).toBe(3);
+    expect(await pullStock(db, "PT", null)).toMatchObject({ changed: 3, skipped: 0 });
     expect(sqlite.prepare("SELECT code, stock FROM catalog_items ORDER BY code").all()).toEqual([
       { code: "A", stock: 5 }, // 7 + (-2), PT only
       { code: "B", stock: 4 }, // Accurate counts in Box, catalog in Pcs
@@ -46,6 +46,6 @@ describe("catalog stock follows Accurate after every completed run", () => {
     expect(sqlite.prepare("SELECT value FROM settings WHERE key = ?").get(STOCK_AS_OF_KEY)).toEqual({ value: "2026-10-30T01:00:00.000Z" });
 
     // Nothing changed since: no rows rewritten.
-    expect(await refreshStock(db, "PT")).toBe(0);
+    expect(await pullStock(db, "PT", null)).toMatchObject({ changed: 0 });
   });
 });

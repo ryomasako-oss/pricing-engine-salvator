@@ -9,6 +9,8 @@ export interface DraftPayloads {
   barcode: { barcode?: string | null; generate?: boolean };
   unit: { factor: number; base: string; barcode?: string; generate?: boolean };
   edit: { name: string; uom: string; category: string; units?: UnitFactor[] };
+  /** Stok baru dalam satuan dasar barang. */
+  stock: { stock: number };
 }
 
 export const NO_CHANGE = "Tidak ada yang berubah";
@@ -26,6 +28,10 @@ export function draftChanges(kind: CatalogDraftMark["kind"], uom: string, payloa
     const p = payload as DraftPayloads["unit"];
     const code = p.barcode ? `, barcode ${p.barcode}` : p.generate ? ", barcode dibuatkan otomatis" : "";
     return [`Satuan baru: ${ratioText(uom, p.factor, p.base)}${code}`];
+  }
+  if (kind === "stock") {
+    const was = (before as Partial<DraftPayloads["stock"]>).stock;
+    return [`Stok: ${was ?? "kosong"} → ${(payload as DraftPayloads["stock"]).stock}`];
   }
   const p = payload as DraftPayloads["edit"];
   const b = before as Partial<DraftPayloads["edit"]>;

@@ -20,6 +20,7 @@ import { chatRouter } from "./routes/chat";
 import { telegramRouter } from "./routes/telegram";
 import { settingsRouter } from "./routes/settings";
 import { accurateRouter } from "./routes/accurate";
+import { stockRouter } from "./routes/stock";
 import { fixTasksRouter } from "./routes/fixTasks";
 import { pendingItemsRouter } from "./routes/pendingItems";
 import { familiarityRouter } from "./routes/familiarity";
@@ -79,6 +80,7 @@ app.route("/api/familiarity", familiarityRouter);
 app.route("/api/list-drafts", listDraftsRouter);
 app.route("/api/settings", settingsRouter);
 app.route("/api/accurate", accurateRouter);
+app.route("/api/stock", stockRouter);
 
 // Non-API paths reach here because run_worker_first now covers every
 // request (not just /api/*) — see wrangler.toml. Hand those to the static

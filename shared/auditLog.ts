@@ -51,6 +51,8 @@ const ACTIONS: Record<string, string> = {
   unit_rejected: "Usulan satuan ditolak",
   catalog_draft_submitted: "Draf gudang diajukan",
   catalog_draft_approved: "Draf gudang di-ACC",
+  stock_set: "Stok diubah (draf di-ACC)",
+  stock_pulled: "Stok ditarik dari Accurate",
   catalog_draft_rejected: "Draf gudang ditolak",
   catalog_draft_cancelled: "Draf gudang dibatalkan",
   image_removed: "Foto dihapus",
