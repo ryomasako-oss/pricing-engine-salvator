@@ -11,7 +11,7 @@ interface NavCounts {
   /** null until loaded, and always null without decide_quotes. */
   pending: number | null;
   toFix: number | null;
-  /** Draf Perbaikan Divisi Gudang waiting: all for an admin, one's own for an Admin Gudang. */
+  /** Draf Gudang + laporan duplikat menunggu: semua untuk admin, milik sendiri untuk Admin Gudang. */
   drafts: number | null;
 }
 
@@ -44,11 +44,19 @@ export function NavCountsProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!can("draft_catalog") && !can("review_catalog_drafts") && !can("import_catalog")) return;
+    // Angka Gudang = draf + laporan duplikat yang menunggu (keduanya di tab "Menunggu ACC").
     const refresh = () =>
-      api.get<{ pending: number }>("/catalog/drafts/count").then((r) => setDrafts(r.pending)).catch(() => undefined);
+      Promise.all([
+        api.get<{ pending: number }>("/catalog/drafts/count"),
+        api.get<{ open: number }>("/duplicate-reports/count").catch(() => ({ open: 0 })),
+      ]).then(([d, dup]) => setDrafts(d.pending + dup.open)).catch(() => undefined);
     refresh();
     window.addEventListener("catalog-drafts-changed", refresh);
-    return () => window.removeEventListener("catalog-drafts-changed", refresh);
+    window.addEventListener("duplicate-reports-changed", refresh);
+    return () => {
+      window.removeEventListener("catalog-drafts-changed", refresh);
+      window.removeEventListener("duplicate-reports-changed", refresh);
+    };
   }, [can, pathname]);
 
   return <NavCountsContext.Provider value={{ pending, toFix, drafts }}>{children}</NavCountsContext.Provider>;

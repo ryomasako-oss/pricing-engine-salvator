@@ -7,28 +7,16 @@ import { useToast } from "../context/ToastContext";
 import { fmtDateTime } from "@shared/format";
 import { DUPLICATE_STATUS, type DuplicateReport } from "../../shared/duplicateReports";
 
-/* "Duplikat" — antrean laporan barang kembar dari Gudang.
- *
- * Halaman ini sengaja berdiri sendiri (/duplikat) karena halaman Gudang
- * yang asli belum ada di repo ini: Gudang yang live di
- * pricing.salvator.co.id (dengan tab "Menunggu ACC" / "Riwayat" /
- * "Riwayat stok") belum pernah di-push ke repo ini.
- * Saat kode Gudang yang asli sudah di-push, jadikan halaman ini satu tab
- * di Gudang.tsx (di samping tab "Menunggu ACC") — backend-nya tidak perlu
- * diubah; cukup render halaman ini sebagai tab.
- *
- * Aturannya: laporan duplikat TIDAK masuk antrean draf Gudang lama;
- * draf stok/barcode/satuan Vee tetap jalan seperti biasa di tempatnya.
- */
+/* Laporan barang kembar dari Admin Gudang, tampil di halaman Gudang: yang menunggu di tab "Menunggu ACC",
+ * yang sudah diputuskan di tab "Riwayat". Tabelnya sendiri (duplicate_reports), terpisah dari draf Gudang.
+ * Tidak tampil bila kosong. */
 
 const STATUS_BADGE = { open: "amber", approved: "green", rejected: "red" } as const;
 
-export default function DuplicateReports() {
+export function DuplicateReportsSection({ status }: { status: "open" | "decided" }) {
   const { can } = useAuth();
   const toast = useToast();
-  const [status, setStatus] = useState<"open" | "decided">("open");
   const [reports, setReports] = useState<DuplicateReport[]>([]);
-  const [openCount, setOpenCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [deciding, setDeciding] = useState<DuplicateReport | null>(null);
@@ -39,12 +27,8 @@ export default function DuplicateReports() {
   async function load() {
     setLoading(true);
     try {
-      const [rows, count] = await Promise.all([
-        api.get<{ items: DuplicateReport[] }>(`/duplicate-reports?status=${status}`),
-        api.get<{ open: number }>("/duplicate-reports/count"),
-      ]);
+      const rows = await api.get<{ items: DuplicateReport[] }>(`/duplicate-reports?status=${status}`);
       setReports(rows.items);
-      setOpenCount(count.open);
     } catch (e) {
       toast(e instanceof Error ? e.message : "Gagal memuat laporan.", "error");
     } finally {
@@ -59,7 +43,6 @@ export default function DuplicateReports() {
 
   useEffect(() => {
     function onChange() {
-      setStatus("open");
       void load();
     }
     window.addEventListener("duplicate-reports-changed", onChange);
@@ -89,7 +72,7 @@ export default function DuplicateReports() {
       });
       toast(decision === "approved" ? "Laporan di-ACC." : "Laporan ditolak.", "success");
       setDeciding(null);
-      void load();
+      window.dispatchEvent(new Event("duplicate-reports-changed"));
     } catch (e) {
       toast(e instanceof Error ? e.message : "Gagal menyimpan keputusan.", "error");
     } finally {
@@ -104,40 +87,12 @@ export default function DuplicateReports() {
       ]
     : [];
 
-  return (
-    <main className="hk-main">
-      <div className="hk-page-head">
-        <div>
-          <h1>Duplikat</h1>
-          <p>
-            Laporan barang yang terindikasi kembar dari Gudang. Admin memilih satu barang yang dipakai — barang
-            yang kalah tidak dihapus otomatis; penghapusan atau penggantiannya tetap langkah manual.
-          </p>
-        </div>
-      </div>
+  if (reports.length === 0) return null;
 
-      <div className="card">
-        <div className="card-head">
-          <div className="tabs">
-            {(["open", "decided"] as const).map((key) => (
-              <button key={key} className={status === key ? "on" : ""} onClick={() => setStatus(key)}>
-                {key === "open" ? "Menunggu" : "Riwayat"}
-                {key === "open" && openCount > 0 && ` (${openCount})`}
-              </button>
-            ))}
-          </div>
-          <button className="link-btn" onClick={() => void load()}>Muat ulang</button>
-        </div>
-        <div className="card-body">
-          {loading ? (
-            <div className="loading"><span className="dots"><i /><i /><i /></span> Memuat…</div>
-          ) : reports.length === 0 ? (
-            <div className="empty">
-              <Icon name="check" size={28} />
-              <h3>{status === "open" ? "Tidak ada laporan yang menunggu" : "Belum ada riwayat"}</h3>
-              <p>{status === "open" ? "Semua laporan duplikat sudah diputuskan." : ""}</p>
-            </div>
-          ) : (
+  return (
+    <>
+      <div className="card-body">
+        <h3 style={{ margin: "0 0 8px" }}>Duplikat{status === "open" ? ` (${reports.length})` : ""}</h3>
             <ul className="list" style={{ gap: 10 }}>
               {reports.map((r) => (
                 <li key={r.id} className="fix-row">
@@ -177,8 +132,6 @@ export default function DuplicateReports() {
                 </li>
               ))}
             </ul>
-          )}
-        </div>
       </div>
 
       {deciding && (
@@ -221,6 +174,6 @@ export default function DuplicateReports() {
           </label>
         </Modal>
       )}
-    </main>
+    </>
   );
 }

@@ -3,6 +3,7 @@
    The Admin Gudang sees their own drafts here and can take one back. Server: /catalog/drafts. */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { DuplicateReportsSection } from "./DuplicateReports";
 import { Link } from "react-router-dom";
 import { api } from "../api";
 import { LoadError } from "../components/LoadError";
@@ -319,6 +320,8 @@ export function CatalogDraftsPage() {
             </button>
           ))}
         </div>
+
+        {status !== "stock" && <DuplicateReportsSection key={status} status={status === "pending" ? "open" : "decided"} />}
 
         {loadError ? (
           <LoadError message={loadError} onRetry={() => load()} />
