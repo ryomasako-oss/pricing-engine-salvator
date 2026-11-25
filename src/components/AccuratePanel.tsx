@@ -149,15 +149,13 @@ export function AccuratePanel({ onApplied }: { onApplied: () => void }) {
   return (
     <div className="card">
       <div className="card-head">
-        <h3>Sinkron Accurate</h3>
+        <h3>Koneksi Accurate</h3>
         <span className="muted small">Hanya membaca dari Accurate. COGS dari harga pembelian terakhir.</span>
       </div>
       <div className="card-body">
         {configured.length === 0 ? (
           <p className="notice warn">
-            Token Accurate belum dipasang di server. Admin perlu menjalankan{" "}
-            <code>wrangler secret put ACCURATE_SIGNATURE_SECRET</code> dan <code>ACCURATE_TOKEN_CV</code> /{" "}
-            <code>ACCURATE_TOKEN_PT</code>.
+            Koneksi ke Accurate belum tersambung. Hubungi tim IT.
           </p>
         ) : (
           <div className="list-stack">
