@@ -49,6 +49,9 @@ export interface Bindings {
   ACCURATE_AUTO_NEW_ITEMS?: string;
   /** Goods receipts → COGS = harga pembelian terakhir (accurate/receipts.ts). Off unless "true". */
   ACCURATE_RECEIPTS_ENABLED?: string;
+  /** Riwayat mutasi stok (accurate/mutations.ts): "false" mematikan; jeda antar pass dalam jam (bawaan 2). */
+  ACCURATE_MUTATIONS_ENABLED?: string;
+  ACCURATE_MUTATIONS_EVERY_HOURS?: string;
   /** Sales invoices → accurate_sales_lines (accurate/sales.ts). Off unless "true". */
   ACCURATE_SALES_ENABLED?: string;
   /** "true": sync purchase invoices (accurate_purchase_lines). */
