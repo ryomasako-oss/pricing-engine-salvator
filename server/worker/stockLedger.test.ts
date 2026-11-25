@@ -211,3 +211,67 @@ describe("impor spreadsheet", () => {
     expect(q("SELECT code FROM stock_unsent ORDER BY code").map((x) => x.code)).toEqual(["B-1", "P-1"]);
   });
 });
+
+describe("Input ke Accurate (stok di-ACC, Bu Hesti menginput sendiri ke Accurate)", () => {
+  const accL1 = (sqlite: DatabaseSync, qty: number) =>
+    sqlite.exec(`UPDATE accurate_stock SET quantity = ${qty} WHERE item_code = 'L-1'`);
+  const accL1Lem = async (s: ReturnType<typeof setup>) => {
+    await s.req("gudang", "/api/catalog/3/stock", "PUT", { stock: 8 });
+    await s.req("admin", `/api/catalog/drafts/${await s.draftId()}/review`, "POST", { approve: true });
+  };
+
+  it("lists what to enter: the adjustment against Accurate now, who proposed and who ACCed; admins only", async () => {
+    const s = setup();
+    await accL1Lem(s);
+    const res = await s.req("admin", "/api/stock/unsent");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { items: Record<string, unknown>[] };
+    expect(body.items).toHaveLength(1);
+    expect(body.items[0]).toMatchObject({
+      code: "L-1", name: "Lem", uom: "Pcs", stock: 8, accurate: 70, diff: -62, before: 7, filled_by_name: "gudang", approved_by_name: "admin",
+    });
+    expect(JSON.stringify(body)).not.toMatch(/cogs|list_price/);
+    expect((await s.req("gudang", "/api/stock/unsent")).status).toBe(403);
+    expect((await s.req("rep", "/api/stock/unsent")).status).toBe(403);
+  });
+
+  it("an ACCed item follows Accurate again once Accurate has the same figure (regression: it stayed frozen forever)", async () => {
+    const s = setup();
+    await accL1Lem(s);
+    accL1(s.sqlite, 8); // Bu Hesti entered the adjustment in Accurate; the next sync saw it
+    expect(await (await s.req("manager", "/api/stock/pull", "POST", {})).json()).toMatchObject({ done: true, skipped: 0, confirmed: 1 });
+    expect(s.q("SELECT * FROM stock_unsent")).toHaveLength(0);
+    expect(s.q("SELECT code, qty_after, source FROM stock_history WHERE source = 'kirim'")).toEqual([{ code: "L-1", qty_after: 8, source: "kirim" }]);
+    accL1(s.sqlite, 6); // later sales in Accurate
+    await s.req("manager", "/api/stock/pull", "POST", {});
+    expect(s.stockOf("L-1")).toBe(6);
+  });
+
+  it("the sync's once-per-run step also confirms a matching item, and leaves a different one waiting", async () => {
+    const s = setup();
+    await accL1Lem(s);
+    await s.req("gudang", "/api/catalog/2/stock", "PUT", { stock: 9 });
+    await s.req("admin", `/api/catalog/drafts/${await s.draftId()}/review`, "POST", { approve: true });
+    accL1(s.sqlite, 8);
+    s.sqlite.exec("UPDATE accurate_sync_state SET reconciled_at = NULL");
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await syncTick(s.env, { deadlineMs: 5_000 });
+    spy.mockRestore();
+    expect(s.q("SELECT code FROM stock_unsent")).toEqual([{ code: "K-1" }]);
+  });
+
+  it("Sudah diinput: leaves the list with who marked it, then Tarik updates it; admins only", async () => {
+    const s = setup();
+    await accL1Lem(s);
+    expect((await s.req("gudang", "/api/stock/unsent/done", "POST", { codes: ["L-1"] })).status).toBe(403);
+    expect((await s.req("admin", "/api/stock/unsent/done", "POST", { codes: [] })).status).toBe(400);
+    const res = await s.req("admin", "/api/stock/unsent/done", "POST", { codes: ["L-1", "TIDAK-ADA"], note: "ada penjualan di antaranya" });
+    expect(await res.json()).toEqual({ done: 1 });
+    expect(s.q("SELECT * FROM stock_unsent")).toHaveLength(0);
+    expect(s.q("SELECT code, source, filled_by, note FROM stock_history WHERE source = 'kirim'")).toEqual([
+      { code: "L-1", source: "kirim", filled_by: USERS.admin, note: "Ditandai sudah diinput di Accurate: ada penjualan di antaranya" },
+    ]);
+    await s.req("manager", "/api/stock/pull", "POST", {});
+    expect(s.stockOf("L-1")).toBe(70);
+  });
+});

@@ -7,10 +7,10 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { all, get } from "../../db.d1";
 import { audit } from "../audit";
-import { requireAuth } from "../auth";
+import { requireAuth, requirePermission } from "../auth";
 import { hasPermission } from "../../../shared/permissions";
 import { zodMessage } from "../../validate";
-import { ACCURATE_TOTALS, IS_UNSENT, SAME_UNIT, pullStock } from "../accurate/stock";
+import { ACCURATE_TOTALS, IS_UNSENT, SAME_UNIT, UNSENT_ROWS, markUnsentDone, pullStock } from "../accurate/stock";
 import { catalogEntity, credsFor, loadState, requestRestart, syncConfig, syncStep } from "../accurate/sync";
 import type { Env } from "../env";
 
@@ -86,4 +86,39 @@ stockRouter.get("/history", async (c) => {
     ...(code ? [code] : []),
   );
   return c.json({ history: rows });
+});
+
+/**
+ * Input ke Accurate (admin; tanggung jawab Bu Hesti): stok yang sudah di-ACC tapi belum tercatat di Accurate.
+ * `diff` = yang perlu diinput sebagai penyesuaian (katalog dikurangi Accurate sekarang); null bila barangnya
+ * tidak ada di Accurate atau satuannya beda. Pengusul dan yang meng-ACC dari riwayat stok terakhir barang itu.
+ */
+stockRouter.get("/unsent", requirePermission("review_catalog_drafts"), async (c) => {
+  const entity = catalogEntity(c.env);
+  const rows = await all<{ code: string; accurate: number | null; stock: number }>(
+    c.env.DB,
+    `SELECT r.code, r.name, r.uom, r.stock, r.accurate, r.since, h.qty_before AS before, h.created_at AS approved_at,
+            f.name AS filled_by_name, a.name AS approved_by_name
+       FROM (${UNSENT_ROWS}) r
+       LEFT JOIN stock_history h ON h.id = (SELECT MAX(x.id) FROM stock_history x
+                                             WHERE x.code = r.code COLLATE NOCASE AND x.source IN ('draft_approved', 'import'))
+       LEFT JOIN users f ON f.id = h.filled_by
+       LEFT JOIN users a ON a.id = h.approved_by
+      ORDER BY r.since, r.code LIMIT 500`,
+    entity,
+  );
+  const asOf = (await loadState(c.env.DB, entity)).last_success_at;
+  return c.json({ items: rows.map((r) => ({ ...r, diff: r.accurate == null ? null : r.stock - r.accurate })), asOf });
+});
+
+stockRouter.post("/unsent/done", requirePermission("review_catalog_drafts"), async (c) => {
+  const parsed = z
+    .object({ codes: z.array(z.string().trim().min(1)).min(1, "Pilih barangnya dulu.").max(500), note: z.string().trim().max(300).default("") })
+    .safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
+  const user = c.get("user")!;
+  const codes = [...new Set(parsed.data.codes)];
+  const done = await markUnsentDone(c.env.DB, codes, user.id, parsed.data.note);
+  await audit(c.env.DB, user.id, "stock", 0, "stock_marked_entered", { codes, done, note: parsed.data.note });
+  return c.json({ done });
 });

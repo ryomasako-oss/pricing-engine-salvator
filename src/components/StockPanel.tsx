@@ -21,7 +21,7 @@ export const wib = (s: string) =>
     timeZone: "Asia/Jakarta", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
   })} WIB`;
 
-interface PullResult { done: boolean; changed?: number; skipped?: number; phase?: string; itemsSeen?: number; stockRows?: number; busy?: boolean }
+interface PullResult { done: boolean; changed?: number; skipped?: number; confirmed?: number; phase?: string; itemsSeen?: number; stockRows?: number; busy?: boolean }
 interface CompareRow { code: string; name: string; uom: string; pe: number; accurate: number; diff: number; unsent: boolean }
 
 /** The three buttons. Tarik and Cocokkan: manager/admin and Admin Gudang. Kirim shows but stays off. */
@@ -55,7 +55,7 @@ export function StockActions({ onPulled }: { onPulled?: () => void }) {
         restart = false;
         if (r.done) {
           toast(
-            `Stok ditarik: ${grp(r.changed ?? 0)} barang berubah${r.skipped ? `, ${grp(r.skipped)} dilewati karena perubahan ACC-nya belum terkirim ke Accurate` : ""}.`,
+            `Stok ditarik: ${grp(r.changed ?? 0)} barang berubah${r.skipped ? `, ${grp(r.skipped)} dilewati karena perubahan ACC-nya belum terkirim ke Accurate` : ""}${r.confirmed ? `, ${grp(r.confirmed)} koreksi ACC sudah tercatat di Accurate` : ""}.`,
             "success",
           );
           onPulled?.();
@@ -153,7 +153,7 @@ export interface StockHistoryRow {
 }
 
 const SOURCE: Record<string, string> = {
-  draft_approved: "Draf di-ACC", draft_rejected: "Draf ditolak", tarik: "Tarik dari Accurate", apply: "Terapkan ke katalog", kirim: "Dikirim ke Accurate", import: "Impor",
+  draft_approved: "Draf di-ACC", draft_rejected: "Draf ditolak", tarik: "Tarik dari Accurate", apply: "Terapkan ke katalog", kirim: "Tercatat di Accurate", import: "Impor",
 };
 
 /** One line per stock change: time (WIB), before to after, who filled, who ACCed or refused, source. */
@@ -171,7 +171,7 @@ export function StockHistoryList({ rows, withItem }: { rows: StockHistoryRow[]; 
             </div>
             <div className="muted small">
               {wib(h.created_at)} · {SOURCE[h.source] ?? h.source}
-              {h.filled_by_name && <> · diisi {h.filled_by_name}</>}
+              {h.filled_by_name && <> · {h.source === "kirim" ? "ditandai" : "diisi"} {h.filled_by_name}</>}
               {h.approved_by_name && <> · {h.source === "draft_rejected" ? "ditolak" : "di-ACC"} {h.approved_by_name}</>}
             </div>
             {h.note && <div className="fix-done"><em>{h.note}</em></div>}
@@ -252,6 +252,143 @@ export function StockEntry({ item, onChange }: { item: CatalogItem; onChange: (p
           <summary className="muted small">Riwayat stok ({history.length})</summary>
           <StockHistoryList rows={history} />
         </details>
+      )}
+    </div>
+  );
+}
+
+interface UnsentRow {
+  code: string; name: string | null; uom: string; stock: number; accurate: number | null; diff: number | null;
+  before: number | null; since: string; approved_at: string | null; filled_by_name: string | null; approved_by_name: string | null;
+}
+
+/** Gudang › Input ke Accurate (admin; Bu Hesti): stok yang sudah di-ACC dan perlu diinput manual ke Accurate selama Kirim mati.
+ *  Barang keluar sendiri saat angka Accurate sudah sama (sinkron atau Tarik), atau lewat "Sudah diinput di Accurate". */
+export function UnsentStockList({ onChanged }: { onChanged?: () => void }) {
+  const toast = useToast();
+  const [rows, setRows] = useState<UnsentRow[] | null>(null);
+  const [asOf, setAsOf] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [confirming, setConfirming] = useState(false);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(() => {
+    setError(null);
+    api
+      .get<{ items: UnsentRow[]; asOf: string | null }>("/stock/unsent")
+      .then((r) => (setRows(r.items), setAsOf(r.asOf), setPicked(new Set())))
+      .catch((e) => setError(e instanceof Error ? e.message : "Gagal memuat daftar."));
+  }, []);
+  useEffect(load, [load]);
+
+  const markDone = async () => {
+    setBusy(true);
+    try {
+      const r = await api.post<{ done: number }>("/stock/unsent/done", { codes: [...picked], note });
+      toast(`${grp(r.done)} barang ditandai sudah diinput di Accurate.`, "success");
+      setConfirming(false);
+      setNote("");
+      load();
+      window.dispatchEvent(new Event("catalog-drafts-changed"));
+      onChanged?.();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Gagal menandai.", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (error) return <div className="card-body"><p className="text-err" role="alert">{error}</p></div>;
+  if (!rows) return <div className="card-body skeleton-list" role="status" aria-label="Memuat…"><span className="skeleton" /></div>;
+  if (!rows.length)
+    return (
+      <div className="card-body empty">
+        <h3>Tidak ada yang perlu diinput</h3>
+        <p className="muted">Semua stok yang sudah di-ACC sudah tercatat di Accurate.</p>
+      </div>
+    );
+  const all = rows.every((r) => picked.has(r.code));
+  return (
+    <div className="card-body">
+      <p className="muted small">
+        Stok di bawah sudah di-ACC tetapi belum tercatat di Accurate. Input selisihnya sebagai penyesuaian persediaan di Accurate.
+        Barang keluar sendiri dari daftar setelah sinkron berikutnya bila angka Accurate sudah sama
+        {asOf ? ` (sinkron terakhir ${wib(asOf.replace("T", " ").replace(/\..*$/, ""))})` : ""}, atau tekan Tarik.
+        Bila sudah diinput tetapi angkanya tidak bisa sama karena ada transaksi lain, tandai "Sudah diinput".
+      </p>
+      <div className="row-wrap">
+        <label className="row-wrap">
+          <input type="checkbox" checked={all} onChange={() => setPicked(all ? new Set() : new Set(rows.map((r) => r.code)))} aria-label="Pilih semua" />
+          <span>Pilih semua</span>
+        </label>
+        <button className="btn primary small" disabled={!picked.size} onClick={() => setConfirming(true)}>
+          Sudah diinput di Accurate{picked.size ? ` (${grp(picked.size)})` : ""}
+        </button>
+      </div>
+      <div className="table-wrap flush">
+        <table className="table stack">
+          <thead>
+            <tr>
+              <th className="col-icon" />
+              <th className="l">Barang</th>
+              <th className="l">Satuan</th>
+              <th>Hasil ACC</th>
+              <th>Accurate sekarang</th>
+              <th>Perlu diinput</th>
+              <th className="l">Diajukan / di-ACC</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.code}>
+                <td className="col-icon">
+                  <input
+                    type="checkbox"
+                    checked={picked.has(r.code)}
+                    onChange={() => setPicked((s) => { const n = new Set(s); n.has(r.code) ? n.delete(r.code) : n.add(r.code); return n; })}
+                    aria-label={`Pilih ${r.name ?? r.code}`}
+                  />
+                </td>
+                <td className="l">{r.name ?? "(barang sudah tidak ada di katalog)"} <span className="muted num">· {r.code}</span></td>
+                <td className="l">{r.uom}</td>
+                <td className="num">{grp(r.stock)}</td>
+                <td className="num">{r.accurate == null ? "–" : grp(r.accurate)}</td>
+                <td className="num">
+                  {r.diff == null ? (
+                    <span className="muted small" title="Barang tidak ada di Accurate atau satuannya berbeda">cek manual</span>
+                  ) : (
+                    <strong>{r.diff > 0 ? "+" : ""}{grp(r.diff)}</strong>
+                  )}
+                </td>
+                <td className="l small">
+                  {r.filled_by_name ?? "–"} / {r.approved_by_name ?? "–"}
+                  <div className="muted">{wib(r.approved_at ?? r.since)}</div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {confirming && (
+        <Modal
+          title="Sudah diinput di Accurate?"
+          sub={`${grp(picked.size)} barang`}
+          onClose={() => setConfirming(false)}
+          footer={
+            <>
+              <button className="btn ghost" onClick={() => setConfirming(false)}>Batal</button>
+              <button className="btn primary" disabled={busy} onClick={() => void markDone()}>{busy ? "Menyimpan…" : "Ya, sudah diinput"}</button>
+            </>
+          }
+        >
+          <p>Barang keluar dari daftar ini, dan Tarik kembali memakai angka Accurate untuk barang itu. Nama Anda tercatat di Riwayat stok.</p>
+          <label className="field">
+            <span>Catatan (opsional)</span>
+            <input className="input" value={note} maxLength={300} onChange={(e) => setNote(e.target.value)} placeholder="mis. nomor penyesuaian di Accurate" />
+          </label>
+        </Modal>
       )}
     </div>
   );

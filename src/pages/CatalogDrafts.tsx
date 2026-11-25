@@ -7,7 +7,7 @@ import { DuplicateReportsSection } from "./DuplicateReports";
 import { Link } from "react-router-dom";
 import { api } from "../api";
 import { LoadError } from "../components/LoadError";
-import { StockActions, StockHistoryList, type StockHistoryRow } from "../components/StockPanel";
+import { StockActions, StockHistoryList, UnsentStockList, type StockHistoryRow } from "../components/StockPanel";
 import { Modal } from "../components/Modal";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
@@ -83,7 +83,18 @@ export function CatalogDraftsPage() {
   const { drafts: waitingAll, duplicates } = useNavCounts();
   // Angka menu Gudang = draf + duplikat; tab "Menunggu ACC" hanya draf, tab duplikat punya angkanya sendiri.
   const waiting = waitingAll == null ? null : waitingAll - (duplicates ?? 0);
-  const [status, setStatus] = useState<"pending" | "dup" | "done" | "stock">("pending");
+  const [status, setStatus] = useState<"pending" | "dup" | "unsent" | "done" | "stock">("pending");
+  // Tab "Input ke Accurate" (admin): stok yang sudah di-ACC, belum tercatat di Accurate.
+  const [unsent, setUnsent] = useState(0);
+  const [unsentSeq, setUnsentSeq] = useState(0);
+  const loadUnsent = useCallback(() => {
+    if (reviewer) api.get<{ unsent: number }>("/stock/status").then((r) => setUnsent(r.unsent)).catch(() => {});
+  }, [reviewer]);
+  useEffect(() => {
+    loadUnsent();
+    window.addEventListener("catalog-drafts-changed", loadUnsent);
+    return () => window.removeEventListener("catalog-drafts-changed", loadUnsent);
+  }, [loadUnsent]);
   const [history, setHistory] = useState<StockHistoryRow[]>([]);
   const [rows, setRows] = useState<DraftRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -123,7 +134,8 @@ export function CatalogDraftsPage() {
     setPicked(new Set());
     if (!keepOpen) setOpen(new Map());
     // Tab "Menunggu ACC Duplikat": isinya dimuat DuplicateReportsSection sendiri.
-    if (status === "dup") {
+    if (status === "dup" || status === "unsent") {
+      if (status === "unsent") (setUnsentSeq((n) => n + 1), loadUnsent());
       setRows([]);
       setFiles([]);
       setLoading(false);
@@ -149,7 +161,7 @@ export function CatalogDraftsPage() {
       .catch((e) => seq === loadSeq.current && setLoadError(e instanceof Error ? e.message : String(e)))
       .finally(() => seq === loadSeq.current && setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, reviewer, drafter]);
+  }, [status, reviewer, drafter, loadUnsent]);
   useEffect(() => load(), [load]);
 
   const closeFile = (id: number) => setOpen((m) => { const n = new Map(m); n.delete(id); return n; });
@@ -310,7 +322,7 @@ export function CatalogDraftsPage() {
               ACC {grp(picked.size)} yang dipilih
             </button>
           )}
-          <StockActions onPulled={() => load()} />
+          <StockActions onPulled={() => (load(), loadUnsent())} />
           <Link className="btn ghost" to="/catalog">Barcode &amp; satuan (Katalog)</Link>
           <button className="btn ghost" onClick={() => load()} disabled={loading}>Muat ulang</button>
         </div>
@@ -321,6 +333,7 @@ export function CatalogDraftsPage() {
           {([
             ["pending", reviewer ? "Menunggu ACC" : drafter ? "Draf saya" : "File saya"],
             ["dup", "Menunggu ACC Duplikat"],
+            ...(reviewer ? [["unsent", "Input ke Accurate"] as const] : []),
             ["done", "Riwayat"],
             ["stock", "Riwayat stok"],
           ] as const).map(([key, label]) => (
@@ -328,11 +341,13 @@ export function CatalogDraftsPage() {
               {label}
               {key === "pending" && waiting != null && <span className="tab-count num">{grp(waiting)}</span>}
               {key === "dup" && !!duplicates && <span className="tab-count num">{grp(duplicates)}</span>}
+              {key === "unsent" && unsent > 0 && <span className="tab-count num">{grp(unsent)}</span>}
             </button>
           ))}
         </div>
 
         {status === "dup" && <DuplicateReportsSection key={status} status="open" />}
+        {status === "unsent" && <UnsentStockList key={unsentSeq} onChanged={loadUnsent} />}
         {status === "done" && <DuplicateReportsSection key={status} status="decided" />}
 
         {loadError ? (
@@ -341,7 +356,7 @@ export function CatalogDraftsPage() {
           <div className="card-body skeleton-list" role="status" aria-label="Memuat draf…">
             {[0, 1, 2].map((i) => <span key={i} className="skeleton" />)}
           </div>
-        ) : status === "dup" ? null : status === "stock" ? (
+        ) : status === "dup" || status === "unsent" ? null : status === "stock" ? (
           <div className="card-body"><StockHistoryList rows={history} withItem /></div>
         ) : rows.length === 0 && files.length === 0 ? (
           <div className="card-body empty">
