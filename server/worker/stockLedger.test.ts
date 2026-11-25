@@ -264,3 +264,36 @@ describe("migrasi 0050", () => {
     expect(sqlite.prepare("SELECT * FROM stock_unsent").all()).toHaveLength(0);
   });
 });
+
+describe("riwayat stok per barang dan stok minus", () => {
+  it("lists minus stock per warehouse, even when the total over warehouses is positive; no cost field", async () => {
+    const { req, sqlite } = setup();
+    sqlite.exec("UPDATE accurate_stock SET quantity = -3 WHERE item_code = 'P-1' AND warehouse_id = 2"); // Utama 30, Gudang B -3
+    const body = (await (await req("gudang", "/api/stock/minus")).json()) as { items: Record<string, unknown>[] };
+    expect(body.items).toEqual([expect.objectContaining({ code: "P-1", name: "Pulpen", warehouse: "Gudang B", qty: -3 })]);
+    expect(JSON.stringify(body)).not.toMatch(/cogs|list_price|item_cost/);
+    expect((await req("rep", "/api/stock/minus")).status).toBe(403);
+  });
+
+  it("gives each warehouse its movements with the balance walked back from Accurate's stock, and the cycle counts", async () => {
+    const { req, sqlite, countAndAcc } = setup();
+    sqlite.exec("UPDATE accurate_stock SET quantity = -5, synced_at = datetime('now') WHERE item_code = 'L-1'");
+    sqlite.exec(`INSERT INTO stock_mutations(entity, accurate_id, item_no, warehouse, trans_type, trans_number, trans_date, created_wib, qty, item_cost) VALUES
+      ('PT', 1, 'L-1', 'Utama', 'DO', 'DO.1', date('now', '+7 hours', '-2 days'), datetime('now', '+7 hours', '-2 days'), -10, 999),
+      ('PT', 2, 'L-1', 'Utama', 'DO', 'DO.2', date('now', '+7 hours', '-2 days'), datetime('now', '+7 hours', '-1 days'), -7, 999)`);
+    await countAndAcc(3, 4);
+    const res = await req("gudang", "/api/stock/item?code=L-1");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { warehouses: { warehouse: string; accurate: number; events: Record<string, unknown>[] }[] };
+    expect(JSON.stringify(body)).not.toMatch(/item_cost|cogs|list_price|999/);
+    const u = body.warehouses.find((w) => w.warehouse === "Utama")!;
+    expect(u.accurate).toBe(-5);
+    const muts = u.events.filter((e) => e.kind === "mutation") as { m: { number: string }; balance: number; wentNegative: boolean; backdated: boolean }[];
+    expect(muts.map((e) => [e.m.number, e.balance, e.wentNegative, e.backdated])).toEqual([
+      ["DO.2", -5, true, true],
+      ["DO.1", 2, false, false],
+    ]);
+    expect(u.events.find((e) => e.kind === "count")).toMatchObject({ c: { counted: 4 }, balance: -5, gap: 9 });
+    expect((await req("gudang", "/api/stock/item")).status).toBe(400);
+  });
+});

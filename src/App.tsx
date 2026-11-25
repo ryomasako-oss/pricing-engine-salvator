@@ -29,6 +29,7 @@ const PurchaseHistoryPage = lazy(() => import("./pages/PurchaseHistory").then((m
 const UomDiffPage = lazy(() => import("./pages/UomDiff").then((m) => ({ default: m.UomDiffPage })));
 const BelowCostPage = lazy(() => import("./pages/BelowCost").then((m) => ({ default: m.BelowCostPage })));
 const CatalogDraftsPage = lazy(() => import("./pages/CatalogDrafts").then((m) => ({ default: m.CatalogDraftsPage })));
+const StockItemHistoryPage = lazy(() => import("./pages/StockItemHistory").then((m) => ({ default: m.StockItemHistoryPage })));
 const AuditLogPage = lazy(() => import("./pages/AuditLog").then((m) => ({ default: m.AuditLogPage })));
 
 function PageLoading() {
@@ -216,6 +217,7 @@ export function App() {
         <Route path="/pencocokan" element={<MatchingPage />} />
         <Route path="/catalog" element={<CatalogPage />} />
         <Route path="/gudang" element={<CatalogDraftsPage />} />
+        <Route path="/gudang/stok/:code" element={<StockItemHistoryPage />} />
         <Route path="/duplikat" element={<Navigate to="/gudang" replace />} />
         <Route path="/draf-gudang" element={<Navigate to="/gudang" replace />} />
         <Route
