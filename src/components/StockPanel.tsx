@@ -187,63 +187,73 @@ export function StockHistoryList({ rows, withItem }: { rows: StockHistoryRow[]; 
 }
 
 export interface StockCountRow {
-  id: number; code: string; name: string | null; uom: string; warehouse: string; counted: number; accurate_qty: number | null;
-  accurate_source: string | null; diff: number | null; counted_at: string; approved_at: string; status: "open" | "entered" | "matched";
+  id: number; code: string; name: string | null; uom: string; warehouse: string; owner: Owner; counted: number; accurate_qty: number | null;
+  accurate_source: string | null; diff: number | null; counted_at: string; approved_at: string; status: string;
   entered_at: string | null; entered_how: string | null; entered_ref: string; note: string;
   counted_by_name: string | null; approved_by_name: string | null; entered_by_name: string | null;
 }
 
+type Owner = "umum" | "pt" | "cv";
+const OWNER: Record<Owner, string> = { umum: "Umum", pt: "PT", cv: "CV" };
 const signed = (n: number) => `${n > 0 ? "+" : ""}${grp(n)}`;
-const COUNT_STATUS: Record<StockCountRow["status"], string> = { open: "belum masuk Accurate", entered: "sudah masuk Accurate", matched: "sama dengan Accurate" };
-const LAST_WAREHOUSE = "pe.stock.warehouse";
+interface CountLine { warehouse: string; owner: Owner; value: string }
 
-/** Katalog › barang dibuka: isian cycle count (gudang + hasil hitung, menjadi draf untuk ACC admin) dan stok pembanding barang ini. */
+/** Saldo stok mandiri: hitungan terakhir per gudang + pemilik. */
+function latestBook(counts: StockCountRow[]) {
+  const seen = new Map<string, StockCountRow>();
+  for (const k of counts) {
+    const key = `${k.warehouse}|${k.owner}`;
+    if (!seen.has(key)) seen.set(key, k); // counts datang terbaru dulu
+  }
+  return [...seen.values()];
+}
+
+/** Katalog › barang dibuka: stok produksi (ikut Accurate) dan stok pembanding / stok mandiri (hitungan gudang per gudang
+ *  dan pemilik, di-ACC admin, tidak terhubung ke Accurate). */
 export function StockEntry({ item, onChange }: { item: CatalogItem; onChange: (patch: SkuPatch) => void }) {
   const { can } = useAuth();
   const toast = useToast();
-  const mayEnter = can("draft_catalog") || can("edit_catalog");
+  // Stok pembanding: sementara hanya Admin (review_catalog_drafts) dan Admin Gudang (draft_catalog).
+  const mayEnter = can("review_catalog_drafts") || can("draft_catalog");
   const seeHistory = can("import_catalog") || can("draft_catalog");
-  const [value, setValue] = useState("");
   const [warehouses, setWarehouses] = useState<string[]>([]);
-  const [warehouse, setWarehouse] = useState(() => localStorage.getItem(LAST_WAREHOUSE) ?? "");
+  const [suggested, setSuggested] = useState<string[]>([]);
+  const [lines, setLines] = useState<CountLine[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<StockHistoryRow[]>([]);
   const [counts, setCounts] = useState<StockCountRow[]>([]);
   const draft = (item.drafts ?? []).find((d) => d.kind === "stock");
-  const n = Number(value.replace(",", "."));
 
   const loadHistory = useCallback(() => {
     if (!seeHistory) return;
     api.get<{ history: StockHistoryRow[] }>(`/stock/history?code=${encodeURIComponent(item.code)}`).then((r) => setHistory(r.history)).catch(() => {});
-    api.get<{ counts: StockCountRow[] }>(`/stock/counts?code=${encodeURIComponent(item.code)}`).then((r) => setCounts(r.counts)).catch(() => {});
-  }, [item.code, seeHistory]);
-  useEffect(loadHistory, [loadHistory, item.stock, draft?.payload.stock]);
+    if (mayEnter) api.get<{ counts: StockCountRow[] }>(`/stock/counts?code=${encodeURIComponent(item.code)}`).then((r) => setCounts(r.counts)).catch(() => {});
+  }, [item.code, seeHistory, mayEnter]);
+  useEffect(loadHistory, [loadHistory, item.stock, draft?.id]);
   useEffect(() => {
     if (!mayEnter) return;
-    api.get<{ warehouses: string[] }>("/stock/warehouses").then((r) => {
+    api.get<{ warehouses: string[]; required: string[] }>(`/stock/warehouses?code=${encodeURIComponent(item.code)}`).then((r) => {
       setWarehouses(r.warehouses);
-      setWarehouse((w) => (r.warehouses.includes(w) ? w : r.warehouses[0] ?? ""));
+      setSuggested(r.required.slice(1));
+      setLines([{ warehouse: r.warehouses[0] ?? "", owner: "umum", value: "" }]); // gudang bawaan (Utama), pemilik Umum
     }).catch(() => {});
-  }, [mayEnter]);
+  }, [mayEnter, item.code]);
   if (!mayEnter && !seeHistory) return null;
 
+  const setLine = (i: number, patch: Partial<CountLine>) => setLines((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)));
+  const ready = lines.length > 0 && lines.every((l) => l.warehouse && l.value.trim() !== "" && Number.isFinite(Number(l.value.replace(",", "."))));
   const submit = async () => {
-    if (busy || !value.trim() || !Number.isFinite(n) || !warehouse) return;
+    if (busy || !ready) return;
     setBusy(true);
     setError(null);
     try {
-      const r = await api.put<SkuPatch & { count: { accurate: number | null } }>(`/catalog/${item.id}/stock`, { stock: n, warehouse });
+      const r = await api.put<SkuPatch>(`/catalog/${item.id}/stock`, {
+        counts: lines.map((l) => ({ warehouse: l.warehouse, owner: l.owner, stock: Number(l.value.replace(",", ".")) })),
+      });
       onChange(r);
-      localStorage.setItem(LAST_WAREHOUSE, warehouse);
-      setValue("");
-      const acc = r.count.accurate;
-      toast(
-        acc == null
-          ? "Hitungan masuk draf, menunggu ACC admin. Stok Accurate gudang ini tidak terbaca."
-          : `Hitungan masuk draf, menunggu ACC admin. Accurate saat ini ${grp(acc)}, selisih ${signed(n - acc)}.`,
-        "success",
-      );
+      setLines([{ warehouse: warehouses[0] ?? "", owner: "umum", value: "" }]);
+      toast("Hitungan masuk draf, menunggu ACC admin. Setelah di-ACC masuk stok pembanding (tidak mengubah Accurate).", "success");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Gagal menyimpan hitungan.");
     } finally {
@@ -251,65 +261,81 @@ export function StockEntry({ item, onChange }: { item: CatalogItem; onChange: (p
     }
   };
 
-  const draftWh = draft ? String(draft.payload.warehouse ?? "") : "";
+  const book = latestBook(counts);
+  const draftLines = (draft?.payload.lines as { warehouse: string; owner?: Owner; stock: number }[] | undefined) ?? [];
   return (
     <div className="sku-row">
       <div className="sku-head">
         <strong>Stok</strong>
-        <span className="muted small">ikut Accurate, satuan dasar {item.uom}</span>
+        <span className="muted small">ikut Accurate PT, satuan dasar {item.uom}</span>
         <span className="num">{grp(item.stock)}</span>
-        {draft && <span className="badge amber">hitungan {grp(Number(draft.payload.stock))}{draftWh && ` di ${draftWh}`} menunggu ACC</span>}
+        {draft && (
+          <span className="badge amber">
+            hitungan menunggu ACC{draftLines.length ? `: ${draftLines.map((l) => `${l.warehouse} ${OWNER[l.owner ?? "umum"]} ${grp(l.stock)}`).join(", ")}` : ""}
+          </span>
+        )}
       </div>
-      {mayEnter && (
-        <div className="barcode-line">
-          <select className="input" aria-label="Gudang tempat menghitung" value={warehouse} onChange={(e) => setWarehouse(e.target.value)}>
-            {warehouses.map((w) => <option key={w} value={w}>{w}</option>)}
-          </select>
-          <input
-            className={`input num${error ? " invalid" : ""}`}
-            inputMode="decimal"
-            placeholder="Hasil hitung"
-            aria-label={`Hasil hitung ${item.name} (${item.uom})`}
-            value={value}
-            readOnly={busy}
-            onChange={(e) => { setValue(e.target.value); setError(null); }}
-            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void submit(); } }}
-          />
-          <button
-            className="btn small"
-            disabled={busy || !value.trim() || !Number.isFinite(n) || !warehouse}
-            title="Ajukan hasil cycle count. Dibandingkan dengan stok Accurate gudang ini saat ini, lalu menunggu ACC admin."
-            onClick={() => void submit()}
-          >
-            {busy ? "Menyimpan…" : "Ajukan hitungan"}
-          </button>
-        </div>
-      )}
-      {error && <div className="text-err small" role="alert">{error}</div>}
       {seeHistory && (
         <Link className="small" to={`/gudang/stok/${encodeURIComponent(item.code)}`}>Riwayat stok lengkap (per gudang, setiap transaksi)</Link>
       )}
-      {seeHistory && counts.length > 0 && (
-        <details open>
-          <summary className="muted small">Stok pembanding ({counts.length} hitungan)</summary>
-          <ul className="draft-changes">
-            {counts.slice(0, 10).map((k) => (
-              <li key={k.id} className="draft-change count-row">
-                <div className="fix-main">
-                  <div className="num">
-                    {wib(k.counted_at)} · {k.warehouse || "gudang tidak tercatat"}: hitung <strong>{grp(k.counted)}</strong>
-                    {k.accurate_qty != null && <> · Accurate saat itu {grp(k.accurate_qty)}{k.diff ? ` (${signed(k.diff)})` : ""}</>}
+      {mayEnter && (
+        <div className="stock-book">
+          <div className="muted small">
+            <strong>Stok pembanding</strong> (stok mandiri di Pricing Engine, tidak terhubung ke Accurate)
+          </div>
+          {book.length > 0 && (
+            <ul className="draft-changes">
+              {book.map((k) => (
+                <li key={k.id} className="draft-change count-row">
+                  <div className="fix-main">
+                    <div className="num">
+                      {k.warehouse || "gudang tidak tercatat"} · {OWNER[k.owner] ?? k.owner}: <strong>{grp(k.counted)}</strong>
+                      {k.accurate_qty != null && k.owner !== "cv" && <span className="muted"> · Accurate PT saat itu {grp(k.accurate_qty)}{k.diff ? ` (${signed(k.diff)})` : ""}</span>}
+                    </div>
+                    <div className="muted small">
+                      {wib(k.counted_at)}{k.counted_by_name && ` · dihitung ${k.counted_by_name}`}{k.approved_by_name && ` · di-ACC ${k.approved_by_name}`}
+                    </div>
                   </div>
-                  <div className="muted small">
-                    {COUNT_STATUS[k.status]}{k.entered_ref && ` · ${k.entered_ref}`}
-                    {k.counted_by_name && <> · dihitung {k.counted_by_name}</>}
-                    {k.approved_by_name && <> · di-ACC {k.approved_by_name}</>}
-                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+          {mayEnter && (
+            <>
+              {lines.map((l, i) => (
+                <div key={i} className="barcode-line">
+                  <select className="input" aria-label="Gudang" value={l.warehouse} onChange={(e) => setLine(i, { warehouse: e.target.value })}>
+                    {warehouses.map((w) => <option key={w} value={w}>{w}</option>)}
+                  </select>
+                  <select className="input" aria-label="Pemilik" value={l.owner} onChange={(e) => setLine(i, { owner: e.target.value as Owner })} title="Di rak PT dan CV belum bisa dibedakan: pakai Umum">
+                    {(Object.keys(OWNER) as Owner[]).map((o) => <option key={o} value={o}>{OWNER[o]}</option>)}
+                  </select>
+                  <input
+                    className={`input num${error ? " invalid" : ""}`}
+                    inputMode="decimal"
+                    placeholder="Hasil hitung"
+                    aria-label={`Hasil hitung ${item.name} di ${l.warehouse} (${item.uom})`}
+                    value={l.value}
+                    readOnly={busy}
+                    onChange={(e) => { setLine(i, { value: e.target.value }); setError(null); }}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void submit(); } }}
+                  />
+                  {lines.length > 1 && <button className="btn small ghost" onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))} aria-label="Hapus baris">✕</button>}
                 </div>
-              </li>
-            ))}
-          </ul>
-        </details>
+              ))}
+              <div className="row-wrap">
+                <button className="btn small ghost" onClick={() => setLines((ls) => [...ls, { warehouse: warehouses.find((w) => !ls.some((x) => x.warehouse === w)) ?? warehouses[0] ?? "", owner: "umum", value: "" }])}>
+                  + Gudang lain
+                </button>
+                <button className="btn small" disabled={busy || !ready} title="Ajukan hasil hitung. Masuk stok pembanding setelah di-ACC admin; Accurate tidak berubah." onClick={() => void submit()}>
+                  {busy ? "Menyimpan…" : "Ajukan hitungan"}
+                </button>
+              </div>
+              {suggested.length > 0 && <div className="muted small">Menurut Accurate barang ini juga ada di: {suggested.join(", ")}.</div>}
+            </>
+          )}
+          {error && <div className="text-err small" role="alert">{error}</div>}
+        </div>
       )}
       {seeHistory && history.length > 0 && (
         <details>

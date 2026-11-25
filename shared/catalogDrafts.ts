@@ -12,7 +12,12 @@ export interface DraftPayloads {
   edit: { name: string; uom: string; category: string; units?: UnitFactor[] };
   /** Cycle count (2026-11-25): hasil hitung di satu gudang (satuan dasar) dan stok Accurate gudang itu saat diajukan.
    *  Draf lama (sebelum 2026-11-25) hanya punya `stock`. */
-  stock: { stock: number; warehouse?: string; accurate?: number | null; accurate_source?: "live" | "sync" | null };
+  stock: {
+    /** Sejak 2026-11-25 sore: satu barang dihitung di semua gudangnya sekaligus (hitungan umum, PT+CV belum dipisah). */
+    lines?: { warehouse: string; owner?: "umum" | "pt" | "cv"; stock: number; accurate?: number | null; accurate_source?: "live" | "sync" | null }[];
+    scope?: "umum" | "mandiri";
+    stock?: number; warehouse?: string; accurate?: number | null; accurate_source?: "live" | "sync" | null;
+  };
   /** The file row plus its mode. Items an "ganti seluruh katalog" file leaves out are deleted by the last ACC, not drafted. */
   import: Record<string, unknown>;
 }
@@ -36,14 +41,19 @@ export function draftChanges(kind: CatalogDraftMark["kind"], uom: string, payloa
   if (kind === "import") return importChanges(payload, before, purchased);
   if (kind === "stock") {
     const p = payload as DraftPayloads["stock"];
-    if (p.warehouse === undefined) return [`Stok: ${(before as Partial<DraftPayloads["stock"]>).stock ?? "kosong"} → ${p.stock}`];
     const n = (x: number) => x.toLocaleString("id-ID");
-    if (p.accurate == null) return [`Hitung ${p.warehouse}: ${n(p.stock)} · stok Accurate saat dihitung tidak terbaca`];
-    const diff = p.stock - p.accurate;
-    return [
-      `Hitung ${p.warehouse}: ${n(p.stock)} · Accurate saat dihitung ${n(p.accurate)} · ` +
-        (diff === 0 ? "sama" : `selisih ${diff > 0 ? "+" : ""}${n(diff)}`),
-    ];
+    const line = (w: string, stock: number, accurate: number | null | undefined) =>
+      accurate == null
+        ? `Hitung ${w}: ${n(stock)} · stok Accurate saat dihitung tidak terbaca`
+        : `Hitung ${w}: ${n(stock)} · Accurate PT saat dihitung ${n(accurate)} · ` +
+          (stock === accurate ? "sama" : `selisih ${stock - accurate > 0 ? "+" : ""}${n(stock - accurate)}`);
+    if (p.lines)
+      return [
+        ...p.lines.map((l) => line(`${l.warehouse} · ${(l.owner ?? "umum").toUpperCase()}`, l.stock, l.accurate)),
+        "Masuk stok pembanding (mandiri), tidak mengubah Accurate",
+      ];
+    if (p.warehouse === undefined) return [`Stok: ${(before as Partial<DraftPayloads["stock"]>).stock ?? "kosong"} → ${p.stock}`];
+    return [line(p.warehouse, p.stock!, p.accurate)];
   }
   const p = payload as DraftPayloads["edit"];
   const b = before as Partial<DraftPayloads["edit"]>;

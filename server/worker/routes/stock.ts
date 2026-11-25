@@ -8,11 +8,12 @@ import { z } from "zod";
 import { all, get, run } from "../../db.d1";
 import { audit } from "../audit";
 import { requireAuth, requirePermission } from "../auth";
-import { hasPermission } from "../../../shared/permissions";
+import { canUseStockBook, hasPermission } from "../../../shared/permissions";
 import { zodMessage } from "../../validate";
 import { ACCURATE_TOTALS, IS_UNSENT, SAME_UNIT, matchEnteredCounts, pullStock } from "../accurate/stock";
 import { catalogEntity, credsFor, loadState, requestRestart, syncConfig, syncStep } from "../accurate/sync";
 import { buildTimeline, type TimelineCount, type TimelineMutation } from "../../../shared/stockTimeline";
+import { countWarehouses } from "./catalog";
 import type { Env } from "../env";
 
 export const stockRouter = new Hono<Env>();
@@ -91,12 +92,11 @@ stockRouter.get("/history", async (c) => {
   return c.json({ history: rows });
 });
 
-/** Gudang Accurate untuk isian cycle count, gudang bawaan Accurate (id terkecil, "Utama") di depan. */
+/** Gudang Accurate untuk isian cycle count (bawaan dulu); dengan ?code= juga gudang yang wajib diisi untuk barang itu. */
 stockRouter.get("/warehouses", async (c) => {
-  const rows = await all<{ name: string }>(
-    c.env.DB, "SELECT name FROM accurate_warehouses WHERE entity = ? AND name <> '' ORDER BY accurate_id", catalogEntity(c.env),
-  );
-  return c.json({ warehouses: rows.map((r) => r.name) });
+  const code = c.req.query("code")?.trim() ?? "";
+  const w = await countWarehouses(c.env.DB, catalogEntity(c.env), code);
+  return c.json({ warehouses: w.all, required: code ? w.required : [] });
 });
 
 /**
@@ -106,10 +106,12 @@ stockRouter.get("/warehouses", async (c) => {
 stockRouter.get("/counts", async (c) => {
   const code = c.req.query("code")?.trim() ?? "";
   const open = c.req.query("status") === "open";
-  if (!code && !hasPermission(c.get("user")!.role, "review_catalog_drafts")) return c.json({ error: "Akses ditolak untuk peran Anda." }, 403);
+  const role = c.get("user")!.role;
+  if (!canUseStockBook(role)) return c.json({ error: "Stok pembanding hanya untuk Admin dan Admin Gudang." }, 403);
+  if (!code && !hasPermission(role, "review_catalog_drafts")) return c.json({ error: "Akses ditolak untuk peran Anda." }, 403);
   const rows = await all<{ counted: number; accurate_qty: number | null }>(
     c.env.DB,
-    `SELECT s.id, s.code, i.name, s.uom, s.warehouse, s.counted, s.accurate_qty, s.accurate_source, s.counted_at, s.approved_at,
+    `SELECT s.id, s.code, i.name, s.uom, s.warehouse, s.owner, s.counted, s.accurate_qty, s.accurate_source, s.counted_at, s.approved_at,
             s.status, s.entered_at, s.entered_how, s.entered_ref, s.note,
             f.name AS counted_by_name, a.name AS approved_by_name, e.name AS entered_by_name
        FROM stock_counts s
@@ -188,9 +190,10 @@ stockRouter.get("/item", async (c) => {
        FROM stock_mutations WHERE entity = ? AND item_no = ? COLLATE NOCASE ORDER BY created_wib DESC LIMIT 2000`,
     entity, code,
   );
-  const counts = await all<TimelineCount & { warehouse: string }>(
+  // Stok pembanding hanya untuk Admin dan Admin Gudang; peran lain melihat riwayat Accurate saja.
+  const counts = !canUseStockBook(c.get("user")!.role) ? [] : await all<TimelineCount & { warehouse: string }>(
     c.env.DB,
-    `SELECT s.id, s.warehouse, s.counted, s.accurate_qty, datetime(s.counted_at, '+7 hours') AS counted_wib, s.status, u.name AS counted_by_name
+    `SELECT s.id, s.warehouse, s.owner, s.counted, s.accurate_qty, datetime(s.counted_at, '+7 hours') AS counted_wib, s.status, u.name AS counted_by_name
        FROM stock_counts s LEFT JOIN users u ON u.id = s.counted_by
       WHERE s.code = ? COLLATE NOCASE ORDER BY s.counted_at DESC LIMIT 200`,
     code,

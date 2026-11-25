@@ -8,7 +8,7 @@ import { StockMinusList } from "./StockItemHistory";
 import { Link } from "react-router-dom";
 import { api } from "../api";
 import { LoadError } from "../components/LoadError";
-import { OpenCountsList, StockActions, StockHistoryList, type StockHistoryRow } from "../components/StockPanel";
+import { StockActions, StockHistoryList, type StockHistoryRow } from "../components/StockPanel";
 import { Modal } from "../components/Modal";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
@@ -287,7 +287,7 @@ export function CatalogDraftsPage() {
           <h1>Gudang</h1>
           <p>
             {reviewer
-              ? "Perubahan Admin Gudang di Katalog (barcode, satuan, data barang) dan file impor katalog. Baru masuk katalog setelah di-ACC. Stok ikut Accurate; hasil cycle count gudang yang di-ACC disimpan sebagai stok pembanding, dan selisihnya diinput ke Accurate (daftar Belum masuk Accurate)."
+              ? "Perubahan Admin Gudang di Katalog (barcode, satuan, data barang) dan file impor katalog. Baru masuk katalog setelah di-ACC. Stok ikut Accurate; hasil hitung gudang yang di-ACC disimpan sebagai stok pembanding (stok mandiri, tidak mengubah Accurate)."
               : drafter
                 ? "Barcode dan satuan tetap dikerjakan di Katalog. Hasilnya menunggu ACC admin di sini; yang ditolak tampil di tab Riwayat beserta alasannya."
                 : "File impor katalog yang Anda unggah: menunggu ACC admin, sudah di-ACC, atau ditolak beserta alasannya. Di sini hanya untuk melihat; ACC dilakukan admin."}
@@ -334,7 +334,6 @@ export function CatalogDraftsPage() {
           ))}
         </div>
 
-        {reviewer && status === "pending" && <OpenCountsList />}
         {status === "dup" && <DuplicateReportsSection key={status} status="open" />}
         {status === "minus" && <StockMinusList />}
         {status === "done" && <DuplicateReportsSection key={status} status="decided" />}
