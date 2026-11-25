@@ -17,6 +17,8 @@ export type DuplicateStatus = "open" | "approved" | "rejected";
 
 export interface DuplicateReport {
   id: number;
+  /** Laporan yang dicentang bersama berbagi kunci ini; baris lama: "id-<id>". */
+  group_key: string;
   item_a_id: number;
   item_a_code: string;
   item_a_name: string;

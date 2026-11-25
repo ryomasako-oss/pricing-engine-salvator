@@ -7,12 +7,12 @@ import { z } from "zod";
 import { canonicalPair } from "../shared/duplicateReports.js";
 
 export const duplicateReportSchema = z.object({
-  item_a_id: z.number().int().positive("Pilih barang pertama."),
-  item_b_id: z.number().int().positive("Pilih barang pasangannya."),
+  /** Barang pertama jadi acuan; sisanya kembarannya. */
+  item_ids: z.array(z.number().int().positive()).min(2, "Centang minimal 2 barang.").max(10, "Maksimal 10 barang sekali lapor."),
   note: z.string().trim().max(500).default(""),
-}).refine((d) => d.item_a_id !== d.item_b_id, {
-  message: "Barang pasangannya harus barang yang berbeda.",
-  path: ["item_b_id"],
+}).refine((d) => new Set(d.item_ids).size === d.item_ids.length, {
+  message: "Barang yang sama tercentang dua kali.",
+  path: ["item_ids"],
 });
 
 export const decideDuplicateSchema = z
@@ -28,7 +28,7 @@ export const decideDuplicateSchema = z
   });
 
 const SELECT = `
-  SELECT d.id, d.item_a_id, d.item_b_id, d.note, d.status, d.reported_by,
+  SELECT d.id, COALESCE(d.group_key, 'id-' || d.id) AS group_key, d.item_a_id, d.item_b_id, d.note, d.status, d.reported_by,
          u.name AS reported_by_name, d.created_at, d.kept_item_id,
          d.decided_by, du.name AS decided_by_name, d.decided_at, d.decision_note,
          COALESCE(a.code, d.item_a_code) AS item_a_code, COALESCE(a.name, d.item_a_name) AS item_a_name,
@@ -52,23 +52,28 @@ export const listDuplicateSql = (status: "open" | "decided" | "all", scoped: boo
   return `${SELECT} WHERE ${where}${scoped ? " AND d.reported_by = ?" : ""} ORDER BY ${order} LIMIT 300`;
 };
 
+/** Jumlah kelompok yang menunggu (3 barang kembar = 1). */
 export const countDuplicateSql = (scoped: boolean) =>
-  `SELECT COUNT(*) AS n FROM duplicate_reports d WHERE d.status = 'open'${scoped ? " AND d.reported_by = ?" : ""}`;
+  `SELECT COUNT(DISTINCT COALESCE(d.group_key, 'id-' || d.id)) AS n FROM duplicate_reports d WHERE d.status = 'open'${scoped ? " AND d.reported_by = ?" : ""}`;
 
 export const GET_DUPLICATE_SQL = `${SELECT} WHERE d.id = ?`;
 
-export const ITEMS_BY_IDS_SQL = `SELECT id, code, name FROM catalog_items WHERE id IN (?, ?)`;
+export const itemsByIdsSql = (n: number) => `SELECT id FROM catalog_items WHERE id IN (${Array(n).fill("?").join(", ")})`;
 
 export const INSERT_DUPLICATE_SQL = `
-  INSERT INTO duplicate_reports(item_a_id, item_b_id, item_a_code, item_a_name, item_b_code, item_b_name, note, reported_by)
-  SELECT a.id, b.id, a.code, a.name, b.code, b.name, ?, ?
+  INSERT INTO duplicate_reports(item_a_id, item_b_id, item_a_code, item_a_name, item_b_code, item_b_name, note, reported_by, group_key)
+  SELECT a.id, b.id, a.code, a.name, b.code, b.name, ?, ?, ?
     FROM catalog_items a, catalog_items b WHERE a.id = ? AND b.id = ?`;
 
-/** ACC/Tolak satu laporan; hanya dari status 'open' (balapan diputuskan dua kali ditolak). */
+/** ACC/Tolak satu kelompok sekaligus; hanya baris 'open' (diputuskan dua kali bersamaan: yang kedua 0 baris). */
 export const DECIDE_DUPLICATE_SQL = `
   UPDATE duplicate_reports
      SET status = ?, kept_item_id = ?, decided_by = ?, decided_at = datetime('now'), decision_note = ?
-   WHERE id = ? AND status = 'open'`;
+   WHERE COALESCE(group_key, 'id-' || id) = ? AND status = 'open'`;
+
+export const GROUP_OPEN_SQL = `
+  SELECT item_a_id, item_b_id FROM duplicate_reports
+   WHERE COALESCE(group_key, 'id-' || id) = ? AND status = 'open'`;
 
 /** Pasangan terurut + kunci dedupe, supaya satu pasangan hanya punya satu laporan terbuka. */
 export function pairForInsert(a: number, b: number): [number, number] {

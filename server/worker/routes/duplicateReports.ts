@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { all, get, run } from "../../db.d1";
+import { all, batch, get, run, stmt } from "../../db.d1";
 import { audit } from "../audit";
 import { requireAuth, requirePermission } from "../auth";
 import { zodMessage } from "../../validate";
@@ -11,19 +11,13 @@ import {
   decideDuplicateSchema,
   duplicateReportSchema,
   GET_DUPLICATE_SQL,
+  GROUP_OPEN_SQL,
   INSERT_DUPLICATE_SQL,
-  ITEMS_BY_IDS_SQL,
+  itemsByIdsSql,
   listDuplicateSql,
   pairForInsert,
 } from "../../duplicateReports";
 import type { Env } from "../env";
-
-/* NOTE FOR LATER: once the live Gudang code (src/pages/Gudang.tsx +
-   its draft routes) is pushed to this repo, this whole feature can move
-   into Gudang as a tab: mount this router under /api/gudang/duplicate-
-   reports instead, and render DuplicateReports.tsx as a tab inside
-   Gudang.tsx (the page already has Menunggu / Riwayat tabs) — no new
-   backend work is needed. */
 
 export const duplicateReportsRouter = new Hono<Env>();
 duplicateReportsRouter.use(requireAuth);
@@ -52,25 +46,25 @@ duplicateReportsRouter.post("/", async (c) => {
     return c.json({ error: "Akun ini tidak bisa melaporkan duplikat." }, 403);
   const parsed = duplicateReportSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
-  const { item_a_id, item_b_id, note } = parsed.data;
-  const [a, b] = pairForInsert(item_a_id, item_b_id);
-  const items = await all<{ id: number }>(c.env.DB, ITEMS_BY_IDS_SQL, a, b);
-  if (items.length < 2) return c.json({ error: "Barang tidak ditemukan." }, 400);
-  const existing = await get(c.env.DB,
-    "SELECT id FROM duplicate_reports WHERE item_a_id = ? AND item_b_id = ? AND status = 'open'", a, b);
-  if (existing) return c.json({ error: "Pasangan ini sudah dilaporkan dan masih menunggu." }, 409);
-  let result;
+  const { item_ids, note } = parsed.data;
+  const found = await all<{ id: number }>(c.env.DB, itemsByIdsSql(item_ids.length), ...item_ids);
+  if (found.length < item_ids.length) return c.json({ error: "Ada barang yang tidak ditemukan di katalog." }, 400);
+  const [anchor, ...others] = item_ids;
+  const pairs = others.map((other) => pairForInsert(anchor, other));
+  const open = await all<{ item_a_id: number; item_b_id: number }>(c.env.DB,
+    "SELECT item_a_id, item_b_id FROM duplicate_reports WHERE status = 'open'");
+  const fresh = pairs.filter(([a, b]) => !open.some((o) => o.item_a_id === a && o.item_b_id === b));
+  if (!fresh.length) return c.json({ error: "Barang-barang ini sudah dilaporkan dan masih menunggu ACC." }, 409);
+  const groupKey = crypto.randomUUID();
   try {
-    result = await run(c.env.DB, INSERT_DUPLICATE_SQL, note, user.id, a, b);
+    await batch(c.env.DB, fresh.map(([a, b]) => stmt(c.env.DB, INSERT_DUPLICATE_SQL, note, user.id, groupKey, a, b)));
   } catch (e) {
-    // Dua laporan bersamaan untuk pasangan yang sama: index unik menolak yang kedua.
-    if (String(e).includes("UNIQUE")) return c.json({ error: "Pasangan ini sudah dilaporkan dan masih menunggu." }, 409);
+    // Laporan bersamaan untuk pasangan yang sama: index unik menolak yang kedua (seluruh batch batal).
+    if (String(e).includes("UNIQUE")) return c.json({ error: "Barang-barang ini sudah dilaporkan dan masih menunggu ACC." }, 409);
     throw e;
   }
-  const id = Number(result.meta.last_row_id);
-  const row = await get<DuplicateReport>(c.env.DB, GET_DUPLICATE_SQL, id);
-  await audit(c.env.DB, user.id, "duplicate_report", id, "created", { item_a_id: a, item_b_id: b, note });
-  return c.json({ item: row }, 201);
+  await audit(c.env.DB, user.id, "duplicate_report", 0, "created", { group_key: groupKey, item_ids, note, skipped: pairs.length - fresh.length });
+  return c.json({ group_key: groupKey, count: fresh.length, skipped: pairs.length - fresh.length }, 201);
 });
 
 duplicateReportsRouter.post("/:id/decide", requirePermission("review_catalog_drafts"), async (c) => {
@@ -83,11 +77,13 @@ duplicateReportsRouter.post("/:id/decide", requirePermission("review_catalog_dra
   const parsed = decideDuplicateSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
   const { decision, keep_item_id, note } = parsed.data;
-  if (decision === "approved" && keep_item_id !== report.item_a_id && keep_item_id !== report.item_b_id)
-    return c.json({ error: "Barang yang dipilih bukan bagian dari pasangan ini." }, 400);
+  const rows = await all<{ item_a_id: number; item_b_id: number }>(c.env.DB, GROUP_OPEN_SQL, report.group_key);
+  const members = new Set(rows.flatMap((r) => [r.item_a_id, r.item_b_id]));
+  if (decision === "approved" && (keep_item_id === undefined || !members.has(keep_item_id)))
+    return c.json({ error: "Barang yang dipilih bukan bagian dari laporan ini." }, 400);
   const change = await run(c.env.DB, DECIDE_DUPLICATE_SQL,
-    decision, decision === "approved" ? keep_item_id ?? null : null, user.id, note, id);
+    decision, decision === "approved" ? keep_item_id ?? null : null, user.id, note, report.group_key);
   if (change.meta.changes === 0) return c.json({ error: "Laporan sudah diputuskan." }, 409);
-  await audit(c.env.DB, user.id, "duplicate_report", id, "decided", { decision, kept_item_id: keep_item_id ?? null });
+  await audit(c.env.DB, user.id, "duplicate_report", id, "decided", { decision, group_key: report.group_key, kept_item_id: keep_item_id ?? null });
   return c.json({ ok: true });
 });

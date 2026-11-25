@@ -32,38 +32,47 @@ function setup() {
     const r = await app.request(`/api/duplicate-reports${url}`, { method, headers: { "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined }, env);
     return { status: r.status, json: (await r.json()) as Record<string, any> };
   };
-  return { sqlite, req };
+  const rows = (sql: string) => sqlite.prepare(sql).all();
+  return { sqlite, req, rows };
 }
 
 describe("laporan duplikat", () => {
-  it("Admin Gudang melapor dan melihat laporannya sendiri; pasangan terbalik tidak jadi laporan kedua", async () => {
+  it("Admin Gudang mencentang 3 barang: satu kelompok, satu angka; mengulang ditolak", async () => {
     const { req } = setup();
-    const r = await req("gudang", "POST", "", { item_a_id: 2, item_b_id: 1, note: "beda spasi" });
+    const r = await req("gudang", "POST", "", { item_ids: [2, 1, 3], note: "beda spasi" });
     expect(r.status).toBe(201);
-    expect(r.json.item).toMatchObject({ item_a_id: 1, item_b_id: 2, status: "open", reported_by_name: "gudang" });
-    expect((await req("gudang", "POST", "", { item_a_id: 1, item_b_id: 2 })).status).toBe(409);
+    expect(r.json.count).toBe(2);
+    expect((await req("gudang", "POST", "", { item_ids: [1, 2] })).status).toBe(409);
     const list = await req("gudang", "GET", "");
-    expect(list.json.items.map((i: { item_a_name: string }) => i.item_a_name)).toEqual(["RANTAI BESI SS304 3MM"]);
+    expect(list.json.items).toHaveLength(2);
+    expect(new Set(list.json.items.map((i: { group_key: string }) => i.group_key)).size).toBe(1);
     expect((await req("gudang", "GET", "/count")).json.open).toBe(1);
+    expect((await req("gudang", "POST", "", { item_ids: [1, 1] })).status).toBe(400);
+    expect((await req("gudang", "POST", "", { item_ids: [1, 99] })).status).toBe(400);
   });
 
-  it("Sales tidak bisa melapor; Admin Gudang dan Manajer tidak bisa memutuskan; Admin bisa", async () => {
-    const { req } = setup();
-    expect((await req("rep", "POST", "", { item_a_id: 1, item_b_id: 2 })).status).toBe(403);
-    const { json } = await req("gudang", "POST", "", { item_a_id: 1, item_b_id: 2 });
-    const id = json.item.id;
+  it("Sales tidak bisa melapor; Admin Gudang dan Manajer tidak bisa memutuskan; Admin memutuskan sekelompok", async () => {
+    const { req, rows } = setup();
+    expect((await req("rep", "POST", "", { item_ids: [1, 2] })).status).toBe(403);
+    await req("gudang", "POST", "", { item_ids: [1, 2, 3] });
+    const id = (await req("admin", "GET", "")).json.items[0].id;
     expect((await req("gudang", "POST", `/${id}/decide`, { decision: "approved", keep_item_id: 1 })).status).toBe(403);
     expect((await req("manager", "POST", `/${id}/decide`, { decision: "approved", keep_item_id: 1 })).status).toBe(403);
-    expect((await req("admin", "POST", `/${id}/decide`, { decision: "approved", keep_item_id: 3 })).status).toBe(400);
-    expect((await req("admin", "POST", `/${id}/decide`, { decision: "approved", keep_item_id: 1 })).status).toBe(200);
+    expect((await req("admin", "POST", `/${id}/decide`, { decision: "approved", keep_item_id: 99 })).status).toBe(400);
+    expect((await req("admin", "POST", `/${id}/decide`, { decision: "approved", keep_item_id: 3 })).status).toBe(200);
+    expect(rows("SELECT status, kept_item_id FROM duplicate_reports")).toEqual([
+      { status: "approved", kept_item_id: 3 },
+      { status: "approved", kept_item_id: 3 },
+    ]);
     expect((await req("admin", "POST", `/${id}/decide`, { decision: "rejected" })).status).toBe(409);
+    expect((await req("gudang", "GET", "/count")).json.open).toBe(0);
     const history = await req("gudang", "GET", "?status=decided");
-    expect(history.json.items[0]).toMatchObject({ status: "approved", kept_item_id: 1, decided_by_name: "admin" });
+    expect(history.json.items[0]).toMatchObject({ status: "approved", kept_item_id: 3, decided_by_name: "admin" });
   });
 
   it("barang yang dilaporkan tetap bisa dihapus dari katalog, dan laporannya tetap terbaca", async () => {
     const { sqlite, req } = setup();
-    await req("gudang", "POST", "", { item_a_id: 1, item_b_id: 2 });
+    await req("gudang", "POST", "", { item_ids: [1, 2] });
     sqlite.exec("DELETE FROM catalog_items WHERE id = 2");
     const list = await req("admin", "GET", "");
     expect(list.json.items[0]).toMatchObject({ item_b_id: 2, item_b_code: "R-2", item_b_name: "RANTAI BESI SS 304 3MM" });
