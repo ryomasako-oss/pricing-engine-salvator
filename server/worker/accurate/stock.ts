@@ -30,7 +30,9 @@ export const IS_UNSENT = "EXISTS (SELECT 1 FROM stock_unsent u WHERE u.code = c.
 /** Salin total stok Accurate ke katalog; `actorId` = penekan tombol Sinkron. `withHistory` false: sinkron
  *  otomatis tiap run (tidak mencatat ribuan baris riwayat tiap 6 jam). */
 export async function pullStock(db: D1Database, entity: EntityKey, actorId: number | null, withHistory = true) {
-  const skipped =
+  // Jalur otomatis (cron) = refreshStock buatan dev utama (2026-10-30): hanya UPDATE + waktu stok, 2 query.
+  // Hitungan "dilewati" membaca seluruh stok Accurate, jadi hanya untuk tombol Tarik.
+  const skipped = !withHistory ? 0 :
     (await get<{ n: number }>(
       db,
       `SELECT COUNT(*) AS n FROM (${ACCURATE_TOTALS}) s JOIN catalog_items c ON ${SAME_UNIT}
