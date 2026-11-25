@@ -4,6 +4,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { D1DatabaseShim } from "../../../scripts/d1-sqlite-shim";
 import { pullStock, STOCK_AS_OF_KEY } from "./stock";
+import { countQueries } from "./testing";
 
 function freshDb() {
   const sqlite = new DatabaseSync(":memory:");
@@ -47,5 +48,21 @@ describe("Tarik: catalog stock copied from Accurate on demand", () => {
 
     // Nothing changed since: no rows rewritten.
     expect(await pullStock(db, "PT", null)).toMatchObject({ changed: 0 });
+  });
+});
+
+describe("salin stok otomatis tiap run (cron)", () => {
+  it("costs what the main dev's refreshStock cost: 2 queries, no history rows, same result as the button", async () => {
+    const { sqlite, db } = freshDb();
+    sqlite.exec(`INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock) VALUES ('A', 'A', 'Pcs', 900, 1000, 3)`);
+    sqlite.exec(`INSERT INTO accurate_items(entity, accurate_id, code, name, uom, unit_price, units, category, suspended, run_id) VALUES ('PT', 1, 'A', 'A', 'Pcs', 1000, '[]', '', 0, 'r1')`);
+    sqlite.exec(`INSERT INTO accurate_stock(entity, warehouse_id, item_code, quantity, run_id) VALUES ('PT', 1, 'A', 7, 'r1'), ('PT', 2, 'A', -2, 'r1')`);
+    sqlite.exec(`INSERT INTO accurate_sync_state(entity, phase, last_success_at) VALUES ('PT', 'idle', '2026-10-30T01:00:00.000Z')`);
+    const counted = countQueries(db);
+    expect(await pullStock(counted.db, "PT", null, false)).toEqual({ changed: 1, skipped: 0 });
+    expect(counted.queries()).toBe(2);
+    expect(sqlite.prepare("SELECT stock FROM catalog_items").get()).toEqual({ stock: 5 });
+    expect(sqlite.prepare("SELECT COUNT(*) AS n FROM stock_history").get()).toEqual({ n: 0 });
+    expect(sqlite.prepare("SELECT value FROM settings WHERE key = ?").get(STOCK_AS_OF_KEY)).toEqual({ value: "2026-10-30T01:00:00.000Z" });
   });
 });
