@@ -49,7 +49,7 @@ export function draftChanges(kind: CatalogDraftMark["kind"], uom: string, payloa
           (stock === accurate ? "sama" : `selisih ${stock - accurate > 0 ? "+" : ""}${n(stock - accurate)}`);
     if (p.lines)
       return [
-        ...p.lines.map((l) => line(`${l.warehouse} · ${(l.owner ?? "umum").toUpperCase()}`, l.stock, l.accurate)),
+        ...p.lines.map((l) => line(l.owner && l.owner !== "umum" ? `${l.warehouse} · ${l.owner.toUpperCase()}` : l.warehouse, l.stock, l.accurate)),
         "Masuk stok pembanding (mandiri), tidak mengubah Accurate",
       ];
     if (p.warehouse === undefined) return [`Stok: ${(before as Partial<DraftPayloads["stock"]>).stock ?? "kosong"} → ${p.stock}`];

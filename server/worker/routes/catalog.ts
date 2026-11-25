@@ -580,6 +580,11 @@ catalogRouter.put("/:id/stock", async (c) => {
     return c.json({ error: "Satu gudang dengan pemilik yang sama terisi dua kali." }, 400);
   const unknown = given.find((x) => !known.some((k) => lower(k) === lower(x.warehouse)));
   if (unknown) return c.json({ error: `Gudang ${unknown.warehouse} tidak ada di Accurate.` }, 400);
+  // Sementara (pemilik, 2026-11-25 malam): hanya gudang bawaan (Utama) dan tanpa pemisahan PT/CV. Gudang lain
+  // (mis. AKR Surabaya milik CV) belum dimasukkan. Tabel tetap bisa menampung gudang dan pemilik lain nanti.
+  const only = known[0];
+  if (given.some((x) => lower(x.warehouse) !== lower(only ?? "") || x.owner !== "umum"))
+    return c.json({ error: `Untuk sementara hitungan hanya untuk gudang ${only ?? "Utama"}.` }, 400);
   const lines = [];
   for (const x of given) {
     const name = known.find((k) => lower(k) === lower(x.warehouse))!;

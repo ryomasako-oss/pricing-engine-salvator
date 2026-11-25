@@ -105,26 +105,22 @@ describe("stok katalog ikut Accurate", () => {
 describe("stok pembanding (stok mandiri)", () => {
   const COLS = "code, warehouse, owner, counted, accurate_qty, accurate_source, status, counted_by, approved_by";
 
-  it("one draft for several warehouses and owners; ACC records each line, Accurate and catalog stock untouched", async () => {
+  it("for now only the default warehouse (Utama) and no PT/CV; ACC records it, Accurate and catalog stock untouched", async () => {
     const { req, q, stockOf, draftId, live } = setup();
     live.set("P-1|Utama", 28);
-    const res = await req("gudang", "/api/catalog/1/stock", "PUT", { counts: [
-      { warehouse: "Utama", stock: 25 },
-      { warehouse: "Gudang B", owner: "cv", stock: 4 },
-    ] });
+    expect((await req("gudang", "/api/catalog/1/stock", "PUT", { counts: [{ warehouse: "Gudang B", stock: 4 }] })).status).toBe(400);
+    expect((await req("gudang", "/api/catalog/1/stock", "PUT", { counts: [{ warehouse: "Utama", owner: "cv", stock: 4 }] })).status).toBe(400);
+    expect((await req("gudang", "/api/catalog/1/stock", "PUT", { counts: [{ warehouse: "Utama", stock: 25 }, { warehouse: "Gudang B", stock: 4 }] })).status).toBe(400);
+    const res = await req("gudang", "/api/catalog/1/stock", "PUT", { counts: [{ warehouse: "Utama", stock: 25 }] });
     expect(res.status).toBe(200);
     expect(((await res.json()) as { count: unknown }).count).toEqual({ lines: [
       { warehouse: "Utama", owner: "umum", stock: 25, accurate: 28, accurate_source: "live" },
-      { warehouse: "Gudang B", owner: "cv", stock: 4, accurate: null, accurate_source: null }, // CV: tidak ada Accurate
     ] });
     expect((await req("admin", `/api/catalog/drafts/${await draftId()}/review`, "POST", { approve: true })).status).toBe(200);
     expect(stockOf("P-1")).toBe(10);
     expect(q(`SELECT ${COLS} FROM stock_counts ORDER BY id`)).toEqual([
       { code: "P-1", warehouse: "Utama", owner: "umum", counted: 25, accurate_qty: 28, accurate_source: "live", status: "recorded", counted_by: USERS.gudang, approved_by: USERS.admin },
-      { code: "P-1", warehouse: "Gudang B", owner: "cv", counted: 4, accurate_qty: null, accurate_source: null, status: "recorded", counted_by: USERS.gudang, approved_by: USERS.admin },
     ]);
-    expect(q("SELECT * FROM stock_unsent")).toHaveLength(0);
-    // Tidak ada tugas koreksi ke Accurate.
     expect(await (await req("admin", "/api/stock/status")).json()).toMatchObject({ open: 0 });
   });
 
@@ -141,7 +137,7 @@ describe("stok pembanding (stok mandiri)", () => {
     expect((await req("gudang", "/api/catalog/1/stock", "PUT", { counts: [{ warehouse: "Utama", stock: -1 }] })).status).toBe(400);
     expect((await req("gudang", "/api/catalog/1/stock", "PUT", { counts: [{ warehouse: "Mars", stock: 1 }] })).status).toBe(400);
     expect((await req("gudang", "/api/catalog/1/stock", "PUT", { counts: [{ warehouse: "Utama", stock: 1 }, { warehouse: "utama", stock: 2 }] })).status).toBe(400);
-    expect((await req("gudang", "/api/catalog/1/stock", "PUT", { counts: [{ warehouse: "Utama", stock: 3 }] })).status).toBe(200); // P-1 juga di Gudang B: belum wajib
+    expect((await req("gudang", "/api/catalog/1/stock", "PUT", { counts: [{ warehouse: "Utama", stock: 3 }] })).status).toBe(200); // P-1 juga di Gudang B: tidak diminta
     expect((await req("admin", "/api/catalog/1/stock", "PUT", { counts: [{ warehouse: "Utama", stock: 4 }] })).status).toBe(200); // menggantikan
     expect(q("SELECT json_extract(payload, '$.lines[0].stock') AS s FROM catalog_drafts WHERE kind = 'stock'")).toEqual([{ s: 4 }]);
     expect((await req("admin", `/api/catalog/drafts/${await draftId()}/review`, "POST", { approve: false, note: "Hitung ulang" })).status).toBe(200);
@@ -307,10 +303,10 @@ describe("migrasi 0052", () => {
 
 describe("tabel stok pembanding", () => {
   it("lists the latest count per warehouse + owner with Accurate PT as comparison; Admin and Admin Gudang only; no prices", async () => {
-    const { req, countAndAcc } = setup();
+    const { req, countAndAcc, sqlite } = setup();
     await countAndAcc(1, 25); // P-1 Utama umum, Accurate Utama 30
     await countAndAcc(1, 27); // hitungan terbaru menggantikan
-    await countAndAcc(1, 5, "Gudang B", "cv");
+    sqlite.exec(`INSERT INTO stock_counts(item_id, code, warehouse, owner, counted, counted_at, counted_by, approved_by) VALUES (1, 'P-1', 'Gudang B', 'cv', 5, datetime('now'), ${USERS.gudang}, ${USERS.admin})`);
     const res = await req("gudang", "/api/stock/book");
     expect(res.status).toBe(200);
     const body = (await res.json()) as { columns: { key: string }[]; rows: Record<string, unknown>[] };
