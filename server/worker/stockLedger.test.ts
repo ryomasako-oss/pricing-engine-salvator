@@ -304,3 +304,21 @@ describe("migrasi 0052", () => {
     ]);
   });
 });
+
+describe("tabel stok pembanding", () => {
+  it("lists the latest count per warehouse + owner with Accurate PT as comparison; Admin and Admin Gudang only; no prices", async () => {
+    const { req, countAndAcc } = setup();
+    await countAndAcc(1, 25); // P-1 Utama umum, Accurate Utama 30
+    await countAndAcc(1, 27); // hitungan terbaru menggantikan
+    await countAndAcc(1, 5, "Gudang B", "cv");
+    const res = await req("gudang", "/api/stock/book");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { columns: { key: string }[]; rows: Record<string, unknown>[] };
+    expect(body.columns.map((c) => c.key)).toEqual(["Utama|umum", "Gudang B|cv"]);
+    expect(body.rows).toEqual([expect.objectContaining({ code: "P-1", cells: { "Utama|umum": 27, "Gudang B|cv": 5 }, total: 32, accurate: 30, accurateAll: 42, diff: -3 })]);
+    expect(JSON.stringify(body)).not.toMatch(/cogs|list_price/);
+    expect((await req("admin", "/api/stock/book")).status).toBe(200);
+    expect((await req("manager", "/api/stock/book")).status).toBe(403);
+    expect((await req("rep", "/api/stock/book")).status).toBe(403);
+  });
+});

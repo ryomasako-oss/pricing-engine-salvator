@@ -14,6 +14,7 @@ import { ACCURATE_TOTALS, IS_UNSENT, SAME_UNIT, matchEnteredCounts, pullStock } 
 import { catalogEntity, credsFor, loadState, requestRestart, syncConfig, syncStep } from "../accurate/sync";
 import { buildTimeline, type TimelineCount, type TimelineMutation } from "../../../shared/stockTimeline";
 import { countWarehouses } from "./catalog";
+import { buildBook, type BookAccurate, type BookCount } from "../../../shared/stockBook";
 import type { Env } from "../env";
 
 export const stockRouter = new Hono<Env>();
@@ -209,4 +210,33 @@ stockRouter.get("/item", async (c) => {
   // Hitungan lama tanpa gudang tetap ditampilkan, tanpa saldo.
   const noWarehouse = counts.filter((k) => !k.warehouse);
   return c.json({ item: item ?? { code, name: null, uom: "", stock: null }, warehouses, noWarehouse, historyFrom: historyFrom?.d ?? null });
+});
+
+/**
+ * Tabel stok pembanding (stok mandiri): hitungan terakhir per barang + gudang + pemilik untuk semua barang yang pernah
+ * dihitung, dengan stok Accurate PT per gudang sebagai pembanding saja. Hanya Admin dan Admin Gudang. Tanpa harga.
+ */
+stockRouter.get("/book", async (c) => {
+  if (!canUseStockBook(c.get("user")!.role)) return c.json({ error: "Stok pembanding hanya untuk Admin dan Admin Gudang." }, 403);
+  const entity = catalogEntity(c.env);
+  const counts = await all<BookCount>(
+    c.env.DB,
+    `SELECT code, name, uom, warehouse, owner, counted, counted_at, counted_by_name FROM (
+       SELECT s.code, i.name, COALESCE(NULLIF(i.uom, ''), s.uom) AS uom, s.warehouse, s.owner, s.counted,
+              datetime(s.counted_at, '+7 hours') AS counted_at, u.name AS counted_by_name,
+              ROW_NUMBER() OVER (PARTITION BY s.code, lower(s.warehouse), s.owner ORDER BY s.counted_at DESC, s.id DESC) AS rn
+         FROM stock_counts s
+         LEFT JOIN catalog_items i ON i.code = s.code
+         LEFT JOIN users u ON u.id = s.counted_by
+     ) WHERE rn = 1 LIMIT 20000`,
+  );
+  const accurate = await all<BookAccurate>(
+    c.env.DB,
+    `SELECT q.item_code AS code, w.name AS warehouse, q.quantity AS qty
+       FROM accurate_stock q JOIN accurate_warehouses w ON w.entity = q.entity AND w.accurate_id = q.warehouse_id
+      WHERE q.entity = ? AND q.item_code IN (SELECT DISTINCT code FROM stock_counts)`,
+    entity,
+  );
+  const asOf = (await loadState(c.env.DB, entity)).last_success_at;
+  return c.json({ ...buildBook(counts, accurate), asOf });
 });
