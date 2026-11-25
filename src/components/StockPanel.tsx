@@ -272,7 +272,7 @@ export function StockEntry({ item, onChange }: { item: CatalogItem; onChange: (p
           <summary className="muted small">Stok pembanding ({counts.length} hitungan)</summary>
           <ul className="draft-changes">
             {counts.slice(0, 10).map((k) => (
-              <li key={k.id} className="draft-change">
+              <li key={k.id} className="draft-change count-row">
                 <div className="fix-main">
                   <div className="num">
                     {wib(k.counted_at)} · {k.warehouse || "gudang tidak tercatat"}: hitung <strong>{grp(k.counted)}</strong>

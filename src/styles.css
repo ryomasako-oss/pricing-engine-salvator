@@ -675,7 +675,7 @@ input[type=checkbox] { accent-color: var(--color-action); width: 17px; height: 1
 .toolbar .chips { margin-top: 0; }
 /* Belum masuk Accurate: kotak centang di kiri, isi mengisi sisa baris (juga di HP). */
 .draft-change.count-row { justify-content: flex-start; flex-direction: row; }
-.draft-change.count-row .fix-main { flex: 1; }
+.draft-change.count-row .fix-main { flex: 1; text-align: left; }
 @media (max-width: 671px) {
   .fix-row { flex-direction: column; }
   .draft-change { flex-direction: column; }
