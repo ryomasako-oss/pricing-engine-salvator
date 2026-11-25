@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { Modal } from "../components/Modal";
-import { Icon } from "../components/Icon";
 import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
@@ -87,52 +86,63 @@ export function DuplicateReportsSection({ status }: { status: "open" | "decided"
       ]
     : [];
 
-  if (reports.length === 0) return null;
+  if (reports.length === 0)
+    return status === "open" && !loading ? (
+      <div className="card-body empty">
+        <h3>Tidak ada laporan duplikat yang menunggu</h3>
+        <p>Laporan muncul di sini saat Admin Gudang menekan Duplikat di baris Katalog.</p>
+      </div>
+    ) : null;
 
   return (
     <>
-      <div className="card-body">
-        <h3 style={{ margin: "0 0 8px" }}>Duplikat{status === "open" ? ` (${reports.length})` : ""}</h3>
-            <ul className="list" style={{ gap: 10 }}>
-              {reports.map((r) => (
-                <li key={r.id} className="fix-row">
-                  <div className="fix-main">
-                    <div className="row-wrap" style={{ gap: 6 }}>
-                      <span className={`badge ${STATUS_BADGE[r.status]}`}>{DUPLICATE_STATUS[r.status].label}</span>
-                      <span className="muted small">
-                        {r.reported_by_name ?? "—"} · {fmtDateTime(r.created_at)}
-                      </span>
+      <ul className="fix-list">
+        {reports.map((r) => (
+          <li key={r.id} className="fix-row draft-card">
+            <div className="draft-head">
+              <strong className="fix-item">
+                <span>
+                  {r.item_a_name} <span className="muted num">· {r.item_a_code || "tanpa kode"}</span>
+                </span>
+              </strong>
+            </div>
+            <ul className="draft-changes">
+              <li className="draft-change">
+                <div className="fix-main">
+                  <div className="badge-row">
+                    <span className="badge amber">Duplikat</span>
+                    {r.status !== "open" && <span className={`badge ${STATUS_BADGE[r.status]}`}>{DUPLICATE_STATUS[r.status].label}</span>}
+                  </div>
+                  {[
+                    { id: r.item_a_id, code: r.item_a_code, name: r.item_a_name },
+                    { id: r.item_b_id, code: r.item_b_code, name: r.item_b_name },
+                  ].map((item, i) => (
+                    <div key={item.id}>
+                      {i === 0 ? "Barang: " : "Kembar dengan: "}
+                      <strong>{item.name}</strong> <span className="muted num">· {item.code || "tanpa kode"}</span>
+                      {r.kept_item_id === item.id && <span className="badge green" style={{ marginLeft: 6 }}>Dipakai</span>}
                     </div>
-                    <div className="row-wrap" style={{ gap: 12, marginTop: 6 }}>
-                      {[
-                        { id: r.item_a_id, code: r.item_a_code, name: r.item_a_name },
-                        { id: r.item_b_id, code: r.item_b_code, name: r.item_b_name },
-                      ].map((item) => (
-                        <div key={item.id}>
-                          <div className="muted small">{item.code || "tanpa kode"}</div>
-                          <strong>{item.name}</strong>
-                          {r.kept_item_id === item.id && <span className="badge green" style={{ marginLeft: 6 }}>Dipakai</span>}
-                        </div>
-                      ))}
-                    </div>
-                    {r.note && <div className="small">Catatan pelapor: {r.note}</div>}
-                    {r.status !== "open" && (
-                      <div className="small">
-                        <Icon name="check" size={12} /> {r.decided_by_name ?? "—"}, {r.decided_at && fmtDateTime(r.decided_at)}
-                        {r.decision_note ? <em> — {r.decision_note}</em> : ""}
-                      </div>
+                  ))}
+                  <div className="muted small">
+                    {r.reported_by_name ?? "—"}, {fmtDateTime(r.created_at)}
+                    {r.status !== "open" && r.decided_at && (
+                      <> · {DUPLICATE_STATUS[r.status].label} oleh {r.decided_by_name ?? "—"}, {fmtDateTime(r.decided_at)}</>
                     )}
                   </div>
-                  {r.status === "open" && can("review_catalog_drafts") && (
-                    <div className="fix-actions">
-                      <button className="btn small primary" onClick={() => openDecide(r, "approved")}>ACC</button>
-                      <button className="btn small danger" onClick={() => openDecide(r, "rejected")}>Tolak</button>
-                    </div>
-                  )}
-                </li>
-              ))}
+                  {r.note && <div className="fix-done"><em>{r.note}</em></div>}
+                  {r.decision_note && <div className="fix-done"><em>{r.decision_note}</em></div>}
+                </div>
+                {r.status === "open" && can("review_catalog_drafts") && (
+                  <div className="fix-actions">
+                    <button className="btn small primary" onClick={() => openDecide(r, "approved")}>ACC</button>
+                    <button className="btn small ghost danger" onClick={() => openDecide(r, "rejected")}>Tolak</button>
+                  </div>
+                )}
+              </li>
             </ul>
-      </div>
+          </li>
+        ))}
+      </ul>
 
       {deciding && (
         <Modal
