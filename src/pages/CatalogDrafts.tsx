@@ -80,8 +80,10 @@ export function CatalogDraftsPage() {
   const reviewer = can("review_catalog_drafts");
   /** A manager only uploads: their files and what became of them, view only. */
   const drafter = can("draft_catalog");
-  const { drafts: waiting } = useNavCounts();
-  const [status, setStatus] = useState<"pending" | "done" | "stock">("pending");
+  const { drafts: waitingAll, duplicates } = useNavCounts();
+  // Angka menu Gudang = draf + duplikat; tab "Menunggu ACC" hanya draf, tab duplikat punya angkanya sendiri.
+  const waiting = waitingAll == null ? null : waitingAll - (duplicates ?? 0);
+  const [status, setStatus] = useState<"pending" | "dup" | "done" | "stock">("pending");
   const [history, setHistory] = useState<StockHistoryRow[]>([]);
   const [rows, setRows] = useState<DraftRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -120,6 +122,13 @@ export function CatalogDraftsPage() {
     setLoadError(null);
     setPicked(new Set());
     if (!keepOpen) setOpen(new Map());
+    // Tab "Menunggu ACC Duplikat": isinya dimuat DuplicateReportsSection sendiri.
+    if (status === "dup") {
+      setRows([]);
+      setFiles([]);
+      setLoading(false);
+      return;
+    }
     // Riwayat stok tab: the stock history of every item, not drafts.
     (status === "stock"
       ? api.get<{ history: StockHistoryRow[] }>("/stock/history").then((r) => seq === loadSeq.current && (setHistory(r.history), setRows([]), setFiles([])))
@@ -311,17 +320,20 @@ export function CatalogDraftsPage() {
         <div className="tabs card-tabs" role="group" aria-label="Sub-menu Gudang">
           {([
             ["pending", reviewer ? "Menunggu ACC" : drafter ? "Draf saya" : "File saya"],
+            ["dup", "Menunggu ACC Duplikat"],
             ["done", "Riwayat"],
             ["stock", "Riwayat stok"],
           ] as const).map(([key, label]) => (
             <button key={key} className={status === key ? "on" : ""} aria-pressed={status === key} onClick={() => setStatus(key)}>
               {label}
               {key === "pending" && waiting != null && <span className="tab-count num">{grp(waiting)}</span>}
+              {key === "dup" && !!duplicates && <span className="tab-count num">{grp(duplicates)}</span>}
             </button>
           ))}
         </div>
 
-        {status !== "stock" && <DuplicateReportsSection key={status} status={status === "pending" ? "open" : "decided"} />}
+        {status === "dup" && <DuplicateReportsSection key={status} status="open" />}
+        {status === "done" && <DuplicateReportsSection key={status} status="decided" />}
 
         {loadError ? (
           <LoadError message={loadError} onRetry={() => load()} />
@@ -329,7 +341,7 @@ export function CatalogDraftsPage() {
           <div className="card-body skeleton-list" role="status" aria-label="Memuat draf…">
             {[0, 1, 2].map((i) => <span key={i} className="skeleton" />)}
           </div>
-        ) : status === "stock" ? (
+        ) : status === "dup" ? null : status === "stock" ? (
           <div className="card-body"><StockHistoryList rows={history} withItem /></div>
         ) : rows.length === 0 && files.length === 0 ? (
           <div className="card-body empty">

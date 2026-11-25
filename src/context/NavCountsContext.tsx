@@ -13,9 +13,11 @@ interface NavCounts {
   toFix: number | null;
   /** Draf Gudang + laporan duplikat menunggu: semua untuk admin, milik sendiri untuk Admin Gudang. */
   drafts: number | null;
+  /** Laporan duplikat menunggu (sudah termasuk di `drafts`). */
+  duplicates: number | null;
 }
 
-const NavCountsContext = createContext<NavCounts>({ pending: null, toFix: null, drafts: null });
+const NavCountsContext = createContext<NavCounts>({ pending: null, toFix: null, drafts: null, duplicates: null });
 
 export function NavCountsProvider({ children }: { children: React.ReactNode }) {
   const { can } = useAuth();
@@ -23,6 +25,7 @@ export function NavCountsProvider({ children }: { children: React.ReactNode }) {
   const [pending, setPending] = useState<number | null>(null);
   const [toFix, setToFix] = useState<number | null>(null);
   const [drafts, setDrafts] = useState<number | null>(null);
+  const [duplicates, setDuplicates] = useState<number | null>(null);
 
   // Keep the approvals badge fresh as the user moves around the app.
   useEffect(() => {
@@ -49,7 +52,7 @@ export function NavCountsProvider({ children }: { children: React.ReactNode }) {
       Promise.all([
         api.get<{ pending: number }>("/catalog/drafts/count"),
         api.get<{ open: number }>("/duplicate-reports/count").catch(() => ({ open: 0 })),
-      ]).then(([d, dup]) => setDrafts(d.pending + dup.open)).catch(() => undefined);
+      ]).then(([d, dup]) => (setDrafts(d.pending + dup.open), setDuplicates(dup.open))).catch(() => undefined);
     refresh();
     window.addEventListener("catalog-drafts-changed", refresh);
     window.addEventListener("duplicate-reports-changed", refresh);
@@ -59,7 +62,7 @@ export function NavCountsProvider({ children }: { children: React.ReactNode }) {
     };
   }, [can, pathname]);
 
-  return <NavCountsContext.Provider value={{ pending, toFix, drafts }}>{children}</NavCountsContext.Provider>;
+  return <NavCountsContext.Provider value={{ pending, toFix, drafts, duplicates }}>{children}</NavCountsContext.Provider>;
 }
 
 export const useNavCounts = () => useContext(NavCountsContext);
