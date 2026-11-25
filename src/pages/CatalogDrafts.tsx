@@ -7,7 +7,7 @@ import { DuplicateReportsSection } from "./DuplicateReports";
 import { Link } from "react-router-dom";
 import { api } from "../api";
 import { LoadError } from "../components/LoadError";
-import { StockActions, StockHistoryList, type StockHistoryRow } from "../components/StockPanel";
+import { OpenCountsList, StockActions, StockHistoryList, type StockHistoryRow } from "../components/StockPanel";
 import { Modal } from "../components/Modal";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
@@ -66,7 +66,7 @@ const PAGE = 100;
 const ACC_STEP = 120; // = server ACC_STEP (routes/catalog.ts)
 const MODE_LABEL: Record<ImportFile["mode"], string> = { merge: "Gabung ke katalog", replace: "Ganti seluruh katalog" };
 
-const KIND_LABEL: Record<DraftRow["kind"], string> = { barcode: "Barcode", unit: "Satuan baru", edit: "Ubah barang", stock: "Stok", import: "Impor file" };
+const KIND_LABEL: Record<DraftRow["kind"], string> = { barcode: "Barcode", unit: "Satuan baru", edit: "Ubah barang", stock: "Cycle count", import: "Impor file" };
 const STATUS: Record<Exclude<DraftRow["status"], "pending">, [string, string]> = {
   approved: ["green", "Di-ACC"],
   rejected: ["red", "Ditolak"],
@@ -225,7 +225,7 @@ export function CatalogDraftsPage() {
       }
     }
     setBusy(false);
-    if (ok) toast(`${ok} draf di-ACC dan sudah masuk katalog.`, "success");
+    if (ok) toast(`${ok} draf di-ACC.`, "success");
     load(true);
     changed();
   };
@@ -286,7 +286,7 @@ export function CatalogDraftsPage() {
           <h1>Gudang</h1>
           <p>
             {reviewer
-              ? "Perubahan Admin Gudang di Katalog (barcode, satuan, data barang) dan file impor katalog. Baru masuk katalog setelah di-ACC. Stok katalog hanya berubah lewat Tarik, draf stok, atau file impor yang di-ACC."
+              ? "Perubahan Admin Gudang di Katalog (barcode, satuan, data barang) dan file impor katalog. Baru masuk katalog setelah di-ACC. Stok ikut Accurate; hasil cycle count gudang yang di-ACC disimpan sebagai stok pembanding, dan selisihnya diinput ke Accurate (daftar Belum masuk Accurate)."
               : drafter
                 ? "Barcode dan satuan tetap dikerjakan di Katalog. Hasilnya menunggu ACC admin di sini; yang ditolak tampil di tab Riwayat beserta alasannya."
                 : "File impor katalog yang Anda unggah: menunggu ACC admin, sudah di-ACC, atau ditolak beserta alasannya. Di sini hanya untuk melihat; ACC dilakukan admin."}
@@ -332,6 +332,7 @@ export function CatalogDraftsPage() {
           ))}
         </div>
 
+        {reviewer && status === "pending" && <OpenCountsList />}
         {status === "dup" && <DuplicateReportsSection key={status} status="open" />}
         {status === "done" && <DuplicateReportsSection key={status} status="decided" />}
 

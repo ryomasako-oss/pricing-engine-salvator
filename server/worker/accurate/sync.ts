@@ -13,6 +13,7 @@
    ============================================================ */
 
 import { addNewItems } from "./newItems";
+import { pullStock } from "./stock";
 import { reconcileDue, runReconcile } from "./reconcile";
 import { all, batch, get, run, stmt } from "../../db.d1";
 import { AccurateClient, AccurateError, type AccurateCreds } from "./client";
@@ -331,7 +332,8 @@ export async function syncTick(env: Bindings, opts: { deadlineMs: number }): Pro
   if (out.find((r) => r.entity === mine)?.outcome === "idle" && (await reconcileDue(env.DB, mine))) {
     try {
       if (env.ACCURATE_AUTO_NEW_ITEMS !== "false") await addNewItems(env.DB, mine);
-      // Stok katalog tidak lagi disalin di sini (accurate/stock.ts): hanya Tarik, Terapkan, atau draf ACC.
+      // Stok katalog ikut Accurate lagi tiap run (pemilik, 2026-11-25); tanpa riwayat per barang.
+      await pullStock(env.DB, mine, null, false);
       await runReconcile(env.DB, mine);
     } catch (err) {
       // Marked done anyway: left unmarked, every 5-minute tick retried this step, and each try

@@ -5,7 +5,7 @@ import { audit } from "../audit";
 import { requireAuth, requirePermission } from "../auth";
 import { hasPermission } from "../../../shared/permissions";
 import { PAUSE_NEW_ITEMS_SQL } from "../accurate/newItems";
-import { STOCK_AS_OF_KEY } from "../accurate/stock";
+import { STOCK_AS_OF_KEY, syncedWarehouseStock } from "../accurate/stock";
 import { catalogRowSchema, unitsSchema, zodMessage } from "../../validate";
 import {
   type AliasRow,
@@ -26,7 +26,8 @@ import {
 } from "../../matchLearning";
 import { cogsProblemsFor } from "../quoteService";
 import { sweepPending } from "./pendingItems";
-import { catalogEntity } from "../accurate/sync";
+import { catalogEntity, credsFor } from "../accurate/sync";
+import { AccurateClient } from "../accurate/client";
 import { costLines } from "../accurate/receipts";
 import { searchCatalog } from "../../../shared/catalogSearch";
 import { catalogIndex, forgetCatalogIndex, recordPicks, saveSearchPriority, searchPriority, searchWithMeaning, type IndexedItem } from "../catalogSearchIndex";
@@ -515,22 +516,61 @@ async function saveDraft(
 }
 
 /**
- * Stok (pemilik, 2026-11-20): every manual stock change, from any role, is a draft that applies only after an
- * admin's ACC. One waiting draft per item (a second save replaces it); the number is in the base unit.
+ * Cycle count (pemilik, 2026-11-25): hasil hitung gudang untuk satu barang di satu gudang, menjadi draf untuk ACC
+ * admin. Stok Accurate gudang itu dibaca saat itu juga (get-stock.do; bila gagal, salinan sinkron terakhir) supaya
+ * selisihnya dihitung pada jam yang sama. Satu draf menunggu per barang; hitungan baru di gudang yang sama
+ * menggantikannya, di gudang lain ditolak sampai yang pertama diputuskan. Stok katalog tidak berubah: ikut Accurate.
  */
 catalogRouter.put("/:id/stock", async (c) => {
   const user = c.get("user")!;
   if (!hasPermission(user.role, "draft_catalog") && !hasPermission(user.role, "edit_catalog")) return c.json({ error: "Akses ditolak untuk peran Anda." }, 403);
   const id = Number(c.req.param("id"));
-  const parsed = z.object({ stock: z.number().min(0, "Stok tidak boleh minus.").max(1_000_000_000) }).safeParse(await c.req.json().catch(() => null));
+  const parsed = z
+    .object({
+      stock: z.number().min(0, "Stok tidak boleh minus.").max(1_000_000_000),
+      warehouse: z.string().trim().min(1, "Pilih gudang tempat menghitung.").max(80),
+    })
+    .safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
   const item = await get<{ code: string; stock: number }>(c.env.DB, "SELECT code, stock FROM catalog_items WHERE id = ?", id);
   if (!item) return c.json({ error: "Item tidak ditemukan." }, 404);
-  if (item.stock === parsed.data.stock) return c.json({ error: "Stok sama dengan yang sekarang. Belum ada yang diubah." }, 400);
-  const f = await saveDraft(c.env.DB, user.id, { item_id: id, code: item.code, kind: "stock", uom: "", payload: { stock: parsed.data.stock }, before: { stock: item.stock } });
+  const { stock, warehouse } = parsed.data;
+  const waiting = await get<{ w: string | null }>(
+    c.env.DB,
+    "SELECT json_extract(payload, '$.warehouse') AS w FROM catalog_drafts WHERE code = ? AND kind = 'stock' AND status = 'pending'",
+    item.code,
+  );
+  if (waiting && waiting.w && waiting.w.toLowerCase() !== warehouse.toLowerCase())
+    return c.json({ error: `Hitungan ${item.code} di gudang ${waiting.w} masih menunggu ACC. Tunggu diputuskan dulu.` }, 409);
+  const now = await accurateStockNow(c.env, item.code, warehouse);
+  const f = await saveDraft(c.env.DB, user.id, {
+    item_id: id, code: item.code, kind: "stock", uom: "",
+    payload: { stock, warehouse, accurate: now.qty, accurate_source: now.source },
+    before: { stock: item.stock },
+  });
   if (f) return c.json({ error: f.error }, f.status);
-  return c.json(await skuOut(c.env.DB, item.code));
+  return c.json({ ...(await skuOut(c.env.DB, item.code)), count: { warehouse, stock, accurate: now.qty, source: now.source } });
 });
+
+/** Stok Accurate satu barang di satu gudang sekarang: langsung dari Accurate, atau salinan sinkron bila gagal. */
+async function accurateStockNow(env: Env["Bindings"], code: string, warehouse: string): Promise<{ qty: number | null; source: "live" | "sync" | null }> {
+  const entity = catalogEntity(env);
+  const creds = credsFor(env, entity);
+  if (creds) {
+    try {
+      const host = await get<{ host: string | null }>(env.DB, "SELECT host FROM accurate_sync_state WHERE entity = ?", entity);
+      const body = (await new AccurateClient(creds, host?.host ?? null).raw("item/get-stock.do", { no: code, warehouseName: warehouse })) as {
+        d?: { availableStock?: unknown };
+      };
+      const n = Number(body.d?.availableStock);
+      if (Number.isFinite(n)) return { qty: n, source: "live" };
+    } catch {
+      // Accurate tidak terjangkau atau barang tidak dikenal: pakai salinan sinkron di bawah.
+    }
+  }
+  const synced = await syncedWarehouseStock(env.DB, entity, code, warehouse);
+  return { qty: synced, source: synced == null ? null : "sync" };
+}
 
 /** Admin Gudang: every catalog fix becomes a draft for an admin, nothing reaches the catalog itself. */
 const drafting = (role: Role) => hasPermission(role, "draft_catalog") && !hasPermission(role, "edit_catalog");
@@ -647,7 +687,7 @@ catalogRouter.get("/drafts/count", async (c) => {
   return c.json({ pending: (drafts?.n ?? 0) + (imports?.n ?? 0) });
 });
 
-type DraftRow = { id: number; item_id: number; code: string; kind: CatalogDraftMark["kind"]; uom: string; payload: string; before: string; created_by: number | null; import_id?: number | null };
+type DraftRow = { id: number; item_id: number; code: string; kind: CatalogDraftMark["kind"]; uom: string; payload: string; before: string; created_by: number | null; created_at?: string; import_id?: number | null };
 
 /**
  * An Ubah barang draft carries only what the Admin Gudang changed, laid over the item as it is now. Without
@@ -679,21 +719,34 @@ async function editDraft(db: D1Database, actorId: number, d: DraftRow, p: DraftP
   return editItem(db, actorId, d.item_id, editOverCurrent({ ...now, units }, JSON.parse(d.before), p), true, via);
 }
 
-/** ACC of a stock draft: the catalog stock is set, the history row names who filled and who ACCed, and the item waits to be sent. */
+/**
+ * ACC of a cycle count (2026-11-25): stok katalog tidak berubah (ikut Accurate). Hasil hitung menjadi stok pembanding
+ * di stock_counts: "open" (belum masuk Accurate) bila berbeda dengan Accurate saat dihitung, "matched" bila sama.
+ * Riwayat stok mencatat Accurate saat dihitung -> hasil hitung. Draf lama tanpa gudang memakai stok katalog saat itu.
+ */
 async function applyStockDraft(db: D1Database, actorId: number, d: DraftRow): Promise<Fail | null> {
   const now = await get<{ stock: number; uom: string }>(db, "SELECT stock, uom FROM catalog_items WHERE id = ?", d.item_id);
   if (!now) return fail("Item tidak ditemukan.", 404);
-  const next = (JSON.parse(d.payload) as DraftPayloads["stock"]).stock;
+  const p = JSON.parse(d.payload) as DraftPayloads["stock"];
+  const warehouse = p.warehouse ?? "";
+  const accurate = p.warehouse === undefined ? now.stock : p.accurate ?? null;
+  const status = accurate != null && Math.abs(accurate - p.stock) < 1e-9 ? "matched" : "open";
   await batch(db, [
-    stmt(db, "UPDATE catalog_items SET stock = ?, updated_at = datetime('now') WHERE id = ?", next, d.item_id),
     stmt(
       db,
-      `INSERT INTO stock_history(code, uom, qty_before, qty_after, source, draft_id, filled_by, approved_by) VALUES(?, ?, ?, ?, 'draft_approved', ?, ?, ?)`,
-      d.code, now.uom, now.stock, next, d.id, d.created_by, actorId,
+      `INSERT INTO stock_counts(item_id, code, uom, warehouse, counted, accurate_qty, accurate_source, counted_at, counted_by, approved_by, draft_id, status, note)
+       VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      d.item_id, d.code, now.uom, warehouse, p.stock, accurate, p.warehouse === undefined ? "sync" : p.accurate_source ?? null,
+      d.created_at ?? new Date().toISOString().slice(0, 19).replace("T", " "), d.created_by, actorId, d.id, status, p.warehouse === undefined ? "Draf lama: gudang tidak tercatat" : "",
     ),
-    ...(now.stock !== next ? [stmt(db, "INSERT INTO stock_unsent(code) VALUES(?) ON CONFLICT(code) DO NOTHING", d.code)] : []),
+    stmt(
+      db,
+      `INSERT INTO stock_history(code, uom, qty_before, qty_after, source, draft_id, filled_by, approved_by, note) VALUES(?, ?, ?, ?, 'draft_approved', ?, ?, ?, ?)`,
+      d.code, now.uom, accurate ?? now.stock, p.stock, d.id, d.created_by, actorId,
+      warehouse ? `Hitung gudang ${warehouse}; sebelum = stok Accurate saat dihitung` : "",
+    ),
   ]);
-  await audit(db, actorId, "catalog", d.item_id, "stock_set", { code: d.code, before: now.stock, after: next, draft_id: d.id, proposed_by: d.created_by });
+  await audit(db, actorId, "catalog", d.item_id, "stock_set", { code: d.code, warehouse, counted: p.stock, accurate, draft_id: d.id, proposed_by: d.created_by });
   return null;
 }
 
@@ -727,7 +780,7 @@ catalogRouter.post("/drafts/:draftId/review", requirePermission("review_catalog_
   if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
   const { approve, note } = parsed.data;
   if (!approve && !note) return c.json({ error: "Tulis alasan penolakan supaya gudang tahu apa yang perlu diperbaiki." }, 400);
-  const d = await get<DraftRow>(c.env.DB, "SELECT id, item_id, code, kind, uom, payload, before, created_by, import_id FROM catalog_drafts WHERE id = ?", draftId);
+  const d = await get<DraftRow>(c.env.DB, "SELECT id, item_id, code, kind, uom, payload, before, created_by, created_at, import_id FROM catalog_drafts WHERE id = ?", draftId);
   if (!d) return c.json({ error: "Draf tidak ditemukan." }, 404);
   // A file row is claimed and applied only together with its file (it needs the batch claim and the file's bookkeeping).
   if (d.kind === "import") return c.json({ error: "Baris file impor di-ACC atau ditolak lewat file-nya di menu Gudang." }, 400);
@@ -1309,11 +1362,6 @@ async function applyImportDrafts(
                   `INSERT INTO stock_history(code, uom, qty_before, qty_after, source, draft_id, filled_by, approved_by)
                    SELECT code, uom, stock, ?2, 'import', ?3, ?4, ?5 FROM catalog_items WHERE code = ?1 AND stock IS NOT ?2 AND ${claimedBy("?3", "?6")}`,
                   d.code, r.stock, d.id, d.created_by, actorId, claim,
-                ),
-                stmt(
-                  db,
-                  `INSERT INTO stock_unsent(code) SELECT code FROM catalog_items WHERE code = ?1 AND stock IS NOT ?2 AND ${claimedBy("?3", "?4")} ON CONFLICT(code) DO NOTHING`,
-                  d.code, r.stock, d.id, claim,
                 ),
                 stmt(db, `UPDATE catalog_items SET stock = ?2, updated_at = datetime('now') WHERE code = ?1 AND ${claimedBy("?3", "?4")}`, d.code, r.stock, d.id, claim),
               ]

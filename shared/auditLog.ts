@@ -54,6 +54,7 @@ const ACTIONS: Record<string, string> = {
   catalog_draft_approved: "Draf gudang di-ACC",
   stock_set: "Stok diubah (draf di-ACC)",
   stock_pulled: "Stok ditarik dari Accurate",
+  stock_marked_entered: "Hitungan stok ditandai sudah masuk Accurate",
   catalog_draft_rejected: "Draf gudang ditolak",
   catalog_draft_cancelled: "Draf gudang dibatalkan",
   import_approved: "Impor katalog di-ACC",

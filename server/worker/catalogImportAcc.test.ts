@@ -146,7 +146,7 @@ describe("ACC impor", () => {
     expect(audits.every((d) => typeof d.draft_id === "number" && d.kind === "import")).toBe(true);
     expect(q("SELECT stock FROM catalog_items WHERE code = 'FRESH'")[0].stock).toBe(7);
     expect(q("SELECT source, qty_before, qty_after FROM stock_history")).toEqual([{ source: "import", qty_before: 0, qty_after: 7 }]);
-    expect(q("SELECT code FROM stock_unsent")).toEqual([{ code: "FRESH" }]);
+    expect(q("SELECT code FROM stock_unsent")).toEqual([]); // 2026-11-25: stok katalog ikut Accurate; tidak ada yang ditahan
   });
 
   it("one item, then some, then the rest of the file", async () => {
