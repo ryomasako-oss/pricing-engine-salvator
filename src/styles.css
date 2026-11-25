@@ -678,8 +678,8 @@ input[type=checkbox] { accent-color: var(--color-action); width: 17px; height: 1
 .draft-change.count-row .fix-main { flex: 1; text-align: left; }
 .stock-book { display: grid; gap: 6px; margin-top: 6px; text-align: left; }
 /* Satu baris per gudang: gudang, pemilik, jumlah, hapus. */
-.stock-book .barcode-line { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr) auto; gap: 6px; align-items: center; }
-.stock-book .barcode-line > * { min-width: 0; width: 100%; }
+.stock-book .barcode-line { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 6px; align-items: center; }
+.stock-book .barcode-line > .input { min-width: 0; width: 100%; }
 .stock-book .row-wrap { justify-content: flex-start; }
 @media (max-width: 671px) {
   .fix-row { flex-direction: column; }

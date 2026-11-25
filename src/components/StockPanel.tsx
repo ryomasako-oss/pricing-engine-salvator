@@ -194,7 +194,6 @@ export interface StockCountRow {
 }
 
 type Owner = "umum" | "pt" | "cv";
-const OWNER: Record<Owner, string> = { umum: "Umum", pt: "PT", cv: "CV" };
 const signed = (n: number) => `${n > 0 ? "+" : ""}${grp(n)}`;
 interface CountLine { warehouse: string; owner: Owner; value: string }
 
@@ -217,7 +216,6 @@ export function StockEntry({ item, onChange }: { item: CatalogItem; onChange: (p
   const mayEnter = can("review_catalog_drafts") || can("draft_catalog");
   const seeHistory = can("import_catalog") || can("draft_catalog");
   const [warehouses, setWarehouses] = useState<string[]>([]);
-  const [suggested, setSuggested] = useState<string[]>([]);
   const [lines, setLines] = useState<CountLine[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -235,8 +233,8 @@ export function StockEntry({ item, onChange }: { item: CatalogItem; onChange: (p
     if (!mayEnter) return;
     api.get<{ warehouses: string[]; required: string[] }>(`/stock/warehouses?code=${encodeURIComponent(item.code)}`).then((r) => {
       setWarehouses(r.warehouses);
-      setSuggested(r.required.slice(1));
-      setLines([{ warehouse: r.warehouses[0] ?? "", owner: "umum", value: "" }]); // gudang bawaan (Utama), pemilik Umum
+      // Gudang bawaan (Utama), pemilik Umum; angka yang sudah diketik tidak hilang bila daftar gudang datang belakangan.
+      setLines((ls) => [{ warehouse: r.warehouses[0] ?? "", owner: "umum", value: ls[0]?.value ?? "" }]);
     }).catch(() => {});
   }, [mayEnter, item.code]);
   if (!mayEnter && !seeHistory) return null;
@@ -271,7 +269,7 @@ export function StockEntry({ item, onChange }: { item: CatalogItem; onChange: (p
         <span className="num">{grp(item.stock)}</span>
         {draft && (
           <span className="badge amber">
-            hitungan menunggu ACC{draftLines.length ? `: ${draftLines.map((l) => `${l.warehouse} ${OWNER[l.owner ?? "umum"]} ${grp(l.stock)}`).join(", ")}` : ""}
+            hitungan menunggu ACC{draftLines.length ? `: ${draftLines.map((l) => `${l.warehouse} ${grp(l.stock)}`).join(", ")}` : ""}
           </span>
         )}
       </div>
@@ -289,7 +287,7 @@ export function StockEntry({ item, onChange }: { item: CatalogItem; onChange: (p
                 <li key={k.id} className="draft-change count-row">
                   <div className="fix-main">
                     <div className="num">
-                      {k.warehouse || "gudang tidak tercatat"} · {OWNER[k.owner] ?? k.owner}: <strong>{grp(k.counted)}</strong>
+                      {k.warehouse || "gudang tidak tercatat"}: <strong>{grp(k.counted)}</strong>
                       {k.accurate_qty != null && k.owner !== "cv" && <span className="muted"> · Accurate PT saat itu {grp(k.accurate_qty)}{k.diff ? ` (${signed(k.diff)})` : ""}</span>}
                     </div>
                     <div className="muted small">
@@ -302,14 +300,10 @@ export function StockEntry({ item, onChange }: { item: CatalogItem; onChange: (p
           )}
           {mayEnter && (
             <>
-              {lines.map((l, i) => (
+              {/* Sementara hanya gudang Utama dan tanpa PT/CV (pemilik, 2026-11-25 malam); baris lain disiapkan di server. */}
+              {lines.slice(0, 1).map((l, i) => (
                 <div key={i} className="barcode-line">
-                  <select className="input" aria-label="Gudang" value={l.warehouse} onChange={(e) => setLine(i, { warehouse: e.target.value })}>
-                    {warehouses.map((w) => <option key={w} value={w}>{w}</option>)}
-                  </select>
-                  <select className="input" aria-label="Pemilik" value={l.owner} onChange={(e) => setLine(i, { owner: e.target.value as Owner })} title="Di rak PT dan CV belum bisa dibedakan: pakai Umum">
-                    {(Object.keys(OWNER) as Owner[]).map((o) => <option key={o} value={o}>{OWNER[o]}</option>)}
-                  </select>
+                  <span className="muted small" aria-label="Gudang">Gudang {l.warehouse}</span>
                   <input
                     className={`input num${error ? " invalid" : ""}`}
                     inputMode="decimal"
@@ -320,18 +314,11 @@ export function StockEntry({ item, onChange }: { item: CatalogItem; onChange: (p
                     onChange={(e) => { setLine(i, { value: e.target.value }); setError(null); }}
                     onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void submit(); } }}
                   />
-                  {lines.length > 1 && <button className="btn small ghost" onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))} aria-label="Hapus baris">✕</button>}
+                  <button className="btn small" disabled={busy || !ready} title="Ajukan hasil hitung. Masuk stok pembanding setelah di-ACC admin; Accurate tidak berubah." onClick={() => void submit()}>
+                    {busy ? "Menyimpan…" : "Ajukan hitungan"}
+                  </button>
                 </div>
               ))}
-              <div className="row-wrap">
-                <button className="btn small ghost" onClick={() => setLines((ls) => [...ls, { warehouse: warehouses.find((w) => !ls.some((x) => x.warehouse === w)) ?? warehouses[0] ?? "", owner: "umum", value: "" }])}>
-                  + Gudang lain
-                </button>
-                <button className="btn small" disabled={busy || !ready} title="Ajukan hasil hitung. Masuk stok pembanding setelah di-ACC admin; Accurate tidak berubah." onClick={() => void submit()}>
-                  {busy ? "Menyimpan…" : "Ajukan hitungan"}
-                </button>
-              </div>
-              {suggested.length > 0 && <div className="muted small">Menurut Accurate barang ini juga ada di: {suggested.join(", ")}.</div>}
             </>
           )}
           {error && <div className="text-err small" role="alert">{error}</div>}

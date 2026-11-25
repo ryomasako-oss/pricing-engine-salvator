@@ -46,8 +46,8 @@ export function StockBookTable() {
   return (
     <div className="card-body">
       <p className="muted small">
-        Stok mandiri di Pricing Engine dari hitungan gudang yang sudah di-ACC: angka terakhir per gudang dan pemilik. Tidak
-        terhubung ke Accurate. Kolom Accurate PT hanya pembanding, untuk gudang yang dihitung (pemilik CV tidak dibandingkan).
+        Stok mandiri di Pricing Engine dari hitungan gudang yang sudah di-ACC (sementara gudang Utama saja): angka terakhir.
+        Tidak terhubung ke Accurate. Kolom Accurate PT hanya pembanding.
       </p>
       <div className="row-wrap">
         <input className="input" placeholder="Cari kode atau nama barang" aria-label="Cari stok pembanding" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -66,7 +66,7 @@ export function StockBookTable() {
             <tr>
               <th className="l">Barang</th>
               <th className="l">Satuan</th>
-              {columns.map((c) => <th key={c.key}>{c.warehouse || "(tanpa gudang)"} · {BOOK_OWNER[c.owner]}</th>)}
+              {columns.map((c) => <th key={c.key}>{c.warehouse || "(tanpa gudang)"}{c.owner !== "umum" ? ` · ${BOOK_OWNER[c.owner]}` : ""}</th>)}
               <th>Total</th>
               <th title="Stok Accurate PT di gudang yang dihitung (Umum/PT)">Accurate PT</th>
               <th>Selisih</th>
