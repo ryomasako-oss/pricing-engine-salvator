@@ -30,6 +30,7 @@ import { DIGEST_CRON, runFixDigest } from "./fixDigest";
 import { appLink, notifyEmail } from "./notify";
 import { runAccurateRecap } from "./accurateRecap";
 import { RECEIPTS_CRON, purchasesTick, receiptsTick } from "./accurate/receipts";
+import { mutationsTick } from "./accurate/mutations";
 import { salesTick } from "./accurate/sales";
 import { syncTick } from "./accurate/sync";
 import { clientIp, type Bindings, type Env } from "./env";
@@ -132,8 +133,13 @@ async function scheduled(controller: ScheduledController, env: Bindings, ctx: Ex
   }
   if (controller.cron === RECEIPTS_CRON) {
     ctx.waitUntil(
-      receiptsTick(env, { deadlineMs: 25_000 })
-        .then(async (r) => {
+      // Riwayat mutasi stok dulu: Accurate hanya menyimpan 7 hari, dan satu pass ringan (±12 panggilan).
+      mutationsTick(env, { deadlineMs: 25_000 })
+        .then(async (m) => {
+          // Galat atau terkunci tidak menahan sinkron lain; yang memakai panggilan (progress/finished) memberi jalan ke tick berikutnya.
+          if (m && m.outcome !== "idle") console.log("[accurate] mutations", JSON.stringify(m));
+          if (m && (m.outcome === "progress" || m.outcome === "finished")) return;
+          const r = await receiptsTick(env, { deadlineMs: 25_000 });
           if (r && r.outcome !== "idle") return console.log("[accurate] receipts", JSON.stringify(r));
           // Purchase invoices, then sales invoices, each only when the step before left the call budget untouched.
           const p = await purchasesTick(env, { deadlineMs: 25_000 });
