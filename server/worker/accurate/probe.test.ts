@@ -58,3 +58,16 @@ describe("GET /api/accurate/probe — sales invoices (2026-10-17)", () => {
     expect(sales.list.error).toMatch(/sales_invoice_view/);
   });
 });
+
+describe("GET /api/accurate/probe — riwayat mutasi stok (2026-11-25)", () => {
+  it("only on ?mutations=1; a refused call is reported per endpoint and the probe still answers", async () => {
+    const probe = app(fakeAccurate({ items: [], stock: {} }));
+    expect(((await (await probe("")).json()) as any).mutations).toBeNull();
+    const res = await probe("&mutations=1");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as any;
+    expect(body.mutations.stockMutationHistory).toMatchObject({ ok: false });
+    expect(body.mutations.itemAdjustment).toMatchObject({ ok: false });
+    expect(Object.keys(body.mutations)).toHaveLength(10);
+  });
+});

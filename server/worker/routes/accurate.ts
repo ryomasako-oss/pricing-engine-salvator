@@ -661,7 +661,35 @@ accurateRouter.get("/probe", requirePermission("manage_company"), async (c) => {
         purchase = { error: (err as Error).message };
       }
     }
-    return c.json({ host: info.host, alias: info.alias, items, warehouses, stock, receipts, receiptFilterCheck, receiptDetail, sales, purchase });
+    // Izin baca semua transaksi yang menggerakkan stok (2026-11-25): ?mutations=1 mencoba tiap endpoint sekali
+    // (1 baris, terbaru) dan melaporkan per endpoint: jumlah data, contoh baris, atau galatnya. Hanya membaca;
+    // "insufficient_scope" berarti izin baca jenis itu belum diberikan pada token. Izin tulis tidak dicek.
+    let mutations: unknown = null;
+    if (c.req.query("mutations") === "1") {
+      const check = async (path: string, params: Record<string, string | number>) => {
+        try {
+          const body = (await client.raw(path, params)) as { d?: unknown; sp?: { rowCount?: number } };
+          return { ok: true, rowCount: body.sp?.rowCount ?? null, sample: Array.isArray(body.d) ? body.d.slice(0, 1) : body.d ?? null };
+        } catch (err) {
+          return { ok: false, error: (err as Error).message };
+        }
+      };
+      const latest = { "sp.page": 1, "sp.pageSize": 1, "sp.sort": "id|desc" };
+      const itemNo = ((items as { d?: { no?: string }[] }).d ?? [])[0]?.no;
+      mutations = {
+        stockMutationHistory: await check("item/stock-mutation-history.do", { "sp.page": 1, "sp.pageSize": 3 }),
+        itemAdjustment: await check("item-adjustment/list.do", { ...latest, fields: "id,number,transDate" }),
+        deliveryOrder: await check("delivery-order/list.do", { ...latest, fields: "id,number,transDate" }),
+        itemTransfer: await check("item-transfer/list.do", { ...latest, fields: "id,number,transDate" }),
+        salesReturn: await check("sales-return/list.do", { ...latest, fields: "id,number,transDate" }),
+        purchaseReturn: await check("purchase-return/list.do", { ...latest, fields: "id,number,transDate" }),
+        receiveItem: await check("receive-item/list.do", { ...latest, fields: "id,number,transDate" }),
+        salesInvoice: await check("sales-invoice/list.do", { ...latest, fields: "id,number,transDate" }),
+        purchaseInvoice: await check("purchase-invoice/list.do", { ...latest, fields: "id,number,transDate" }),
+        getStock: itemNo ? await check("item/get-stock.do", { no: itemNo }) : { ok: false, error: "tidak ada barang untuk dicoba" },
+      };
+    }
+    return c.json({ host: info.host, alias: info.alias, items, warehouses, stock, receipts, receiptFilterCheck, receiptDetail, sales, purchase, mutations });
   } catch (err) {
     return c.json({ error: (err as Error).message }, 502);
   }
