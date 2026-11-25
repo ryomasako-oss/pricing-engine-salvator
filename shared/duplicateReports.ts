@@ -8,9 +8,9 @@
  * Ini BUKAN draf Gudang yang sudah ada (perubahan stok/barcode/satuan):
  * laporan duplikat tinggal di tabelnya sendiri (`duplicate_reports`) dan
  * tampil di tabnya sendiri, jadi antrean yang lama tidak tercampur.
- * Keputusan ACC hanya mencatat barang mana yang dipakai (kept_item_id);
- * tidak ada barang katalog yang dihapus otomatis — penghapusan/penggabungan
- * barang yang kalah tetap langkah manual sesudahnya.
+ * Keputusan ACC mencatat barang mana yang dipakai (kept_item_id) dan
+ * mengarsipkan barang lain di kelompok (shared/catalogArchive.ts): disembunyikan
+ * dari Katalog dan pencarian, tidak dihapus. Tolak tidak mengubah barang apa pun.
  */
 
 export type DuplicateStatus = "open" | "approved" | "rejected";

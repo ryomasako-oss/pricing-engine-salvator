@@ -1,10 +1,14 @@
 import { Hono } from "hono";
-import { all, batch, get, run, stmt } from "../../db.d1";
+import { all, batch, get, stmt } from "../../db.d1";
 import { audit } from "../audit";
 import { requireAuth, requirePermission } from "../auth";
 import { zodMessage } from "../../validate";
 import { hasPermission } from "../../../shared/permissions";
 import type { DuplicateReport } from "../../../shared/duplicateReports";
+import type { ArchivedItem } from "../../../shared/catalogArchive";
+import { archiveLosersSql, archivedByIdsSql } from "../../catalogArchive";
+import { catalogEntity } from "../accurate/sync";
+import { forgetCatalogIndex } from "../catalogSearchIndex";
 import {
   countDuplicateSql,
   DECIDE_DUPLICATE_SQL,
@@ -37,7 +41,12 @@ duplicateReportsRouter.get("/", async (c) => {
   // anyone who can edit the catalog sees all of them.
   const scoped = !hasPermission(user.role, "edit_catalog");
   const rows = await all<DuplicateReport>(c.env.DB, listDuplicateSql(status, scoped), ...(scoped ? [user.id] : []));
-  return c.json({ items: rows });
+  // Barang yang diarsipkan ACC laporan-laporan ini, beserta status "Nonaktifkan di Accurate" (dihitung saat dibaca).
+  const ids = [...new Set(rows.filter((r) => r.status === "approved").flatMap((r) => [r.item_a_id, r.item_b_id]))];
+  const archived: ArchivedItem[] = [];
+  for (let i = 0; i < ids.length; i += 90)
+    archived.push(...(await all<ArchivedItem>(c.env.DB, archivedByIdsSql(Math.min(90, ids.length - i)), catalogEntity(c.env), ...ids.slice(i, i + 90))));
+  return c.json({ items: rows, archived });
 });
 
 duplicateReportsRouter.post("/", async (c) => {
@@ -81,9 +90,21 @@ duplicateReportsRouter.post("/:id/decide", requirePermission("review_catalog_dra
   const members = new Set(rows.flatMap((r) => [r.item_a_id, r.item_b_id]));
   if (decision === "approved" && (keep_item_id === undefined || !members.has(keep_item_id)))
     return c.json({ error: "Barang yang dipilih bukan bagian dari laporan ini." }, 400);
-  const change = await run(c.env.DB, DECIDE_DUPLICATE_SQL,
+  const decide = stmt(c.env.DB, DECIDE_DUPLICATE_SQL,
     decision, decision === "approved" ? keep_item_id ?? null : null, user.id, note, report.group_key);
+  // ACC: barang lain di kelompok diarsipkan (disembunyikan, bukan dihapus) dalam batch yang sama dengan keputusannya.
+  const losers = decision === "approved" ? [...members].filter((m) => m !== keep_item_id) : [];
+  const [change] = await batch(c.env.DB, [
+    decide,
+    ...(losers.length
+      ? [stmt(c.env.DB, archiveLosersSql(losers.length), user.id, keep_item_id!, ...losers, keep_item_id!, report.group_key, keep_item_id!, user.id)]
+      : []),
+  ]);
   if (change.meta.changes === 0) return c.json({ error: "Laporan sudah diputuskan." }, 409);
-  await audit(c.env.DB, user.id, "duplicate_report", id, "decided", { decision, group_key: report.group_key, kept_item_id: keep_item_id ?? null });
+  // Barang yang diarsipkan harus langsung hilang dari pencarian di isolate ini (indeks di-cache).
+  forgetCatalogIndex();
+  await audit(c.env.DB, user.id, "duplicate_report", id, "decided", {
+    decision, group_key: report.group_key, kept_item_id: keep_item_id ?? null, archived_item_ids: losers,
+  });
   return c.json({ ok: true });
 });

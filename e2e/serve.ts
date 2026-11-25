@@ -87,6 +87,9 @@ const seed = [
    INSERT INTO accurate_sales_lines(entity, invoice_id, line_id, invoice_no, trans_date, customer_no, customer_name, item_code, unit, unit_ratio, quantity, sales_amount, sub_total)
      VALUES ('PT', 9401, 1, 'SI.2026.06.09401', '2026-06-10', 'C.09004', 'PT Zqua Klien', 'ZQUA-1', 'PAK', 1, 3, 45000, 45000),
             ('PT', 9402, 1, 'SI.2026.06.09402', '2026-06-05', 'C.09004', 'PT Zqua Klien', 'ZQUA-1', 'PAK', 1, 2, 10000, 10000);`,
+  // Arsip barang: both twins still active in Accurate (e2e/arsip-duplikat.spec.ts imports them into the catalog).
+  `INSERT INTO accurate_items(entity, accurate_id, code, name, uom, run_id) VALUES
+   ('PT', 99201, 'ZQARS-1', 'ZQARS KABEL ROLL 10M', 'Pcs', 'e2e'), ('PT', 99202, 'ZQARS-2', 'ZQARS KABEL ROLL 10 M', 'Pcs', 'e2e');`,
   // Colour variants that tie on a plain "zqhl highlighter": only e2e/match-accept-all.spec.ts lists them.
   `INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock, source) VALUES
    ('ZQHL-B', 'ZQHL HIGHLIGHTER BLUE', 'Pcs', 4000, 7000, 10, 'e2e'), ('ZQHL-G', 'ZQHL HIGHLIGHTER GREEN', 'Pcs', 4000, 7000, 10, 'e2e');`,

@@ -63,6 +63,8 @@ const ACTIONS: Record<string, string> = {
   image_removed: "Foto dihapus",
   aliases_saved: "Alias disimpan",
   cogs_verified: "COGS diverifikasi",
+  archive_restored: "Barang arsip dipulihkan",
+  accurate_off_marked: "Ditandai sudah dinonaktifkan di Accurate",
   cogs_from_purchases: "COGS dari harga beli",
   uom_adjusted: "Rasio satuan disesuaikan",
   uom_adjustment_removed: "Penyesuaian rasio satuan dihapus",
