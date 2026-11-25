@@ -1,23 +1,16 @@
-/* Tarik / Cocokkan / Kirim on Katalog and Gudang (2026-11-20): short labels, a hint on hover (title and
-   aria-label), Kirim shown but off, Cocokkan opens the comparison. */
+/* Satu tombol Accurate (2026-11-25) di Katalog dan Gudang: "Sinkron Accurate" dengan penjelasan saat kursor diarahkan;
+   tombol Tarik/Cocokkan/Kirim terpisah sudah tidak ada. */
 
 import { expect, test } from "./helpers";
 
 for (const path of ["/catalog", "/gudang"]) {
-  test(`${path}: three stock buttons with hints, Kirim is off`, async ({ page, errors }) => {
+  test(`${path}: one Sinkron Accurate button with a hint`, async ({ page, errors }) => {
     void errors;
     await page.goto(path);
-    const tarik = page.getByRole("button", { name: "Ambil data stok terbaru dari Accurate ke Pricing Engine" });
-    await expect(tarik).toBeVisible();
-    await expect(tarik).toHaveText("Tarik");
-    await expect(tarik).toHaveAttribute("title", "Ambil data stok terbaru dari Accurate ke Pricing Engine");
-    const cocok = page.getByRole("button", { name: "Bandingkan angka stok di Pricing Engine dengan Accurate" });
-    await expect(cocok).toHaveAttribute("title", "Bandingkan angka stok di Pricing Engine dengan Accurate");
-    const kirim = page.getByRole("button", { name: /Kirim perubahan stok yang sudah di-ACC ke Accurate/ });
-    await expect(kirim).toBeDisabled();
-    await expect(kirim).toHaveAttribute("title", "Belum aktif: menunggu izin token Accurate dan data akuntansi");
-    await cocok.click();
-    await expect(page.getByRole("dialog", { name: /Cocokkan stok/ })).toBeVisible();
+    const sync = page.getByRole("button", { name: /Ambil stok terbaru dari Accurate/ });
+    await expect(sync).toBeVisible();
+    await expect(sync).toHaveText("Sinkron Accurate");
+    await expect(page.getByRole("button", { name: /^Tarik$|^Cocokkan$|^Kirim/ })).toHaveCount(0);
     await page.screenshot({ path: test.info().outputPath(`stock-buttons${path.replace("/", "-")}.png`) });
   });
 }

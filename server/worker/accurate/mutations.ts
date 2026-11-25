@@ -10,6 +10,7 @@
 import { all, batch, get, run, stmt } from "../../db.d1";
 import { AccurateClient, type AccurateCreds } from "./client";
 import { catalogEntity, credsFor, syncConfig, type EntityKey } from "./sync";
+import { matchEnteredCounts } from "./stock";
 import type { Bindings } from "../env";
 
 export const MUTATION_PAGE_SIZE = 100;
@@ -28,6 +29,7 @@ export interface MutationStepResult {
   calls: number;
   rows: number;
   removed?: number;
+  entered?: number;
   error?: string;
 }
 
@@ -132,7 +134,9 @@ export async function mutationStep(
         "UPDATE accurate_mutation_state SET pass_id = NULL, page = 1, last_pass_at = ?, last_error = NULL, last_error_at = NULL WHERE entity = ?",
         now.toISOString(), entity,
       );
-      return { outcome: "finished", calls: client.calls, rows, removed };
+      // Penyesuaian yang baru masuk menutup hitungan "Belum masuk Accurate" yang cocok.
+      const entered = await matchEnteredCounts(db, entity);
+      return { outcome: "finished", calls: client.calls, rows, removed, entered };
     }
     return { outcome: "progress", calls: client.calls, rows };
   } catch (err) {

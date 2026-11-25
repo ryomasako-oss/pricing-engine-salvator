@@ -111,8 +111,8 @@ describe("items new in Accurate join the catalog on their own", () => {
     sqlite.exec(`INSERT INTO catalog_items(code, name, uom, cogs, list_price, stock) VALUES ('NEW1', 'Pensil', 'Pcs', 0, 2500, 1)`);
     await syncTick({ DB: db, ACCURATE_AUTO_NEW_ITEMS: "false", ACCURATE_TOKEN_PT: "aat.t", ACCURATE_SIGNATURE_SECRET: "s" } as never, { deadlineMs: 5_000 });
     expect(catalog(sqlite)).toHaveLength(2);
-    // The cron no longer copies stock into items already in the catalog (2026-11-20, accurate/stock.ts): only Tarik does.
-    expect(sqlite.prepare("SELECT stock FROM catalog_items WHERE code = 'NEW1'").get()).toEqual({ stock: 1 });
+    // 2026-11-25: the cron copies Accurate's stock into the catalog again (stok ikut Accurate otomatis).
+    expect(sqlite.prepare("SELECT stock FROM catalog_items WHERE code = 'NEW1'").get()).toEqual({ stock: 12 });
     // The cross-check still ran.
     expect(sqlite.prepare("SELECT reconciled_at IS NOT NULL AS ok FROM accurate_sync_state WHERE entity = 'PT'").get()).toEqual({ ok: 1 });
   });

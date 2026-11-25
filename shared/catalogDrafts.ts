@@ -10,8 +10,9 @@ export interface DraftPayloads {
   barcode: { barcode?: string | null; generate?: boolean };
   unit: { factor: number; base: string; barcode?: string; generate?: boolean };
   edit: { name: string; uom: string; category: string; units?: UnitFactor[] };
-  /** Stok baru dalam satuan dasar barang. */
-  stock: { stock: number };
+  /** Cycle count (2026-11-25): hasil hitung di satu gudang (satuan dasar) dan stok Accurate gudang itu saat diajukan.
+   *  Draf lama (sebelum 2026-11-25) hanya punya `stock`. */
+  stock: { stock: number; warehouse?: string; accurate?: number | null; accurate_source?: "live" | "sync" | null };
   /** The file row plus its mode. Items an "ganti seluruh katalog" file leaves out are deleted by the last ACC, not drafted. */
   import: Record<string, unknown>;
 }
@@ -34,8 +35,15 @@ export function draftChanges(kind: CatalogDraftMark["kind"], uom: string, payloa
   }
   if (kind === "import") return importChanges(payload, before, purchased);
   if (kind === "stock") {
-    const was = (before as Partial<DraftPayloads["stock"]>).stock;
-    return [`Stok: ${was ?? "kosong"} → ${(payload as DraftPayloads["stock"]).stock}`];
+    const p = payload as DraftPayloads["stock"];
+    if (p.warehouse === undefined) return [`Stok: ${(before as Partial<DraftPayloads["stock"]>).stock ?? "kosong"} → ${p.stock}`];
+    const n = (x: number) => x.toLocaleString("id-ID");
+    if (p.accurate == null) return [`Hitung ${p.warehouse}: ${n(p.stock)} · stok Accurate saat dihitung tidak terbaca`];
+    const diff = p.stock - p.accurate;
+    return [
+      `Hitung ${p.warehouse}: ${n(p.stock)} · Accurate saat dihitung ${n(p.accurate)} · ` +
+        (diff === 0 ? "sama" : `selisih ${diff > 0 ? "+" : ""}${n(diff)}`),
+    ];
   }
   const p = payload as DraftPayloads["edit"];
   const b = before as Partial<DraftPayloads["edit"]>;
