@@ -42,8 +42,15 @@ export function CatalogPage() {
   const seeCosts = can("view_costs");
   // Ubah barang: directly (manager/admin), or as a draft for an admin's ACC (Admin Gudang).
   const mayEdit = can("edit_catalog") || can("draft_catalog");
-  // Barang yang sedang dilaporkan sebagai duplikat (fitur Duplikat).
-  const [reporting, setReporting] = useState<CatalogItem | null>(null);
+  // Barang yang dicentang (satu, sebagian, atau semua yang tampil); tetap tercentang saat pencarian berganti.
+  const [picked, setPicked] = useState<Map<number, CatalogItem>>(new Map());
+  const [reporting, setReporting] = useState(false);
+  const togglePicked = (list: CatalogItem[], on: boolean) =>
+    setPicked((m) => {
+      const n = new Map(m);
+      for (const i of list) on ? n.set(i.id, i) : n.delete(i.id);
+      return n;
+    });
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [total, setTotal] = useState(0);
   const [stockAsOf, setStockAsOf] = useState<string | null>(null);
@@ -290,6 +297,29 @@ export function CatalogPage() {
             {grp(total)} item cocok{stockAsOf && ` · stok Accurate per ${fmtDateTime(stockAsOf)}`}
           </span>
         </div>
+        {mayEdit && picked.size > 0 && (
+          <div className="toolbar" role="region" aria-label="Barang dipilih">
+            <strong>{grp(picked.size)} barang dipilih</strong>
+            <div className="chips">
+              {[...picked.values()].slice(0, 6).map((i) => (
+                <button key={i.id} className="chip" onClick={() => togglePicked([i], false)} title="Hapus dari pilihan">
+                  {i.name} ✕
+                </button>
+              ))}
+              {picked.size > 6 && <span className="muted small">+{grp(picked.size - 6)} lainnya</span>}
+            </div>
+            <span className="grow" />
+            <button
+              className="btn primary small"
+              disabled={picked.size < 2}
+              title={picked.size < 2 ? "Centang minimal 2 barang" : undefined}
+              onClick={() => setReporting(true)}
+            >
+              Tandai duplikat
+            </button>
+            <button className="btn ghost small" onClick={() => setPicked(new Map())}>Batal pilih</button>
+          </div>
+        )}
         {partial && items.length > 0 && (
           <p className="note pad">Tidak ada barang yang cocok dengan semua kata. Ini yang paling mendekati.</p>
         )}
@@ -341,6 +371,17 @@ export function CatalogPage() {
               <table className="table stack">
                 <thead>
                   <tr>
+                    {mayEdit && (
+                      <th className="col-icon">
+                        <input
+                          type="checkbox"
+                          checked={items.length > 0 && items.every((i) => picked.has(i.id))}
+                          onChange={(e) => togglePicked(items, e.target.checked)}
+                          aria-label="Pilih semua yang tampil"
+                          title="Pilih semua yang tampil"
+                        />
+                      </th>
+                    )}
                     <th className="col-icon" aria-label="Buka satuan dan barcode" />
                     <th className="l">Kode</th>
                     <th className="l">Nama barang</th>
@@ -360,6 +401,16 @@ export function CatalogPage() {
                     return (
                     <Fragment key={item.id}>
                     <tr className={`${(seeCosts ? item.cogs > 0 : !item.cogs_problem) ? "" : "flagged"}${open ? " row-open" : ""}`}>
+                      {mayEdit && (
+                        <td className="col-icon">
+                          <input
+                            type="checkbox"
+                            checked={picked.has(item.id)}
+                            onChange={(e) => togglePicked([item], e.target.checked)}
+                            aria-label={`Pilih ${item.name}`}
+                          />
+                        </td>
+                      )}
                       <td className="col-icon col-expand">
                         <button
                           className="icon-btn expand-btn"
@@ -419,13 +470,12 @@ export function CatalogPage() {
                       {mayEdit && (
                         <td className="stack-action">
                           <button className="btn small ghost" onClick={() => openEditing({ ...item, units: item.units ?? [] })}>Ubah</button>
-                          <button className="btn small ghost" onClick={() => setReporting(item)}>Duplikat</button>
                         </td>
                       )}
                     </tr>
                     {open && (
                       <tr className="row-detail">
-                        <td colSpan={8 + (seeCosts ? 1 : 0) + (mayEdit ? 1 : 0)}>
+                        <td colSpan={8 + (seeCosts ? 1 : 0) + (mayEdit ? 2 : 0)}>
                           <SkuPanel
                             item={item}
                             uomOptions={uomOptions}
@@ -795,7 +845,17 @@ export function CatalogPage() {
           </div>
         </Modal>
       )}
-      {reporting && <ReportDuplicateModal item={reporting} onClose={() => setReporting(null)} />}
+      {reporting && (
+        <ReportDuplicateModal
+          items={[...picked.values()]}
+          onClose={() => setReporting(false)}
+          onSent={() => {
+            setReporting(false);
+            setPicked(new Map());
+            toast("Terkirim ke Gudang > Menunggu ACC Duplikat.", "success");
+          }}
+        />
+      )}
     </main>
   );
 }
