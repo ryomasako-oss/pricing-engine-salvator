@@ -79,7 +79,8 @@ async function buildIndex(db: D1Database): Promise<SearchIndex<IndexedItem>> {
     db,
     `SELECT code, name, category, stock, cogs, list_price,
             EXISTS(SELECT 1 FROM item_images i WHERE i.code = c.code) AS has_image
-       FROM catalog_items c`,
+       FROM catalog_items c
+      WHERE c.archived_at IS NULL`,
   );
   // What it learns from (catalogSearch.ts): wordings matched before, and how often each item appears on
   // sales invoices (SI) and purchase invoices (PI) of the last year and on quotations (popularity()).

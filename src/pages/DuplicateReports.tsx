@@ -4,6 +4,8 @@ import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { fmtDateTime } from "@shared/format";
+import { AccurateOffTag } from "../components/ArchivedItems";
+import type { ArchivedItem } from "../../shared/catalogArchive";
 import { DUPLICATE_STATUS, type DuplicateReport } from "../../shared/duplicateReports";
 
 /* Laporan barang kembar dari Admin Gudang, tampil di halaman Gudang: yang menunggu di tab "Menunggu ACC Duplikat",
@@ -39,6 +41,7 @@ export function DuplicateReportsSection({ status }: { status: "open" | "decided"
   const { can } = useAuth();
   const toast = useToast();
   const [reports, setReports] = useState<DuplicateReport[]>([]);
+  const [archived, setArchived] = useState<Map<number, ArchivedItem>>(new Map());
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [deciding, setDeciding] = useState<Group | null>(null);
@@ -49,8 +52,9 @@ export function DuplicateReportsSection({ status }: { status: "open" | "decided"
   async function load() {
     setLoading(true);
     try {
-      const rows = await api.get<{ items: DuplicateReport[] }>(`/duplicate-reports?status=${status}`);
+      const rows = await api.get<{ items: DuplicateReport[]; archived?: ArchivedItem[] }>(`/duplicate-reports?status=${status}`);
       setReports(rows.items);
+      setArchived(new Map((rows.archived ?? []).map((a) => [a.id, a])));
     } catch (e) {
       toast(e instanceof Error ? e.message : "Gagal memuat laporan.", "error");
     } finally {
@@ -136,6 +140,12 @@ export function DuplicateReportsSection({ status }: { status: "open" | "decided"
                     <div key={item.id}>
                       <strong>{item.name}</strong> <span className="muted num">· {item.code || "tanpa kode"}</span>
                       {r.kept_item_id === item.id && <span className="badge green" style={{ marginLeft: 6 }}>Dipakai</span>}
+                      {archived.get(item.id) && (
+                        <span style={{ marginLeft: 6 }}>
+                          <span className="badge grey" style={{ marginRight: 6 }}>Diarsip</span>
+                          <AccurateOffTag item={archived.get(item.id)!} onChanged={() => void load()} />
+                        </span>
+                      )}
                     </div>
                   ))}
                   <div className="muted small">
@@ -177,7 +187,7 @@ export function DuplicateReportsSection({ status }: { status: "open" | "decided"
         >
           {decision === "approved" ? (
             <>
-              <p>Pilih barang yang dipakai. Barang yang tidak dipilih tetap ada di katalog sampai dihapus manual.</p>
+              <p>Pilih barang yang dipakai. Barang lain di kelompok ini masuk Arsip: hilang dari Katalog dan pencarian, bisa dipulihkan Admin. Nonaktifkan di Accurate tetap dikerjakan manual.</p>
               <div className="field">
                 {itemPairs.map((item) => (
                   <label key={item.id} className="row" style={{ gap: 8, padding: "6px 0" }}>

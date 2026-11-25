@@ -27,6 +27,8 @@ import {
 import { cogsProblemsFor } from "../quoteService";
 import { sweepPending } from "./pendingItems";
 import { catalogEntity, credsFor } from "../accurate/sync";
+import type { ArchivedItem } from "../../../shared/catalogArchive";
+import { COUNT_ARCHIVED_SQL, GET_ARCHIVED_SQL, LIST_ARCHIVED_SQL, MARK_ACCURATE_OFF_SQL, NOT_ARCHIVED, RESTORE_SQL } from "../../catalogArchive";
 import { AccurateClient } from "../accurate/client";
 import { costLines } from "../accurate/receipts";
 import { searchCatalog } from "../../../shared/catalogSearch";
@@ -177,6 +179,37 @@ async function imagesByCode(d1: D1Database, codes: string[]): Promise<Map<string
   return map;
 }
 
+/** Arsip barang: barang duplikat yang kalah di ACC Duplikat (disembunyikan dari Katalog dan pencarian). Tanpa COGS. */
+catalogRouter.get("/archived", async (c) => {
+  const like = `%${(c.req.query("q")?.trim() ?? "").replace(/[%_\\]/g, "")}%`;
+  const limit = Math.min(500, Math.max(1, Number(c.req.query("limit")) || 100));
+  const offset = Math.max(0, Number(c.req.query("offset")) || 0);
+  const total = (await get<{ n: number }>(c.env.DB, COUNT_ARCHIVED_SQL, like))?.n ?? 0;
+  const items = await all<ArchivedItem>(c.env.DB, LIST_ARCHIVED_SQL, catalogEntity(c.env), like, limit, offset);
+  return c.json({ items, total });
+});
+
+catalogRouter.post("/:id/restore", requirePermission("review_catalog_drafts"), async (c) => {
+  const user = c.get("user")!;
+  const id = Number(c.req.param("id"));
+  const item = await get<ArchivedItem>(c.env.DB, GET_ARCHIVED_SQL, catalogEntity(c.env), id);
+  if (!item || !item.archived_at) return c.json({ error: "Barang ini tidak ada di arsip." }, 404);
+  await run(c.env.DB, RESTORE_SQL, id);
+  await audit(c.env.DB, user.id, "catalog", id, "archive_restored", { code: item.code, archived_note: item.archived_note });
+  return c.json({ ok: true });
+});
+
+/** Tanda manual: barang arsip ini sudah dinonaktifkan di Accurate (API Accurate tidak bisa menonaktifkan barang). */
+catalogRouter.post("/:id/accurate-off", requirePermission("review_catalog_drafts"), async (c) => {
+  const user = c.get("user")!;
+  const id = Number(c.req.param("id"));
+  const item = await get<ArchivedItem>(c.env.DB, GET_ARCHIVED_SQL, catalogEntity(c.env), id);
+  if (!item || !item.archived_at) return c.json({ error: "Barang ini tidak ada di arsip." }, 404);
+  await run(c.env.DB, MARK_ACCURATE_OFF_SQL, user.id, id);
+  await audit(c.env.DB, user.id, "catalog", id, "accurate_off_marked", { code: item.code });
+  return c.json({ ok: true });
+});
+
 catalogRouter.get("/", async (c) => {
   const q = c.req.query("q")?.trim() ?? "";
   const limit = Math.min(500, Math.max(1, Number(c.req.query("limit")) || 100));
@@ -241,7 +274,7 @@ catalogRouter.get("/", async (c) => {
     // An item deleted since the index was built is not counted, so "load more" stops at the real end.
     total -= page.length - items.length;
   } else {
-    const where: string[] = [];
+    const where: string[] = [NOT_ARCHIVED];
     if (withCogs) where.push("cogs > 0");
     if (imageFilter === "with") where.push("code IN (SELECT code FROM item_images)");
     if (imageFilter === "without") where.push("code NOT IN (SELECT code FROM item_images)");

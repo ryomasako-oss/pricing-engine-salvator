@@ -20,6 +20,7 @@ import { fmtDateTime, grp } from "@shared/format";
 import type { CatalogItem, UnitFactor } from "@shared/types";
 import { cleanUnits, ratioText, sameUom } from "@shared/uom";
 import { importQueuedNote, type ImportQueued } from "@shared/catalogImport";
+import { ArchivedItems } from "../components/ArchivedItems";
 import ReportDuplicateModal from "../components/ReportDuplicateModal";
 
 interface Stats {
@@ -45,6 +46,7 @@ export function CatalogPage() {
   // Barang yang dicentang (satu, sebagian, atau semua yang tampil); tetap tercentang saat pencarian berganti.
   const [picked, setPicked] = useState<Map<number, CatalogItem>>(new Map());
   const [reporting, setReporting] = useState(false);
+  const [showArchive, setShowArchive] = useState(false);
   const togglePicked = (list: CatalogItem[], on: boolean) =>
     setPicked((m) => {
       const n = new Map(m);
@@ -202,6 +204,9 @@ export function CatalogPage() {
           </p>
         </div>
         <div className="row-wrap">
+          <button className="btn" onClick={() => setShowArchive((v) => !v)} aria-pressed={showArchive}>
+            Arsip
+          </button>
           <button className="btn catalog-new-item" onClick={() => setNewItemOpen(true)}>
             Barang baru (belum di Accurate)
           </button>
@@ -265,6 +270,9 @@ export function CatalogPage() {
         </p>
       )}
 
+      {showArchive ? (
+        <ArchivedItems onClose={() => setShowArchive(false)} onRestored={load} />
+      ) : (
       <div className="card catalog-list">
         <div className="toolbar">
           <input
@@ -525,6 +533,7 @@ export function CatalogPage() {
           </>
         )}
       </div>
+      )}
 
       {modal === "images" && <BulkImageUpload onClose={() => setModal(null)} onDone={load} />}
 
