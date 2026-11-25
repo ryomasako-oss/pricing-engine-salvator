@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DuplicateReportsSection } from "./DuplicateReports";
 import { StockMinusList } from "./StockItemHistory";
+import { StockBookTable } from "./StockBook";
 import { Link } from "react-router-dom";
 import { api } from "../api";
 import { LoadError } from "../components/LoadError";
@@ -84,7 +85,7 @@ export function CatalogDraftsPage() {
   const { drafts: waitingAll, duplicates } = useNavCounts();
   // Angka menu Gudang = draf + duplikat; tab "Menunggu ACC" hanya draf, tab duplikat punya angkanya sendiri.
   const waiting = waitingAll == null ? null : waitingAll - (duplicates ?? 0);
-  const [status, setStatus] = useState<"pending" | "dup" | "done" | "stock" | "minus">("pending");
+  const [status, setStatus] = useState<"pending" | "dup" | "done" | "stock" | "minus" | "book">("pending");
   const [history, setHistory] = useState<StockHistoryRow[]>([]);
   const [rows, setRows] = useState<DraftRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -124,7 +125,7 @@ export function CatalogDraftsPage() {
     setPicked(new Set());
     if (!keepOpen) setOpen(new Map());
     // Tab "Menunggu ACC Duplikat": isinya dimuat DuplicateReportsSection sendiri.
-    if (status === "dup" || status === "minus") {
+    if (status === "dup" || status === "minus" || status === "book") {
       setRows([]);
       setFiles([]);
       setLoading(false);
@@ -325,6 +326,8 @@ export function CatalogDraftsPage() {
             ["done", "Riwayat"],
             ["stock", "Riwayat stok"],
             ["minus", "Stok minus"],
+            // Stok pembanding: sementara hanya Admin dan Admin Gudang.
+            ...(reviewer || drafter ? [["book", "Stok pembanding"] as const] : []),
           ] as const).map(([key, label]) => (
             <button key={key} className={status === key ? "on" : ""} aria-pressed={status === key} onClick={() => setStatus(key)}>
               {label}
@@ -336,6 +339,7 @@ export function CatalogDraftsPage() {
 
         {status === "dup" && <DuplicateReportsSection key={status} status="open" />}
         {status === "minus" && <StockMinusList />}
+        {status === "book" && <StockBookTable />}
         {status === "done" && <DuplicateReportsSection key={status} status="decided" />}
 
         {loadError ? (
@@ -344,7 +348,7 @@ export function CatalogDraftsPage() {
           <div className="card-body skeleton-list" role="status" aria-label="Memuat draf…">
             {[0, 1, 2].map((i) => <span key={i} className="skeleton" />)}
           </div>
-        ) : status === "dup" || status === "minus" ? null : status === "stock" ? (
+        ) : status === "dup" || status === "minus" || status === "book" ? null : status === "stock" ? (
           <div className="card-body"><StockHistoryList rows={history} withItem /></div>
         ) : rows.length === 0 && files.length === 0 ? (
           <div className="card-body empty">
