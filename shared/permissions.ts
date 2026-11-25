@@ -62,3 +62,6 @@ export function hasPermission(role: Role, permission: Permission): boolean {
 export function rolesWith(permission: Permission): Role[] {
   return (Object.keys(ROLE_PERMISSIONS) as Role[]).filter((role) => hasPermission(role, permission));
 }
+
+/** Stok pembanding / stok mandiri (pemilik, 2026-11-25): sementara hanya Admin dan Admin Gudang, bukan fitur umum. */
+export const canUseStockBook = (role: Role) => hasPermission(role, "review_catalog_drafts") || hasPermission(role, "draft_catalog");

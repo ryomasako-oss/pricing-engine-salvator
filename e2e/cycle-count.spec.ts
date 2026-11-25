@@ -1,31 +1,30 @@
-/* Cycle count (2026-11-25): pilih gudang + hasil hitung di Katalog → draf di Gudang menunjukkan selisih dengan Accurate
-   → ACC → kartu "Belum masuk Accurate" → "Sudah masuk Accurate" → stok pembanding barang itu. */
+/* Stok pembanding / stok mandiri (2026-11-25): di Katalog pilih gudang + pemilik (Umum) dan isi hasil hitung → draf di
+   Gudang → ACC → masuk stok pembanding barang itu, tanpa mengubah Accurate. Hanya Admin dan Admin Gudang. */
 
 import { expect, test } from "./helpers";
 
-test("hitung di Katalog → ACC → Belum masuk Accurate → Sudah masuk", async ({ page, errors }) => {
+test("hitung di Katalog → ACC → stok pembanding", async ({ page, errors }) => {
   void errors;
   const list = await (await page.request.get("/api/catalog?q=")).json();
   const item = list.items[0] as { id: number; code: string; name: string };
-  const wh = ((await (await page.request.get("/api/stock/warehouses")).json()).warehouses as string[])[0] ?? "Utama";
-  const put = await page.request.put(`/api/catalog/${item.id}/stock`, { data: { stock: 7, warehouse: wh } });
-  expect(put.ok()).toBe(true);
+
+  await page.goto(`/catalog?q=${encodeURIComponent(item.code)}`);
+  await page.getByRole("button", { name: new RegExp(`Satuan dan barcode ${item.name}`) }).first().click();
+  const box = page.getByRole("textbox", { name: new RegExp(`Hasil hitung ${item.name} di Utama`) });
+  await box.fill("7");
+  await page.screenshot({ path: test.info().outputPath("stok-mandiri-isian.png") });
+  await page.getByRole("button", { name: /Ajukan hitungan/ }).click();
+  await expect(page.getByText(/hitungan menunggu ACC: Utama Umum 7/)).toBeVisible();
 
   await page.goto("/gudang");
-  const card = page.getByRole("listitem").filter({ hasText: item.code }).filter({ hasText: /Hitung / }).first();
-  await expect(card).toContainText(`Hitung ${wh}: 7`);
-  await page.screenshot({ path: test.info().outputPath("cycle-draft.png"), fullPage: true });
+  const card = page.getByRole("listitem").filter({ hasText: item.code }).filter({ hasText: /Hitung Utama · UMUM: 7/ }).first();
+  await expect(card).toContainText("stok pembanding (mandiri), tidak mengubah Accurate");
   await card.getByRole("button", { name: /^ACC/ }).first().click();
-
-  const section = page.getByRole("region", { name: "Belum masuk Accurate" });
-  await expect(section).toContainText(item.code);
-  await page.screenshot({ path: test.info().outputPath("cycle-open.png"), fullPage: true });
-  await section.getByRole("checkbox", { name: `Pilih ${item.name}` }).check();
-  await section.getByRole("button", { name: /Sudah masuk Accurate \(1\)/ }).click();
-  await page.getByRole("dialog").getByRole("textbox").fill("IA.UJI");
-  await page.getByRole("button", { name: "Ya, sudah masuk" }).click();
-  await expect(section).toHaveCount(0);
-
+  await expect(page.getByRole("region", { name: "Belum masuk Accurate" })).toHaveCount(0);
+  await page.goto(`/catalog?q=${encodeURIComponent(item.code)}`);
+  await page.getByRole("button", { name: new RegExp(`Satuan dan barcode ${item.name}`) }).first().click();
+  await expect(page.getByText(/Utama · Umum: 7/)).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath("stok-mandiri-saldo.png") });
   const counts = await (await page.request.get(`/api/stock/counts?code=${encodeURIComponent(item.code)}`)).json();
-  expect(counts.counts[0]).toMatchObject({ warehouse: wh, counted: 7, status: "entered", entered_how: "manual", entered_ref: "IA.UJI" });
+  expect(counts.counts[0]).toMatchObject({ warehouse: "Utama", owner: "umum", counted: 7, status: "recorded" });
 });

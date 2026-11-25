@@ -67,8 +67,8 @@ function setup() {
   const stockOf = (code: string) => q("SELECT stock FROM catalog_items WHERE code = ?", code)[0].stock as number;
   const draftId = async () => ((await (await req("admin", "/api/catalog/drafts")).json()) as { drafts: { id: number }[] }).drafts[0].id;
   /** Gudang menghitung, admin meng-ACC. */
-  const countAndAcc = async (itemId: number, stock: number, warehouse = "Utama") => {
-    expect((await req("gudang", `/api/catalog/${itemId}/stock`, "PUT", { stock, warehouse })).status).toBe(200);
+  const countAndAcc = async (itemId: number, stock: number, warehouse = "Utama", owner = "umum") => {
+    expect((await req("gudang", `/api/catalog/${itemId}/stock`, "PUT", { counts: [{ warehouse, owner, stock }] })).status).toBe(200);
     expect((await req("admin", `/api/catalog/drafts/${await draftId()}/review`, "POST", { approve: true })).status).toBe(200);
   };
   return { req, q, stockOf, draftId, countAndAcc, live, db, env, sqlite };
@@ -102,101 +102,93 @@ describe("stok katalog ikut Accurate", () => {
   });
 });
 
-describe("cycle count", () => {
-  it("reads Accurate's stock of that warehouse at the moment of counting; ACC keeps it as stok pembanding, catalog stock untouched", async () => {
+describe("stok pembanding (stok mandiri)", () => {
+  const COLS = "code, warehouse, owner, counted, accurate_qty, accurate_source, status, counted_by, approved_by";
+
+  it("one draft for several warehouses and owners; ACC records each line, Accurate and catalog stock untouched", async () => {
     const { req, q, stockOf, draftId, live } = setup();
     live.set("P-1|Utama", 28);
-    const res = await req("gudang", "/api/catalog/1/stock", "PUT", { stock: 25, warehouse: "Utama" });
+    const res = await req("gudang", "/api/catalog/1/stock", "PUT", { counts: [
+      { warehouse: "Utama", stock: 25 },
+      { warehouse: "Gudang B", owner: "cv", stock: 4 },
+    ] });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { count: unknown }).count).toEqual({ warehouse: "Utama", stock: 25, accurate: 28, source: "live" });
-    const id = await draftId();
-    expect((await req("admin", `/api/catalog/drafts/${id}/review`, "POST", { approve: true })).status).toBe(200);
+    expect(((await res.json()) as { count: unknown }).count).toEqual({ lines: [
+      { warehouse: "Utama", owner: "umum", stock: 25, accurate: 28, accurate_source: "live" },
+      { warehouse: "Gudang B", owner: "cv", stock: 4, accurate: null, accurate_source: null }, // CV: tidak ada Accurate
+    ] });
+    expect((await req("admin", `/api/catalog/drafts/${await draftId()}/review`, "POST", { approve: true })).status).toBe(200);
     expect(stockOf("P-1")).toBe(10);
-    expect(q(`SELECT ${COUNT_COLS} FROM stock_counts`)).toEqual([
-      { code: "P-1", warehouse: "Utama", counted: 25, accurate_qty: 28, accurate_source: "live", status: "open", counted_by: USERS.gudang, approved_by: USERS.admin },
-    ]);
-    expect(q("SELECT qty_before, qty_after, source, filled_by, approved_by FROM stock_history")).toEqual([
-      { qty_before: 28, qty_after: 25, source: "draft_approved", filled_by: USERS.gudang, approved_by: USERS.admin },
+    expect(q(`SELECT ${COLS} FROM stock_counts ORDER BY id`)).toEqual([
+      { code: "P-1", warehouse: "Utama", owner: "umum", counted: 25, accurate_qty: 28, accurate_source: "live", status: "recorded", counted_by: USERS.gudang, approved_by: USERS.admin },
+      { code: "P-1", warehouse: "Gudang B", owner: "cv", counted: 4, accurate_qty: null, accurate_source: null, status: "recorded", counted_by: USERS.gudang, approved_by: USERS.admin },
     ]);
     expect(q("SELECT * FROM stock_unsent")).toHaveLength(0);
-    expect(q("SELECT actor_id FROM audit_log WHERE action = 'stock_set'")).toEqual([{ actor_id: USERS.admin }]);
+    // Tidak ada tugas koreksi ke Accurate.
+    expect(await (await req("admin", "/api/stock/status")).json()).toMatchObject({ open: 0 });
   });
 
-  it("falls back to the last synced figure of that warehouse when Accurate cannot be asked; equal counts are 'matched'", async () => {
+  it("falls back to the last synced figure of that warehouse when Accurate cannot be asked", async () => {
     const { q, countAndAcc } = setup();
-    await countAndAcc(1, 30); // Utama 30 in the synced copy
-    await countAndAcc(2, 4, "Gudang B"); // K-1 has no row in Gudang B: not readable
-    expect(q("SELECT code, warehouse, accurate_qty, accurate_source, status FROM stock_counts ORDER BY id")).toEqual([
-      { code: "P-1", warehouse: "Utama", accurate_qty: 30, accurate_source: "sync", status: "matched" },
-      { code: "K-1", warehouse: "Gudang B", accurate_qty: null, accurate_source: null, status: "open" },
-    ]);
+    await countAndAcc(1, 30);
+    expect(q("SELECT accurate_qty, accurate_source FROM stock_counts")).toEqual([{ accurate_qty: 30, accurate_source: "sync" }]);
   });
 
-  it("needs a warehouse; one waiting count per item; a rep may not count; a rejection stores nothing as pembanding", async () => {
-    const { req, q, draftId } = setup();
-    expect((await req("gudang", "/api/catalog/1/stock", "PUT", { stock: 3 })).status).toBe(400);
-    expect((await req("gudang", "/api/catalog/1/stock", "PUT", { stock: -1, warehouse: "Utama" })).status).toBe(400);
-    expect((await req("rep", "/api/catalog/1/stock", "PUT", { stock: 3, warehouse: "Utama" })).status).toBe(403);
-    expect((await req("gudang", "/api/catalog/1/stock", "PUT", { stock: 3, warehouse: "Utama" })).status).toBe(200);
-    expect((await req("gudang", "/api/catalog/1/stock", "PUT", { stock: 4, warehouse: "utama" })).status).toBe(200); // replaces
-    expect((await req("gudang", "/api/catalog/1/stock", "PUT", { stock: 5, warehouse: "Gudang B" })).status).toBe(409);
-    expect(q("SELECT json_extract(payload, '$.stock') AS s FROM catalog_drafts WHERE kind = 'stock'")).toEqual([{ s: 4 }]);
+  it("only Admin and Admin Gudang; one gudang is enough for now; unknown or doubled warehouse refused", async () => {
+    const { req, q, draftId, sqlite } = setup();
+    for (const who of ["manager", "rep"] as const) expect((await req(who, "/api/catalog/1/stock", "PUT", { counts: [{ warehouse: "Utama", stock: 3 }] })).status).toBe(403);
+    expect((await req("gudang", "/api/catalog/1/stock", "PUT", { counts: [] })).status).toBe(400);
+    expect((await req("gudang", "/api/catalog/1/stock", "PUT", { counts: [{ warehouse: "Utama", stock: -1 }] })).status).toBe(400);
+    expect((await req("gudang", "/api/catalog/1/stock", "PUT", { counts: [{ warehouse: "Mars", stock: 1 }] })).status).toBe(400);
+    expect((await req("gudang", "/api/catalog/1/stock", "PUT", { counts: [{ warehouse: "Utama", stock: 1 }, { warehouse: "utama", stock: 2 }] })).status).toBe(400);
+    expect((await req("gudang", "/api/catalog/1/stock", "PUT", { counts: [{ warehouse: "Utama", stock: 3 }] })).status).toBe(200); // P-1 juga di Gudang B: belum wajib
+    expect((await req("admin", "/api/catalog/1/stock", "PUT", { counts: [{ warehouse: "Utama", stock: 4 }] })).status).toBe(200); // menggantikan
+    expect(q("SELECT json_extract(payload, '$.lines[0].stock') AS s FROM catalog_drafts WHERE kind = 'stock'")).toEqual([{ s: 4 }]);
     expect((await req("admin", `/api/catalog/drafts/${await draftId()}/review`, "POST", { approve: false, note: "Hitung ulang" })).status).toBe(200);
     expect(q("SELECT * FROM stock_counts")).toHaveLength(0);
     expect(q("SELECT qty_after, source, note FROM stock_history")).toEqual([{ qty_after: 4, source: "draft_rejected", note: "Hitung ulang" }]);
+    void sqlite;
   });
 
-  it("an older draft (before warehouses) still ACCs, as an open count without a warehouse", async () => {
+  it("the history of an item is for Admin and Admin Gudang only", async () => {
+    const { req, countAndAcc } = setup();
+    await countAndAcc(1, 25);
+    expect((await req("gudang", "/api/stock/counts?code=P-1")).status).toBe(200);
+    expect((await req("admin", "/api/stock/counts?code=P-1")).status).toBe(200);
+    expect((await req("manager", "/api/stock/counts?code=P-1")).status).toBe(403);
+    const body = (await (await req("manager", "/api/stock/item?code=P-1")).json()) as { warehouses: { events: { kind: string }[] }[] };
+    expect(body.warehouses.flatMap((w) => w.events).some((e) => e.kind === "count")).toBe(false);
+  });
+
+  it("older drafts still ACC: one warehouse without owner, and the one before warehouses", async () => {
     const { req, q, sqlite, draftId } = setup();
     sqlite.exec(`INSERT INTO catalog_drafts(item_id, code, kind, uom, payload, before, created_by) VALUES (1, 'P-1', 'stock', '', '{"stock":25}', '{"stock":10}', ${USERS.gudang})`);
     expect((await req("admin", `/api/catalog/drafts/${await draftId()}/review`, "POST", { approve: true })).status).toBe(200);
-    expect(q("SELECT warehouse, counted, accurate_qty, status FROM stock_counts")).toEqual([{ warehouse: "", counted: 25, accurate_qty: 10, status: "open" }]);
+    sqlite.exec(`INSERT INTO catalog_drafts(item_id, code, kind, uom, payload, before, created_by) VALUES (2, 'K-1', 'stock', '', '{"stock":6,"warehouse":"Utama","accurate":5}', '{"stock":5}', ${USERS.gudang})`);
+    expect((await req("admin", `/api/catalog/drafts/${await draftId()}/review`, "POST", { approve: true })).status).toBe(200);
+    expect(q("SELECT code, warehouse, owner, counted, accurate_qty, status FROM stock_counts ORDER BY id")).toEqual([
+      { code: "P-1", warehouse: "", owner: "umum", counted: 25, accurate_qty: 10, status: "recorded" },
+      { code: "K-1", warehouse: "Utama", owner: "umum", counted: 6, accurate_qty: 5, status: "recorded" },
+    ]);
   });
 });
 
-describe("Belum masuk Accurate", () => {
-  const ia = (sqlite: DatabaseSync, id: number, qty: number, opts: { code?: string; wh?: string; number?: string } = {}) =>
+describe("Belum masuk Accurate (dimatikan; kode tetap untuk dinyalakan lagi)", () => {
+  const openCount = (sqlite: DatabaseSync) =>
+    sqlite.exec(`INSERT INTO stock_counts(item_id, code, warehouse, counted, accurate_qty, counted_at, counted_by, approved_by, status)
+      VALUES (1, 'P-1', 'Utama', 25, 30, datetime('now'), ${USERS.gudang}, ${USERS.admin}, 'open')`);
+
+  it("an open count still closes itself on a matching adjustment, and can be marked by an admin", async () => {
+    const { req, q, sqlite } = setup();
+    openCount(sqlite);
     sqlite.exec(`INSERT INTO stock_mutations(entity, accurate_id, item_no, warehouse, trans_type, trans_number, created_wib, qty)
-      VALUES ('PT', ${id}, '${opts.code ?? "P-1"}', '${opts.wh ?? "Utama"}', 'IA', '${opts.number ?? `IA.2026.11.0000${id}`}', datetime('now', '+7 hours', '+1 minute'), ${qty})`);
-
-  it("lists open counts for admins with the adjustment to enter; the item's own history is open to the warehouse", async () => {
-    const { req, countAndAcc } = setup();
-    await countAndAcc(1, 25); // synced Utama 30 -> enter -5
-    const res = await req("admin", "/api/stock/counts?status=open");
-    const body = (await res.json()) as { counts: Record<string, unknown>[] };
-    expect(body.counts).toHaveLength(1);
-    expect(body.counts[0]).toMatchObject({ code: "P-1", name: "Pulpen", warehouse: "Utama", counted: 25, accurate_qty: 30, diff: -5, counted_by_name: "gudang", approved_by_name: "admin" });
-    expect(JSON.stringify(body)).not.toMatch(/cogs|list_price/);
-    expect((await req("gudang", "/api/stock/counts?status=open")).status).toBe(403);
-    expect((await req("gudang", "/api/stock/counts?code=P-1")).status).toBe(200);
-    expect(await (await req("manager", "/api/stock/status")).json()).toEqual({ pushEnabled: false, unsent: 0, open: 1 });
-  });
-
-  it("closes itself when Accurate shows an adjustment of exactly that amount for that item and warehouse, once", async () => {
-    const { req, q, sqlite, countAndAcc } = setup();
-    await countAndAcc(1, 25); // -5
-    ia(sqlite, 1, -4); // wrong amount
-    ia(sqlite, 2, -5, { wh: "Gudang B" }); // wrong warehouse
-    expect(await (await req("manager", "/api/stock/pull", "POST", {})).json()).toMatchObject({ entered: 0 });
-    ia(sqlite, 3, -5, { number: "IA.2026.11.00017" });
+      VALUES ('PT', 1, 'P-1', 'Utama', 'IA', 'IA.2026.11.00017', datetime('now', '+7 hours', '+1 minute'), -5)`);
     expect(await (await req("manager", "/api/stock/pull", "POST", {})).json()).toMatchObject({ entered: 1 });
-    expect(q("SELECT status, entered_how, entered_ref FROM stock_counts")).toEqual([{ status: "entered", entered_how: "auto", entered_ref: "IA.2026.11.00017" }]);
-    // A second count needing the same -5 does not reuse that adjustment.
-    sqlite.exec("UPDATE accurate_stock SET quantity = 30 WHERE item_code = 'P-1' AND warehouse_id = 1");
-    await countAndAcc(1, 25);
-    expect(await (await req("manager", "/api/stock/pull", "POST", {})).json()).toMatchObject({ entered: 0 });
-  });
-
-  it("Sudah masuk Accurate: admin marks it, with who and the note", async () => {
-    const { req, q, countAndAcc } = setup();
-    await countAndAcc(1, 25);
-    const id = (q("SELECT id FROM stock_counts")[0].id as number);
+    expect(q("SELECT status, entered_ref FROM stock_counts")).toEqual([{ status: "entered", entered_ref: "IA.2026.11.00017" }]);
+    openCount(sqlite);
+    const id = q("SELECT id FROM stock_counts WHERE status = 'open'")[0].id as number;
     expect((await req("gudang", "/api/stock/counts/done", "POST", { ids: [id] })).status).toBe(403);
-    expect((await req("admin", "/api/stock/counts/done", "POST", { ids: [] })).status).toBe(400);
-    expect(await (await req("admin", "/api/stock/counts/done", "POST", { ids: [id, 999], note: "IA.2026.11.00020" })).json()).toEqual({ done: 1 });
-    expect(q("SELECT status, entered_how, entered_by, entered_ref FROM stock_counts")).toEqual([
-      { status: "entered", entered_how: "manual", entered_by: USERS.admin, entered_ref: "IA.2026.11.00020" },
-    ]);
+    expect(await (await req("admin", "/api/stock/counts/done", "POST", { ids: [id], note: "x" })).json()).toEqual({ done: 1 });
   });
 });
 
@@ -217,7 +209,9 @@ describe("Cocokkan", () => {
 describe("gudang", () => {
   it("lists Accurate's warehouses, the default one first", async () => {
     const { req } = setup();
-    expect(await (await req("gudang", "/api/stock/warehouses")).json()).toEqual({ warehouses: ["Utama", "Gudang B"] });
+    expect(await (await req("gudang", "/api/stock/warehouses")).json()).toEqual({ warehouses: ["Utama", "Gudang B"], required: [] });
+    // Untuk satu barang: gudang bawaan + gudang yang menurut Accurate punya stoknya (saran baris, belum wajib).
+    expect(await (await req("gudang", "/api/stock/warehouses?code=P-1")).json()).toEqual({ warehouses: ["Utama", "Gudang B"], required: ["Utama", "Gudang B"] });
   });
 });
 
@@ -295,5 +289,18 @@ describe("riwayat stok per barang dan stok minus", () => {
     ]);
     expect(u.events.find((e) => e.kind === "count")).toMatchObject({ c: { counted: 4 }, balance: -5, gap: 9 });
     expect((await req("gudang", "/api/stock/item")).status).toBe(400);
+  });
+});
+
+describe("migrasi 0052", () => {
+  it("adds owner 'umum' to every count and turns waiting ones into recorded stock-book entries", () => {
+    const sqlite = new DatabaseSync(":memory:");
+    for (const f of migrationFiles().filter((f) => f < "0052")) sqlite.exec(readFileSync(path.join(MIGRATIONS, f), "utf8"));
+    sqlite.exec(`INSERT INTO stock_counts(code, warehouse, counted, counted_at, status) VALUES ('A', 'Utama', 5, '2026-11-25 01:00:00', 'open'), ('B', 'Utama', 6, '2026-11-25 01:00:00', 'entered')`);
+    sqlite.exec(readFileSync(path.join(MIGRATIONS, migrationFiles().find((f) => f.startsWith("0052"))!), "utf8"));
+    expect(sqlite.prepare("SELECT code, owner, status FROM stock_counts ORDER BY code").all()).toEqual([
+      { code: "A", owner: "umum", status: "recorded" },
+      { code: "B", owner: "umum", status: "entered" },
+    ]);
   });
 });
