@@ -3,6 +3,7 @@
    Server: /api/stock/*, PUT /api/catalog/:id/stock. */
 
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
@@ -285,6 +286,9 @@ export function StockEntry({ item, onChange }: { item: CatalogItem; onChange: (p
         </div>
       )}
       {error && <div className="text-err small" role="alert">{error}</div>}
+      {seeHistory && (
+        <Link className="small" to={`/gudang/stok/${encodeURIComponent(item.code)}`}>Riwayat stok lengkap (per gudang, setiap transaksi)</Link>
+      )}
       {seeHistory && counts.length > 0 && (
         <details open>
           <summary className="muted small">Stok pembanding ({counts.length} hitungan)</summary>

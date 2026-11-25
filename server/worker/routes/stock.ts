@@ -12,6 +12,7 @@ import { hasPermission } from "../../../shared/permissions";
 import { zodMessage } from "../../validate";
 import { ACCURATE_TOTALS, IS_UNSENT, SAME_UNIT, matchEnteredCounts, pullStock } from "../accurate/stock";
 import { catalogEntity, credsFor, loadState, requestRestart, syncConfig, syncStep } from "../accurate/sync";
+import { buildTimeline, type TimelineCount, type TimelineMutation } from "../../../shared/stockTimeline";
 import type { Env } from "../env";
 
 export const stockRouter = new Hono<Env>();
@@ -139,4 +140,70 @@ stockRouter.post("/counts/done", requirePermission("review_catalog_drafts"), asy
   );
   await audit(c.env.DB, user.id, "stock", 0, "stock_marked_entered", { ids, done: r.meta.changes, note: parsed.data.note });
   return c.json({ done: r.meta.changes });
+});
+
+/**
+ * Stok minus per gudang (salinan sinkron Accurate terakhir). Total semua gudang bisa menutupi minus di satu gudang,
+ * jadi dilihat per gudang. Tanpa harga atau COGS.
+ */
+stockRouter.get("/minus", async (c) => {
+  const entity = catalogEntity(c.env);
+  const rows = await all(
+    c.env.DB,
+    `SELECT q.item_code AS code, COALESCE(i.name, a.name) AS name, COALESCE(NULLIF(a.uom, ''), i.uom) AS uom, w.name AS warehouse,
+            q.quantity AS qty, q.synced_at
+       FROM accurate_stock q
+       JOIN accurate_warehouses w ON w.entity = q.entity AND w.accurate_id = q.warehouse_id
+       LEFT JOIN accurate_items a ON a.entity = q.entity AND a.code = q.item_code
+       LEFT JOIN catalog_items i ON i.code = q.item_code COLLATE NOCASE
+      WHERE q.entity = ? AND q.quantity < 0
+      ORDER BY q.quantity ASC, q.item_code LIMIT 500`,
+    entity,
+  );
+  return c.json({ items: rows });
+});
+
+/**
+ * Riwayat stok satu barang per gudang: stok Accurate terakhir, riwayat mutasi tersimpan (saldo dihitung mundur),
+ * dan hasil cycle count sebagai titik pembanding. Tanpa harga atau COGS (item_cost mutasi tidak dikirim).
+ */
+stockRouter.get("/item", async (c) => {
+  const code = c.req.query("code")?.trim() ?? "";
+  if (!code) return c.json({ error: "Kode barang wajib diisi." }, 400);
+  const entity = catalogEntity(c.env);
+  const item = await get<{ code: string; name: string; uom: string; stock: number }>(
+    c.env.DB, "SELECT code, name, uom, stock FROM catalog_items WHERE code = ? COLLATE NOCASE", code,
+  );
+  const stock = await all<{ warehouse: string; qty: number; as_of_wib: string | null }>(
+    c.env.DB,
+    `SELECT w.name AS warehouse, q.quantity AS qty, datetime(q.synced_at, '+7 hours') AS as_of_wib
+       FROM accurate_stock q JOIN accurate_warehouses w ON w.entity = q.entity AND w.accurate_id = q.warehouse_id
+      WHERE q.entity = ? AND q.item_code = ? COLLATE NOCASE`,
+    entity, code,
+  );
+  const muts = await all<TimelineMutation & { warehouse: string }>(
+    c.env.DB,
+    `SELECT accurate_id AS id, warehouse, trans_type AS type, trans_number AS number, trans_date, created_wib, qty,
+            removed_at IS NOT NULL AS removed
+       FROM stock_mutations WHERE entity = ? AND item_no = ? COLLATE NOCASE ORDER BY created_wib DESC LIMIT 2000`,
+    entity, code,
+  );
+  const counts = await all<TimelineCount & { warehouse: string }>(
+    c.env.DB,
+    `SELECT s.id, s.warehouse, s.counted, s.accurate_qty, datetime(s.counted_at, '+7 hours') AS counted_wib, s.status, u.name AS counted_by_name
+       FROM stock_counts s LEFT JOIN users u ON u.id = s.counted_by
+      WHERE s.code = ? COLLATE NOCASE ORDER BY s.counted_at DESC LIMIT 200`,
+    code,
+  );
+  const historyFrom = await get<{ d: string | null }>(c.env.DB, "SELECT MIN(created_wib) AS d FROM stock_mutations WHERE entity = ?", entity);
+  const names = [...new Set([...stock.map((r) => r.warehouse), ...muts.map((m) => m.warehouse), ...counts.map((k) => k.warehouse)])].filter(Boolean);
+  const warehouses = names.map((w) => {
+    const now = stock.find((r) => r.warehouse.toLowerCase() === w.toLowerCase());
+    const mine = <T extends { warehouse: string }>(xs: T[]) => xs.filter((x) => x.warehouse.toLowerCase() === w.toLowerCase());
+    const m = mine(muts).map((x) => ({ ...x, removed: !!x.removed }));
+    return { warehouse: w, accurate: now?.qty ?? 0, asOf: now?.as_of_wib ?? null, events: buildTimeline(now?.qty ?? 0, now?.as_of_wib ?? null, m, mine(counts)) };
+  }).sort((a, b) => (a.accurate < 0 ? -1 : 0) - (b.accurate < 0 ? -1 : 0) || b.events.length - a.events.length);
+  // Hitungan lama tanpa gudang tetap ditampilkan, tanpa saldo.
+  const noWarehouse = counts.filter((k) => !k.warehouse);
+  return c.json({ item: item ?? { code, name: null, uom: "", stock: null }, warehouses, noWarehouse, historyFrom: historyFrom?.d ?? null });
 });
