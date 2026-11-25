@@ -28,6 +28,7 @@ const SalesHistoryPage = lazy(() => import("./pages/SalesHistory").then((m) => (
 const PurchaseHistoryPage = lazy(() => import("./pages/PurchaseHistory").then((m) => ({ default: m.PurchaseHistoryPage })));
 const UomDiffPage = lazy(() => import("./pages/UomDiff").then((m) => ({ default: m.UomDiffPage })));
 const BelowCostPage = lazy(() => import("./pages/BelowCost").then((m) => ({ default: m.BelowCostPage })));
+const DuplicateReportsPage = lazy(() => import("./pages/DuplicateReports"));
 const CatalogDraftsPage = lazy(() => import("./pages/CatalogDrafts").then((m) => ({ default: m.CatalogDraftsPage })));
 const AuditLogPage = lazy(() => import("./pages/AuditLog").then((m) => ({ default: m.AuditLogPage })));
 
@@ -106,6 +107,12 @@ function TopBar() {
             <Icon name="truck" size={16} />
             <span className="label">Gudang</span>
             {!!drafts && <span className="count" aria-label={`${drafts} draf menunggu ACC`}>{drafts}</span>}
+          </NavLink>
+        )}
+        {(can("draft_catalog") || can("edit_catalog")) && (
+          <NavLink to="/duplikat" className={({ isActive }) => (isActive ? "active" : "")}>
+            <Icon name="copy" size={16} />
+            <span className="label">Duplikat</span>
           </NavLink>
         )}
         {can("view_costs") && (
@@ -216,6 +223,7 @@ export function App() {
         <Route path="/pencocokan" element={<MatchingPage />} />
         <Route path="/catalog" element={<CatalogPage />} />
         <Route path="/gudang" element={<CatalogDraftsPage />} />
+        <Route path="/duplikat" element={<DuplicateReportsPage />} />
         <Route path="/draf-gudang" element={<Navigate to="/gudang" replace />} />
         <Route
           path="/cogs-history"

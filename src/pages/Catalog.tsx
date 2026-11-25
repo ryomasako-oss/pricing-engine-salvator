@@ -20,6 +20,7 @@ import { fmtDateTime, grp } from "@shared/format";
 import type { CatalogItem, UnitFactor } from "@shared/types";
 import { cleanUnits, ratioText, sameUom } from "@shared/uom";
 import { importQueuedNote, type ImportQueued } from "@shared/catalogImport";
+import ReportDuplicateModal from "../components/ReportDuplicateModal";
 
 interface Stats {
   total: number;
@@ -41,6 +42,8 @@ export function CatalogPage() {
   const seeCosts = can("view_costs");
   // Ubah barang: directly (manager/admin), or as a draft for an admin's ACC (Admin Gudang).
   const mayEdit = can("edit_catalog") || can("draft_catalog");
+  // Barang yang sedang dilaporkan sebagai duplikat (fitur Duplikat).
+  const [reporting, setReporting] = useState<CatalogItem | null>(null);
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [total, setTotal] = useState(0);
   const [stockAsOf, setStockAsOf] = useState<string | null>(null);
@@ -416,6 +419,7 @@ export function CatalogPage() {
                       {mayEdit && (
                         <td className="stack-action">
                           <button className="btn small ghost" onClick={() => openEditing({ ...item, units: item.units ?? [] })}>Ubah</button>
+                          <button className="btn small ghost" onClick={() => setReporting(item)}>Duplikat</button>
                         </td>
                       )}
                     </tr>
@@ -791,6 +795,7 @@ export function CatalogPage() {
           </div>
         </Modal>
       )}
+      {reporting && <ReportDuplicateModal item={reporting} onClose={() => setReporting(null)} />}
     </main>
   );
 }
