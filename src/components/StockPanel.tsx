@@ -1,4 +1,4 @@
-/* Stok (2026-11-25): stok di Pricing Engine ikut Accurate (tombol Sinkron Accurate + otomatis tiap sinkron). Cycle count
+/* Stok (2026-11-25): stok di Pricing Engine ikut Accurate (tombol Tarik dari Accurate + otomatis tiap sinkron). Cycle count
    gudang per gudang menjadi draf; yang di-ACC jadi stok pembanding, dan selisihnya menunggu "Belum masuk Accurate".
    Server: /api/stock/*, PUT /api/catalog/:id/stock. */
 
@@ -11,7 +11,10 @@ import { grp } from "@shared/format";
 import type { CatalogItem } from "@shared/types";
 import type { SkuPatch } from "./SkuBarcodes";
 
-export const SINKRON_HINT = "Ambil stok terbaru dari Accurate ke Pricing Engine (otomatis juga tiap 6 jam)";
+export const TARIK_HINT = "Ambil stok terbaru dari Accurate ke Pricing Engine (otomatis juga tiap 6 jam)";
+export const COCOK_HINT = "Lihat barang yang angka stoknya beda dengan Accurate; tidak memindahkan data";
+export const KIRIM_HINT = "Kirim selisih hitungan yang sudah di-ACC ke Accurate";
+export const KIRIM_OFF = "Belum aktif: selisih hitungan diinput Bu Hesti lewat daftar Belum masuk Accurate";
 
 /** Waktu dari server (UTC) ditampilkan dalam WIB. */
 export const wib = (s: string) =>
@@ -22,8 +25,8 @@ export const wib = (s: string) =>
 interface PullResult { done: boolean; changed?: number; skipped?: number; entered?: number; phase?: string; itemsSeen?: number; stockRows?: number; busy?: boolean }
 interface CompareRow { code: string; name: string; uom: string; pe: number; accurate: number; diff: number }
 
-/** Satu tombol Accurate (2026-11-25): Sinkron = ambil stok terbaru dari Accurate ke Pricing Engine, lalu ringkasan
- *  dengan "Lihat selisih" (dulu Cocokkan). Kirim disembunyikan sampai pengiriman otomatis ke Accurate aktif. */
+/** Tombol Accurate dengan arah di namanya (pemilik, 2026-11-25): Tarik dari Accurate (ambil, lalu ringkasan), Cocokkan
+ *  (lihat selisih, tidak memindahkan data), Kirim ke Accurate (mati sampai izin tulis ada; selisih diinput manual). */
 export function StockActions({ onPulled }: { onPulled?: () => void }) {
   const { can } = useAuth();
   const toast = useToast();
@@ -53,9 +56,9 @@ export function StockActions({ onPulled }: { onPulled?: () => void }) {
         setProgress(`${grp(r.itemsSeen ?? 0)} barang, ${grp(r.stockRows ?? 0)} stok dibaca`);
         if (r.busy) await new Promise((ok) => setTimeout(ok, 3000));
       }
-      toast("Sinkron Accurate masih berjalan. Tekan lagi untuk melanjutkan.");
+      toast("Tarik dari Accurate masih berjalan. Tekan lagi untuk melanjutkan.");
     } catch (e) {
-      toast(e instanceof Error ? e.message : "Gagal sinkron Accurate.", "error");
+      toast(e instanceof Error ? e.message : "Gagal menarik dari Accurate.", "error");
     } finally {
       setBusy(false);
       setProgress("");
@@ -75,25 +78,40 @@ export function StockActions({ onPulled }: { onPulled?: () => void }) {
     }
   };
 
+  const openCompare = () => (setSummary({ done: true }), void compare());
+
   return (
     <>
-      <button className="btn small" disabled={busy} title={SINKRON_HINT} aria-label={SINKRON_HINT} onClick={() => void pull()}>
-        {busy && progress ? `Sinkron… ${progress}` : busy ? "Sinkron…" : "Sinkron Accurate"}
-      </button>
+      <div className="row-wrap" role="group" aria-label="Stok Accurate">
+        <button className="btn small" disabled={busy} title={TARIK_HINT} aria-label={TARIK_HINT} onClick={() => void pull()}>
+          {busy && progress ? `Menarik… ${progress}` : busy ? "Menarik…" : "Tarik dari Accurate"}
+        </button>
+        <button className="btn small ghost" disabled={busy} title={COCOK_HINT} aria-label={COCOK_HINT} onClick={openCompare}>
+          Cocokkan
+        </button>
+        {/* A disabled button shows no tooltip in some browsers, so the wrapper carries it too. */}
+        <span title={KIRIM_OFF}>
+          <button className="btn small ghost" disabled title={KIRIM_OFF} aria-label={`${KIRIM_HINT}. ${KIRIM_OFF}`}>
+            Kirim ke Accurate
+          </button>
+        </span>
+      </div>
       {summary && (
         <Modal
-          title={rows ? "Selisih stok dengan Accurate" : "Sinkron Accurate selesai"}
+          title={rows ? "Selisih stok dengan Accurate" : "Tarik dari Accurate selesai"}
           sub={rows ? (rows.length ? `${grp(rows.length)}${more ? "+" : ""} barang selisih` : undefined) : undefined}
           size={rows ? "wide" : undefined}
           onClose={() => (setSummary(null), setRows(null))}
           footer={
             <>
-              {!rows && <button className="btn ghost" disabled={busy} onClick={() => void compare()}>Lihat selisih</button>}
+              {!rows && summary.changed !== undefined && <button className="btn ghost" disabled={busy} onClick={() => void compare()}>Lihat selisih</button>}
               <button className="btn" onClick={() => (setSummary(null), setRows(null))}>Tutup</button>
             </>
           }
         >
-          {!rows ? (
+          {!rows && summary.changed === undefined ? (
+            <p className="muted" role="status">Memuat selisih…</p>
+          ) : !rows ? (
             <ul className="plain">
               <li>{grp(summary.changed ?? 0)} barang stoknya diperbarui dari Accurate.</li>
               {!!summary.entered && <li>{grp(summary.entered)} hitungan gudang sudah tercatat masuk Accurate.</li>}
