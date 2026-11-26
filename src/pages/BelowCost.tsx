@@ -154,7 +154,7 @@ export function BelowCostPage() {
               <button
                 key={g.key}
                 type="button"
-                className={`kpi kpi-btn${cause === g.key ? " on" : ""}${g.key === "data" && g.rows ? " tone-warn" : ""}`}
+                className={`kpi kpi-btn${cause === g.key ? " on" : ""}${(g.key === "data" || g.key === "pricing") && g.rows ? " tone-warn" : ""}`}
                 onClick={() => setCause(cause === g.key ? "" : g.key)}
                 aria-pressed={cause === g.key}
                 title={g.why}
