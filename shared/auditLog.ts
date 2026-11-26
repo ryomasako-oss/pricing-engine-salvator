@@ -17,6 +17,7 @@ export const AUDIT_ENTITIES: Record<string, string> = {
   familiarity: "Pencocokan",
   accurate: "Accurate",
   assistant: "Silvy",
+  price_letter: "Surat perubahan harga",
 };
 
 const ACTIONS: Record<string, string> = {

@@ -15,6 +15,9 @@ import type { Permission } from "@shared/permissions";
 // Pages other than the quote list load on first visit, so the PDF, Excel and
 // OCR libraries they pull in stay out of the bundle every login downloads.
 // A tab left open across a deploy is handled by the preload-error reload in main.tsx.
+const PriceLettersPage = lazy(() => import("./pages/PriceLetters").then((m) => ({ default: m.PriceLettersPage })));
+const PriceLetterPage = lazy(() => import("./pages/PriceLetters").then((m) => ({ default: m.PriceLetterPage })));
+const PriceLetterNewPage = lazy(() => import("./pages/PriceLetters").then((m) => ({ default: m.PriceLetterNewPage })));
 const QuoteEditorPage = lazy(() => import("./pages/QuoteEditor").then((m) => ({ default: m.QuoteEditorPage })));
 const StaffQuotePage = lazy(() => import("./pages/StaffQuote").then((m) => ({ default: m.StaffQuotePage })));
 const ApprovalsPage = lazy(() => import("./pages/Approvals").then((m) => ({ default: m.ApprovalsPage })));
@@ -249,6 +252,30 @@ export function App() {
           element={
             <RequirePermission permission="view_costs">
               <BelowCostPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/surat-harga"
+          element={
+            <RequirePermission permission="view_costs">
+              <PriceLettersPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/surat-harga/baru"
+          element={
+            <RequirePermission permission="view_costs">
+              <PriceLetterNewPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/surat-harga/:id"
+          element={
+            <RequirePermission permission="view_costs">
+              <PriceLetterPage />
             </RequirePermission>
           }
         />

@@ -99,6 +99,11 @@ export async function salesBelowCostBetween(db: D1Database, entity: EntityKey, f
   return (await belowCost(db, entity, "s.trans_date BETWEEN ?2 AND ?3", [from, to], lines, null)).result;
 }
 
+/** Jual < Beli for one SI (surat perubahan harga): every line of it, so the per-invoice average counts bonus lines. */
+export async function salesBelowCostOfInvoice(db: D1Database, entity: EntityKey, invoiceNo: string, lines: CostLines = RECEIPT_LINES) {
+  return (await belowCost(db, entity, "s.invoice_no = ?2", [invoiceNo], lines, null)).result;
+}
+
 async function belowCost(
   db: D1Database,
   entity: EntityKey,
