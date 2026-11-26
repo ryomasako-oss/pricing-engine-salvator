@@ -11,6 +11,7 @@ import type { CompanyInfo, DocSignature } from "../components/QuotationDoc";
 import { DEFAULT_LOGO } from "../assets/defaultLogo";
 import { heldNote, offeredRows } from "@shared/holds";
 import { docCell, docLayout, docNotes, docTotals } from "@shared/docColumns";
+import { loadDocImages } from "./docImages";
 
 interface Input {
   engine: EngineResult;
@@ -25,6 +26,8 @@ interface Input {
   signature?: DocSignature | null;
   /** The client's document template (shared/docColumns.ts); absent prints the standard document. */
   template?: DocTemplate | null;
+  /** Item code -> JPEG data URL, for the "Gambar" column (docImages.ts); a code without one is a blank cell. */
+  images?: Record<string, string>;
   number: string;
   draft: boolean;
 }
@@ -103,6 +106,7 @@ export function quotationPdf(input: Input): jsPDF {
     total: { halign: "right", cellWidth: 84 },
     // Auto width, shared with the item name, so a template using every column still leaves the name room.
     notes: {},
+    image: { cellWidth: 52, minCellHeight: 50 },
   };
   const cell = (key: DocColumnKey, r: ComputedRow): string => {
     if (key === "name" && layout.codeUnderName && shownCode(r.code)) return `${r.name}\n${shownCode(r.code)}`;
@@ -110,14 +114,26 @@ export function quotationPdf(input: Input): jsPDF {
     return typeof v === "number" && key !== "no" ? grp(v) : String(v);
   };
   const columns = layout.columns;
+  const offered = offeredRows(engine.rows);
+  const imageCol = columns.findIndex((c) => c.key === "image");
   autoTable(doc, {
     startY: tableY,
     head: [columns.map((c) => c.label)],
-    body: offeredRows(engine.rows).map((r) => columns.map((c) => cell(c.key, r))),
+    body: offered.map((r) => columns.map((c) => cell(c.key, r))),
     styles: { fontSize: 8.5, cellPadding: 4, lineColor: [238, 241, 244], lineWidth: 0.5 },
     headStyles: { fillColor: [246, 248, 250], textColor: [27, 37, 48], fontStyle: "bold" },
     columnStyles: Object.fromEntries(columns.map((c, i) => [i, STYLE[c.key]])),
     margin: { left: M, right: M, bottom: FOOT + 16 },
+    didDrawCell: (data) => {
+      if (data.section !== "body" || data.column.index !== imageCol) return;
+      const src = input.images?.[offered[data.row.index]?.code];
+      if (!src) return;
+      const { width, height } = doc.getImageProperties(src);
+      const box = Math.min(data.cell.width, data.cell.height) - 6;
+      const k = Math.min(box / width, box / height);
+      const w = width * k, h = height * k;
+      doc.addImage(src, imageFormat(src), data.cell.x + (data.cell.width - w) / 2, data.cell.y + (data.cell.height - h) / 2, w, h);
+    },
   });
 
   const totals = docTotals(layout, s, assumptions);
@@ -209,7 +225,9 @@ export function quotationPdf(input: Input): jsPDF {
   return doc;
 }
 
-export function downloadQuotationPdf(input: Input): void {
+export async function downloadQuotationPdf(input: Input): Promise<void> {
   const safe = (input.number || input.meta.quoteNo || "quotation").replace(/[^\w-]+/g, "-");
-  quotationPdf(input).save(`${safe}.pdf`);
+  const withImages = docLayout(input.meta, input.template, "print").columns.some((c) => c.key === "image");
+  const images = withImages ? await loadDocImages(offeredRows(input.engine.rows).map((r) => r.code)) : undefined;
+  quotationPdf({ ...input, images }).save(`${safe}.pdf`);
 }

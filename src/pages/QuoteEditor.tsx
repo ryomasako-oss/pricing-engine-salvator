@@ -1008,7 +1008,7 @@ export function QuoteEditorPage() {
               onClick={async () => {
                 if (!company) return;
                 const { downloadQuotationPdf } = await import("../export/pdf");
-                downloadQuotationPdf({
+                await downloadQuotationPdf({
                   ...exportInput, company, clientAddress: clientRecord?.address,
                   draft: isDraftDoc(quote.status), signature, clientContact: clientRecord?.contact_name,
                 });

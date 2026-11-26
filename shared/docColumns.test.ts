@@ -68,6 +68,16 @@ describe("docLayout: client document template", () => {
     }
   });
 
+  it("foto barang: a Gambar column after No on the printed document, never in the Excel sheet", () => {
+    expect(keys(docLayout({ showImages: true }, null, "print")).slice(0, 3)).toEqual(["no:No", "image:Gambar", "name:Item"]);
+    expect(keys(docLayout({ showImages: true }, null, "sheet")).some((k) => k.startsWith("image"))).toBe(false);
+    expect(keys(docLayout({}, null, "print")).some((k) => k.startsWith("image"))).toBe(false); // off by default: old quotes print as before
+    // A client template places the column itself, with its own heading.
+    const withImage: DocTemplate = { columns: [{ key: "no", label: "No" }, { key: "name", label: "Uraian" }, { key: "image", label: "Foto" }] };
+    expect(keys(docLayout({}, withImage, "print"))).toEqual(["no:No", "name:Uraian", "image:Foto"]);
+    expect(keys(docLayout({}, withImage, "sheet"))).toEqual(["no:No", "name:Uraian"]);
+  });
+
   it("keeps the template's order and headings, the same for print and sheet", () => {
     const print = docLayout({}, tender, "print");
     expect(keys(print)).toEqual([
@@ -99,6 +109,6 @@ describe("docLayout: client document template", () => {
 
   it("reads each cell from the line, Keterangan from the line notes", () => {
     const r = { lineNo: 3, code: "ATK-1", name: "Pulpen", uom: "Pcs", qty: 4, notes: "Merk Standard" } as ComputedRow;
-    expect(DOC_COLUMN_KEYS.map((k) => docCell(k, r, 2500))).toEqual([3, "ATK-1", "Pulpen", "Pcs", 4, 2500, 10000, "Merk Standard"]);
+    expect(DOC_COLUMN_KEYS.map((k) => docCell(k, r, 2500))).toEqual([3, "ATK-1", "Pulpen", "Pcs", 4, 2500, 10000, "Merk Standard", ""]); // Gambar is drawn, not text
   });
 });

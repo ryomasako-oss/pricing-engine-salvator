@@ -14,16 +14,23 @@ const company = { name: "PT Salvator Inti Pratama", brand: "", tagline: "", addr
 
 const DOT = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 
-function pdfFor(n: number, over: Partial<QuoteMeta> = {}, template?: DocTemplate | null, signature?: { name: string; image: string }) {
+function pdfFor(n: number, over: Partial<QuoteMeta> = {}, template?: DocTemplate | null, signature?: { name: string; image: string }, images?: Record<string, string>) {
   const items: QuoteItem[] = Array.from({ length: n }, (_, i) => ({
     id: `i${i}`, lineNo: i + 1, code: `C${i}`, name: `Item nomor ${i + 1}`, uom: "Pcs", qty: 1, cogs: 1000, rrp: 2000, role: "CORE",
     notes: `Catatan ${i + 1}`,
   }));
   return quotationPdf({
     engine: computeEngine(DEFAULT_ASSUMPTIONS, items, DEFAULT_REGIONS), meta: { ...meta, ...over }, assumptions: DEFAULT_ASSUMPTIONS,
-    scenario: 0, company, clientName: "PT Klien", number: "Q-1", draft: false, template, signature,
+    scenario: 0, company, clientName: "PT Klien", number: "Q-1", draft: false, template, signature, images,
   });
 }
+
+/** How many times an image is painted (`/I<n> Do`) across all pages. */
+const imageDraws = (doc: ReturnType<typeof pdfFor>) =>
+  (doc.internal as unknown as { pages: (string[] | undefined)[] }).pages.reduce(
+    (n, ops) => n + (ops?.filter((op) => /\/I\d+ Do/.test(op)).length ?? 0),
+    0,
+  );
 
 /** 1-based page numbers whose content stream draws this exact text. */
 function pagesWith(doc: ReturnType<typeof pdfFor>, text: string): number[] {
@@ -54,6 +61,29 @@ function bottomOffset(doc: ReturnType<typeof pdfFor>, text: string): number {
   }
   throw new Error(`"${text}" not drawn`);
 }
+
+describe("quotation PDF item photos", () => {
+  it("paints each line's photo in the Gambar column; a code without one stays blank", () => {
+    const logoOnly = imageDraws(pdfFor(3, { showImages: true }));
+    // C0 and C2 have a photo, C1 has none.
+    const d = pdfFor(3, { showImages: true }, null, undefined, { C0: DOT, C2: DOT });
+    expect(pagesWith(d, "Gambar")).toEqual([1]);
+    expect(imageDraws(d) - logoOnly).toBe(2);
+    // Photos given but the option off: no column, nothing painted.
+    expect(imageDraws(pdfFor(3, {}, null, undefined, { C0: DOT, C2: DOT }))).toBe(logoOnly);
+  });
+
+  it("taller rows still keep the signature block on one page, 1 to 40 items", () => {
+    for (let n = 1; n <= 40; n++) {
+      const images = Object.fromEntries(Array.from({ length: n }, (_, i) => [`C${i}`, DOT]));
+      const doc = pdfFor(n, { showImages: true }, null, undefined, images);
+      const top = pagesWith(doc, "Hormat kami,");
+      expect(top, `n=${n}`).toHaveLength(1);
+      expect(pagesWith(doc, "Tanggal:"), `n=${n}`).toEqual(top);
+      expect(bottomOffset(doc, "Tanggal:"), `n=${n}`).toBeGreaterThan(32);
+    }
+  });
+});
 
 describe("quotation PDF columns", () => {
   const has = (doc: ReturnType<typeof pdfFor>, t: string) => pagesWith(doc, t).length > 0;

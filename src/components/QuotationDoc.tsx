@@ -2,16 +2,19 @@
    browser print or PDF export reproduces; internal margin analysis sits
    outside it and is marked no-print. */
 
+import { useEffect, useState } from "react";
 import { SCENARIOS } from "@shared/engine";
 import { fmtDate, grp, pct, rp } from "@shared/format";
 import type { Assumptions, ComputedRow, DocColumnKey, DocTemplate, EngineResult, QuoteMeta, ScenarioIndex } from "@shared/types";
 import { heldNote, offeredRows } from "@shared/holds";
 import { docCell, docLayout, docNotes, docTotals } from "@shared/docColumns";
 import { DEFAULT_LOGO } from "../assets/defaultLogo";
+import { itemImageUrl } from "@shared/itemImages";
+import { photoCodes } from "../export/docImages";
 
 /** Cell alignment per column, by key so a client template can reorder them. */
 const ALIGN: Record<DocColumnKey, string> = {
-  no: "c", code: "l", name: "l", uom: "c", qty: "num", price: "num", total: "num", notes: "l",
+  no: "c", code: "l", name: "l", uom: "c", qty: "num", price: "num", total: "num", notes: "l", image: "c",
 };
 
 export interface CompanyInfo {
@@ -68,9 +71,11 @@ export function QuotationDoc({
   draft,
 }: Props) {
   const layout = docLayout(meta, template, "print");
+  const photos = useDocPhotos(layout.columns.some((c) => c.key === "image") ? offeredRows(engine.rows).map((r) => r.code) : null);
   const cell = (key: DocColumnKey, r: ComputedRow) => {
     if (key === "name") return <>{r.name}{layout.codeUnderName && r.code && <div className="muted small">{r.code}</div>}</>;
     if (key === "price") return <strong>{grp(r.prices[scenario])}</strong>;
+    if (key === "image") return photos?.has(r.code) ? <img className="doc-image" src={itemImageUrl(r.code)} alt={r.name} loading="lazy" /> : null;
     const v = docCell(key, r, r.prices[scenario]);
     return typeof v === "number" && key !== "no" ? grp(v) : v;
   };
@@ -177,4 +182,22 @@ export function QuotationDoc({
       )}
     </div>
   );
+}
+
+/** The codes with a photo, asked once per set of codes; null while unknown or when no photo column is shown. */
+function useDocPhotos(codes: string[] | null): Set<string> | null {
+  const key = codes ? [...new Set(codes)].sort().join("|") : "";
+  const [photos, setPhotos] = useState<Set<string> | null>(null);
+  useEffect(() => {
+    setPhotos(null);
+    if (!key) return;
+    let live = true;
+    photoCodes(key.split("|"))
+      .then((s) => live && setPhotos(s))
+      .catch(() => undefined); // No photos is blank cells, as in the PDF.
+    return () => {
+      live = false;
+    };
+  }, [key]);
+  return photos;
 }
