@@ -65,6 +65,21 @@ export function autoNotes(meta: NoteMeta): string[] {
   ].filter((l): l is string => Boolean(l));
 }
 
+/** Lines that restate a term set above them; an edited copy goes stale when the term changes. */
+const TERM_PREFIXES = ["Term of payment:", "Pengiriman:", "Garansi:", "Penawaran berlaku"];
+
+/**
+ * The quote's current automatic line for an edited line that restates a term (validity, payment, delivery,
+ * warranty) but no longer matches it, e.g. "sampai 28 Desember" after the date moved; null when it matches
+ * or restates nothing. Advice only: a rep may mean the difference (Review #200, 2026-11-28).
+ */
+export function staleNote(line: string, auto: string[]): string | null {
+  const text = line.trim();
+  const prefix = TERM_PREFIXES.find((p) => text.startsWith(p));
+  const now = prefix ? auto.find((a) => a.startsWith(prefix)) : undefined;
+  return now && now !== text ? now : null;
+}
+
 /** Bank account and NPWP, always from Pengaturan perusahaan: a quote can't change or drop them (Ryoma, 2026-11-28). */
 export function companyNotes(company: { bank?: string; npwp?: string }): string[] {
   return [company.bank && `Pembayaran ke ${company.bank}.`, company.npwp && `NPWP ${company.npwp}.`].filter((l): l is string => Boolean(l));

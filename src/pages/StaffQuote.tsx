@@ -501,9 +501,9 @@ export function StaffQuotePage() {
         </div>
         <div className="card-body">
           <div className={`quote-totals${pricingBusy ? " is-dim" : ""}`} aria-busy={pricingBusy}>
-            <div><span>Subtotal per bulan</span><span className="num">{rp(pricing.subtotal)}</span></div>
+            <div><span>Subtotal</span><span className="num">{rp(pricing.subtotal)}</span></div>
             <div><span>PPN {pct(pricing.ppnRate, 0)}</span><span className="num">{rp(pricing.ppn)}</span></div>
-            <div className="grand"><span>Total per bulan</span><span className="num">{rp(pricing.total)}</span></div>
+            <div className="grand"><span>Total</span><span className="num">{rp(pricing.total)}</span></div>
             <div><span>Nilai kontrak {pricing.months} bulan (belum PPN)</span><span className="num">{rp(pricing.contractValue)}</span></div>
             {pricing.savingsPct > 0 && (
               <div><span>Klien hemat dibanding plafon</span><span className="num">{pct(pricing.savingsPct)}</span></div>
