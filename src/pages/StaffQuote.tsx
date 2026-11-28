@@ -302,7 +302,7 @@ export function StaffQuotePage() {
     if (!company) return;
     // jsPDF is large; load it only when someone actually exports.
     const { downloadQuotationPdf } = await import("../export/pdf");
-    downloadQuotationPdf({
+    await downloadQuotationPdf({
       ...docInput,
       meta,
       scenario: quote.scenario,

@@ -39,6 +39,7 @@ export const DOC_COLUMN_LABELS: Record<DocColumnKey, string> = {
   price: "Harga satuan",
   total: "Total per bulan",
   notes: "Keterangan",
+  image: "Gambar",
 };
 export const DOC_COLUMN_KEYS = Object.keys(DOC_COLUMN_LABELS) as DocColumnKey[];
 export const DEFAULT_DOC_TITLE = "Penawaran Harga";
@@ -90,7 +91,7 @@ export interface DocLayout {
 }
 
 export function docLayout(
-  meta: Pick<QuoteMeta, "hideQty" | "hideLineTotal" | "hideTotalRows">,
+  meta: Pick<QuoteMeta, "hideQty" | "hideLineTotal" | "hideTotalRows" | "showImages">,
   template: DocTemplate | null | undefined,
   target: "print" | "sheet",
 ): DocLayout {
@@ -98,9 +99,12 @@ export function docLayout(
   const t = template ?? {};
   // Unknown keys are dropped here too, not only by the API: a row edited by hand must not print other data.
   const picked = (t.columns ?? []).filter((c, i, all) => c.key in DOC_COLUMN_LABELS && all.findIndex((o) => o.key === c.key) === i);
-  const base = picked.length
-    ? picked.map((c) => ({ key: c.key, label: c.label.trim() || DOC_COLUMN_LABELS[c.key] }))
-    : STANDARD[target].map((key) => ({ key, label: DOC_COLUMN_LABELS[key] }));
+  const standard = meta.showImages ? STANDARD[target].flatMap((k): DocColumnKey[] => (k === "no" ? ["no", "image"] : [k])) : STANDARD[target];
+  const base = (
+    picked.length
+      ? picked.map((c) => ({ key: c.key, label: c.label.trim() || DOC_COLUMN_LABELS[c.key] }))
+      : standard.map((key) => ({ key, label: DOC_COLUMN_LABELS[key] }))
+  ).filter((c) => c.key !== "image" || target === "print"); // shortcut: no pictures in the Excel sheet (SheetJS CE can't embed them)
   const hidden = meta.hideTotalRows ?? [];
   const totalRows = cols.totals && t.showTotals !== false ? TOTAL_ROW_KEYS.filter((k) => !hidden.includes(k)) : [];
   return {
@@ -125,6 +129,7 @@ export function docCell(key: DocColumnKey, r: ComputedRow, price: number): strin
     case "price": return price;
     case "total": return price * r.qty;
     case "notes": return r.notes ?? "";
+    case "image": return ""; // drawn by the PDF and the preview, not text
   }
 }
 

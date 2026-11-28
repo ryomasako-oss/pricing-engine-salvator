@@ -87,7 +87,7 @@ export function quoteWorkbook(input: Input): XLSX.WorkBook {
   const quoteSheet = XLSX.utils.aoa_to_sheet(input.template ? [[layout.title], ...(layout.opening ? [[layout.opening]] : [])] : []);
   XLSX.utils.sheet_add_json(quoteSheet, quoteRows, { origin: { r: headerRow, c: 0 } });
   // Hidden columns are absent, not blank, so the letters shift left: widths and formats follow the header row.
-  const WIDTH: Record<DocColumnKey, number> = { no: 5, code: 14, name: 46, uom: 8, qty: 10, price: 14, total: 16, notes: 30 };
+  const WIDTH: Record<DocColumnKey, number> = { no: 5, code: 14, name: 46, uom: 8, qty: 10, price: 14, total: 16, notes: 30, image: 10 };
   const heads = (XLSX.utils.sheet_to_json(quoteSheet, { header: 1, range: headerRow })[0] ?? []) as string[];
   quoteSheet["!cols"] = heads.map((h) => ({ wch: WIDTH[layout.columns.find((c) => c.label === h)?.key ?? "total"] }));
   const moneyHeads = new Set([at("qty"), at("price"), L.total]);

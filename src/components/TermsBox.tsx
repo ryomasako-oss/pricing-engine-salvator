@@ -132,6 +132,14 @@ export function TermsBox({
           />
           <span>Tampilkan total per baris</span>
         </label>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={!!meta.showImages}
+            onChange={(e) => onMeta({ showImages: e.target.checked ? true : undefined })}
+          />
+          <span>Tampilkan foto barang di dokumen</span>
+        </label>
       </div>
       <div className={`check-row note-block${meta.hideQty ? " is-dim" : ""}`}>
         <span className="muted small">Baris total:</span>
