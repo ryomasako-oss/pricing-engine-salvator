@@ -6,7 +6,8 @@
    DELETE /:code hapus gambar sebuah barang.
    POST dan DELETE butuh izin edit_catalog (manajer dan admin); sales hanya bisa melihat. */
 
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
+import { hasPermission } from "../../../shared/permissions";
 import { z } from "zod";
 import { all, batch, get, stmt } from "../../db.d1";
 import { audit } from "../audit";
@@ -43,6 +44,29 @@ itemImageRouter.get("/:file", async (c) => {
 const isWebp = (b: Uint8Array) =>
   b.length >= 12 && String.fromCharCode(...b.subarray(0, 4)) === "RIFF" && String.fromCharCode(...b.subarray(8, 12)) === "WEBP";
 
+/* Barang baru dari quotation (Ryoma, 2026-11-28): permintaan yang masih menunggu Accurate juga boleh diberi
+   gambar, oleh peminta barangnya sendiri atau oleh yang boleh mengubah katalog. Gambar disimpan di bawah kode
+   permintaan (BARU-0007 atau kode yang diketik); POST /pending-items/:id/link memindahkannya bila kodenya
+   berubah. Barang katalog tetap hanya untuk edit_catalog. */
+type ImageTarget = { entity: "catalog" | "pending_item"; id: number; code: string };
+
+/** Barang yang gambarnya boleh diubah pengguna ini, atau jawaban error. */
+async function imageTarget(c: Context<Env>, code: string): Promise<ImageTarget | Response> {
+  const user = c.get("user")!;
+  const editor = hasPermission(user.role, "edit_catalog");
+  const item = await catalogItemFor(c.env.DB, code);
+  if (item) return editor ? { entity: "catalog", ...item } : c.json({ error: "Akun ini tidak bisa mengubah gambar barang katalog." }, 403);
+  if (itemImageCode(`${code}.webp`) !== code) return c.json({ error: "Kode barang tidak ditemukan, atau ada karakter yang tidak bisa dipakai untuk gambar." }, 404);
+  const pending = await get<{ id: number; code: string; requested_by: number | null }>(
+    c.env.DB,
+    "SELECT id, code, requested_by FROM pending_items WHERE code = ? AND status IN ('draft', 'submitted')",
+    code,
+  );
+  if (!pending) return c.json({ error: "Kode barang tidak ditemukan, atau ada karakter yang tidak bisa dipakai untuk gambar." }, 404);
+  if (!editor && pending.requested_by !== user.id) return c.json({ error: "Hanya peminta barang baru ini atau manajer yang bisa mengubah gambarnya." }, 403);
+  return { entity: "pending_item", id: pending.id, code: pending.code };
+}
+
 /** Barang untuk kode dari URL, hanya bila kode sah sebagai nama berkas dan ada di katalog. */
 async function catalogItemFor(db: D1Database, code: string) {
   if (itemImageCode(`${code}.webp`) !== code) return null;
@@ -73,9 +97,9 @@ itemImageRouter.post("/_check", requirePermission("edit_catalog"), async (c) => 
   return c.json({ items: [...best.values()].map((r) => ({ input: r.input, code: r.code, hasImage: !!r.has_image })) });
 });
 
-itemImageRouter.post("/:code", requirePermission("edit_catalog"), async (c) => {
-  const item = await catalogItemFor(c.env.DB, c.req.param("code") ?? "");
-  if (!item) return c.json({ error: "Kode barang tidak ditemukan, atau ada karakter yang tidak bisa dipakai untuk gambar." }, 404);
+itemImageRouter.post("/:code", async (c) => {
+  const item = await imageTarget(c, c.req.param("code") ?? "");
+  if (item instanceof Response) return item;
   if (!c.env.IMAGES) return c.json({ error: "Penyimpanan gambar belum aktif di server ini." }, 503);
   if (Number(c.req.header("content-length") ?? 0) > MAX_FULL_BYTES + MAX_THUMB_BYTES + 10_000)
     return c.json({ error: "Gambar terlalu besar." }, 413);
@@ -95,16 +119,16 @@ itemImageRouter.post("/:code", requirePermission("edit_catalog"), async (c) => {
   await c.env.IMAGES.put(`${item.code}.webp`, fullBytes, opts);
   await c.env.IMAGES.put(itemThumbFile(item.code), thumbBytes, opts);
   await batch(c.env.DB, [stmt(c.env.DB, "INSERT OR IGNORE INTO item_images(code) VALUES (?)", item.code)]);
-  await audit(c.env.DB, c.get("user")!.id, "catalog", item.id, "image_set", { code: item.code });
+  await audit(c.env.DB, c.get("user")!.id, item.entity, item.id, "image_set", { code: item.code });
   return c.json({ image: itemImageUrl(item.code) });
 });
 
-itemImageRouter.delete("/:code", requirePermission("edit_catalog"), async (c) => {
-  const item = await catalogItemFor(c.env.DB, c.req.param("code") ?? "");
-  if (!item) return c.json({ error: "Kode barang tidak ditemukan." }, 404);
+itemImageRouter.delete("/:code", async (c) => {
+  const item = await imageTarget(c, c.req.param("code") ?? "");
+  if (item instanceof Response) return item;
   if (!c.env.IMAGES) return c.json({ error: "Penyimpanan gambar belum aktif di server ini." }, 503);
   await c.env.IMAGES.delete([`${item.code}.webp`, itemThumbFile(item.code)]);
   await batch(c.env.DB, [stmt(c.env.DB, "DELETE FROM item_images WHERE code = ?", item.code)]);
-  await audit(c.env.DB, c.get("user")!.id, "catalog", item.id, "image_removed", { code: item.code });
+  await audit(c.env.DB, c.get("user")!.id, item.entity, item.id, "image_removed", { code: item.code });
   return c.json({ ok: true });
 });

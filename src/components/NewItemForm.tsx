@@ -9,6 +9,8 @@ import type { CatalogItem, QuoteItem } from "@shared/types";
 import type { PendingItem } from "@shared/pendingItems";
 import { lineFromCatalog } from "@shared/match";
 import { Modal } from "./Modal";
+import { useToast } from "../context/ToastContext";
+import { uploadItemImage } from "../lib/itemImageUpload";
 
 export function NewItemForm({
   uomOptions,
@@ -35,6 +37,8 @@ export function NewItemForm({
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [photo, setPhoto] = useState<File | null>(null);
+  const toast = useToast();
 
   const submit = async () => {
     setBusy(true);
@@ -48,6 +52,8 @@ export function NewItemForm({
         ...(code.trim() ? { code: code.trim() } : {}),
       });
       const it = r.item;
+      // The request exists now: a photo that fails to upload is said, not a reason to lose the item.
+      if (photo) await uploadItemImage(it.code, photo).catch((e) => toast(`Barang baru dibuat, tapi fotonya gagal diunggah: ${(e as Error).message}`, "error"));
       const row: CatalogItem = {
         id: -it.id, code: it.code, name: it.name, uom: it.uom, cogs: 0, list_price: it.proposed_price,
         stock: 0, category: "", source: "pending", updated_at: it.created_at,
@@ -106,6 +112,11 @@ export function NewItemForm({
         <label className="field">
           <span className="small">Kode di Accurate (opsional)</span>
           <input className="input" value={code} onChange={(e) => setCode(e.target.value)} placeholder="Kosongkan kalau belum tahu, nanti diberi kode sementara (BARU-0001)" />
+        </label>
+        <label className="field">
+          <span className="small">Foto barang (opsional)</span>
+          <input className="input" type="file" accept="image/*" onChange={(e) => setPhoto(e.target.files?.[0] ?? null)} />
+          <span className="muted small">Ikut jadi foto katalog setelah barangnya dibuat di Accurate.</span>
         </label>
         <label className="field">
           <span className="small">Catatan untuk yang membuat di Accurate (opsional)</span>

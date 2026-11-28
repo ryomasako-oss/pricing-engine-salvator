@@ -8,6 +8,8 @@ import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { Modal } from "./Modal";
+import { ItemImageEditor } from "./ItemImageEditor";
+import { itemImageUrl } from "@shared/itemImages";
 import { ratioText } from "@shared/uom";
 import { fmtDateTime, grp } from "@shared/format";
 import type { PendingItem } from "@shared/pendingItems";
@@ -21,7 +23,8 @@ const STATUS: Record<PendingItem["status"], { label: string; tone: string }> = {
 
 export function PendingItemsPanel({ reload = 0, onLinked }: { reload?: number; onLinked?: () => void }) {
   const toast = useToast();
-  const manage = useAuth().can("edit_catalog");
+  const { can, user } = useAuth();
+  const manage = can("edit_catalog");
   const [items, setItems] = useState<PendingItem[] | null>(null);
   const [busy, setBusy] = useState<number | null>(null);
   const [linking, setLinking] = useState<PendingItem | null>(null);
@@ -78,6 +81,9 @@ export function PendingItemsPanel({ reload = 0, onLinked }: { reload?: number; o
                   {i.note ? ` · ${i.note}` : ""}
                   {i.linked_code && i.linked_code !== i.code ? ` · dibuat di Accurate sebagai ${i.linked_code}` : ""}
                 </div>
+                {(i.status === "draft" || i.status === "submitted") && (manage || i.requested_by === user?.id) && (
+                  <ItemImageEditor code={i.code} image={i.has_image ? itemImageUrl(i.code) : null} onChanged={load} />
+                )}
                 {(!!i.units?.length || !!i.barcodes?.length) && (
                   <div className="badge-row pending-skus">
                     {i.units?.map((u) => (

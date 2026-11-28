@@ -21,6 +21,7 @@ import {
 import { z } from "zod";
 import { barcodeOwner, barcodesByCode, nextInternalBarcode, proposalsByCode, takenMessage } from "../unitBarcodes";
 import { sameUom } from "../../../shared/uom";
+import { itemThumbFile } from "../../../shared/itemImages";
 import type { Env } from "../env";
 
 /* "Barang baru" (shared/pendingItems.ts): requested by anyone, handed to Accurate by a manager. */
@@ -198,9 +199,39 @@ pendingItemsRouter.post("/:id/link", requirePermission("edit_catalog"), async (c
     ),
     stmt(c.env.DB, CLOSE_NEW_ITEM_TASK_SQL, from, user.id, `Dibuat di Accurate sebagai ${target.code}.`),
   ]);
-  await audit(c.env.DB, user.id, "pending_item", id, "linked", { code: from, to: target.code, dropped });
+  const image = await moveImage(c.env, from, target.code);
+  await audit(c.env.DB, user.id, "pending_item", id, "linked", { code: from, to: target.code, dropped, ...(image && { image }) });
   return c.json({ item: await get<PendingItem>(c.env.DB, GET_PENDING_SQL, id), target, dropped });
 });
+
+/**
+ * The request's photo goes to the Accurate code it was linked to, unless that item has its own already
+ * (the catalog's photo wins, the request's is dropped). After the D1 batch: R2 isn't part of it, and a
+ * failed move leaves the photo under the old code, said in the audit, without undoing the link.
+ */
+async function moveImage(env: Env["Bindings"], from: string, to: string): Promise<"moved" | "kept_target" | "failed" | null> {
+  if (from === to || !env.IMAGES || !(await get(env.DB, "SELECT 1 FROM item_images WHERE code = ?", from))) return null;
+  const files = [`${from}.webp`, itemThumbFile(from)];
+  try {
+    const kept = await get(env.DB, "SELECT 1 FROM item_images WHERE code = ?", to);
+    let copied = 0;
+    if (!kept) {
+      for (const [src, dst] of [[files[0], `${to}.webp`], [files[1], itemThumbFile(to)]]) {
+        const object = await env.IMAGES.get(src);
+        if (object) copied += (await env.IMAGES.put(dst, await object.arrayBuffer(), { httpMetadata: { contentType: "image/webp" } }), 1);
+      }
+    }
+    await env.IMAGES.delete(files);
+    await batch(env.DB, [
+      stmt(env.DB, "DELETE FROM item_images WHERE code = ?", from),
+      // The target is listed only when a file actually landed there (the /item-image proxy serves either size).
+      ...(copied ? [stmt(env.DB, "INSERT OR IGNORE INTO item_images(code) VALUES (?)", to)] : []),
+    ]);
+    return kept ? "kept_target" : copied ? "moved" : null;
+  } catch {
+    return "failed";
+  }
+}
 
 /** Units and barcodes in one request: names unique, ratios not on the base unit, barcodes only for known units. */
 function checkExtras(base: string, extras: z.infer<typeof warehouseExtras>): string | null {
