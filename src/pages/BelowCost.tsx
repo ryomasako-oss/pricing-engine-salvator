@@ -15,6 +15,12 @@ import { LossTrace } from "../components/LossTrace";
 import { sameUom } from "@shared/uom";
 import { isRealLoss } from "@shared/priceLetter";
 import { Link } from "react-router-dom";
+import { Modal } from "../components/Modal";
+import { useToast } from "../context/ToastContext";
+import type { BelowCostTask } from "@shared/fixTasks";
+
+/** A report row with the explanation task someone wrote for it, if any. */
+type Row = BelowCostRow & { task?: BelowCostTask | null };
 
 interface Report {
   from: string;
@@ -22,7 +28,7 @@ interface Report {
   checked: number;
   unknownCost: number;
   doubtfulCost: number;
-  below: BelowCostRow[];
+  below: Row[];
 }
 
 const iso = (d: Date) => new Date(d.getTime() + 7 * 3_600_000).toISOString().slice(0, 10);
@@ -38,6 +44,7 @@ export function BelowCostPage() {
   const [client, setClient] = useState("");
   const [cause, setCause] = useState<GroupKey | "">("");
   const [tracing, setTracing] = useState<BelowCostRow | null>(null);
+  const [explaining, setExplaining] = useState<Row | null>(null);
 
   useEffect(() => {
     if (!from || !to) return;
@@ -257,6 +264,25 @@ export function BelowCostPage() {
                               Analisa &amp; surat ›
                             </Link>
                           )}
+                          {r.task ? (
+                            <div className="explained small">
+                              <span className={`badge ${r.task.status === "open" ? "amber" : "green"}`}>
+                                {r.task.status === "open" ? "Task terbuka" : "Task selesai"}
+                              </span>{" "}
+                              <span className="pre-line">{r.task.detail}</span>
+                              <div className="muted">
+                                {r.task.created_by_name}
+                                {r.task.status === "done" && r.task.resolution ? ` · selesai ${r.task.resolved_by_name ?? ""}: ${r.task.resolution}` : ""}
+                                {" · "}
+                                <Link to="/perbaikan">Perlu diperbaiki ›</Link>
+                              </div>
+                            </div>
+                          ) : null}
+                          {(!r.task || r.task.status === "done") && (
+                            <button type="button" className="link-btn small" onClick={() => setExplaining(r)} aria-label={`Jelaskan ${r.invoiceNo} ${r.code}`}>
+                              Jelaskan ›
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -268,6 +294,67 @@ export function BelowCostPage() {
         </>
       ) : null}
       {tracing && <LossTrace row={tracing} onClose={() => setTracing(null)} />}
+      {explaining && (
+        <ExplainModal
+          row={explaining}
+          onClose={() => setExplaining(null)}
+          onSaved={() => {
+            setExplaining(null);
+            setRetry((n) => n + 1);
+          }}
+        />
+      )}
     </main>
+  );
+}
+
+/* "Jelaskan" (Ryoma, 2026-11-28): what really happened on this SI line, in the team's words. Saved as a
+   "Jual di bawah beli" task in Perlu diperbaiki, where a manager follows it up and closes it. */
+function ExplainModal({ row, onClose, onSaved }: { row: Row; onClose: () => void; onSaved: () => void }) {
+  const toast = useToast();
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    setBusy(true);
+    try {
+      await api.post("/accurate/below-cost/explain", { invoice_no: row.invoiceNo, code: row.code, explanation: text });
+      toast("Penjelasan disimpan dan jadi tugas di Perlu diperbaiki.", "success");
+      onSaved();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), "error");
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal
+      title={`Jelaskan ${row.invoiceNo}`}
+      sub={`${row.name} · ${row.code} · ${row.customerName}`}
+      onClose={onClose}
+      footer={
+        <>
+          <span className="grow" />
+          <button className="btn ghost" onClick={onClose} disabled={busy}>Batal</button>
+          <button className="btn primary" onClick={save} disabled={busy || text.trim().length < 5}>
+            Simpan &amp; jadikan tugas
+          </button>
+        </>
+      }
+    >
+      <label className="field">
+        <span>Apa yang sebenarnya terjadi?</span>
+        <textarea
+          className="textarea"
+          rows={4}
+          autoFocus
+          maxLength={1000}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="Mis. bonus dari program klien, harga lama belum dinaikkan, salah ketik harga di nota, dll."
+        />
+        <span className="field-help">
+          Jual {rp(row.net)}, beli {rp(row.cost)} ({row.receiptNo}), rugi {rp(row.lossTotal)}. Penjelasan ini masuk ke Perlu diperbaiki untuk ditindaklanjuti.
+        </span>
+      </label>
+    </Modal>
   );
 }

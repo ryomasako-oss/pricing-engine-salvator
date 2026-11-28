@@ -21,6 +21,9 @@ interface TaskRow {
   qty: number;
   uom: string;
   detail: string;
+  /** Facts of the row a "Jual di bawah beli" task was written about (SI, client, prices). */
+  context?: string;
+  line_id?: string | null;
   created_at: string;
   resolved_at: string | null;
   resolution: string;
@@ -38,6 +41,7 @@ const KIND_BADGE: Record<FixKind, string> = {
   sales_rejected: "blue",
   accurate_check: "blue",
   new_item: "amber",
+  below_cost: "red",
 };
 
 export function FixTasksPage() {
@@ -207,7 +211,13 @@ export function FixTasksPage() {
                         )}
                       </div>
                     )}
-                    {r.detail && <div>{r.detail}</div>}
+                    {r.kind === "below_cost" && r.context && (
+                      <div className="muted small">
+                        {r.context}
+                        {r.created_by_name && <> · dijelaskan {r.created_by_name}</>}
+                      </div>
+                    )}
+                    {r.detail && <div className="pre-line">{r.detail}</div>}
                     {status === "open" ? (
                       <div className="fix-todo">{FIX_KINDS[r.kind].todo}</div>
                     ) : (
@@ -222,6 +232,11 @@ export function FixTasksPage() {
                     {r.quote_id && (
                       <button className="btn small" onClick={() => navigate(`/quotes/${r.quote_id}`)}>
                         Buka quotation
+                      </button>
+                    )}
+                    {r.kind === "below_cost" && r.line_id && (
+                      <button className="btn small" onClick={() => navigate(`/surat-harga/baru?si=${encodeURIComponent(r.line_id!)}`)}>
+                        Buka analisa SI
                       </button>
                     )}
                     {status === "open" && can(FIX_KINDS[r.kind].permission) && (

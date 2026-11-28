@@ -14,6 +14,8 @@ export interface BelowCostExportRow {
   receiptNo: string;
   lossTotal: number;
   hints?: Hint[];
+  /** The team's explanation task, if someone wrote one (Jelaskan). */
+  task?: { status: "open" | "done"; detail: string; resolution: string } | null;
 }
 
 export function belowCostSheet(rows: BelowCostExportRow[]): XLSX.WorkBook {
@@ -30,9 +32,11 @@ export function belowCostSheet(rows: BelowCostExportRow[]): XLSX.WorkBook {
       "Selisih (Beli - Jual)": r.lossTotal,
       Penyebab: groupOf(r.hints ?? []).label,
       Penjelasan: [...(r.hints ?? []).map((h) => h.detail), ...(r.hints?.length ? [] : [groupOf([]).why])].join(" "),
+      "Penjelasan tim": r.task?.detail ?? "",
+      "Status tugas": r.task ? (r.task.status === "open" ? "Terbuka" : `Selesai: ${r.task.resolution}`) : "",
     })),
   );
-  sheet["!cols"] = [{ wch: 20 }, { wch: 12 }, { wch: 36 }, { wch: 14 }, { wch: 44 }, { wch: 18 }, { wch: 20 }, { wch: 20 }, { wch: 16 }, { wch: 26 }, { wch: 90 }];
+  sheet["!cols"] = [{ wch: 20 }, { wch: 12 }, { wch: 36 }, { wch: 14 }, { wch: 44 }, { wch: 18 }, { wch: 20 }, { wch: 20 }, { wch: 16 }, { wch: 26 }, { wch: 90 }, { wch: 60 }, { wch: 40 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, sheet, "Jual di bawah beli");
   return wb;
