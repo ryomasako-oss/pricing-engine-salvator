@@ -80,3 +80,34 @@ describe("Rp 0 line on a billed SI (Ryoma, 28 Nov)", () => {
     expect(bonus.hints.find((h) => h.kind === "tax_zero")!.detail).toContain("Rp 6.113 per BTL untuk semua 384 BTL barang ini");
   });
 });
+
+describe("selisih barang gratis = harga rata-rata (Ryoma, 28 Nov)", () => {
+  const pis = new Map([["100003", [ri("RI.A", "2026-10-01", 7000)]]]);
+  // 15 BOX paid + 1 BOX free = 384 BTL, bought at 7.000 per BTL.
+  const sale = (perBtl: number) => [
+    { ...spiva, quantity: 15, salesAmount: perBtl * 360, subTotal: perBtl * 360 },
+    { ...spiva, quantity: 1, salesAmount: 0, subTotal: perBtl * 360 },
+  ];
+  const rows = (perBtl: number) => findBelowCost(sale(perBtl), pis, catalog).below;
+  const free = (perBtl: number) => rows(perBtl).find((b) => b.trace.lineAmount === 0)!;
+
+  it("paid above cost, average below it: the free row is the item's loss on the SI, not cost x free units", () => {
+    // 7.000 x 384 - 7.200 x 360 = 96.000 (not 7.000 x 24 = 168.000).
+    expect(rows(7200).map((b) => b.trace.lineAmount)).toEqual([0]);
+    expect(free(7200).lossTotal).toBe(96_000);
+  });
+  it("an average over cost is no loss", () => {
+    // 7.500 x 360 / 384 = 7.031,25 >= 7.000.
+    expect(free(7500).lossTotal).toBe(0);
+  });
+  it("paid line under cost listed too: the rows add up to the item's loss, nothing counted twice", () => {
+    // 7.000 x 384 - 6.500 x 360 = 348.000 = paid row 180.000 + free row 168.000.
+    const r = rows(6500);
+    expect(r.reduce((s, b) => s + b.lossTotal, 0)).toBe(348_000);
+    expect(free(6500).lossTotal).toBe(168_000);
+  });
+  it("free with nothing of the item paid keeps the full cost", () => {
+    const only = findBelowCost([{ ...spiva, quantity: 1, salesAmount: 0, subTotal: 500_000 }], pis, catalog).below[0];
+    expect(only.lossTotal).toBe(7000 * 24);
+  });
+});

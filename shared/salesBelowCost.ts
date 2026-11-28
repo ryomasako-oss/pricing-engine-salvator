@@ -72,7 +72,10 @@ export interface BelowCostRow {
   net: number;
   cost: number;
   receiptNo: string;
-  /** (cost - net) x base units sold, net of returns. */
+  /**
+   * (cost - net) x base units sold, net of returns. A free line of an item that is also paid on the SI: its share of
+   * the item's averaged loss on the SI (cost x all units - money), 0 when the average covers the cost.
+   */
   lossTotal: number;
   /** Paid money over every unit of this item on this SI (bonus lines included), per base unit. */
   avgNet: number;
@@ -194,6 +197,26 @@ export function findBelowCost(
         },
       });
     }
+  }
+  // Free units are valued at the item's average on the SI, not at full cost (Ryoma, 28 Nov): the item's loss on the
+  // invoice is cost x all its units - the money paid for them. Paid rows of the item already listed keep theirs; the
+  // free rows get the rest, split by units, never below 0 (an average over cost is no loss). A free line with nothing
+  // of the item paid has no average and keeps its full cost.
+  const groups = new Map<string, BelowCostRow[]>();
+  for (const b of out.below) {
+    const k = `${b.invoiceNo}|${b.code}`;
+    groups.set(k, [...(groups.get(k) ?? []), b]);
+  }
+  for (const [k, rows] of groups) {
+    const free = rows.filter((b) => b.trace.lineAmount === 0);
+    const onSi = onInvoice.get(k);
+    if (!free.length || !onSi || !(onSi.money > 0)) continue;
+    const itemLoss = free[0].cost * onSi.units - onSi.money;
+    const paidLoss = rows.filter((b) => b.trace.lineAmount !== 0).reduce((s, b) => s + b.lossTotal, 0);
+    const rest = Math.max(0, itemLoss - paidLoss);
+    const units = (b: BelowCostRow) => (b.trace.quantity - b.trace.returnQty) * (b.trace.unitRatio > 0 ? b.trace.unitRatio : 1);
+    const freeUnits = free.reduce((s, b) => s + units(b), 0);
+    for (const b of free) b.lossTotal = freeUnits > 0 ? Math.round((rest * units(b)) / freeUnits) : 0;
   }
   out.below.sort((a, b) => b.lossTotal - a.lossTotal || a.code.localeCompare(b.code));
   return out;
