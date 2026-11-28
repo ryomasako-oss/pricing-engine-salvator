@@ -97,25 +97,25 @@ describe("quotation PDF columns", () => {
   it("shows Qty, line totals and the totals block by default", () => {
     const d = pdfFor(2);
     expect(has(d, "Qty")).toBe(true);
-    expect(has(d, "Total per bulan")).toBe(true);
-    expect(has(d, "Subtotal per bulan")).toBe(true);
+    expect(has(d, "Total")).toBe(true);
+    expect(has(d, "Subtotal")).toBe(true);
   });
 
   it("drops only the line total when hideLineTotal is set", () => {
     const d = pdfFor(2, { hideLineTotal: true });
     expect(has(d, "Qty")).toBe(true);
     expect(has(d, "Harga satuan")).toBe(true);
-    // "Total per bulan" is the column head and also a row of the totals block.
-    expect(draws(pdfFor(2), "Total per bulan")).toBe(2);
-    expect(draws(d, "Total per bulan")).toBe(1);
-    expect(has(d, "Subtotal per bulan")).toBe(true);
+    // "Total" is the column head and also a row of the totals block.
+    expect(draws(pdfFor(2), "Total")).toBe(2);
+    expect(draws(d, "Total")).toBe(1);
+    expect(has(d, "Subtotal")).toBe(true);
   });
 
   it("is a plain price list when hideQty is set: no Qty, no totals, price still right-aligned", () => {
     const d = pdfFor(2, { hideQty: true });
     expect(has(d, "Qty")).toBe(false);
-    expect(has(d, "Total per bulan")).toBe(false);
-    expect(has(d, "Subtotal per bulan")).toBe(false);
+    expect(has(d, "Total")).toBe(false);
+    expect(has(d, "Subtotal")).toBe(false);
     expect(has(d, "Harga satuan")).toBe(true);
     expect(has(d, "Hormat kami,")).toBe(true);
   });
@@ -179,7 +179,7 @@ describe("quotation PDF with a client document template", () => {
     return NaN;
   };
   const order = (doc: ReturnType<typeof pdfFor>, heads: string[]) => [...heads].sort((a, b) => xOf(doc, a) - xOf(doc, b));
-  const STANDARD = ["No", "Item", "Satuan", "Qty", "Harga satuan", "Total per bulan"];
+  const STANDARD = ["No", "Item", "Satuan", "Qty", "Harga satuan", "Total"];
 
   it("a quote whose client has no template prints the same columns, title and code line as before", () => {
     for (const t of [undefined, null]) {
@@ -213,10 +213,10 @@ describe("quotation PDF with a client document template", () => {
     expect(pagesWith(d, "Catatan 1")).toEqual([1]);
     for (const gone of ["Qty", "Item", "Satuan"]) expect(pagesWith(d, gone), gone).toEqual([]);
     // Totals block stays (showTotals absent); hideQty still wins over the template.
-    expect(pagesWith(d, "Subtotal per bulan")).toEqual([1]);
+    expect(pagesWith(d, "Subtotal")).toEqual([1]);
     const plain = pdfFor(2, { hideQty: true }, { columns: [{ key: "name", label: "Uraian" }, { key: "qty", label: "Volume" }, { key: "price", label: "Harga" }] });
     expect(pagesWith(plain, "Volume")).toEqual([]);
-    expect(pagesWith(plain, "Subtotal per bulan")).toEqual([]);
+    expect(pagesWith(plain, "Subtotal")).toEqual([]);
   });
 
   it("wraps a long tender title inside the page, below the client block", () => {

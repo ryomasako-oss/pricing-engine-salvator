@@ -18,8 +18,8 @@ for (const theme of THEMES) {
 
     await page.getByRole("checkbox", { name: "Nilai kontrak" }).uncheck();
     await expect(totals).not.toContainText("Nilai kontrak");
-    await expect(totals).toContainText("Total per bulan");
-    await expect(totals).toContainText("Subtotal per bulan");
+    await expect(totals).toContainText("Total");
+    await expect(totals).toContainText("Subtotal");
 
     const put = page.waitForResponse((r) => r.request().method() === "PUT" && r.url().endsWith(`/api/quotes/${quote.id}`));
     await page.getByRole("button", { name: "Simpan", exact: true }).click();
