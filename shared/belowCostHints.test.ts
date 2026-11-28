@@ -50,8 +50,8 @@ describe("belowCostHints", () => {
   });
 
   it("a Rp 0 line is a tax problem: the averaged price for every unit, or a price when none is paid (Ryoma, 28 Nov)", () => {
-    const free = { ...base, net: 0, invoiceTotal: 77_916_816, lineAmount: 0 };
-    // SI.2026.10.00299: 240 LSN paid + 12 LSN free = 3.024 Pcs.
+    const free = { ...base, net: 0, invoiceTotal: 1_000_000, lineAmount: 0 };
+    // 240 LSN paid + 12 LSN free = 3.024 Pcs.
     const ok = belowCostHints({ ...free, cost: 9500, invoicePrice: 9975.4, invoiceUnits: 3024 });
     expect(ok[1].detail).toContain("Ratakan harganya di nota: Rp 9.975 per Pcs untuk semua 3.024 Pcs barang ini (termasuk yang gratis)");
     expect(groupOf(ok).key).toBe("bonus_ok"); // still green: the tax mark doesn't change the group
