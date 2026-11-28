@@ -68,3 +68,15 @@ describe("findBelowCost", () => {
     expect(findBelowCost([small, spiva], receipts, catalog).below.map((b) => b.invoiceNo)).toEqual(["SI.2026.10.00297", "SI.SMALL"]);
   });
 });
+
+describe("Rp 0 line on a billed SI (Ryoma, 28 Nov)", () => {
+  it("the tax mark gives the averaged price over every unit of the item, bonus included", () => {
+    // 15 BOX paid at 156.500 + 1 BOX free = 16 BOX = 384 BTL; 2.347.500 / 384 = 6.113,28 per BTL.
+    const paid = { ...spiva, quantity: 15, salesAmount: 2_347_500, subTotal: 2_347_500 };
+    const free = { ...spiva, quantity: 1, salesAmount: 0, subTotal: 2_347_500 };
+    const r = findBelowCost([paid, free], new Map([["100003", [ri("RI.A", "2026-10-01", 7000)]]]), catalog);
+    const bonus = r.below.find((b) => b.trace.lineAmount === 0)!;
+    expect(bonus.avgNet).toBeCloseTo(6113.28, 2);
+    expect(bonus.hints.find((h) => h.kind === "tax_zero")!.detail).toContain("Rp 6.113 per BTL untuk semua 384 BTL barang ini");
+  });
+});

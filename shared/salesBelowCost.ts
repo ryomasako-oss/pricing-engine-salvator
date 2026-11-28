@@ -162,7 +162,8 @@ export function findBelowCost(
     }
     out.checked++;
     if (net < c.cost - TOLERANCE) {
-      const avg = ((t) => (t && t.units > 0 ? t.money / t.units : undefined))(onInvoice.get(`${l.invoiceNo}|${l.itemCode}`));
+      const onSi = onInvoice.get(`${l.invoiceNo}|${l.itemCode}`);
+      const avg = onSi && onSi.units > 0 ? onSi.money / onSi.units : undefined;
       const sold = (l.quantity - l.returnQty) * (l.unitRatio > 0 ? l.unitRatio : 1);
       out.below.push({
         invoiceNo: l.invoiceNo,
@@ -184,6 +185,7 @@ export function findBelowCost(
           detailName: l.detailName, name: item.name, discount: discountShare(l),
           invoiceTotal: l.subTotal, lineAmount: l.salesAmount,
           invoicePrice: avg,
+          invoiceUnits: onSi?.units,
         }),
         trace: {
           unit: l.unit, quantity: l.quantity, returnQty: l.returnQty, unitRatio: l.unitRatio, baseUom: item.baseUom,

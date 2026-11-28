@@ -109,7 +109,7 @@ priceLettersRouter.post("/", async (c) => {
   if (new Set(lines.map((l) => l.code)).size !== lines.length) return c.json({ error: "Ada barang yang dobel." }, 400);
   for (const l of lines) {
     const real = byCode.get(l.code);
-    if (!real) return c.json({ error: `Barang ${l.code} tidak rugi di ${invoice_no}, jadi tidak bisa masuk surat.` }, 400);
+    if (!real) return c.json({ error: `Barang ${l.code} tidak bisa masuk surat ${invoice_no}: bukan rugi sungguhan, atau barang gratis tanpa barang sama yang dibayar.` }, 400);
     const why = newPriceRefusal(real, l.new_price);
     if (why) return c.json({ error: why }, 400);
   }

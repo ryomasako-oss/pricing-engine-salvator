@@ -13,7 +13,7 @@ import { useToast } from "../context/ToastContext";
 import { fmtDate, grp, pct, rp } from "@shared/format";
 import { groupOf } from "@shared/belowCostHints";
 import { DEFAULT_ASSUMPTIONS } from "@shared/engine";
-import { netMargin, newPriceRefusal, type LetterLine } from "@shared/priceLetter";
+import { isFreeWithoutPaid, isRealLoss, netMargin, newPriceRefusal, type LetterLine } from "@shared/priceLetter";
 import type { BelowCostRow } from "@shared/salesBelowCost";
 import type { CompanyInfo, DocSignature } from "../components/QuotationDoc";
 import { downloadPriceLetterPdf, letterText, type PriceLetter, type PriceLetterLine } from "../export/priceLetterPdf";
@@ -147,13 +147,25 @@ export function PriceLetterNewPage() {
             </div>
           </section>
 
+          {(() => {
+            const free = data.rows.filter((r) => isRealLoss(r) && isFreeWithoutPaid(r));
+            return free.length > 0 ? (
+              <div className="notice warn" role="status">
+                <strong>Barang gratis tanpa barang sama yang dibayar, tidak dimasukkan ke surat:</strong>{" "}
+                {[...new Set(free.map((r) => `${r.name} (${r.code})`))].join(", ")}. Di faktur barang ini tidak boleh Rp 0, tapi harganya tidak bisa
+                dirata-rata. Manajer yang memutuskan: beri harga di faktur, atau naikkan harga barang yang menjadi paketnya.
+              </div>
+            ) : null;
+          })()}
           {data.letter ? (
             <div className="notice info" role="status">
               Sudah ada surat untuk SI ini: <Link to={`/surat-harga/${data.letter.id}`}>{data.letter.number}</Link> ({STATUS[data.letter.status as PriceLetter["status"]]?.label}).
             </div>
           ) : data.lines.length === 0 ? (
             <div className="notice info" role="status">
-              Tidak ada barang yang benar-benar rugi di SI ini. Baris di atas kemungkinan salah catat atau bukan penjualan biasa: betulkan datanya, tidak perlu surat ke klien.
+              {data.rows.some((r) => isRealLoss(r) && isFreeWithoutPaid(r))
+                ? "Tidak ada barang lain dari SI ini yang bisa masuk surat."
+                : "Tidak ada barang yang benar-benar rugi di SI ini. Baris di atas kemungkinan salah catat atau bukan penjualan biasa: betulkan datanya, tidak perlu surat ke klien."}
             </div>
           ) : (
             <section className="card" aria-label="Surat perubahan harga">

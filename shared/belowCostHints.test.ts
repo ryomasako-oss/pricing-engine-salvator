@@ -33,20 +33,32 @@ describe("belowCostHints", () => {
     const free = { ...base, net: 0, invoiceTotal: 77_916_816, lineAmount: 0 };
     // SI.2026.10.00299: 240 LSN paid, 12 LSN free ("beli 20 gratis 1"); average 9.975 over a cost of 9.500.
     const ok = belowCostHints({ ...free, cost: 9500, invoicePrice: 9975.4 });
-    expect(ok.map((x) => [x.kind, x.label])).toEqual([["bonus_ok", "Bonus, nota masih untung"]]);
+    expect(ok.map((x) => [x.kind, x.label])).toEqual([["bonus_ok", "Bonus, nota masih untung"], ["tax_zero", "Faktur Rp 0"]]);
     expect(ok[0].detail).toContain("Rp 9.975 per Pcs");
     expect(groupOf(ok)).toMatchObject({ key: "bonus_ok", tone: "green" });
     expect(groupOf(belowCostHints({ ...free, cost: 9975, invoicePrice: 9975 })).key).toBe("bonus_ok"); // break-even is no loss
     // Average under the cost: margin minus.
     const minus = belowCostHints({ ...free, cost: 10000, invoicePrice: 9975.4 });
-    expect(minus.map((x) => [x.kind, x.label])).toEqual([["bonus_loss", "Bonus bikin rugi"]]);
+    expect(minus.map((x) => [x.kind, x.label])).toEqual([["bonus_loss", "Bonus bikin rugi"], ["tax_zero", "Faktur Rp 0"]]);
     expect(groupOf(minus)).toMatchObject({ key: "pricing", tone: "red" });
     // No paid line of the item on the SI.
     const none = belowCostHints({ ...free, invoicePrice: 0 });
-    expect(none.map((x) => [x.kind, x.label])).toEqual([["bonus_loss", "Gratis tanpa barang dibayar"]]);
+    expect(none.map((x) => [x.kind, x.label])).toEqual([["bonus_loss", "Gratis tanpa barang dibayar"], ["tax_zero", "Faktur Rp 0"]]);
     expect(matchesCause(none, "pricing")).toBe(true);
     expect(matchesCause(none, "other")).toBe(false);
     expect(groupOf(belowCostHints({ ...free })).key).toBe("pricing"); // invoicePrice unknown = none paid
+  });
+
+  it("a Rp 0 line is a tax problem: the averaged price for every unit, or a price when none is paid (Ryoma, 28 Nov)", () => {
+    const free = { ...base, net: 0, invoiceTotal: 77_916_816, lineAmount: 0 };
+    // SI.2026.10.00299: 240 LSN paid + 12 LSN free = 3.024 Pcs.
+    const ok = belowCostHints({ ...free, cost: 9500, invoicePrice: 9975.4, invoiceUnits: 3024 });
+    expect(ok[1].detail).toContain("Ratakan harganya di nota: Rp 9.975 per Pcs untuk semua 3.024 Pcs barang ini (termasuk yang gratis)");
+    expect(groupOf(ok).key).toBe("bonus_ok"); // still green: the tax mark doesn't change the group
+    expect(belowCostHints({ ...free, invoicePrice: 0 })[1].detail).toContain("harus diberi harga di faktur");
+    // A paid line under cost, and a whole Rp 0 invoice (return swap), are no Rp 0 line on a billed invoice.
+    expect(kinds({})).not.toContain("tax_zero");
+    expect(kinds({ net: 0, invoiceTotal: 0, lineAmount: 0 })).toEqual(["no_value"]);
   });
   it("causes filter the rows the owner asked to tell apart", () => {
     const unit = belowCostHints({ ...base, net: 1000, cost: 12000 });
