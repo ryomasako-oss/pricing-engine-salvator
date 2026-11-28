@@ -57,6 +57,8 @@ export interface PendingItem {
   linked_at: string | null;
   /** The Accurate code a manager linked this request to, when it differs from `code`. */
   linked_code?: string | null;
+  /** 1 when a photo is stored under `code` (uploaded from the quotation or the catalog panel). */
+  has_image?: number;
   /** Barcodes per unit filled in by warehouse staff, and the extra units they proposed. Set by GET /pending-items. */
   barcodes?: UnitBarcode[];
   units?: UnitFactor[];
