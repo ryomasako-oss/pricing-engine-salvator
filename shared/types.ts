@@ -263,6 +263,11 @@ export interface QuoteMeta {
   /** Item photos (catalog images) in a "Gambar" column of the printed document; the Excel sheet has none. */
   showImages?: boolean;
   /**
+   * Customer document without the client's "Disetujui oleh" signature column (the client signs elsewhere, or
+   * not at all). Absent: shown, as every quote before 2026-11-28. Our own "Hormat kami" block always prints.
+   */
+  hideClientSign?: boolean;
+  /**
    * The document's "Note" lines as the rep edited them (seeded from shared/docColumns autoNotes). Absent: the
    * automatic lines, as every quote before 2026-11-28. Bank and NPWP are never in here: always from the company.
    */

@@ -204,7 +204,7 @@ export function quotationPdf(input: Input): jsPDF {
   };
   const signature = input.signature?.image ? input.signature : null;
   sign(M, "Hormat kami,", company.name, [signature?.name || meta.preparedBy || "Nama"], signature?.image);
-  sign(M + colW + 40, "Disetujui oleh,", clientName, ["Nama & jabatan:", "Tanggal:"]);
+  if (!meta.hideClientSign) sign(M + colW + 40, "Disetujui oleh,", clientName, ["Nama & jabatan:", "Tanggal:"]);
   y += SIGN_H;
 
   // Letterhead at the foot of every page, as in the company template, with the page count.

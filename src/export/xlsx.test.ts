@@ -43,6 +43,24 @@ describe("quote workbook columns", () => {
   });
 });
 
+describe("quote workbook signature rows", () => {
+  const text = (s: XLSX.WorkSheet) => JSON.stringify(XLSX.utils.sheet_to_json(s, { header: 1 }));
+  it("has both sides by default", () => {
+    const t = text(sheetFor({}));
+    expect(t).toContain("Hormat kami,");
+    expect(t).toContain("Disetujui oleh,");
+    expect(t).toContain("Tanggal: ______________");
+  });
+  it("drops only the client's side when hideClientSign is set", () => {
+    const t = text(sheetFor({ hideClientSign: true }));
+    expect(t).toContain("Hormat kami,");
+    expect(t).toContain("(Sales)");
+    expect(t).not.toContain("Disetujui oleh,");
+    expect(t).not.toContain("Nama & jabatan");
+    expect(t).not.toContain("Tanggal:");
+  });
+});
+
 describe("quote workbook with a client document template", () => {
   it("without a template the sheet is the same as before: header in row 1, widths per column", () => {
     for (const t of [undefined, null]) {
