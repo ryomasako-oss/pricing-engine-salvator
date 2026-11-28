@@ -14,7 +14,8 @@ export type HintKind =
   | "code" // the invoice wording shares no word with the catalog name
   | "no_value" // the whole SI is 0: a return swap or a "double nota, tidak ditagih"
   | "generic" // a catch-all code (SPAREPARTS, JASA ...): different goods under one code
-  | "bonus_sale" // a free line to the client ("beli 20 gratis 1"): the invoice's effective price says more
+  | "bonus_ok" // a free line, and the item's average over the whole SI still covers the cost
+  | "bonus_loss" // a free line with no paid line of the item on the SI, or an average under the cost: price it
   | "old_pi" // info: the PI is old
   | "discount" // info: a big invoice discount explains the loss
   | "no_list"; // info: the 3x list-price check could not run
@@ -87,13 +88,19 @@ export function belowCostHints(r: {
     h("generic", "Kode umum/jasa",
       "Kode ini dipakai untuk banyak barang atau jasa yang berbeda (misalnya suku cadang). Harga beli satu barang dibandingkan dengan harga jual barang lain, jadi selisihnya tidak bermakna.");
   }
+  // Price-0 line (Ryoma, 26 Nov): average it with the paid lines of the same item on this SI; margin -> green, else price it.
   if (r.lineAmount === 0 && (r.invoiceTotal ?? 0) > 0) {
-    if (r.invoicePrice && r.invoicePrice > 0) {
-      h("bonus_sale", "Bonus ke klien",
-        `Barang ini diberikan gratis ke klien sebagai bonus (misalnya "beli 20 gratis 1"). Kalau dihitung bersama barang yang dibayar di nota yang sama, harga jualnya sekitar Rp ${rupiah(r.invoicePrice)} per ${r.baseUom || "satuan"}.`);
+    const avg = r.invoicePrice ?? 0;
+    const per = `per ${r.baseUom || "satuan"}`;
+    if (avg > 0 && avg >= r.cost - 1) {
+      h("bonus_ok", "Bonus, nota masih untung",
+        `Barang ini gratis di nota ini, tapi kalau dirata-rata dengan barang yang sama yang dibayar di nota yang sama, harganya Rp ${rupiah(avg)} ${per}, masih di atas harga beli Rp ${rupiah(r.cost)}. Jadi masih ada margin.`);
+    } else if (avg > 0) {
+      h("bonus_loss", "Bonus bikin rugi",
+        `Barang ini gratis di nota ini. Dirata-rata dengan barang yang sama yang dibayar di nota yang sama, harganya Rp ${rupiah(avg)} ${per}, di bawah harga beli Rp ${rupiah(r.cost)}. Margin minus: harga ke klien ini perlu segera ditentukan.`);
     } else {
-      h("bonus_sale", "Barang gratis ke klien",
-        "Barang ini diberikan gratis ke klien, dan tidak ada barang yang sama yang dibayar di nota ini. Cek apakah ini bonus, sampel, atau pengganti barang.");
+      h("bonus_loss", "Gratis tanpa barang dibayar",
+        "Barang ini Rp 0 di nota ini, dan tidak ada barang yang sama yang dibayar di nota yang sama, jadi tidak ada margin. Harga ke klien ini perlu segera ditentukan.");
     }
     return out;
   }
@@ -148,6 +155,14 @@ export function belowCostHints(r: {
    confusing; "Tanpa tanda" said nothing). The detailed reasons stay under each row. */
 export const GROUPS = [
   {
+    key: "pricing",
+    label: "Perlu diberi harga",
+    tone: "red",
+    kinds: ["bonus_loss"],
+    why: "Barang ini keluar dengan harga Rp 0. Barang yang sama di nota itu tidak ada yang dibayar, atau kalau dirata-rata harganya tetap di bawah harga beli. Jadi penjualan ini tidak ada margin.",
+    todo: "Segera tentukan harga barang ini untuk klien tersebut (buat penawaran atau betulkan nota di Accurate).",
+  },
+  {
     key: "data",
     label: "Data perlu dibetulkan",
     tone: "amber",
@@ -159,9 +174,17 @@ export const GROUPS = [
     key: "other",
     label: "Bukan penjualan biasa",
     tone: "blue",
-    kinds: ["no_value", "generic", "bonus_sale"],
-    why: "Barang ini keluar bukan sebagai penjualan dengan harga normal: bonus ke klien, tukar barang retur, nota ganda yang tidak ditagih, atau kode yang dipakai untuk banyak barang.",
+    kinds: ["no_value", "generic"],
+    why: "Barang ini keluar bukan sebagai penjualan dengan harga normal: tukar barang retur, nota ganda yang tidak ditagih, atau kode yang dipakai untuk banyak barang.",
     todo: "Tidak perlu dibetulkan. Cukup diketahui bahwa ini bukan karena harga jual yang terlalu murah.",
+  },
+  {
+    key: "bonus_ok",
+    label: "Bonus, masih untung",
+    tone: "green",
+    kinds: ["bonus_ok"],
+    why: "Barang ini diberikan gratis, tapi kalau dirata-rata dengan barang yang sama yang dibayar di nota yang sama, harganya masih di atas harga beli. Margin masih ada.",
+    todo: "Tidak perlu tindakan. Bonusnya sudah tertutup oleh barang yang dibayar.",
   },
   {
     key: "none",
@@ -177,10 +200,11 @@ export type GroupKey = (typeof GROUPS)[number]["key"];
 /** Old name, kept for the filter. */
 export type CauseKey = GroupKey;
 
-/** The row's group: a bonus/no-value mark first (it explains the gap), then a data slip, else none. */
+/** The row's group: a price-0 or no-value mark first (it explains the gap), then a data slip, else none. */
 export function groupOf(hints: Hint[]): (typeof GROUPS)[number] {
   const has = (g: (typeof GROUPS)[number]) => hints.some((x) => (g.kinds as readonly HintKind[]).includes(x.kind));
-  return GROUPS.find((g) => g.key === "other" && has(g)) ?? GROUPS.find((g) => g.key === "data" && has(g)) ?? GROUPS[2];
+  const by = (k: GroupKey) => GROUPS.find((g) => g.key === k)!;
+  return (["pricing", "bonus_ok", "other", "data"] as const).map(by).find(has) ?? by("none");
 }
 
 /** A mark that explains the gap; the info marks (old PI, discount, no list price) alone don't. */
