@@ -18,7 +18,7 @@ import type { Permission } from "./permissions.js";
 import type { QuoteItem } from "./types.js";
 import { uomWarning } from "./uom.js";
 
-export type FixKind = "not_in_catalog" | "cogs_held" | "unit_unknown" | "sales_rejected" | "accurate_check" | "new_item";
+export type FixKind = "not_in_catalog" | "cogs_held" | "unit_unknown" | "sales_rejected" | "accurate_check" | "new_item" | "below_cost";
 
 export const FIX_KINDS: Record<FixKind, { label: string; todo: string; permission: Permission }> = {
   not_in_catalog: {
@@ -56,7 +56,28 @@ export const FIX_KINDS: Record<FixKind, { label: string; todo: string; permissio
     todo: "Buat barang ini di Accurate dengan kode yang sama, lalu sinkron dan klik Terapkan.",
     permission: "edit_catalog",
   },
+  // A Jual < Beli row someone explained (Ryoma, 2026-11-28): not tied to a quote; line_id is the SI number.
+  below_cost: {
+    label: "Jual di bawah beli",
+    todo: "Tindak lanjuti sesuai penjelasan (betulkan nota di Accurate, beri harga ke klien, atau catat alasannya), lalu tandai selesai.",
+    permission: "view_costs",
+  },
 };
+
+/** One open "Jual di bawah beli" task per SI line of an item. */
+export const belowCostDedupe = (invoiceNo: string, code: string) => `below_cost|${invoiceNo}|${code}`;
+
+/** The task a Jual < Beli row carries, as the report shows it. */
+export interface BelowCostTask {
+  id: number;
+  status: "open" | "done";
+  /** What the person said really happened. */
+  detail: string;
+  resolution: string;
+  created_by_name: string | null;
+  created_at: string;
+  resolved_by_name: string | null;
+}
 
 export const isFixKind = (k: string): k is FixKind => k in FIX_KINDS;
 

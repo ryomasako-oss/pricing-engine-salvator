@@ -43,7 +43,7 @@ export function insertTasksParams(tasks: NewFixTask[], userId: number | null): [
 }
 
 const BASE = `
-  SELECT t.id, t.kind, t.quote_id, t.line_id, t.code, t.item_name, t.qty, t.uom, t.detail, t.status,
+  SELECT t.id, t.kind, t.quote_id, t.line_id, t.code, t.item_name, t.qty, t.uom, t.detail, t.context, t.status,
          t.created_at, t.resolved_at, t.resolution,
          q.number AS quote_number, q.title AS quote_title, c.name AS client_name,
          cu.name AS created_by_name, ru.name AS resolved_by_name
@@ -91,6 +91,10 @@ export interface FixTaskRow {
 export function tasksForViewer<T extends FixTaskRow>(role: Role, rows: T[]): T[] {
   if (canSeeCosts(role)) return rows;
   return rows.map((r) => {
+    // Sales and purchase prices of an SI line: cost data. Belongs to no quote, so staff never list it either.
+    if (r.kind === "below_cost") {
+      return { ...r, detail: "Penjualan di bawah harga beli, ditangani manajer.", context: "", ...("resolution" in r ? { resolution: null } : {}) };
+    }
     if (r.kind === "accurate_check") {
       return { ...r, detail: "Selisih katalog dengan Accurate, dicek manajer.", ...("resolution" in r ? { resolution: null } : {}) };
     }

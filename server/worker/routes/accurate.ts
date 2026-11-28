@@ -7,7 +7,7 @@
 import { COUNTS_TTL_MS, FLAGS_TTL_MS, cachedFor } from "../accurate/cache";
 import { Hono } from "hono";
 import { z } from "zod";
-import { all, batch, get, stmt } from "../../db.d1";
+import { all, batch, get, run, stmt } from "../../db.d1";
 import { audit } from "../audit";
 import { requireAuth, requirePermission } from "../auth";
 import { hasPermission } from "../../../shared/permissions";
@@ -17,7 +17,8 @@ import { ITEM_FIELDS, RECEIPT_LIST_FIELDS, mapPurchaseLines } from "../accurate/
 import { cogsHistory } from "../accurate/cogsHistory";
 import { purchaseHistory } from "../accurate/purchaseHistory";
 import { salesHistory } from "../accurate/salesHistory";
-import { lastSales, salesBelowCostBetween, salesEnabled } from "../accurate/sales";
+import { lastSales, salesBelowCostBetween, salesBelowCostOfInvoice, salesEnabled } from "../accurate/sales";
+import { belowCostDedupe, type BelowCostTask } from "../../../shared/fixTasks";
 import { applyHeldCosts, applyPurchaseCosts } from "../accurate/purchaseCost";
 import { costKind, costLines, loadReceiptState, purchasesEnabled, receiptsEnabled, wibTimestamp } from "../accurate/receipts";
 import { sweepPending } from "./pendingItems";
@@ -396,7 +397,58 @@ accurateRouter.get("/below-cost", requirePermission("view_costs"), async (c) => 
   }
   // shortcut: reads every SI line in the range per request; a year is ~tens of thousands of D1 rows, cache if opened often.
   if (Date.parse(to) - Date.parse(from) > 366 * 86_400_000) return c.json({ error: "Rentang maksimal 1 tahun" }, 400);
-  return c.json({ from, to, ...(await salesBelowCostBetween(c.env.DB, catalogEntity(c.env), from, to, costLines(c.env))) });
+  const report = await salesBelowCostBetween(c.env.DB, catalogEntity(c.env), from, to, costLines(c.env));
+  // Each row's explanation task (the latest per SI line of an item), for "Jelaskan" (Ryoma, 2026-11-28).
+  const tasks = await all<BelowCostTask & { line_id: string; code: string }>(
+    c.env.DB,
+    `SELECT t.id, t.line_id, t.code, t.status, t.detail, t.resolution, t.created_at, cu.name AS created_by_name, ru.name AS resolved_by_name
+       FROM fix_tasks t LEFT JOIN users cu ON cu.id = t.created_by LEFT JOIN users ru ON ru.id = t.resolved_by
+      WHERE t.kind = 'below_cost' AND t.line_id IN (SELECT value FROM json_each(?))
+      ORDER BY t.id`,
+    JSON.stringify([...new Set(report.below.map((r) => r.invoiceNo))]),
+  );
+  const byKey = new Map(tasks.map(({ line_id, code, ...t }) => [belowCostDedupe(line_id, code), t]));
+  return c.json({ from, to, ...report, below: report.below.map((r) => ({ ...r, task: byKey.get(belowCostDedupe(r.invoiceNo, r.code)) ?? null })) });
+});
+
+/**
+ * "Jelaskan" a Jual < Beli row (Ryoma, 2026-11-28): what really happened, in the team's words, becomes an open
+ * "Jual di bawah beli" task in Perlu diperbaiki. The row is read again from the SI, so the task carries the facts
+ * as they are now; a line no longer under cost can't be explained. One open task per SI line of an item.
+ */
+accurateRouter.post("/below-cost/explain", requirePermission("view_costs"), async (c) => {
+  const user = c.get("user")!;
+  const parsed = z
+    .object({
+      invoice_no: z.string().trim().min(1).max(60),
+      code: z.string().trim().min(1).max(64),
+      explanation: z.string().trim().min(5, "Tulis singkat apa yang sebenarnya terjadi.").max(1000),
+    })
+    .safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: zodMessage(parsed.error) }, 400);
+  const { invoice_no, code, explanation } = parsed.data;
+  const { below } = await salesBelowCostOfInvoice(c.env.DB, catalogEntity(c.env), invoice_no, costLines(c.env));
+  const rows = below.filter((r) => r.code === code);
+  if (!rows.length) return c.json({ error: `${code} di ${invoice_no} tidak (lagi) dijual di bawah harga beli.` }, 404);
+  const r = rows[0];
+  const loss = rows.reduce((s, x) => s + x.lossTotal, 0);
+  const rp = (n: number) => `Rp ${Math.round(n).toLocaleString("id-ID")}`;
+  const context = `${invoice_no} · ${r.customerName} · ${r.transDate} · jual ${rp(r.net)}/${r.trace.baseUom || "satuan"}, beli ${rp(r.cost)} (${r.receiptNo}) · rugi ${rp(loss)}`;
+  const qty = rows.reduce((s, x) => s + (x.trace.quantity - x.trace.returnQty), 0);
+  try {
+    const res = await run(
+      c.env.DB,
+      `INSERT INTO fix_tasks(kind, quote_id, line_id, code, item_name, qty, uom, detail, context, dedupe, created_by)
+       VALUES ('below_cost', NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      invoice_no, code, r.name.slice(0, 300), qty, r.trace.unit.slice(0, 32), explanation, context, belowCostDedupe(invoice_no, code), user.id,
+    );
+    const id = Number(res.meta.last_row_id);
+    await audit(c.env.DB, user.id, "fix_task", id, "created", { kind: "below_cost", invoice_no, code });
+    return c.json({ id }, 201);
+  } catch (e) {
+    if (String(e).includes("UNIQUE")) return c.json({ error: "Baris ini sudah punya tugas yang masih terbuka di Perlu diperbaiki." }, 409);
+    throw e;
+  }
 });
 
 /**
