@@ -74,13 +74,25 @@ export function quoteWorkbook(input: Input): XLSX.WorkBook {
     { [L.item]: "Masa berlaku penawaran", [L.uom]: `${meta.validity} hari` },
     ...(layout.closing ? [{}, { [L.item]: layout.closing }] : []),
     {},
-    { [L.item]: "Hormat kami,", [L.price]: "Disetujui oleh," },
-    { [L.item]: "PT Salvator Inti Pratama", [L.price]: clientName },
-    {},
-    {},
-    {},
-    { [L.item]: `(${meta.preparedBy || "Nama"})`, [L.price]: "Nama & jabatan: ______________" },
-    { [L.price]: "Tanggal: ______________" },
+    // The client's side ("Disetujui oleh") is left off when the quote hides it (meta.hideClientSign).
+    ...(meta.hideClientSign
+      ? [
+          { [L.item]: "Hormat kami," },
+          { [L.item]: "PT Salvator Inti Pratama" },
+          {},
+          {},
+          {},
+          { [L.item]: `(${meta.preparedBy || "Nama"})` },
+        ]
+      : [
+          { [L.item]: "Hormat kami,", [L.price]: "Disetujui oleh," },
+          { [L.item]: "PT Salvator Inti Pratama", [L.price]: clientName },
+          {},
+          {},
+          {},
+          { [L.item]: `(${meta.preparedBy || "Nama"})`, [L.price]: "Nama & jabatan: ______________" },
+          { [L.price]: "Tanggal: ______________" },
+        ]),
   );
   // A template's title and opening text go above the table; the standard sheet starts with the header row.
   const headerRow = input.template ? (layout.opening ? 3 : 2) : 0;

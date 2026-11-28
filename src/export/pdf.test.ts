@@ -121,6 +121,27 @@ describe("quotation PDF columns", () => {
   });
 });
 
+describe("quotation PDF client signature column", () => {
+  const has = (doc: ReturnType<typeof pdfFor>, t: string) => pagesWith(doc, t).length > 0;
+
+  it("prints both sides by default", () => {
+    const d = pdfFor(2);
+    expect(has(d, "Hormat kami,")).toBe(true);
+    expect(has(d, "Disetujui oleh,")).toBe(true);
+    expect(has(d, "Tanggal:")).toBe(true);
+  });
+
+  it("leaves the client's side off when hideClientSign is set, ours still printed", () => {
+    const d = pdfFor(2, { hideClientSign: true });
+    expect(has(d, "Hormat kami,")).toBe(true);
+    expect(has(d, "Sales Satu")).toBe(true);
+    expect(has(d, "Disetujui oleh,")).toBe(false);
+    expect(has(d, "PT Klien")).toBe(true); // still the addressee under "Kepada Yth."
+    expect(has(d, "Nama & jabatan:")).toBe(false);
+    expect(has(d, "Tanggal:")).toBe(false);
+  });
+});
+
 // Builds real workbooks/PDFs: ~2.5 s alone, past vitest's 5 s default when the whole
 // suite runs in parallel on a busy machine.
 describe("quotation PDF", { timeout: 20_000 }, () => {

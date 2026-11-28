@@ -76,6 +76,7 @@ export const metaSchema = z.object({
   hideLineTotal: z.boolean().optional(),
   hideTotalRows: z.array(z.enum(["subtotal", "ppn", "monthly", "contract"])).max(4).optional(),
   showImages: z.boolean().optional(),
+  hideClientSign: z.boolean().optional(),
   docNotes: z.array(z.string().max(300)).max(20).optional(),
 });
 

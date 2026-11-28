@@ -141,6 +141,14 @@ export function TermsBox({
           />
           <span>Tampilkan foto barang di dokumen</span>
         </label>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={!meta.hideClientSign}
+            onChange={(e) => onMeta({ hideClientSign: e.target.checked ? undefined : true })}
+          />
+          <span>Tampilkan kolom "Disetujui oleh" (tanda tangan klien)</span>
+        </label>
       </div>
       <div className={`check-row note-block${meta.hideQty ? " is-dim" : ""}`}>
         <span className="muted small">Baris total:</span>

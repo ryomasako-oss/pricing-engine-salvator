@@ -146,7 +146,7 @@ export function QuotationDoc({
       <p className="small pre-line">{layout.closing}</p>
 
       {/* Meeting 2026-10-05: room for a wet or digital signature on both sides. */}
-      <div className="quote-sign">
+      <div className={`quote-sign${meta.hideClientSign ? " is-single" : ""}`}>
         <div>
           <span>Hormat kami,</span>
           <strong>{company.name}</strong>
@@ -157,13 +157,15 @@ export function QuotationDoc({
           )}
           <div className="sign-name">{signature?.name || meta.preparedBy || "Nama"}</div>
         </div>
-        <div>
-          <span>Disetujui oleh,</span>
-          <strong>{clientName}</strong>
-          <div className="sign-space" aria-label="Tempat tanda tangan customer" />
-          <div className="sign-name">Nama &amp; jabatan:</div>
-          <div className="sign-date">Tanggal:</div>
-        </div>
+        {!meta.hideClientSign && (
+          <div>
+            <span>Disetujui oleh,</span>
+            <strong>{clientName}</strong>
+            <div className="sign-space" aria-label="Tempat tanda tangan customer" />
+            <div className="sign-name">Nama &amp; jabatan:</div>
+            <div className="sign-date">Tanggal:</div>
+          </div>
+        )}
       </div>
 
       <div className="quote-foot">
