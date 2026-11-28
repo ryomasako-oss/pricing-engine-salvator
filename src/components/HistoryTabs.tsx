@@ -10,6 +10,7 @@ export const HISTORY_TABS: { to: string; label: string; title: string; permissio
   { to: "/sales-history", label: "Penjualan (SI)", title: "Riwayat penjualan (SI)", permission: "view_costs" },
   { to: "/purchase-history", label: "Pembelian (PI)", title: "Riwayat pembelian (PI)", permission: "view_costs" },
   { to: "/below-cost", label: "Jual < Beli", title: "SI yang dijual di bawah harga PI", permission: "view_costs" },
+  { to: "/surat-harga", label: "Surat harga", title: "Surat perubahan harga ke klien", permission: "view_costs" },
   { to: "/stock-uom-adjustment", label: "Stock UOM Adjustment", title: "Satuan SI yang beda dengan PI, untuk dibetulkan", permission: "view_costs" },
   { to: "/audit", label: "Audit", title: "Riwayat audit: siapa melakukan apa", permission: "view_audit" },
 ];

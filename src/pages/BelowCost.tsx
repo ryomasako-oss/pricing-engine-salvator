@@ -13,6 +13,8 @@ import { GROUPS, groupOf, matchesCause, type GroupKey } from "@shared/belowCostH
 import type { BelowCostRow } from "@shared/salesBelowCost";
 import { LossTrace } from "../components/LossTrace";
 import { sameUom } from "@shared/uom";
+import { isRealLoss } from "@shared/priceLetter";
+import { Link } from "react-router-dom";
 
 interface Report {
   from: string;
@@ -250,6 +252,11 @@ export function BelowCostPage() {
                           <button type="button" className="link-btn small" onClick={() => setTracing(r)} aria-label={`Telusuri ${r.invoiceNo} ${r.code}`}>
                             Telusuri ›
                           </button>
+                          {isRealLoss(r) && (
+                            <Link className="link-btn small" to={`/surat-harga/baru?si=${encodeURIComponent(r.invoiceNo)}`} aria-label={`Analisa dan surat ${r.invoiceNo}`}>
+                              Analisa &amp; surat ›
+                            </Link>
+                          )}
                         </td>
                       </tr>
                     ))}
