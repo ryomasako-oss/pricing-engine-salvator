@@ -13,6 +13,8 @@ import { GROUPS, groupOf, matchesCause, type GroupKey } from "@shared/belowCostH
 import type { BelowCostRow } from "@shared/salesBelowCost";
 import { LossTrace } from "../components/LossTrace";
 import { sameUom } from "@shared/uom";
+import { isRealLoss } from "@shared/priceLetter";
+import { Link } from "react-router-dom";
 
 interface Report {
   from: string;
@@ -154,7 +156,7 @@ export function BelowCostPage() {
               <button
                 key={g.key}
                 type="button"
-                className={`kpi kpi-btn${cause === g.key ? " on" : ""}${g.key === "data" && g.rows ? " tone-warn" : ""}`}
+                className={`kpi kpi-btn${cause === g.key ? " on" : ""}${(g.key === "data" || g.key === "pricing") && g.rows ? " tone-warn" : ""}`}
                 onClick={() => setCause(cause === g.key ? "" : g.key)}
                 aria-pressed={cause === g.key}
                 title={g.why}
@@ -250,6 +252,11 @@ export function BelowCostPage() {
                           <button type="button" className="link-btn small" onClick={() => setTracing(r)} aria-label={`Telusuri ${r.invoiceNo} ${r.code}`}>
                             Telusuri ›
                           </button>
+                          {isRealLoss(r) && (
+                            <Link className="link-btn small" to={`/surat-harga/baru?si=${encodeURIComponent(r.invoiceNo)}`} aria-label={`Analisa dan surat ${r.invoiceNo}`}>
+                              Analisa &amp; surat ›
+                            </Link>
+                          )}
                         </td>
                       </tr>
                     ))}

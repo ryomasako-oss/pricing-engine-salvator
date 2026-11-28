@@ -52,7 +52,7 @@ export function LossTrace({ row, onClose }: { row: BelowCostRow; onClose: () => 
   return (
     <Modal title={`Telusuri ${row.invoiceNo}`} sub={`${row.name} · ${row.code}`} onClose={onClose} size="wide">
       <div className="trace">
-        <div className={`notice ${group.key === "data" ? "warn" : "info"}`} role="status">
+        <div className={`notice ${group.key === "data" || group.key === "pricing" ? "warn" : "info"}`} role="status">
           <strong>{group.label}</strong>
           <p>{group.why}</p>
           {row.hints.length > 0 && (

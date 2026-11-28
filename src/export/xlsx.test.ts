@@ -23,14 +23,14 @@ const headers = (s: XLSX.WorkSheet) => (XLSX.utils.sheet_to_json(s, { header: 1 
 describe("quote workbook columns", () => {
   it("keeps every column by default, price in F formatted as money", () => {
     const s = sheetFor({});
-    expect(headers(s)).toEqual(["No", "Kode", "Item", "Satuan", "Qty", "Harga satuan", "Total per bulan"]);
+    expect(headers(s)).toEqual(["No", "Kode", "Item", "Satuan", "Qty", "Harga satuan", "Total"]);
     expect(s["F2"].v).toBeGreaterThan(0);
     expect(s["F2"].z).toBe(s["G2"].z);
   });
   it("drops the line total only: item rows have no G value, the totals rows still do", () => {
     const s = sheetFor({ hideLineTotal: true });
     expect(s["G2"]).toBeUndefined();
-    expect(JSON.stringify(XLSX.utils.sheet_to_json(s))).toContain("Subtotal per bulan");
+    expect(JSON.stringify(XLSX.utils.sheet_to_json(s))).toContain("Subtotal");
   });
   it("is a plain price list without Qty: price moves to E, still money, no totals rows", () => {
     const s = sheetFor({ hideQty: true });
@@ -47,7 +47,7 @@ describe("quote workbook with a client document template", () => {
   it("without a template the sheet is the same as before: header in row 1, widths per column", () => {
     for (const t of [undefined, null]) {
       const s = sheetFor({}, t);
-      expect(headers(s)).toEqual(["No", "Kode", "Item", "Satuan", "Qty", "Harga satuan", "Total per bulan"]);
+      expect(headers(s)).toEqual(["No", "Kode", "Item", "Satuan", "Qty", "Harga satuan", "Total"]);
       expect(s["!cols"]?.map((c) => c.wch)).toEqual([5, 14, 46, 8, 10, 14, 16]);
     }
     expect(sheetFor({ hideLineTotal: true })["!cols"]?.map((c) => c.wch)).toEqual([5, 14, 46, 8, 10, 14, 16]);
@@ -69,7 +69,7 @@ describe("quote workbook with a client document template", () => {
     expect(rows[3]).toEqual(["No.", "Uraian", "Harga (Rp)", "Volume", "Jumlah"]);
     expect(rows[4][1]).toBe("Pulpen");
     // Subtotal row: its label under Uraian, its value under Jumlah (E), formatted as money; no stray column.
-    const sub = rows.findIndex((r) => r?.[1] === "Subtotal per bulan");
+    const sub = rows.findIndex((r) => r?.[1] === "Subtotal");
     expect(sub).toBeGreaterThan(4);
     expect(s[`E${sub + 1}`].z).toBe("#,##0");
     expect(s[`C5`].z).toBe("#,##0");

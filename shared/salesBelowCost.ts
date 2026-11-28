@@ -74,6 +74,8 @@ export interface BelowCostRow {
   receiptNo: string;
   /** (cost - net) x base units sold, net of returns. */
   lossTotal: number;
+  /** Paid money over every unit of this item on this SI (bonus lines included), per base unit. */
+  avgNet: number;
   /** Signs the loss may be a recording slip (PPN, unit, input, code); empty when none (belowCostHints.ts). */
   hints: Hint[];
   /** The two invoices as recorded, for the "Telusuri" view. */
@@ -160,6 +162,7 @@ export function findBelowCost(
     }
     out.checked++;
     if (net < c.cost - TOLERANCE) {
+      const avg = ((t) => (t && t.units > 0 ? t.money / t.units : undefined))(onInvoice.get(`${l.invoiceNo}|${l.itemCode}`));
       const sold = (l.quantity - l.returnQty) * (l.unitRatio > 0 ? l.unitRatio : 1);
       out.below.push({
         invoiceNo: l.invoiceNo,
@@ -171,6 +174,7 @@ export function findBelowCost(
         cost: c.cost,
         receiptNo: c.receiptNo,
         lossTotal: Math.round((c.cost - net) * sold),
+        avgNet: Math.round((avg ?? net) * 100) / 100,
         hints: belowCostHints({
           net, cost: c.cost, saleDate: l.transDate, receiptDate: c.transDate, listPrice: item.listPrice,
           saleUnit: l.unit, saleRatio: l.unitRatio, baseUom: item.baseUom,
@@ -179,7 +183,7 @@ export function findBelowCost(
           otherPrices: (netsByItem.get(l.itemCode) ?? []).filter((o) => o !== l).map((o) => nets.get(o)!),
           detailName: l.detailName, name: item.name, discount: discountShare(l),
           invoiceTotal: l.subTotal, lineAmount: l.salesAmount,
-          invoicePrice: ((t) => (t && t.units > 0 ? t.money / t.units : undefined))(onInvoice.get(`${l.invoiceNo}|${l.itemCode}`)),
+          invoicePrice: avg,
         }),
         trace: {
           unit: l.unit, quantity: l.quantity, returnQty: l.returnQty, unitRatio: l.unitRatio, baseUom: item.baseUom,

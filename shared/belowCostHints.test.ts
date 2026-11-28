@@ -27,13 +27,26 @@ describe("belowCostHints", () => {
     expect(kinds({ net: 0, invoiceTotal: 0, lineAmount: 0, listPrice: 0 })).toEqual(["no_value"]);
     expect(kinds({ name: "SPAREPARTS", detailName: "SPAREPARTS" })).toEqual(["generic"]);
     expect(kinds({ name: "JASA CUCI AC SPLIT 1 PK", detailName: "JASA CUCI AC SPLIT 1 PK" })).toEqual(["generic"]);
-    // SI.2026.10.00299: 240 LSN paid, 12 LSN free ("beli 20 gratis 1").
-    const h = belowCostHints({ ...base, net: 0, invoiceTotal: 77_916_816, lineAmount: 0, invoicePrice: 9975.4 });
-    expect(h.map((x) => [x.kind, x.label])).toEqual([["bonus_sale", "Bonus ke klien"]]);
-    expect(h[0].detail).toContain("sekitar Rp 9.975 per Pcs");
-    expect(groupOf(h).label).toBe("Bukan penjualan biasa");
-    expect(matchesCause(h, "other")).toBe(true);
-    expect(matchesCause(h, "none")).toBe(false);
+    expect(groupOf(belowCostHints({ ...base, name: "SPAREPARTS" })).label).toBe("Bukan penjualan biasa");
+  });
+  it("price-0 line: averaged with the same item paid on the SI, margin -> green, else price it", () => {
+    const free = { ...base, net: 0, invoiceTotal: 77_916_816, lineAmount: 0 };
+    // SI.2026.10.00299: 240 LSN paid, 12 LSN free ("beli 20 gratis 1"); average 9.975 over a cost of 9.500.
+    const ok = belowCostHints({ ...free, cost: 9500, invoicePrice: 9975.4 });
+    expect(ok.map((x) => [x.kind, x.label])).toEqual([["bonus_ok", "Bonus, nota masih untung"]]);
+    expect(ok[0].detail).toContain("Rp 9.975 per Pcs");
+    expect(groupOf(ok)).toMatchObject({ key: "bonus_ok", tone: "green" });
+    expect(groupOf(belowCostHints({ ...free, cost: 9975, invoicePrice: 9975 })).key).toBe("bonus_ok"); // break-even is no loss
+    // Average under the cost: margin minus.
+    const minus = belowCostHints({ ...free, cost: 10000, invoicePrice: 9975.4 });
+    expect(minus.map((x) => [x.kind, x.label])).toEqual([["bonus_loss", "Bonus bikin rugi"]]);
+    expect(groupOf(minus)).toMatchObject({ key: "pricing", tone: "red" });
+    // No paid line of the item on the SI.
+    const none = belowCostHints({ ...free, invoicePrice: 0 });
+    expect(none.map((x) => [x.kind, x.label])).toEqual([["bonus_loss", "Gratis tanpa barang dibayar"]]);
+    expect(matchesCause(none, "pricing")).toBe(true);
+    expect(matchesCause(none, "other")).toBe(false);
+    expect(groupOf(belowCostHints({ ...free })).key).toBe("pricing"); // invoicePrice unknown = none paid
   });
   it("causes filter the rows the owner asked to tell apart", () => {
     const unit = belowCostHints({ ...base, net: 1000, cost: 12000 });

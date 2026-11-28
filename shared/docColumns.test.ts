@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_DOC_CLOSING, DEFAULT_DOC_OPENING, DOC_COLUMN_KEYS, docCell, docColumns, docLayout, docNotes, docTotals } from "./docColumns";
+import { DEFAULT_DOC_CLOSING, DEFAULT_DOC_OPENING, DOC_COLUMN_KEYS, autoNotes, companyNotes, docCell, docColumns, docLayout, docNotes, docTotals } from "./docColumns";
 import type { ComputedRow, DocTemplate } from "./types";
 
 describe("docColumns", () => {
@@ -22,9 +22,9 @@ describe("docLayout: total rows one by one", () => {
     const l = docLayout({}, null, "print");
     expect(l.totalRows).toEqual(["subtotal", "ppn", "monthly", "contract"]);
     expect(docTotals(l, s, a)).toEqual([
-      { key: "subtotal", label: "Subtotal per bulan", value: 1000 },
+      { key: "subtotal", label: "Subtotal", value: 1000 },
       { key: "ppn", label: "PPN 11%", value: 110 },
-      { key: "monthly", label: "Total per bulan", value: 1110 },
+      { key: "monthly", label: "Total", value: 1110 },
       { key: "contract", label: "Nilai kontrak 12 bulan (belum PPN)", value: 12000 },
     ]);
   });
@@ -60,12 +60,22 @@ describe("docLayout: client document template", () => {
   it("without a template prints the standard columns, as before templates", () => {
     for (const t of [undefined, null, {}]) {
       const print = docLayout({}, t, "print");
-      expect(keys(print)).toEqual(["no:No", "name:Item", "uom:Satuan", "qty:Qty", "price:Harga satuan", "total:Total per bulan"]);
+      expect(keys(print)).toEqual(["no:No", "name:Item", "uom:Satuan", "qty:Qty", "price:Harga satuan", "total:Total"]);
       expect(print).toMatchObject({ totals: true, title: "Penawaran Harga", opening: DEFAULT_DOC_OPENING, closing: DEFAULT_DOC_CLOSING, codeUnderName: true });
       const sheet = docLayout({}, t, "sheet");
-      expect(keys(sheet)).toEqual(["no:No", "code:Kode", "name:Item", "uom:Satuan", "qty:Qty", "price:Harga satuan", "total:Total per bulan"]);
+      expect(keys(sheet)).toEqual(["no:No", "code:Kode", "name:Item", "uom:Satuan", "qty:Qty", "price:Harga satuan", "total:Total"]);
       expect(sheet.codeUnderName).toBe(false);
     }
+  });
+
+  it("foto barang: a Gambar column after No on the printed document, never in the Excel sheet", () => {
+    expect(keys(docLayout({ showImages: true }, null, "print")).slice(0, 3)).toEqual(["no:No", "image:Gambar", "name:Item"]);
+    expect(keys(docLayout({ showImages: true }, null, "sheet")).some((k) => k.startsWith("image"))).toBe(false);
+    expect(keys(docLayout({}, null, "print")).some((k) => k.startsWith("image"))).toBe(false); // off by default: old quotes print as before
+    // A client template places the column itself, with its own heading.
+    const withImage: DocTemplate = { columns: [{ key: "no", label: "No" }, { key: "name", label: "Uraian" }, { key: "image", label: "Foto" }] };
+    expect(keys(docLayout({}, withImage, "print"))).toEqual(["no:No", "name:Uraian", "image:Foto"]);
+    expect(keys(docLayout({}, withImage, "sheet"))).toEqual(["no:No", "name:Uraian"]);
   });
 
   it("keeps the template's order and headings, the same for print and sheet", () => {
@@ -99,6 +109,28 @@ describe("docLayout: client document template", () => {
 
   it("reads each cell from the line, Keterangan from the line notes", () => {
     const r = { lineNo: 3, code: "ATK-1", name: "Pulpen", uom: "Pcs", qty: 4, notes: "Merk Standard" } as ComputedRow;
-    expect(DOC_COLUMN_KEYS.map((k) => docCell(k, r, 2500))).toEqual([3, "ATK-1", "Pulpen", "Pcs", 4, 2500, 10000, "Merk Standard"]);
+    expect(DOC_COLUMN_KEYS.map((k) => docCell(k, r, 2500))).toEqual([3, "ATK-1", "Pulpen", "Pcs", 4, 2500, 10000, "Merk Standard", ""]); // Gambar is drawn, not text
+  });
+});
+
+describe("docNotes: Note editable per quote, bank and NPWP locked (2026-11-28)", () => {
+  const meta = { date: "2026-11-28", validity: 30, delivery: "Franco Jakarta", payment: "", paymentDays: 30, warrantyYears: 1 } as const;
+  const company = { bank: "BCA 123 a.n. PT Salvator", npwp: "01.234.567.8-901.000" };
+  const locked = ["Pembayaran ke BCA 123 a.n. PT Salvator.", "NPWP 01.234.567.8-901.000."];
+
+  it("a quote without its own lines prints the automatic ones, as before", () => {
+    const lines = docNotes(meta, company);
+    expect(lines.slice(0, 2)).toEqual(["Harga dalam Rupiah per satuan, belum termasuk PPN.", "Term of payment: 30 hari."]);
+    expect(lines.slice(-2)).toEqual(locked);
+    expect(lines).toEqual([...autoNotes(meta), ...companyNotes(company)]);
+  });
+
+  it("the rep's lines replace the automatic ones; blank lines are dropped", () => {
+    expect(docNotes({ ...meta, docNotes: ["Harga franco gudang klien.", "  ", "DP 30%."] }, company)).toEqual(["Harga franco gudang klien.", "DP 30%.", ...locked]);
+  });
+
+  it("bank and NPWP always print from the company, even when every line is removed", () => {
+    expect(docNotes({ ...meta, docNotes: [] }, company)).toEqual(locked);
+    expect(autoNotes(meta).some((l) => l.includes("NPWP") || l.includes("Pembayaran ke"))).toBe(false);
   });
 });

@@ -260,6 +260,13 @@ export interface QuoteMeta {
   hideLineTotal?: boolean;
   /** Rows of the totals block left off the customer document (subtotal, PPN, total per bulan, contract value). */
   hideTotalRows?: TotalRowKey[];
+  /** Item photos (catalog images) in a "Gambar" column of the printed document; the Excel sheet has none. */
+  showImages?: boolean;
+  /**
+   * The document's "Note" lines as the rep edited them (seeded from shared/docColumns autoNotes). Absent: the
+   * automatic lines, as every quote before 2026-11-28. Bank and NPWP are never in here: always from the company.
+   */
+  docNotes?: string[];
 }
 
 export type TotalRowKey = "subtotal" | "ppn" | "monthly" | "contract";
@@ -282,7 +289,7 @@ export interface Client {
 }
 
 /** Line data a template column may show: only what a quote line already has (no photo: lines carry none). */
-export type DocColumnKey = "no" | "code" | "name" | "uom" | "qty" | "price" | "total" | "notes";
+export type DocColumnKey = "no" | "code" | "name" | "uom" | "qty" | "price" | "total" | "notes" | "image";
 
 /** A client's document template (Ryoma, 2026-11-04: "template per klien"). Plain text only, never HTML. */
 export interface DocTemplate {

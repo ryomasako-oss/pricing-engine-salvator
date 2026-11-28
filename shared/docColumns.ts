@@ -37,8 +37,9 @@ export const DOC_COLUMN_LABELS: Record<DocColumnKey, string> = {
   uom: "Satuan",
   qty: "Qty",
   price: "Harga satuan",
-  total: "Total per bulan",
+  total: "Total",
   notes: "Keterangan",
+  image: "Gambar",
 };
 export const DOC_COLUMN_KEYS = Object.keys(DOC_COLUMN_LABELS) as DocColumnKey[];
 export const DEFAULT_DOC_TITLE = "Penawaran Harga";
@@ -49,11 +50,10 @@ export const DEFAULT_DOC_OPENING =
 export const DEFAULT_DOC_CLOSING =
   "Demikian surat penawaran ini. Mohon Bapak/Ibu dapat segera menginformasikan kepada kami, agar segera dapat kami tindak lanjuti.";
 
-/** The "Note" lines under the table, built from the quote's own terms (never one client's fixed wording). */
-export function docNotes(
-  meta: Pick<QuoteMeta, "date" | "validity" | "delivery" | "payment" | "paymentDays" | "warrantyYears" | "warrantyNote">,
-  company: { bank?: string; npwp?: string },
-): string[] {
+type NoteMeta = Pick<QuoteMeta, "date" | "validity" | "delivery" | "payment" | "paymentDays" | "warrantyYears" | "warrantyNote">;
+
+/** The "Note" lines built from the quote's own terms (never one client's fixed wording): the starting point a rep may edit. */
+export function autoNotes(meta: NoteMeta): string[] {
   const validity = meta.validity || 30;
   const until = new Date(new Date(meta.date).getTime() + validity * 86400000);
   return [
@@ -62,9 +62,21 @@ export function docNotes(
     meta.delivery && `Pengiriman: ${meta.delivery}.`,
     warrantyLabel(meta) && `Garansi: ${warrantyLabel(meta)}.`,
     `Penawaran berlaku ${validity} hari, sampai ${fmtDate(until)}.`,
-    company.bank && `Pembayaran ke ${company.bank}.`,
-    company.npwp && `NPWP ${company.npwp}.`,
   ].filter((l): l is string => Boolean(l));
+}
+
+/** Bank account and NPWP, always from Pengaturan perusahaan: a quote can't change or drop them (Ryoma, 2026-11-28). */
+export function companyNotes(company: { bank?: string; npwp?: string }): string[] {
+  return [company.bank && `Pembayaran ke ${company.bank}.`, company.npwp && `NPWP ${company.npwp}.`].filter((l): l is string => Boolean(l));
+}
+
+/**
+ * The "Note" lines under the table: the quote's own lines when a rep edited them (meta.docNotes), else the
+ * automatic ones, then the company's locked lines. A quote saved before docNotes prints exactly as before.
+ */
+export function docNotes(meta: NoteMeta & Pick<QuoteMeta, "docNotes">, company: { bank?: string; npwp?: string }): string[] {
+  const own = meta.docNotes ? meta.docNotes.map((l) => l.trim()).filter(Boolean) : autoNotes(meta);
+  return [...own, ...companyNotes(company)];
 }
 
 /* The standard tables, as they printed before templates: the PDF and the
@@ -90,7 +102,7 @@ export interface DocLayout {
 }
 
 export function docLayout(
-  meta: Pick<QuoteMeta, "hideQty" | "hideLineTotal" | "hideTotalRows">,
+  meta: Pick<QuoteMeta, "hideQty" | "hideLineTotal" | "hideTotalRows" | "showImages">,
   template: DocTemplate | null | undefined,
   target: "print" | "sheet",
 ): DocLayout {
@@ -98,9 +110,12 @@ export function docLayout(
   const t = template ?? {};
   // Unknown keys are dropped here too, not only by the API: a row edited by hand must not print other data.
   const picked = (t.columns ?? []).filter((c, i, all) => c.key in DOC_COLUMN_LABELS && all.findIndex((o) => o.key === c.key) === i);
-  const base = picked.length
-    ? picked.map((c) => ({ key: c.key, label: c.label.trim() || DOC_COLUMN_LABELS[c.key] }))
-    : STANDARD[target].map((key) => ({ key, label: DOC_COLUMN_LABELS[key] }));
+  const standard = meta.showImages ? STANDARD[target].flatMap((k): DocColumnKey[] => (k === "no" ? ["no", "image"] : [k])) : STANDARD[target];
+  const base = (
+    picked.length
+      ? picked.map((c) => ({ key: c.key, label: c.label.trim() || DOC_COLUMN_LABELS[c.key] }))
+      : standard.map((key) => ({ key, label: DOC_COLUMN_LABELS[key] }))
+  ).filter((c) => c.key !== "image" || target === "print"); // shortcut: no pictures in the Excel sheet (SheetJS CE can't embed them)
   const hidden = meta.hideTotalRows ?? [];
   const totalRows = cols.totals && t.showTotals !== false ? TOTAL_ROW_KEYS.filter((k) => !hidden.includes(k)) : [];
   return {
@@ -125,6 +140,7 @@ export function docCell(key: DocColumnKey, r: ComputedRow, price: number): strin
     case "price": return price;
     case "total": return price * r.qty;
     case "notes": return r.notes ?? "";
+    case "image": return ""; // drawn by the PDF and the preview, not text
   }
 }
 
@@ -135,9 +151,9 @@ export function docTotals(
   assumptions: Pick<Assumptions, "ppn" | "months">,
 ): { key: TotalRowKey; label: string; value: number }[] {
   const all: Record<TotalRowKey, [string, number]> = {
-    subtotal: ["Subtotal per bulan", s.revenue],
+    subtotal: ["Subtotal", s.revenue],
     ppn: [`PPN ${pct(assumptions.ppn, 0)}`, s.revenue * assumptions.ppn],
-    monthly: ["Total per bulan", s.revenue * (1 + assumptions.ppn)],
+    monthly: ["Total", s.revenue * (1 + assumptions.ppn)],
     contract: [`Nilai kontrak ${assumptions.months} bulan (belum PPN)`, s.annual],
   };
   return layout.totalRows.map((key) => ({ key, label: all[key][0], value: all[key][1] }));

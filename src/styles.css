@@ -951,6 +951,7 @@ body:has(.chat-fab) .hk-main { padding-bottom: 88px; }
   min-width: 0;
 }
 .thumb-zoomable { cursor: zoom-in; }
+.doc-image { width: 56px; height: 56px; object-fit: contain; display: block; margin: 0 auto; }
 
 /* Pratinjau gambar barang (ImageLightbox): di atas Modal (z-index 60) dan toast (90). */
 .lightbox {
