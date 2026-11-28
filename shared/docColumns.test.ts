@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_DOC_CLOSING, DEFAULT_DOC_OPENING, DOC_COLUMN_KEYS, autoNotes, companyNotes, docCell, docColumns, docLayout, docNotes, docTotals } from "./docColumns";
+import { DEFAULT_DOC_CLOSING, DEFAULT_DOC_OPENING, DOC_COLUMN_KEYS, autoNotes, companyNotes, docCell, staleNote, docColumns, docLayout, docNotes, docTotals } from "./docColumns";
 import type { ComputedRow, DocTemplate } from "./types";
 
 describe("docColumns", () => {
@@ -132,5 +132,22 @@ describe("docNotes: Note editable per quote, bank and NPWP locked (2026-11-28)",
   it("bank and NPWP always print from the company, even when every line is removed", () => {
     expect(docNotes({ ...meta, docNotes: [] }, company)).toEqual(locked);
     expect(autoNotes(meta).some((l) => l.includes("NPWP") || l.includes("Pembayaran ke"))).toBe(false);
+  });
+});
+
+describe("staleNote: an edited line that no longer matches the terms (Review #200)", () => {
+  const meta = { date: "2026-11-28", validity: 30, delivery: "Franco Jakarta", payment: "", paymentDays: 30, warrantyYears: 1 } as const;
+  const edited = autoNotes(meta);
+
+  it("the date moved: the validity line written before is stale, and the current one is offered", () => {
+    const now = autoNotes({ ...meta, date: "2026-12-05" });
+    expect(staleNote(edited[4], now)).toBe("Penawaran berlaku 30 hari, sampai 4 Januari 2027.");
+    expect(staleNote(edited[1], autoNotes({ ...meta, paymentDays: 14 }))).toBe("Term of payment: 14 hari.");
+  });
+
+  it("matching lines, lines of the rep's own, and terms no longer set are not flagged", () => {
+    for (const l of edited) expect(staleNote(l, edited)).toBeNull();
+    expect(staleNote("Harga sudah termasuk ongkos pasang.", edited)).toBeNull();
+    expect(staleNote("Pengiriman: Franco Jakarta.", autoNotes({ ...meta, delivery: "" }))).toBeNull();
   });
 });

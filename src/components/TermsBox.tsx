@@ -5,7 +5,7 @@
 
 import type { QuoteMeta, TotalRowKey } from "@shared/types";
 import { missingTerms, splitPaymentTerms } from "@shared/terms";
-import { autoNotes } from "@shared/docColumns";
+import { autoNotes, staleNote } from "@shared/docColumns";
 
 /** Empty input -> null (not set); otherwise the number. */
 const TOTAL_ROWS: [TotalRowKey, string][] = [
@@ -177,25 +177,39 @@ export function TermsBox({
 /* "Note" under the table, editable per quote (Ryoma, 2026-11-28): the automatic lines are the starting point;
    the first edit stores the whole list in meta.docNotes. Bank and NPWP stay out of it: always from Pengaturan. */
 function NotesEditor({ meta, onMeta }: { meta: QuoteMeta; onMeta: (patch: Partial<QuoteMeta>) => void }) {
-  const lines = meta.docNotes ?? autoNotes(meta);
+  const auto = autoNotes(meta);
+  const lines = meta.docNotes ?? auto;
   const set = (next: string[]) => onMeta({ docNotes: next });
   return (
     <div className="field note-block">
       <span>Note di dokumen</span>
-      {lines.map((l, i) => (
-        <div key={i} className="row gap-6">
-          <input
-            className="input grow"
-            value={l}
-            maxLength={300}
-            aria-label={`Butir note ${i + 1}`}
-            onChange={(e) => set(lines.map((x, j) => (j === i ? e.target.value : x)))}
-          />
-          <button type="button" className="btn small ghost" aria-label={`Hapus butir note ${i + 1}`} onClick={() => set(lines.filter((_, j) => j !== i))}>
-            Hapus
-          </button>
-        </div>
-      ))}
+      {lines.map((l, i) => {
+        const now = meta.docNotes ? staleNote(l, auto) : null;
+        return (
+          <div key={i}>
+            <div className="row gap-6">
+              <input
+                className="input grow"
+                value={l}
+                maxLength={300}
+                aria-label={`Butir note ${i + 1}`}
+                onChange={(e) => set(lines.map((x, j) => (j === i ? e.target.value : x)))}
+              />
+              <button type="button" className="btn small ghost" aria-label={`Hapus butir note ${i + 1}`} onClick={() => set(lines.filter((_, j) => j !== i))}>
+                Hapus
+              </button>
+            </div>
+            {now && (
+              <div className="row gap-6 small text-warn" role="status">
+                <span>Beda dengan syarat di atas: “{now}”</span>
+                <button type="button" className="btn small ghost" aria-label={`Perbarui butir note ${i + 1}`} onClick={() => set(lines.map((x, j) => (j === i ? now : x)))}>
+                  Perbarui
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })}
       <div className="row gap-6">
         {lines.length < 20 && (
           <button type="button" className="btn small" onClick={() => set([...lines, ""])}>

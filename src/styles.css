@@ -286,6 +286,7 @@ a { color: var(--color-action); }
 .table-wrap.flush { border: 0; border-top: 1px solid var(--color-border); border-radius: 0; }
 .rev-badge { margin-left: var(--space-2); }
 .text-err { color: var(--color-err-text); font-weight: 600; }
+.text-warn { color: var(--color-warn-text); }
 
 /* Loading: skeleton bars, not a spinner. */
 .skeleton-list { display: flex; flex-direction: column; gap: var(--space-4); }

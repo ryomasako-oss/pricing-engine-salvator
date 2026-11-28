@@ -39,6 +39,14 @@ for (const theme of THEMES) {
         await expect(notes).toContainText("DP 30%, sisa 14 hari.");
         await expect(notes).not.toContainText("Pengiriman: Franco Jakarta.");
         await expect(notes).toContainText("Harga sudah termasuk ongkos pasang.");
+        // The validity changes after the edit: the written line is flagged and can be brought up to date.
+        await page.getByLabel("Masa berlaku (hari)").fill("14");
+        await expect(page.getByRole("status").filter({ hasText: "Penawaran berlaku 14 hari" })).toContainText("Beda dengan syarat di atas");
+        await expect(notes).toContainText("Penawaran berlaku 30 hari");
+        await page.getByRole("button", { name: "Perbarui butir note 4" }).click();
+        await expect(notes).toContainText("Penawaran berlaku 14 hari, sampai 12 Desember 2026.");
+        await expect(page.getByRole("status").filter({ hasText: "Beda dengan syarat di atas" })).toHaveCount(1); // the rep's own payment line, flagged but kept
+        await expect(notes).toContainText("DP 30%, sisa 14 hari.");
         await expect(notes).toContainText("Pembayaran ke BCA 123 a.n. PT Salvator.");
         await expect(notes).toContainText("NPWP 01.234.567.8-901.000.");
         await expect(page.getByRole("textbox", { name: /Butir note/ }).filter({ hasText: "NPWP" })).toHaveCount(0);
