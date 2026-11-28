@@ -25,7 +25,7 @@ describe("QuotationDoc with a client template", () => {
   it("without one shows the standard columns and the code under the item, as before", () => {
     for (const t of [undefined, null]) {
       const h = html(t);
-      expect(heads(h)).toEqual(["No", "Item", "Satuan", "Qty", "Harga satuan", "Total per bulan"]);
+      expect(heads(h)).toEqual(["No", "Item", "Satuan", "Qty", "Harga satuan", "Total"]);
       expect(h).toContain('<td class="l">Pulpen<div class="muted small">ATK-1</div></td>');
       expect(h).toContain('Perihal: <strong class="quote-title">Penawaran Harga</strong>');
       expect(h).not.toContain("Merk Standard");

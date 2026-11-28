@@ -262,6 +262,11 @@ export interface QuoteMeta {
   hideTotalRows?: TotalRowKey[];
   /** Item photos (catalog images) in a "Gambar" column of the printed document; the Excel sheet has none. */
   showImages?: boolean;
+  /**
+   * The document's "Note" lines as the rep edited them (seeded from shared/docColumns autoNotes). Absent: the
+   * automatic lines, as every quote before 2026-11-28. Bank and NPWP are never in here: always from the company.
+   */
+  docNotes?: string[];
 }
 
 export type TotalRowKey = "subtotal" | "ppn" | "monthly" | "contract";

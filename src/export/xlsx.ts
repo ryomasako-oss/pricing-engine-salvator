@@ -62,7 +62,7 @@ export function quoteWorkbook(input: Input): XLSX.WorkBook {
           {},
           // The sheet spells out that the monthly total includes PPN; the printed block shows it by order.
           ...docTotals(layout, s, assumptions).map((row) => ({
-            [L.item]: row.key === "monthly" ? "Total per bulan termasuk PPN" : row.label,
+            [L.item]: row.key === "monthly" ? "Total termasuk PPN" : row.label,
             [L.total]: Math.round(row.value),
           })),
         ]

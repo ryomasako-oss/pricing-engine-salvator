@@ -37,7 +37,7 @@ export const DOC_COLUMN_LABELS: Record<DocColumnKey, string> = {
   uom: "Satuan",
   qty: "Qty",
   price: "Harga satuan",
-  total: "Total per bulan",
+  total: "Total",
   notes: "Keterangan",
   image: "Gambar",
 };
@@ -50,11 +50,10 @@ export const DEFAULT_DOC_OPENING =
 export const DEFAULT_DOC_CLOSING =
   "Demikian surat penawaran ini. Mohon Bapak/Ibu dapat segera menginformasikan kepada kami, agar segera dapat kami tindak lanjuti.";
 
-/** The "Note" lines under the table, built from the quote's own terms (never one client's fixed wording). */
-export function docNotes(
-  meta: Pick<QuoteMeta, "date" | "validity" | "delivery" | "payment" | "paymentDays" | "warrantyYears" | "warrantyNote">,
-  company: { bank?: string; npwp?: string },
-): string[] {
+type NoteMeta = Pick<QuoteMeta, "date" | "validity" | "delivery" | "payment" | "paymentDays" | "warrantyYears" | "warrantyNote">;
+
+/** The "Note" lines built from the quote's own terms (never one client's fixed wording): the starting point a rep may edit. */
+export function autoNotes(meta: NoteMeta): string[] {
   const validity = meta.validity || 30;
   const until = new Date(new Date(meta.date).getTime() + validity * 86400000);
   return [
@@ -63,9 +62,21 @@ export function docNotes(
     meta.delivery && `Pengiriman: ${meta.delivery}.`,
     warrantyLabel(meta) && `Garansi: ${warrantyLabel(meta)}.`,
     `Penawaran berlaku ${validity} hari, sampai ${fmtDate(until)}.`,
-    company.bank && `Pembayaran ke ${company.bank}.`,
-    company.npwp && `NPWP ${company.npwp}.`,
   ].filter((l): l is string => Boolean(l));
+}
+
+/** Bank account and NPWP, always from Pengaturan perusahaan: a quote can't change or drop them (Ryoma, 2026-11-28). */
+export function companyNotes(company: { bank?: string; npwp?: string }): string[] {
+  return [company.bank && `Pembayaran ke ${company.bank}.`, company.npwp && `NPWP ${company.npwp}.`].filter((l): l is string => Boolean(l));
+}
+
+/**
+ * The "Note" lines under the table: the quote's own lines when a rep edited them (meta.docNotes), else the
+ * automatic ones, then the company's locked lines. A quote saved before docNotes prints exactly as before.
+ */
+export function docNotes(meta: NoteMeta & Pick<QuoteMeta, "docNotes">, company: { bank?: string; npwp?: string }): string[] {
+  const own = meta.docNotes ? meta.docNotes.map((l) => l.trim()).filter(Boolean) : autoNotes(meta);
+  return [...own, ...companyNotes(company)];
 }
 
 /* The standard tables, as they printed before templates: the PDF and the
@@ -140,9 +151,9 @@ export function docTotals(
   assumptions: Pick<Assumptions, "ppn" | "months">,
 ): { key: TotalRowKey; label: string; value: number }[] {
   const all: Record<TotalRowKey, [string, number]> = {
-    subtotal: ["Subtotal per bulan", s.revenue],
+    subtotal: ["Subtotal", s.revenue],
     ppn: [`PPN ${pct(assumptions.ppn, 0)}`, s.revenue * assumptions.ppn],
-    monthly: ["Total per bulan", s.revenue * (1 + assumptions.ppn)],
+    monthly: ["Total", s.revenue * (1 + assumptions.ppn)],
     contract: [`Nilai kontrak ${assumptions.months} bulan (belum PPN)`, s.annual],
   };
   return layout.totalRows.map((key) => ({ key, label: all[key][0], value: all[key][1] }));
