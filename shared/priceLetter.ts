@@ -17,6 +17,13 @@ export const REAL_LOSS_GROUPS: readonly GroupKey[] = ["none", "pricing"];
 
 export const isRealLoss = (r: Pick<BelowCostRow, "hints">) => REAL_LOSS_GROUPS.includes(groupOf(r.hints).key);
 
+/**
+ * A line given free with no paid line of the same item on the SI (e.g. a memory card with a CCTV): nothing to
+ * average, and "Rp 0 -> new price" is no letter to send a client who got it as a bonus. Left out of the letter;
+ * a manager decides (Ryoma, 28 Nov).
+ */
+export const isFreeWithoutPaid = (r: Pick<BelowCostRow, "avgNet" | "trace">) => r.trace.lineAmount === 0 && !(r.avgNet > 0);
+
 export interface LetterLine {
   code: string;
   name: string;
@@ -45,9 +52,10 @@ export const netMargin = (price: number, cost: number, opex: number) => (price >
 
 export function letterLines(rows: BelowCostRow[], rule: MarginRule): LetterLine[] {
   const byCode = new Map<string, BelowCostRow[]>();
-  for (const r of rows.filter(isRealLoss)) byCode.set(r.code, [...(byCode.get(r.code) ?? []), r]);
+  for (const r of rows.filter((x) => isRealLoss(x) && !isFreeWithoutPaid(x))) byCode.set(r.code, [...(byCode.get(r.code) ?? []), r]);
   return [...byCode.values()].map((rs) => {
-    // The client's unit: a paid line's, else the free line's.
+    // The client's unit: a paid line's, else the free line's. The old price is the item's average over the SI
+    // (bonus units included), never Rp 0: a free line here always has paid units of the same item.
     const r = rs.find((x) => x.trace.lineAmount > 0) ?? rs[0];
     const ratio = r.trace.unitRatio > 0 ? r.trace.unitRatio : 1;
     const cost = Math.round(r.cost * ratio);

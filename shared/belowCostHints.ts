@@ -18,7 +18,8 @@ export type HintKind =
   | "bonus_loss" // a free line with no paid line of the item on the SI, or an average under the cost: price it
   | "old_pi" // info: the PI is old
   | "discount" // info: a big invoice discount explains the loss
-  | "no_list"; // info: the 3x list-price check could not run
+  | "no_list" // info: the 3x list-price check could not run
+  | "tax_zero"; // a Rp 0 line on a billed SI: free goods are fine, a Rp 0 line on the tax invoice is not
 
 export interface Hint {
   kind: HintKind;
@@ -75,6 +76,8 @@ export function belowCostHints(r: {
   lineAmount?: number;
   /** Paid money over every unit of this item on this SI, bonus lines included; per base unit. */
   invoicePrice?: number;
+  /** Base units of this item on this SI, bonus lines included (for the averaged invoice price). */
+  invoiceUnits?: number;
 }): Hint[] {
   const out: Hint[] = [];
   const h = (kind: HintKind, label: string, detail: string) => out.push({ kind, label, detail });
@@ -102,6 +105,12 @@ export function belowCostHints(r: {
       h("bonus_loss", "Gratis tanpa barang dibayar",
         "Barang ini Rp 0 di nota ini, dan tidak ada barang yang sama yang dibayar di nota yang sama, jadi tidak ada margin. Harga ke klien ini perlu segera ditentukan.");
     }
+    // Free goods are real, but not at Rp 0 on the tax invoice (Ryoma, 28 Nov): average the item over all its units, or price it.
+    const units = r.invoiceUnits && r.invoiceUnits > 0 ? ` untuk semua ${r.invoiceUnits.toLocaleString("id-ID")} ${r.baseUom || "satuan"} barang ini (termasuk yang gratis)` : "";
+    h("tax_zero", "Faktur Rp 0",
+      avg > 0
+        ? `Secara pajak, barang tidak boleh tercatat Rp 0 di faktur. Ratakan harganya di nota: Rp ${rupiah(avg)} ${per}${units}. Bonusnya tetap diakui sebagai gratis.`
+        : "Secara pajak, barang tidak boleh tercatat Rp 0 di faktur, dan di nota ini tidak ada barang yang sama yang dibayar untuk dirata-rata. Barang ini harus diberi harga di faktur.");
     return out;
   }
   const ratio = r.net > 0 ? r.cost / r.net : 0;
